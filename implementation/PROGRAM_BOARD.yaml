@@ -21,7 +21,7 @@ integration_windows:
   - "12:00 Asia/Shanghai"
   - "22:00 Asia/Shanghai"
 tracks:
-  - { id: "00", name: upstream, branch: track/upstream, worktree: ../wt-upstream, status: QUEUED }
+  - { id: "00", name: upstream, branch: track/upstream, worktree: ../wt-upstream, status: STARTING }
   - { id: "01", name: desktop, branch: track/desktop, worktree: ../wt-desktop, status: QUEUED }
   - { id: "02", name: film-core, branch: track/film-core, worktree: ../wt-film-core, status: VERIFYING }
   - { id: "03", name: project-ui, branch: track/project-ui, worktree: ../wt-project-ui, status: QUEUED }
@@ -34,7 +34,7 @@ tracks:
   - { id: "10", name: providers, branch: track/providers, worktree: ../wt-providers, status: QUEUED }
   - { id: "11", name: migration, branch: track/migration, worktree: ../wt-migration, status: QUEUED }
   - { id: "12", name: remote, branch: track/remote, worktree: ../wt-remote, status: QUEUED }
-  - { id: "13", name: qa, branch: track/qa, worktree: ../wt-qa, status: QUEUED }
+  - { id: "13", name: qa, branch: track/qa, worktree: ../wt-qa, status: STARTING }
 first_vertical_slice:
   chain:
     - Project
@@ -49,4 +49,3 @@ first_vertical_slice:
     - QC
     - Approved
   status: NOT_STARTED
-

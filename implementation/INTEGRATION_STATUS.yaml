@@ -1,15 +1,17 @@
 updated_at: 2026-08-28T02:16:08+08:00
 main:
-  state: BASELINE_PREPARED
+  state: BASELINE_PUSHED
   upstream_release: v1.2.1
   upstream_commit: 61b332583c4fcbf71890ae67e3f0f104d67706b9
-  pushed: false
+  pushed: true
 integration:
-  state: NOT_CREATED
-  head: null
+  state: ACTIVE
+  base: 73f3ae5381fd7c48cd9ad262164c05c435dd6385
+  branch: integration
 candidate:
-  state: NOT_CREATED
-  head: null
+  state: CREATED_NOT_QUALIFIED
+  base: 73f3ae5381fd7c48cd9ad262164c05c435dd6385
+  branch: candidate
 native_tests:
   state: NOT_RUN
 film_contract_tests:
