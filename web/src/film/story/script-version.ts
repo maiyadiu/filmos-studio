@@ -1,6 +1,7 @@
 import { STORY_STUDIO_FEATURE_FLAG, type ScriptDecision, type ScriptDecisionActorKind, type ScriptDecisionOutcome, type ScriptSourceKind, type ScriptVersion, type StoryStudioPolicy } from "./types";
 
 const contentHashPattern = /^[0-9a-f]{64}$/;
+const filmEntityIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 export class StoryStudioDisabledError extends Error {
     readonly code = "STORY_STUDIO_DISABLED";
@@ -27,6 +28,7 @@ export type CreateScriptVersionInput = Readonly<{
 
 export type RecordScriptDecisionInput = Readonly<{
     id: string;
+    expectedVersion: number;
     expectedContentHash: string;
     outcome: ScriptDecisionOutcome;
     rationale: string;
@@ -36,6 +38,7 @@ export type RecordScriptDecisionInput = Readonly<{
 }>;
 
 export type LockScriptVersionInput = Readonly<{
+    expectedVersion: number;
     expectedContentHash: string;
     approvalDecision: ScriptDecision;
     lockedAt: string;
@@ -55,8 +58,10 @@ export async function hashScriptContent(scriptText: string): Promise<string> {
 
 export async function createScriptVersion(policy: StoryStudioPolicy, input: CreateScriptVersionInput): Promise<ScriptVersion> {
     assertStoryStudioEnabled(policy);
-    assertNonEmpty("id", input.id);
-    assertNonEmpty("scriptId", input.scriptId);
+    // IDs are issued by Film Core; this isolated Web domain only validates them.
+    assertFilmEntityId("id", input.id);
+    assertFilmEntityId("scriptId", input.scriptId);
+    if (input.parentVersionId) assertFilmEntityId("parentVersionId", input.parentVersionId);
     assertNonEmpty("hostProjectId", input.hostProjectId);
     assertNonEmpty("hostUnitId", input.hostUnitId);
     assertNonEmpty("title", input.title);
@@ -74,9 +79,9 @@ export async function createScriptVersion(policy: StoryStudioPolicy, input: Crea
 
 export async function recordScriptDecision(policy: StoryStudioPolicy, version: ScriptVersion, input: RecordScriptDecisionInput): Promise<Readonly<{ version: ScriptVersion; decision: ScriptDecision }>> {
     assertStoryStudioEnabled(policy);
-    assertVersionIntegrityMetadata(version, input.expectedContentHash);
+    assertVersionIntegrityMetadata(version, input.expectedVersion, input.expectedContentHash);
     if ((await hashScriptContent(version.scriptText)) !== version.contentHash) throw new Error("script text no longer matches its content hash");
-    assertNonEmpty("decision id", input.id);
+    assertFilmEntityId("decision id", input.id);
     assertNonEmpty("decision rationale", input.rationale);
     assertNonEmpty("decidedAt", input.decidedAt);
     assertNonEmpty("decidedBy", input.decidedBy);
@@ -88,6 +93,7 @@ export async function recordScriptDecision(policy: StoryStudioPolicy, version: S
     const decision = Object.freeze({
         id: input.id,
         scriptVersionId: version.id,
+        scriptVersion: version.version,
         scriptContentHash: version.contentHash,
         outcome: input.outcome,
         rationale: input.rationale,
@@ -108,13 +114,13 @@ export async function recordScriptDecision(policy: StoryStudioPolicy, version: S
 
 export async function lockScriptVersion(policy: StoryStudioPolicy, version: ScriptVersion, input: LockScriptVersionInput): Promise<ScriptVersion> {
     assertStoryStudioEnabled(policy);
-    assertVersionIntegrityMetadata(version, input.expectedContentHash);
+    assertVersionIntegrityMetadata(version, input.expectedVersion, input.expectedContentHash);
     if ((await hashScriptContent(version.scriptText)) !== version.contentHash) throw new Error("script text no longer matches its content hash");
     if (version.lockState === "locked") throw new Error("script version is already locked");
     if (version.reviewState !== "approved") throw new Error("script version must be approved before lock");
     const decision = input.approvalDecision;
     if (decision.outcome !== "approve_for_lock" || decision.actorKind !== "human") throw new Error("a human approval decision is required for lock");
-    if (decision.scriptVersionId !== version.id || decision.scriptContentHash !== version.contentHash || decision.id !== version.approvalDecisionId) {
+    if (decision.scriptVersionId !== version.id || decision.scriptVersion !== version.version || decision.scriptContentHash !== version.contentHash || decision.id !== version.approvalDecisionId) {
         throw new Error("approval decision does not match this script version and content hash");
     }
     assertNonEmpty("lockedAt", input.lockedAt);
@@ -135,9 +141,17 @@ export function assertStoryStudioEnabled(policy: StoryStudioPolicy): void {
     if (!policy.enabled) throw new StoryStudioDisabledError();
 }
 
-function assertVersionIntegrityMetadata(version: ScriptVersion, expectedContentHash: string) {
+function assertVersionIntegrityMetadata(version: ScriptVersion, expectedVersion: number, expectedContentHash: string) {
+    assertFilmEntityId("script version id", version.id);
+    assertFilmEntityId("script id", version.scriptId);
+    if (version.parentVersionId) assertFilmEntityId("parent version id", version.parentVersionId);
+    if (!Number.isInteger(expectedVersion) || expectedVersion !== version.version) throw new Error("script version optimistic concurrency conflict");
     if (!contentHashPattern.test(version.contentHash)) throw new Error("script version has an invalid content hash");
     if (expectedContentHash !== version.contentHash) throw new Error("script version content hash conflict");
+}
+
+function assertFilmEntityId(label: string, value: string) {
+    if (!filmEntityIdPattern.test(value)) throw new Error(`${label} must be a Film Core UUIDv4`);
 }
 
 function assertNonEmpty(label: string, value: string) {

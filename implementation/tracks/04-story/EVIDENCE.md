@@ -16,6 +16,7 @@
 ## 首切片证据
 
 - `web/src/film/story/script-version.ts`：Feature Flag 显式门禁、SHA-256 内容哈希、版本创建、哈希绑定决策、人审批准后显式 Script Lock、下游资格只读判断。
+- 集成复核补强：Web 只接受 Film Core 已签发的 UUIDv4，决策和锁定均同时校验 `expectedVersion + expectedContentHash`；Web 不生成正式 Film ID。
 - `web/src/film/story/dialogue-fidelity.ts`：稳定 Cue ID 下的说话人、逐字文本、增删与顺序差异；长对白不截断、不归一化。
 - `web/src/film/story/impact-analysis.ts`：仅对绑定到变化 Cue/Section 且源哈希一致的依赖返回 `mark_stale` 建议；不写正式状态，未映射变化显式返回 unresolved。
 - `web/src/film/story/integration.ts`：页面/持久化可依赖的端口，不依赖未合入 Film Core runtime。
@@ -30,7 +31,7 @@
 
 ## 验证结果
 
-- `cd web && bun test test/film-story-domain.test.ts`：`8 pass / 0 fail / 29 expect()`。
+- `cd web && bun test test/film-story-domain.test.ts`：`9 pass / 0 fail`；新增非 Film ID 与过期版本冲突门禁。
 - `cd web && bun run typecheck`：通过，`tsc --noEmit` 无错误。
 - `cd web && bunx prettier --check ...`：本轨 TS、测试、计划、证据与 RFC 通过格式检查。
 - 未运行浏览器或全站构建；本切片无页面接线、样式或运行时副作用，专项测试与全量 TypeScript 类型检查构成最小充分验证。

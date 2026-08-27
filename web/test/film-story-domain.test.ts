@@ -15,6 +15,10 @@ import {
 } from "../src/film/story";
 
 const enabled = { enabled: true } as const;
+const VERSION_1_ID = "00000000-0000-4000-8000-000000000001";
+const VERSION_2_ID = "00000000-0000-4000-8000-000000000002";
+const SCRIPT_ID = "00000000-0000-4000-8000-000000000010";
+const DECISION_ID = "00000000-0000-4000-8000-000000000101";
 
 describe("ScriptVersion and Script Lock", () => {
     test("film.story_studio disabled blocks version creation", async () => {
@@ -33,9 +37,14 @@ describe("ScriptVersion and Script Lock", () => {
         expect((await assessDownstreamEligibility(enabled, version)).eligible).toBe(false);
     });
 
+    test("rejects client-selected non-Film IDs", async () => {
+        await expect(createVersion(enabled, { id: "version-1" })).rejects.toThrow("Film Core UUIDv4");
+    });
+
     test("requires a human hash-bound approval before explicit lock", async () => {
         const version = await createVersion(enabled);
         await expect(recordScriptDecision(enabled, version, decisionInput(version, { actorKind: "agent", outcome: "approve_for_lock" }))).rejects.toThrow("only a human");
+        await expect(recordScriptDecision(enabled, version, decisionInput(version, { expectedVersion: version.version + 1 }))).rejects.toThrow("optimistic concurrency conflict");
 
         const reviewed = await recordScriptDecision(enabled, version, decisionInput(version));
         expect(reviewed.version.reviewState).toBe("approved");
@@ -43,6 +52,7 @@ describe("ScriptVersion and Script Lock", () => {
 
         await expect(
             lockScriptVersion(enabled, reviewed.version, {
+                expectedVersion: reviewed.version.version,
                 expectedContentHash: "0".repeat(64),
                 approvalDecision: reviewed.decision,
                 lockedAt: "2026-08-28T03:00:00+08:00",
@@ -51,6 +61,7 @@ describe("ScriptVersion and Script Lock", () => {
         ).rejects.toThrow("content hash conflict");
 
         const locked = await lockScriptVersion(enabled, reviewed.version, {
+            expectedVersion: reviewed.version.version,
             expectedContentHash: reviewed.version.contentHash,
             approvalDecision: reviewed.decision,
             lockedAt: "2026-08-28T03:00:00+08:00",
@@ -67,6 +78,7 @@ describe("ScriptVersion and Script Lock", () => {
 
         await expect(
             lockScriptVersion(enabled, tampered, {
+                expectedVersion: reviewed.version.version,
                 expectedContentHash: reviewed.version.contentHash,
                 approvalDecision: reviewed.decision,
                 lockedAt: "2026-08-28T03:00:00+08:00",
@@ -115,7 +127,7 @@ describe("dialogue fidelity", () => {
 describe("script impact analysis", () => {
     test("recommends STALE only for dependencies bound to changed cues or sections", async () => {
         const source = await createVersion(enabled);
-        const target = await createVersion(enabled, { id: "version-2", version: 2, parentVersionId: source.id, scriptText: `${source.scriptText}\n吴奶奶：灯灭了。` });
+        const target = await createVersion(enabled, { id: VERSION_2_ID, version: 2, parentVersionId: source.id, scriptText: `${source.scriptText}\n吴奶奶：灯灭了。` });
         const diff = compareScriptVersions(source, target, {
             source: [{ cueId: "D-001", speaker: "林夏", text: "别动。" }],
             target: [{ cueId: "D-001", speaker: "林夏", text: "先别动。" }],
@@ -135,7 +147,7 @@ describe("script impact analysis", () => {
 
     test("reports unmapped rich-text change without automatically staling every target", async () => {
         const source = await createVersion(enabled);
-        const target = await createVersion(enabled, { id: "version-2", version: 2, parentVersionId: source.id, scriptText: `${source.scriptText}\n动作：她关灯。` });
+        const target = await createVersion(enabled, { id: VERSION_2_ID, version: 2, parentVersionId: source.id, scriptText: `${source.scriptText}\n动作：她关灯。` });
         const cues = [{ cueId: "D-001", speaker: "林夏", text: "别动。" }];
         const diff = compareScriptVersions(source, target, { source: cues, target: cues });
         const analysis = analyzeScriptImpact(diff, [{ targetId: "shot-1", targetType: "shot", sourceContentHash: source.contentHash, dialogueCueIds: ["D-001"] }]);
@@ -148,8 +160,8 @@ describe("script impact analysis", () => {
 
 async function createVersion(policy: { enabled: boolean }, overrides: Partial<Parameters<typeof createScriptVersion>[1]> = {}) {
     return createScriptVersion(policy, {
-        id: "version-1",
-        scriptId: "script-1",
+        id: VERSION_1_ID,
+        scriptId: SCRIPT_ID,
         hostProjectId: "project-1",
         hostUnitId: "unit-1",
         version: 1,
@@ -164,7 +176,8 @@ async function createVersion(policy: { enabled: boolean }, overrides: Partial<Pa
 
 function decisionInput(version: ScriptVersion, overrides: Partial<Parameters<typeof recordScriptDecision>[2]> = {}) {
     return {
-        id: "decision-1",
+        id: DECISION_ID,
+        expectedVersion: version.version,
         expectedContentHash: version.contentHash,
         outcome: "approve_for_lock" as const,
         rationale: "用户逐段复核后确认锁定",

@@ -37,6 +37,7 @@ export type ScriptVersion = Readonly<{
 export type ScriptDecision = Readonly<{
     id: string;
     scriptVersionId: string;
+    scriptVersion: number;
     scriptContentHash: string;
     outcome: ScriptDecisionOutcome;
     rationale: string;
