@@ -1,7 +1,15 @@
 {
   "golden_id": "GOLDEN-A",
   "title": "故事到关键帧",
-  "state": "NOT_RUN",
+  "execution": {
+    "test_status": "NOT_RUN",
+    "allowed_test_statuses": ["NOT_RUN", "PASSED", "FAILED"],
+    "external_provider_calls": false
+  },
+  "artifact_states": {
+    "generated_result": "Candidate",
+    "formal_result": "Approved"
+  },
   "steps": [
     "Project",
     "StoryBible",
@@ -23,6 +31,17 @@
     "Manual result import creates Candidate",
     "Candidate cannot become Approved without Review and Approval",
     "every formal write uses expected_version"
+  ],
+  "required_observability": [
+    "trace_id",
+    "project_id",
+    "unit_id",
+    "shot_id",
+    "task_id",
+    "provider_task_id",
+    "visual_lock_hash",
+    "prompt_hash",
+    "input_hash",
+    "output_hash"
   ]
 }
-
