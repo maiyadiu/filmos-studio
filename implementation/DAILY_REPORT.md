@@ -17,3 +17,11 @@
 - 原生基线：Backend 通过；Web `471/0` 且构建通过；Canvas Agent `316/0`、5 个 Windows 专项 skip，构建通过。
 - Golden A：离线 Mock `4/0`，严格经过 `Candidate -> QC/Approval -> Approved`，外部调用 0。真实 Film Core/UI/Canvas/MCP/Provider 链仍为 `NOT_RUN`。
 - 并行：Track 01、02、03 正在执行，其余 Track 保持独立 worktree ready。
+
+## 2026-08-28 开工批次 03
+
+- 集成：Track 02 已合入 `integration`；Film Core V0 使用独立 SQLite WAL Sidecar，不修改 Host 表。
+- 已实施：Core 生成 UUIDv4、六轴状态、Host ID 显式映射、`expected_version` 乐观并发、实体与 AuditEvent 原子写入、审计事件数据库级禁止改删。
+- 接口：共享 OpenAPI 共 12 条路径；8 条运行时已实现，4 条明确为 `planned` 且未注册伪路由。
+- 验证：Film Core `10/0`；合同校验通过；compileall 通过；Golden A 离线 Mock `4/0`，外部调用 0。
+- 未完成：Golden A 的真实 Film Core/UI/Canvas/MCP/Provider 纵向链仍是 `NOT_RUN`；Track 01、03、04 正在并行执行。

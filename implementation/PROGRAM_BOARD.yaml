@@ -23,9 +23,9 @@ integration_windows:
 tracks:
   - { id: "00", name: upstream, branch: track/upstream, worktree: ../wt-upstream, status: INTEGRATED_STATIC_C_CANDIDATE_D }
   - { id: "01", name: desktop, branch: track/desktop, worktree: ../wt-desktop, status: ACTIVE_AGENT }
-  - { id: "02", name: film-core, branch: track/film-core, worktree: ../wt-film-core, status: ACTIVE_AGENT }
+  - { id: "02", name: film-core, branch: track/film-core, worktree: ../wt-film-core, status: INTEGRATED_V0_10_TESTS_PASSED }
   - { id: "03", name: project-ui, branch: track/project-ui, worktree: ../wt-project-ui, status: ACTIVE_AGENT }
-  - { id: "04", name: story, branch: track/story, worktree: ../wt-story, status: WORKTREE_READY }
+  - { id: "04", name: story, branch: track/story, worktree: ../wt-story, status: ACTIVE_AGENT }
   - { id: "05", name: production-canvas, branch: track/production-canvas, worktree: ../wt-production-canvas, status: WORKTREE_READY }
   - { id: "06", name: assets, branch: track/assets, worktree: ../wt-assets, status: WORKTREE_READY }
   - { id: "07", name: prompt, branch: track/prompt, worktree: ../wt-prompt, status: WORKTREE_READY }
@@ -48,4 +48,4 @@ first_vertical_slice:
     - Candidate
     - QC
     - Approved
-  status: NOT_STARTED
+  status: STARTED_CONTRACT_AND_CORE_ONLY

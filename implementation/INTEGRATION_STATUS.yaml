@@ -1,4 +1,4 @@
-updated_at: 2026-08-28T02:16:08+08:00
+updated_at: 2026-08-28T02:59:40+08:00
 main:
   state: BASELINE_PUSHED
   upstream_release: v1.2.1
@@ -15,6 +15,13 @@ integration:
     - track: 13-qa
       source_commit: d1501d32b33f1ca3dc5be22d9f4e3a58494b64c6
       integration_commit: 2086f1cf
+    - track: 02-film-core
+      source_commits:
+        - 0672f548a94ace6227be6cab93883ca6d7bf4806
+        - 4f8f4fc6
+      integration_commits:
+        - 662c1cac
+        - 37948ef8
 worktrees:
   state: CREATED_AND_TRACKING_REMOTE
   count: 14
@@ -32,13 +39,17 @@ native_tests:
 film_contract_tests:
   state: PASSED
   command: python3 tests/film-contract/validate_contracts.py
-  result: FILM_CONTRACTS_OK schema=0.1.0 paths=9 axes=6
+  result: FILM_CONTRACTS_OK schema=0.1.0 paths=12 implemented=8 planned=4 axes=6
+film_core_tests:
+  state: PASSED_AFTER_CURRENT_INTEGRATION_HEAD
+  command: /tmp/filmos-core-venv-02/bin/pytest film-core/tests
+  result: "10 passed; compileall passed; 1 dependency deprecation warning"
 mcp_tests:
   state: NATIVE_AGENT_PASSED_FILM_MCP_NOT_RUN
 golden_a:
   state: MOCK_PASSED_REAL_NOT_RUN
   command: python3 tests/film-golden/run_golden_a.py
-  result: "Candidate -> Approved; external_provider_calls=0"
+  result: "4 tests passed; Candidate -> Approved; external_provider_calls=0; checked-in status=NOT_RUN"
 golden_b:
   state: NOT_RUN
 golden_c:
