@@ -2,6 +2,7 @@ import { ArrowRight, CheckCircle2, CircleAlert, Clock3 } from "lucide-react";
 import { Link } from "react-router";
 
 import { WorkspaceState } from "@/components/layout/workspace-state";
+import { isFilmDynamicContentUnitsEnabled, projectFilmOverview, type FilmProjectOverviewProjection } from "@/film/project";
 import { projectAttentionCount, projectContinueTarget, projectDetailStage, projectNextActions, projectUnitStages, type ProjectStageCell, type ProjectWorkbenchAction } from "@/lib/project-workbench";
 
 import { formatTime, type ProjectDetailViewProps } from "./shared";
@@ -17,6 +18,7 @@ export default function ProjectOverviewView({ detail }: ProjectDetailViewProps) 
     const secondaryActions = actions.slice(1);
     const continueTarget = projectContinueTarget(detail);
     const unitStages = projectUnitStages(detail);
+    const filmOverview = isFilmDynamicContentUnitsEnabled() ? projectFilmOverview(detail) : null;
 
     return (
         <div className="space-y-8">
@@ -66,6 +68,8 @@ export default function ProjectOverviewView({ detail }: ProjectDetailViewProps) 
                 </div>
             </section>
 
+            {filmOverview ? <DynamicContentUnitOverview overview={filmOverview} /> : null}
+
             <section>
                 <div className="project-pipeline-head">
                     <div className="min-w-0">
@@ -92,6 +96,40 @@ export default function ProjectOverviewView({ detail }: ProjectDetailViewProps) 
             </section>
         </div>
     );
+}
+
+function DynamicContentUnitOverview({ overview }: { overview: FilmProjectOverviewProjection }) {
+    const kindSummary = overview.kindCounts.map((item) => `${item.label} ${item.count}`).join(" · ") || "暂无单元";
+    return (
+        <section data-film-feature="dynamic-content-units" aria-labelledby="film-content-unit-title" className="rounded-lg border border-border/80 bg-background/55 p-4">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0">
+                    <div className="text-[var(--fs-tiny)] font-semibold text-foreground/40">FilmOS 投影</div>
+                    <h2 id="film-content-unit-title" className="mt-1 text-base font-semibold">动态 ContentUnit</h2>
+                    <p className="mt-1 text-xs leading-5 text-foreground/48">复用 Host 单元、Shot 与画布链接；Film 六轴状态缺失时保持未接入，不从章节状态推断。</p>
+                </div>
+                <span className="shrink-0 rounded-full bg-[var(--workspace-accent-soft)] px-2 py-1 text-[var(--fs-tiny)] font-medium text-[var(--workspace-accent)]">实验入口</span>
+            </div>
+            <dl className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                <FilmProjectionFact label="内容单元" value={String(overview.totalUnitCount)} detail={kindSummary} />
+                <FilmProjectionFact label="画布关联" value={`${overview.linkedCanvasUnitCount}/${overview.totalUnitCount}`} detail="按 Host CanvasUnitLink" />
+                <FilmProjectionFact label="分镜覆盖" value={`${overview.shotCoveredUnitCount}/${overview.totalUnitCount}`} detail="按 Host Shot.unitId" />
+                <FilmProjectionFact label="六轴接入" value={`${overview.formalStateUnitCount}/${overview.totalUnitCount}`} detail={overview.hasFormalStateData ? "来自 Film sidecar" : "Film sidecar 未接入"} />
+            </dl>
+            {overview.hasFormalStateData ? (
+                <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 border-t border-border/60 pt-3 text-[var(--fs-label)] text-foreground/52">
+                    <span>创意锁定 {overview.creativeLockedUnitCount}</span>
+                    <span>待审/需修改 {overview.reviewAttentionUnitCount}</span>
+                    <span>STALE {overview.staleUnitCount}</span>
+                    <span>阻断 {overview.blockedUnitCount}</span>
+                </div>
+            ) : null}
+        </section>
+    );
+}
+
+function FilmProjectionFact({ label, value, detail }: { label: string; value: string; detail: string }) {
+    return <div className="min-w-0 rounded-md bg-surface-active px-3 py-2.5"><dt className="text-[var(--fs-tiny)] text-foreground/42">{label}</dt><dd className="mt-1 text-lg font-semibold tabular-nums text-foreground/80">{value}</dd><dd className="mt-0.5 truncate text-[var(--fs-micro)] text-foreground/38" title={detail}>{detail}</dd></div>;
 }
 
 function ProjectFact({ label, value, attention = false }: { label: string; value: string; attention?: boolean }) {
