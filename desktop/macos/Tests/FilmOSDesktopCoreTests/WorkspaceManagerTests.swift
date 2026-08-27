@@ -82,6 +82,51 @@ struct WorkspaceManagerTests {
     }
 
     @Test
+    func rejectsManifestSymlinkThatEscapesWorkspace() throws {
+        let sandbox = makeSandbox()
+        defer { try? FileManager.default.removeItem(at: sandbox) }
+        let manager = WorkspaceManager()
+        let workspace = try manager.createWorkspace(named: "ManifestLink", in: sandbox)
+        let outsideManifest = sandbox.appendingPathComponent("outside-manifest.json")
+        try FileManager.default.moveItem(at: workspace.manifestURL, to: outsideManifest)
+        guard try createSymbolicLinkOrSkip(at: workspace.manifestURL, pointingTo: outsideManifest) else { return }
+
+        do {
+            _ = try manager.openWorkspace(at: workspace.rootURL)
+            Issue.record("Expected canonical manifest containment rejection")
+        } catch {
+            #expect(error as? WorkspaceError == .invalidRelativePath("manifest.json"))
+        }
+    }
+
+    @Test
+    func rejectsLayoutSymlinkForOpenAndWorkspaceFileLookup() throws {
+        let sandbox = makeSandbox()
+        defer { try? FileManager.default.removeItem(at: sandbox) }
+        let manager = WorkspaceManager()
+        let workspace = try manager.createWorkspace(named: "LayoutLink", in: sandbox)
+        let receiptsURL = workspace.rootURL.appendingPathComponent("receipts", isDirectory: true)
+        let outsideReceipts = sandbox.appendingPathComponent("outside-receipts", isDirectory: true)
+        try FileManager.default.createDirectory(at: outsideReceipts, withIntermediateDirectories: true)
+        try FileManager.default.removeItem(at: receiptsURL)
+        guard try createSymbolicLinkOrSkip(at: receiptsURL, pointingTo: outsideReceipts) else { return }
+
+        do {
+            _ = try manager.openWorkspace(at: workspace.rootURL)
+            Issue.record("Expected canonical layout containment rejection")
+        } catch {
+            #expect(error as? WorkspaceError == .invalidRelativePath("receipts"))
+        }
+
+        do {
+            _ = try workspace.url(forRelativePath: "receipts/result.json")
+            Issue.record("Expected canonical workspace file containment rejection")
+        } catch {
+            #expect(error as? WorkspaceError == .invalidRelativePath("receipts/result.json"))
+        }
+    }
+
+    @Test
     func copiedWorkspaceReopensWithProjectData() throws {
         let sandbox = makeSandbox()
         defer { try? FileManager.default.removeItem(at: sandbox) }

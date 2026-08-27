@@ -132,8 +132,7 @@ public struct FilmWorkspace: Equatable, Sendable {
     }
 
     public func url(forRelativePath path: String) throws -> URL {
-        try WorkspaceManager.validateRelativePath(path)
-        return rootURL.appendingPathComponent(path, isDirectory: false)
+        try WorkspaceManager.containedURL(forRelativePath: path, in: rootURL)
     }
 }
 
@@ -233,7 +232,11 @@ public final class WorkspaceManager {
     }
 
     public func openWorkspace(at rootURL: URL) throws -> FilmWorkspace {
-        let rootURL = rootURL.standardizedFileURL
+        let requestedRootURL = rootURL.standardizedFileURL
+        guard requestedRootURL.pathExtension.lowercased() == "filmproject" else {
+            throw WorkspaceError.invalidPackageExtension
+        }
+        let rootURL = Self.canonicalFileURL(requestedRootURL)
         guard rootURL.pathExtension.lowercased() == "filmproject" else {
             throw WorkspaceError.invalidPackageExtension
         }
@@ -243,7 +246,7 @@ public final class WorkspaceManager {
             throw WorkspaceError.workspaceNotFound
         }
 
-        let manifestURL = rootURL.appendingPathComponent(Self.manifestFileName)
+        let manifestURL = try Self.containedURL(forRelativePath: Self.manifestFileName, in: rootURL)
         guard fileManager.fileExists(atPath: manifestURL.path) else {
             throw WorkspaceError.manifestNotFound
         }
@@ -261,7 +264,7 @@ public final class WorkspaceManager {
         try manifest.validate()
 
         for path in manifest.layout.directoryPaths {
-            let directoryURL = rootURL.appendingPathComponent(path, isDirectory: true)
+            let directoryURL = try Self.containedURL(forRelativePath: path, in: rootURL)
             var childIsDirectory: ObjCBool = false
             guard fileManager.fileExists(atPath: directoryURL.path, isDirectory: &childIsDirectory), childIsDirectory.boolValue else {
                 throw WorkspaceError.missingDirectory(path)
@@ -319,6 +322,33 @@ public final class WorkspaceManager {
         else {
             throw WorkspaceError.invalidRelativePath(path)
         }
+    }
+
+    fileprivate static func containedURL(forRelativePath path: String, in rootURL: URL) throws -> URL {
+        try validateRelativePath(path)
+        let canonicalRoot = canonicalFileURL(rootURL)
+        let canonicalCandidate = canonicalFileURL(
+            canonicalRoot.appendingPathComponent(path, isDirectory: false)
+        )
+        let rootPath = canonicalRoot.path
+        let candidatePath = canonicalCandidate.path
+        guard candidatePath == rootPath || candidatePath.hasPrefix(rootPath.hasSuffix("/") ? rootPath : rootPath + "/") else {
+            throw WorkspaceError.invalidRelativePath(path)
+        }
+        return canonicalCandidate
+    }
+
+    private static func canonicalFileURL(_ url: URL) -> URL {
+        let standardized = url.standardizedFileURL
+        var existingAncestor = standardized
+        var missingComponents: [String] = []
+        while existingAncestor.path != "/", !FileManager.default.fileExists(atPath: existingAncestor.path) {
+            missingComponents.insert(existingAncestor.lastPathComponent, at: 0)
+            existingAncestor.deleteLastPathComponent()
+        }
+        return missingComponents.reduce(existingAncestor.resolvingSymlinksInPath()) { partialURL, component in
+            partialURL.appendingPathComponent(component)
+        }.standardizedFileURL
     }
 
     private func write(_ manifest: WorkspaceManifest, to url: URL) throws {

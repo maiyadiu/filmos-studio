@@ -42,18 +42,20 @@ public struct ServiceLaunchPolicy: Equatable, Sendable {
     public let allowedWorkingDirectoryRoots: [URL]
 
     public init(allowedExecutableRoots: [URL], allowedWorkingDirectoryRoots: [URL]) throws {
+        let executableRoots = allowedExecutableRoots.map(Self.canonicalFileURL)
+        let workingDirectoryRoots = allowedWorkingDirectoryRoots.map(Self.canonicalFileURL)
         guard
-            !allowedExecutableRoots.isEmpty,
-            !allowedWorkingDirectoryRoots.isEmpty,
-            (allowedExecutableRoots + allowedWorkingDirectoryRoots).allSatisfy(Self.isAbsoluteNonRootFileURL)
+            !executableRoots.isEmpty,
+            !workingDirectoryRoots.isEmpty,
+            (executableRoots + workingDirectoryRoots).allSatisfy(Self.isAbsoluteNonRootFileURL)
         else {
             throw ServiceSupervisorError.invalidPolicy
         }
-        self.allowedExecutableRoots = allowedExecutableRoots.map(\.standardizedFileURL)
-        self.allowedWorkingDirectoryRoots = allowedWorkingDirectoryRoots.map(\.standardizedFileURL)
+        self.allowedExecutableRoots = executableRoots
+        self.allowedWorkingDirectoryRoots = workingDirectoryRoots
     }
 
-    fileprivate func validate(_ definition: ServiceDefinition) throws {
+    fileprivate func validated(_ definition: ServiceDefinition) throws -> ServiceDefinition {
         guard definition.id.rawValue.range(of: "^[a-z][a-z0-9.-]{0,63}$", options: .regularExpression) != nil else {
             throw ServiceSupervisorError.invalidServiceID
         }
@@ -77,19 +79,40 @@ public struct ServiceLaunchPolicy: Equatable, Sendable {
                 throw ServiceSupervisorError.invalidEnvironment
             }
         }
+        return ServiceDefinition(
+            id: definition.id,
+            displayName: definition.displayName,
+            executableURL: Self.canonicalFileURL(definition.executableURL),
+            arguments: definition.arguments,
+            workingDirectoryURL: Self.canonicalFileURL(definition.workingDirectoryURL),
+            environment: definition.environment
+        )
     }
 
     private static func isAbsoluteNonRootFileURL(_ url: URL) -> Bool {
-        let standardized = url.standardizedFileURL
-        return standardized.isFileURL && standardized.path.hasPrefix("/") && standardized.path != "/"
+        let canonical = canonicalFileURL(url)
+        return canonical.isFileURL && canonical.path.hasPrefix("/") && canonical.path != "/"
     }
 
     private func contains(_ candidate: URL, in roots: [URL]) -> Bool {
-        let path = candidate.standardizedFileURL.path
+        let path = Self.canonicalFileURL(candidate).path
         return roots.contains { root in
-            let rootPath = root.standardizedFileURL.path
+            let rootPath = Self.canonicalFileURL(root).path
             return path == rootPath || path.hasPrefix(rootPath.hasSuffix("/") ? rootPath : rootPath + "/")
         }
+    }
+
+    private static func canonicalFileURL(_ url: URL) -> URL {
+        let standardized = url.standardizedFileURL
+        var existingAncestor = standardized
+        var missingComponents: [String] = []
+        while existingAncestor.path != "/", !FileManager.default.fileExists(atPath: existingAncestor.path) {
+            missingComponents.insert(existingAncestor.lastPathComponent, at: 0)
+            existingAncestor.deleteLastPathComponent()
+        }
+        return missingComponents.reduce(existingAncestor.resolvingSymlinksInPath()) { partialURL, component in
+            partialURL.appendingPathComponent(component)
+        }.standardizedFileURL
     }
 
     private static func looksSensitive(_ key: String) -> Bool {
@@ -191,7 +214,7 @@ public final class ServiceSupervisor {
     }
 
     public func register(_ definition: ServiceDefinition) throws {
-        try policy.validate(definition)
+        let definition = try policy.validated(definition)
         guard definitions[definition.id] == nil else {
             throw ServiceSupervisorError.duplicateService
         }
@@ -216,10 +239,11 @@ public final class ServiceSupervisor {
         guard states[id] == .stopped || isFailed(states[id]) else {
             throw ServiceSupervisorError.invalidState
         }
+        let validatedDefinition = try policy.validated(definition)
 
         states[id] = .starting
         do {
-            let process = try launcher.launch(definition)
+            let process = try launcher.launch(validatedDefinition)
             processes[id] = process
             states[id] = .running(processID: process.processIdentifier)
         } catch {

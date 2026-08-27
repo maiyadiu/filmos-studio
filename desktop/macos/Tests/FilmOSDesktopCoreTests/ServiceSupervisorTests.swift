@@ -27,10 +27,11 @@ struct ServiceSupervisorTests {
 
         try supervisor.register(definition)
         #expect(supervisor.state(for: "backend") == .stopped)
+        let registeredDefinition = try #require(supervisor.registeredServices().first)
 
         try supervisor.start("backend")
         #expect(launcher.launchCount == 1)
-        #expect(launcher.lastDefinition == definition)
+        #expect(launcher.lastDefinition == registeredDefinition)
         #expect(supervisor.state(for: "backend") == .running(processID: 4_242))
 
         try supervisor.stop("backend")
@@ -58,6 +59,78 @@ struct ServiceSupervisorTests {
             Issue.record("Expected executable policy rejection")
         } catch {
             #expect(error as? ServiceSupervisorError == .executableOutsidePolicy)
+        }
+        #expect(launcher.launchCount == 0)
+    }
+
+    @Test
+    func rejectsExecutableSymlinkThatEscapesAllowedRoot() throws {
+        let sandbox = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FilmOSServiceSymlinkTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: sandbox) }
+        let allowedRoot = sandbox.appendingPathComponent("allowed", isDirectory: true)
+        let outsideRoot = sandbox.appendingPathComponent("outside", isDirectory: true)
+        try FileManager.default.createDirectory(at: allowedRoot, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outsideRoot, withIntermediateDirectories: true)
+        let outsideExecutable = outsideRoot.appendingPathComponent("tool")
+        try Data("not executed".utf8).write(to: outsideExecutable)
+        let linkedExecutable = allowedRoot.appendingPathComponent("tool")
+        guard try createSymbolicLinkOrSkip(at: linkedExecutable, pointingTo: outsideExecutable) else { return }
+
+        let policy = try ServiceLaunchPolicy(
+            allowedExecutableRoots: [allowedRoot],
+            allowedWorkingDirectoryRoots: [allowedRoot]
+        )
+        let launcher = FakeLauncher(result: .success(FakeManagedProcess(processIdentifier: 1)))
+        let supervisor = ServiceSupervisor(policy: policy, launcher: launcher)
+
+        do {
+            try supervisor.register(
+                ServiceDefinition(
+                    id: "backend",
+                    displayName: "Backend",
+                    executableURL: linkedExecutable,
+                    workingDirectoryURL: allowedRoot
+                )
+            )
+            Issue.record("Expected canonical executable policy rejection")
+        } catch {
+            #expect(error as? ServiceSupervisorError == .executableOutsidePolicy)
+        }
+        #expect(launcher.launchCount == 0)
+    }
+
+    @Test
+    func rejectsWorkingDirectorySymlinkThatEscapesAllowedRoot() throws {
+        let sandbox = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FilmOSWorkdirSymlinkTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: sandbox) }
+        let allowedRoot = sandbox.appendingPathComponent("allowed", isDirectory: true)
+        let outsideRoot = sandbox.appendingPathComponent("outside", isDirectory: true)
+        try FileManager.default.createDirectory(at: allowedRoot, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outsideRoot, withIntermediateDirectories: true)
+        let linkedWorkingDirectory = allowedRoot.appendingPathComponent("work", isDirectory: true)
+        guard try createSymbolicLinkOrSkip(at: linkedWorkingDirectory, pointingTo: outsideRoot) else { return }
+
+        let policy = try ServiceLaunchPolicy(
+            allowedExecutableRoots: [URL(fileURLWithPath: "/usr/bin", isDirectory: true)],
+            allowedWorkingDirectoryRoots: [allowedRoot]
+        )
+        let launcher = FakeLauncher(result: .success(FakeManagedProcess(processIdentifier: 1)))
+        let supervisor = ServiceSupervisor(policy: policy, launcher: launcher)
+
+        do {
+            try supervisor.register(
+                ServiceDefinition(
+                    id: "backend",
+                    displayName: "Backend",
+                    executableURL: URL(fileURLWithPath: "/usr/bin/true"),
+                    workingDirectoryURL: linkedWorkingDirectory
+                )
+            )
+            Issue.record("Expected canonical working directory policy rejection")
+        } catch {
+            #expect(error as? ServiceSupervisorError == .workingDirectoryOutsidePolicy)
         }
         #expect(launcher.launchCount == 0)
     }
