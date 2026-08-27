@@ -1,4 +1,4 @@
-updated_at: 2026-08-28T02:59:40+08:00
+updated_at: 2026-08-28T03:15:00+08:00
 main:
   state: BASELINE_PUSHED
   upstream_release: v1.2.1
@@ -22,6 +22,18 @@ integration:
       integration_commits:
         - 662c1cac
         - 37948ef8
+    - track: 03-project-ui
+      source_tip: 431ebef2
+      integration_commits: ["77788630", "e37ab197", "9705a050"]
+    - track: 04-story
+      source_tip: 83efdee2
+      integration_commits: ["c85f35a6", "535ad42b"]
+    - track: 05-production-canvas
+      source_tip: 0fc93f6f
+      integration_commits: ["12a923e2", "87164a7a"]
+    - track: 01-desktop
+      source_tip: fc1628f2
+      integration_commits: ["be57b62c", "6e32b682"]
 worktrees:
   state: CREATED_AND_TRACKING_REMOTE
   count: 14
@@ -32,7 +44,7 @@ candidate:
   branch: candidate
 native_tests:
   state: BASELINE_PASSED_ON_TRACK_13
-  after_current_integration_head: false
+  after_current_integration_head: TARGETED_ONLY
   backend: PASSED
   web: "471 passed, 0 failed; build passed with existing chunk warning"
   canvas_agent: "316 passed, 0 failed, 5 Windows-specific skipped; build passed"
@@ -44,6 +56,13 @@ film_core_tests:
   state: PASSED_AFTER_CURRENT_INTEGRATION_HEAD
   command: /tmp/filmos-core-venv-02/bin/pytest film-core/tests
   result: "10 passed; compileall passed; 1 dependency deprecation warning"
+film_web_tests:
+  state: PASSED_AFTER_CURRENT_INTEGRATION_HEAD
+  command: bun test project story production-canvas targets; bun run typecheck; bun run build
+  result: "23 passed; 0 failed; typecheck passed; build passed with existing large chunk warning"
+desktop_tests:
+  state: PASSED_AFTER_CURRENT_INTEGRATION_HEAD
+  result: "Swift debug/release build passed; 14 tests in 3 suites passed; symlink escape cases executed"
 mcp_tests:
   state: NATIVE_AGENT_PASSED_FILM_MCP_NOT_RUN
 golden_a:
