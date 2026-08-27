@@ -8,6 +8,10 @@ integration:
   state: ACTIVE
   base: 73f3ae5381fd7c48cd9ad262164c05c435dd6385
   branch: integration
+worktrees:
+  state: CREATED_AND_TRACKING_REMOTE
+  count: 14
+  base: f3a1bc925aca081816d1771f451b5d4cfcec6b76
 candidate:
   state: CREATED_NOT_QUALIFIED
   base: 73f3ae5381fd7c48cd9ad262164c05c435dd6385

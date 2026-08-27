@@ -5,4 +5,6 @@ R-0003,2026-08-28,track-film-core,HIGH,"duplicate DTO or status enums can diverg
 R-0004,2026-08-28,program-integrator,MEDIUM,"14 tracks exceed current simultaneous agent slots","create all worktrees now and rotate bounded agents without sharing branches",OPEN
 R-0005,2026-08-28,track-qa,MEDIUM,"native dependency installation and full test duration are not yet known","inventory locks and scripts before running smallest sufficient baseline tests",OPEN
 R-0006,2026-08-28,track-remote,HIGH,"Hybrid could upload unpublished local assets","default flags disabled; publish plan requires explicit selection and approval",OPEN
-
+R-0007,2026-08-28,track-desktop,HIGH,"V6.1 assumes an existing Swift/AppKit shell but v1.2.1 contains no desktop directory or Swift source","classify as BUILD after checking historical/reference evidence; keep web and service launch paths reusable",OPEN
+R-0008,2026-08-28,track-director,MEDIUM,"3D director source exists but no dedicated director-named test was found in release inventory","inspect indirect tests and add focused regression coverage before extension",OPEN
+R-0009,2026-08-28,track-remote,HIGH,"existing user-data remote sync is not the Film authority model","do not relabel it as Hybrid truth; design explicit authority and publish preview under disabled flag",OPEN

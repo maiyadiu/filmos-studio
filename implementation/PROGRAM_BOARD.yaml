@@ -21,20 +21,20 @@ integration_windows:
   - "12:00 Asia/Shanghai"
   - "22:00 Asia/Shanghai"
 tracks:
-  - { id: "00", name: upstream, branch: track/upstream, worktree: ../wt-upstream, status: STARTING }
-  - { id: "01", name: desktop, branch: track/desktop, worktree: ../wt-desktop, status: QUEUED }
-  - { id: "02", name: film-core, branch: track/film-core, worktree: ../wt-film-core, status: VERIFYING }
-  - { id: "03", name: project-ui, branch: track/project-ui, worktree: ../wt-project-ui, status: QUEUED }
-  - { id: "04", name: story, branch: track/story, worktree: ../wt-story, status: QUEUED }
-  - { id: "05", name: production-canvas, branch: track/production-canvas, worktree: ../wt-production-canvas, status: QUEUED }
-  - { id: "06", name: assets, branch: track/assets, worktree: ../wt-assets, status: QUEUED }
-  - { id: "07", name: prompt, branch: track/prompt, worktree: ../wt-prompt, status: QUEUED }
-  - { id: "08", name: agent, branch: track/agent, worktree: ../wt-agent, status: QUEUED }
-  - { id: "09", name: director, branch: track/director, worktree: ../wt-director, status: QUEUED }
-  - { id: "10", name: providers, branch: track/providers, worktree: ../wt-providers, status: QUEUED }
-  - { id: "11", name: migration, branch: track/migration, worktree: ../wt-migration, status: QUEUED }
-  - { id: "12", name: remote, branch: track/remote, worktree: ../wt-remote, status: QUEUED }
-  - { id: "13", name: qa, branch: track/qa, worktree: ../wt-qa, status: STARTING }
+  - { id: "00", name: upstream, branch: track/upstream, worktree: ../wt-upstream, status: ACTIVE_AGENT }
+  - { id: "01", name: desktop, branch: track/desktop, worktree: ../wt-desktop, status: WORKTREE_READY }
+  - { id: "02", name: film-core, branch: track/film-core, worktree: ../wt-film-core, status: ACTIVE_AGENT }
+  - { id: "03", name: project-ui, branch: track/project-ui, worktree: ../wt-project-ui, status: WORKTREE_READY }
+  - { id: "04", name: story, branch: track/story, worktree: ../wt-story, status: WORKTREE_READY }
+  - { id: "05", name: production-canvas, branch: track/production-canvas, worktree: ../wt-production-canvas, status: WORKTREE_READY }
+  - { id: "06", name: assets, branch: track/assets, worktree: ../wt-assets, status: WORKTREE_READY }
+  - { id: "07", name: prompt, branch: track/prompt, worktree: ../wt-prompt, status: WORKTREE_READY }
+  - { id: "08", name: agent, branch: track/agent, worktree: ../wt-agent, status: WORKTREE_READY }
+  - { id: "09", name: director, branch: track/director, worktree: ../wt-director, status: WORKTREE_READY }
+  - { id: "10", name: providers, branch: track/providers, worktree: ../wt-providers, status: WORKTREE_READY }
+  - { id: "11", name: migration, branch: track/migration, worktree: ../wt-migration, status: WORKTREE_READY }
+  - { id: "12", name: remote, branch: track/remote, worktree: ../wt-remote, status: WORKTREE_READY }
+  - { id: "13", name: qa, branch: track/qa, worktree: ../wt-qa, status: ACTIVE_AGENT }
 first_vertical_slice:
   chain:
     - Project
