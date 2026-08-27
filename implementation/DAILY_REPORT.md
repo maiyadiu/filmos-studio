@@ -9,3 +9,11 @@
 - 测试：Film Contract Test 已通过（`FILM_CONTRACTS_OK schema=0.1.0 paths=9 axes=6`）；JSON 与 YAML 均已解析。原生测试尚未运行。
 - 风险：上游 `main` 已超过 Release；14 Track 需轮转并发。
 - 下一步：提交基线，创建 `integration` 和 14 个 worktree，启动 Track 00/02/13。
+
+## 2026-08-28 开工批次 02
+
+- 集成：Track 00 与 Track 13 已合入 `integration`；集成后专项门禁通过。
+- 上游：静态兼容等级为 `C_MIGRATION_REQUIRED`；Candidate 原生验证因上游 S3 测试的外部 DNS 解析失败被正确阻断为 `D_BLOCKED`，未合并 Candidate。
+- 原生基线：Backend 通过；Web `471/0` 且构建通过；Canvas Agent `316/0`、5 个 Windows 专项 skip，构建通过。
+- Golden A：离线 Mock `4/0`，严格经过 `Candidate -> QC/Approval -> Approved`，外部调用 0。真实 Film Core/UI/Canvas/MCP/Provider 链仍为 `NOT_RUN`。
+- 并行：Track 01、02、03 正在执行，其余 Track 保持独立 worktree ready。

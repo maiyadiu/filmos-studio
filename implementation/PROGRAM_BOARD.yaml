@@ -21,10 +21,10 @@ integration_windows:
   - "12:00 Asia/Shanghai"
   - "22:00 Asia/Shanghai"
 tracks:
-  - { id: "00", name: upstream, branch: track/upstream, worktree: ../wt-upstream, status: ACTIVE_AGENT }
-  - { id: "01", name: desktop, branch: track/desktop, worktree: ../wt-desktop, status: WORKTREE_READY }
+  - { id: "00", name: upstream, branch: track/upstream, worktree: ../wt-upstream, status: INTEGRATED_STATIC_C_CANDIDATE_D }
+  - { id: "01", name: desktop, branch: track/desktop, worktree: ../wt-desktop, status: ACTIVE_AGENT }
   - { id: "02", name: film-core, branch: track/film-core, worktree: ../wt-film-core, status: ACTIVE_AGENT }
-  - { id: "03", name: project-ui, branch: track/project-ui, worktree: ../wt-project-ui, status: WORKTREE_READY }
+  - { id: "03", name: project-ui, branch: track/project-ui, worktree: ../wt-project-ui, status: ACTIVE_AGENT }
   - { id: "04", name: story, branch: track/story, worktree: ../wt-story, status: WORKTREE_READY }
   - { id: "05", name: production-canvas, branch: track/production-canvas, worktree: ../wt-production-canvas, status: WORKTREE_READY }
   - { id: "06", name: assets, branch: track/assets, worktree: ../wt-assets, status: WORKTREE_READY }
@@ -34,7 +34,7 @@ tracks:
   - { id: "10", name: providers, branch: track/providers, worktree: ../wt-providers, status: WORKTREE_READY }
   - { id: "11", name: migration, branch: track/migration, worktree: ../wt-migration, status: WORKTREE_READY }
   - { id: "12", name: remote, branch: track/remote, worktree: ../wt-remote, status: WORKTREE_READY }
-  - { id: "13", name: qa, branch: track/qa, worktree: ../wt-qa, status: ACTIVE_AGENT }
+  - { id: "13", name: qa, branch: track/qa, worktree: ../wt-qa, status: INTEGRATED_BASELINE_AND_MOCK_PASSED }
 first_vertical_slice:
   chain:
     - Project

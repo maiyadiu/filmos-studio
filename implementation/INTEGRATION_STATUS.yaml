@@ -8,6 +8,13 @@ integration:
   state: ACTIVE
   base: 73f3ae5381fd7c48cd9ad262164c05c435dd6385
   branch: integration
+  integrated_tracks:
+    - track: 00-upstream
+      source_commit: d4feb422b05ab590f52b7b7dfd9e587097b018bf
+      integration_commit: 32638823
+    - track: 13-qa
+      source_commit: d1501d32b33f1ca3dc5be22d9f4e3a58494b64c6
+      integration_commit: 2086f1cf
 worktrees:
   state: CREATED_AND_TRACKING_REMOTE
   count: 14
@@ -17,18 +24,28 @@ candidate:
   base: 73f3ae5381fd7c48cd9ad262164c05c435dd6385
   branch: candidate
 native_tests:
-  state: NOT_RUN
+  state: BASELINE_PASSED_ON_TRACK_13
+  after_current_integration_head: false
+  backend: PASSED
+  web: "471 passed, 0 failed; build passed with existing chunk warning"
+  canvas_agent: "316 passed, 0 failed, 5 Windows-specific skipped; build passed"
 film_contract_tests:
   state: PASSED
   command: python3 tests/film-contract/validate_contracts.py
   result: FILM_CONTRACTS_OK schema=0.1.0 paths=9 axes=6
 mcp_tests:
-  state: NOT_RUN
+  state: NATIVE_AGENT_PASSED_FILM_MCP_NOT_RUN
 golden_a:
-  state: NOT_RUN
+  state: MOCK_PASSED_REAL_NOT_RUN
+  command: python3 tests/film-golden/run_golden_a.py
+  result: "Candidate -> Approved; external_provider_calls=0"
 golden_b:
   state: NOT_RUN
 golden_c:
   state: NOT_RUN
 recovery_tests:
   state: NOT_RUN
+upstream_compatibility:
+  static_state: C_MIGRATION_REQUIRED
+  candidate_native_state: D_BLOCKED
+  blocker: upstream S3 test external DNS resolution
