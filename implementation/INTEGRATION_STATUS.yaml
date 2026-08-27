@@ -1,0 +1,28 @@
+updated_at: 2026-08-28T02:16:08+08:00
+main:
+  state: BASELINE_PREPARED
+  upstream_release: v1.2.1
+  upstream_commit: 61b332583c4fcbf71890ae67e3f0f104d67706b9
+  pushed: false
+integration:
+  state: NOT_CREATED
+  head: null
+candidate:
+  state: NOT_CREATED
+  head: null
+native_tests:
+  state: NOT_RUN
+film_contract_tests:
+  state: PASSED
+  command: python3 tests/film-contract/validate_contracts.py
+  result: FILM_CONTRACTS_OK schema=0.1.0 paths=9 axes=6
+mcp_tests:
+  state: NOT_RUN
+golden_a:
+  state: NOT_RUN
+golden_b:
+  state: NOT_RUN
+golden_c:
+  state: NOT_RUN
+recovery_tests:
+  state: NOT_RUN

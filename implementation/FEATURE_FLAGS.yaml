@@ -1,0 +1,17 @@
+defaults: disabled
+flags:
+  film.desktop_host: false
+  film.local_workspace: false
+  film.production_core: false
+  film.dynamic_content_units: false
+  film.story_studio: false
+  film.production_canvas: false
+  film.asset_lock: false
+  film.prompt_kernel: false
+  film.agent_gateway: false
+  film.scene_twin: false
+  film.dreamina_provider: false
+  film.flova_provider: false
+  film.remote_sync: false
+rollback_rule: disabling_any_flag_must_leave_original_yingce_flow_available
+

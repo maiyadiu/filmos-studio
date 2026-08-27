@@ -1,0 +1,103 @@
+shared_contracts:
+  owner: track-film-core
+  paths:
+    - film-contracts/**
+    - web/src/generated/film-core/**
+    - tests/film-contract/**
+upstream:
+  owner: track-upstream
+  paths:
+    - scripts/upstream/**
+    - .github/workflows/film-upstream-compat.yml
+    - implementation/UPSTREAM_COMPATIBILITY.md
+desktop:
+  owner: track-desktop
+  paths:
+    - desktop/macos/**
+    - film-core/app/workspace/**
+    - web/src/film/workspace/**
+film_core:
+  owner: track-film-core
+  paths:
+    - film-core/**
+    - film-contracts/**
+project_ui:
+  owner: track-project-ui
+  paths:
+    - web/src/pages/projects/detail/**
+    - web/src/lib/project-workbench.ts
+    - web/src/film/project/**
+    - film-core/app/content_units/**
+story:
+  owner: track-story
+  paths:
+    - web/src/film/story/**
+    - film-core/app/story/**
+    - film-core/app/script/**
+    - plugins/film-story/**
+production_canvas:
+  owner: track-production-canvas
+  paths:
+    - web/src/film/canvas/**
+    - web/src/lib/canvas/film-*
+    - film-core/app/director_units/**
+    - film-core/app/coverage/**
+assets:
+  owner: track-assets
+  paths:
+    - web/src/film/assets/**
+    - film-core/app/assets/**
+    - film-core/app/visual_lock/**
+    - film-core/app/media/**
+prompt:
+  owner: track-prompt
+  paths:
+    - film-core/app/prompt_kernel/**
+    - web/src/film/prompt/**
+    - plugins/film-prompt/**
+agent:
+  owner: track-agent
+  paths:
+    - canvas-agent/src/film/**
+    - plugins/film-agent/**
+    - film-core/app/agent_gateway/**
+    - web/src/film/agent/**
+director:
+  owner: track-director
+  paths:
+    - web/src/film/director/**
+    - film-core/app/scene_twin/**
+    - film-core/app/camera/**
+    - film-core/app/blocking/**
+    - film-adapters/tigerowo/**
+    - film-adapters/blender/**
+providers:
+  owner: track-providers
+  paths:
+    - film-provider-runtime/**
+    - film-adapters/flova/**
+    - film-adapters/dreamina/**
+    - film-adapters/comfy/**
+    - web/src/film/providers/**
+migration:
+  owner: track-migration
+  paths:
+    - film-adapters/system-a/**
+    - film-adapters/three-homes/**
+    - film-core/app/imports/**
+remote:
+  owner: track-remote
+  paths:
+    - film-core/app/sync/**
+    - web/src/film/sync/**
+    - backend/internal/filmhost/**
+qa:
+  owner: track-qa
+  paths:
+    - tests/film-golden/**
+    - implementation/test-reports/**
+shared_change_process:
+  request_path: implementation/CHANGE_REQUESTS/
+  approver: program-integrator
+  rule: owner_changes_contract_then_consumers_regenerate
+

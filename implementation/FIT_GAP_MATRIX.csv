@@ -1,0 +1,9 @@
+fit_gap_id,track,capability,host_evidence,classification,decision,state
+FG-0001,02,Project basic identity and revision,backend/internal/model/models_project.go,REUSE,"Host remains authoritative; FilmProjectExtension is sidecar",VERIFIED
+FG-0002,03,ProjectUnit parent kind position and canvas link,backend/internal/model/models_project.go,EXTEND,"Reuse list/order/link; add Film sidecar and additional kinds through owned adapter path",VERIFIED
+FG-0003,05,Shot and chapter storyboard projection,"backend/internal/model/models_project.go; web/src/lib/canvas/project-chapter-storyboard.ts",EXTEND,"Keep host Shot; DirectorUnit remains separate Film entity",VERIFIED
+FG-0004,06,Asset Version Representation and Shot binding,backend/internal/model/models_project.go,EXTEND,"Reuse media identity and versions; add binding purpose and VisualLock sidecars",VERIFIED
+FG-0005,10,Generic Task lifecycle,backend/internal/model/models_task.go,EXTEND,"Provider attempts attach to host Task instead of creating a parallel task system",VERIFIED
+FG-0006,08,Canvas and project Agent tools,canvas-agent/src/schemas.ts,EXTEND,"Reuse MCP broker and write confirmation; add Film Production tools from shared contracts",VERIFIED
+FG-0007,02,Film semantic truth,film-contracts/,BUILD,"New isolated Film Core contracts and sidecar persistence",PLANNED
+

@@ -1,0 +1,8 @@
+risk_id,opened_at,owner,severity,risk,mitigation,state
+R-0001,2026-08-28,track-upstream,HIGH,"upstream main already contains unreleased changes beyond v1.2.1","pin release commit; scan and diff separately; never merge reference remotes",OPEN
+R-0002,2026-08-28,program-integrator,MEDIUM,"new Fork main initially points to upstream main rather than stable release","publish an explicit release-based FilmOS baseline and record rollback ref",MITIGATING
+R-0003,2026-08-28,track-film-core,HIGH,"duplicate DTO or status enums can diverge across Go TypeScript MCP and Film Core","single JSON Schema/OpenAPI source; contract tests; owner-only shared changes",OPEN
+R-0004,2026-08-28,program-integrator,MEDIUM,"14 tracks exceed current simultaneous agent slots","create all worktrees now and rotate bounded agents without sharing branches",OPEN
+R-0005,2026-08-28,track-qa,MEDIUM,"native dependency installation and full test duration are not yet known","inventory locks and scripts before running smallest sufficient baseline tests",OPEN
+R-0006,2026-08-28,track-remote,HIGH,"Hybrid could upload unpublished local assets","default flags disabled; publish plan requires explicit selection and approval",OPEN
+

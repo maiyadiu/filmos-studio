@@ -1,0 +1,42 @@
+product_name: FilmOS Studio
+short_name_zh: FilmOS 工作台
+architecture_name: Film Production OS
+host_name: Yingce Upstream
+host_repository: ddcat-ai/open-ai-canvas
+host_policy: single_host_trunk
+baseline_policy: latest_stable_release_only
+truth_boundaries:
+  host:
+    - Project basic fields
+    - ProjectUnit basic fields
+    - Shot basic fields
+    - Canvas layout and projection
+    - Resource
+    - Asset and AssetVersion generic data
+    - Generic Task
+    - Provider
+  film_core:
+    - Story and Script versions
+    - DirectorUnit and CoverageLink
+    - SceneTwin
+    - Camera Blocking Composition versions
+    - VisualLockSet and Continuity
+    - PromptDraft
+    - Film Review and Approval
+    - Impact and STALE propagation
+    - Production lineage
+red_lines:
+  - destructive user-data migration
+  - stable ID change
+  - canvas engine replacement
+  - abandoning Yingce Upstream
+  - irreversible host core-table mutation
+  - unapproved local-asset upload
+  - Golden project corruption
+  - conflict with locked product objective
+out_of_scope_without_new_authority:
+  - external media generation or credit spend
+  - publication of user assets
+  - destructive legacy cleanup
+  - automatic upload in Hybrid mode
+

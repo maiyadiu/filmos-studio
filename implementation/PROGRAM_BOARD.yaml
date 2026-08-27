@@ -1,0 +1,52 @@
+program: FilmOS Studio
+architecture: Film Production OS
+status: ACTIVE
+program_integrator: current-codex-task
+workspace: /Users/apple/Downloads/other/短剧/FilmOS Studio
+started_at: 2026-08-28T02:16:08+08:00
+source_directives:
+  - AI影视工作台_影策主干_一次性并行实施总计划_V6.1.md
+  - FilmOS_Studio_Codex_一次性并行开工总令_V6.2.md
+baseline:
+  upstream: ddcat-ai/open-ai-canvas
+  release: v1.2.1
+  commit: 61b332583c4fcbf71890ae67e3f0f104d67706b9
+  release_url: https://github.com/ddcat-ai/open-ai-canvas/releases/tag/v1.2.1
+  verification_state: VERIFIED
+repository:
+  origin: https://github.com/maiyadiu/filmos-studio.git
+  integration_branch: integration
+  candidate_branch: candidate
+integration_windows:
+  - "12:00 Asia/Shanghai"
+  - "22:00 Asia/Shanghai"
+tracks:
+  - { id: "00", name: upstream, branch: track/upstream, worktree: ../wt-upstream, status: QUEUED }
+  - { id: "01", name: desktop, branch: track/desktop, worktree: ../wt-desktop, status: QUEUED }
+  - { id: "02", name: film-core, branch: track/film-core, worktree: ../wt-film-core, status: VERIFYING }
+  - { id: "03", name: project-ui, branch: track/project-ui, worktree: ../wt-project-ui, status: QUEUED }
+  - { id: "04", name: story, branch: track/story, worktree: ../wt-story, status: QUEUED }
+  - { id: "05", name: production-canvas, branch: track/production-canvas, worktree: ../wt-production-canvas, status: QUEUED }
+  - { id: "06", name: assets, branch: track/assets, worktree: ../wt-assets, status: QUEUED }
+  - { id: "07", name: prompt, branch: track/prompt, worktree: ../wt-prompt, status: QUEUED }
+  - { id: "08", name: agent, branch: track/agent, worktree: ../wt-agent, status: QUEUED }
+  - { id: "09", name: director, branch: track/director, worktree: ../wt-director, status: QUEUED }
+  - { id: "10", name: providers, branch: track/providers, worktree: ../wt-providers, status: QUEUED }
+  - { id: "11", name: migration, branch: track/migration, worktree: ../wt-migration, status: QUEUED }
+  - { id: "12", name: remote, branch: track/remote, worktree: ../wt-remote, status: QUEUED }
+  - { id: "13", name: qa, branch: track/qa, worktree: ../wt-qa, status: QUEUED }
+first_vertical_slice:
+  chain:
+    - Project
+    - ContentUnit
+    - ScriptVersion
+    - DirectorUnit
+    - Shot
+    - ProductionCanvas
+    - PromptDraft
+    - ManualProviderImport
+    - Candidate
+    - QC
+    - Approved
+  status: NOT_STARTED
+

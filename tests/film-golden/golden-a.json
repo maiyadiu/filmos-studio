@@ -1,0 +1,28 @@
+{
+  "golden_id": "GOLDEN-A",
+  "title": "故事到关键帧",
+  "state": "NOT_RUN",
+  "steps": [
+    "Project",
+    "StoryBible",
+    "ContentUnit",
+    "ScriptLock",
+    "Scene",
+    "DirectorUnit",
+    "Shot",
+    "ProductionCanvas",
+    "PromptDraft",
+    "ManualProviderResult",
+    "Candidate",
+    "QC",
+    "Approved"
+  ],
+  "invariants": [
+    "DirectorUnit and Shot are separate entities",
+    "Canvas stores entity IDs and projection only",
+    "Manual result import creates Candidate",
+    "Candidate cannot become Approved without Review and Approval",
+    "every formal write uses expected_version"
+  ]
+}
+

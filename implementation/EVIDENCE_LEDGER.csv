@@ -1,0 +1,9 @@
+evidence_id,track,observed_at,subject,source,method,finding,content_hash,state
+EV-0001,00,2026-08-28T02:16:08+08:00,latest stable release,https://github.com/ddcat-ai/open-ai-canvas/releases/tag/v1.2.1,GitHub release API,"v1.2.1; draft=false; prerelease=false; published 2026-08-26",61b332583c4fcbf71890ae67e3f0f104d67706b9,VERIFIED
+EV-0002,00,2026-08-28T02:16:08+08:00,upstream main,upstream-yingce/main,git fetch and rev-parse,"main is ahead of release and is not the product baseline",4ee5b630edfbd6da1e41b98ef1d2f3b1184c345a,VERIFIED
+EV-0003,00,2026-08-28T02:16:08+08:00,tigerowo reference,reference-tigerowo/main,git fetch and rev-parse,"reference remote reachable",57b13aa1a2d7439955b0e65abe742bc7144df32f,VERIFIED
+EV-0004,00,2026-08-28T02:16:08+08:00,basket reference,reference-basket/main,git fetch and rev-parse,"reference remote reachable",ed013e8e5ce8ccab47cf2fc779f8e94555eb4c23,VERIFIED
+EV-0005,02,2026-08-28T02:16:08+08:00,host film objects,backend/internal/model/models_project.go,source inspection,"Project Unit CanvasUnitLink Shot Asset Version Representation Workflow objects exist",61b332583c4fcbf71890ae67e3f0f104d67706b9,VERIFIED
+EV-0006,02,2026-08-28T02:16:08+08:00,host database registry,backend/internal/database/schema.go,source inspection,"host tables use the shared Models list and AutoMigrate",61b332583c4fcbf71890ae67e3f0f104d67706b9,VERIFIED
+EV-0007,08,2026-08-28T02:16:08+08:00,host MCP schema,canvas-agent/src/schemas.ts,source inspection,"canvas and project tools exist; canvas writes support expectedRevision and expectedStateHash",61b332583c4fcbf71890ae67e3f0f104d67706b9,VERIFIED
+

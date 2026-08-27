@@ -1,0 +1,110 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "FilmOS Studio Film Core API",
+    "version": "0.1.0",
+    "description": "Sidecar Film Core contract. Yingce remains authoritative for generic host entities."
+  },
+  "servers": [{ "url": "/film" }],
+  "paths": {
+    "/projects/{hostProjectId}/context": {
+      "get": {
+        "operationId": "filmProjectContextGet",
+        "parameters": [{ "$ref": "#/components/parameters/HostProjectId" }],
+        "responses": { "200": { "$ref": "#/components/responses/Ok" } }
+      }
+    },
+    "/units/{hostUnitId}": {
+      "get": {
+        "operationId": "filmUnitGet",
+        "parameters": [{ "$ref": "#/components/parameters/HostUnitId" }],
+        "responses": { "200": { "$ref": "#/components/responses/Ok" } }
+      }
+    },
+    "/shots/{hostShotId}": {
+      "get": {
+        "operationId": "filmShotGet",
+        "parameters": [{ "$ref": "#/components/parameters/HostShotId" }],
+        "responses": { "200": { "$ref": "#/components/responses/Ok" } }
+      }
+    },
+    "/commands/preview": {
+      "post": {
+        "operationId": "filmCommandPreview",
+        "requestBody": { "$ref": "#/components/requestBodies/Command" },
+        "responses": { "200": { "$ref": "#/components/responses/Ok" } }
+      }
+    },
+    "/commands/apply": {
+      "post": {
+        "operationId": "filmCommandApply",
+        "requestBody": { "$ref": "#/components/requestBodies/Command" },
+        "responses": {
+          "200": { "$ref": "#/components/responses/Ok" },
+          "409": { "$ref": "#/components/responses/Conflict" }
+        }
+      }
+    },
+    "/impacts/{entityId}": {
+      "get": {
+        "operationId": "filmImpactGet",
+        "parameters": [{ "$ref": "#/components/parameters/EntityId" }],
+        "responses": { "200": { "$ref": "#/components/responses/Ok" } }
+      }
+    },
+    "/reviews": {
+      "post": {
+        "operationId": "filmReviewSubmit",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "./schemas/core.schema.json#/$defs/Review" } } } },
+        "responses": { "200": { "$ref": "#/components/responses/Ok" } }
+      }
+    },
+    "/prompts/compile": {
+      "post": {
+        "operationId": "filmPromptCompile",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object" } } } },
+        "responses": { "200": { "$ref": "#/components/responses/Ok" } }
+      }
+    },
+    "/continuity/check": {
+      "post": {
+        "operationId": "filmContinuityCheck",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object" } } } },
+        "responses": { "200": { "$ref": "#/components/responses/Ok" } }
+      }
+    }
+  },
+  "components": {
+    "parameters": {
+      "HostProjectId": { "name": "hostProjectId", "in": "path", "required": true, "schema": { "type": "string", "minLength": 1 } },
+      "HostUnitId": { "name": "hostUnitId", "in": "path", "required": true, "schema": { "type": "string", "minLength": 1 } },
+      "HostShotId": { "name": "hostShotId", "in": "path", "required": true, "schema": { "type": "string", "minLength": 1 } },
+      "EntityId": { "name": "entityId", "in": "path", "required": true, "schema": { "$ref": "./schemas/core.schema.json#/$defs/FilmEntityId" } }
+    },
+    "requestBodies": {
+      "Command": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": ["command_type", "target_id", "expected_version", "payload"],
+              "properties": {
+                "command_type": { "type": "string", "minLength": 1 },
+                "target_id": { "$ref": "./schemas/core.schema.json#/$defs/FilmEntityId" },
+                "expected_version": { "type": "integer", "minimum": 0 },
+                "payload": { "type": "object" }
+              },
+              "additionalProperties": false
+            }
+          }
+        }
+      }
+    },
+    "responses": {
+      "Ok": { "description": "Success", "content": { "application/json": { "schema": { "type": "object" } } } },
+      "Conflict": { "description": "expected_version does not match current version", "content": { "application/json": { "schema": { "type": "object" } } } }
+    }
+  }
+}
+

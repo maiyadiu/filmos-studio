@@ -3,6 +3,8 @@ out/
 node_modules/
 docs/*
 !docs/design/
+!docs/film-adr/
+!docs/film-adr/**
 !docs/index.md
 .env*
 !.env.example

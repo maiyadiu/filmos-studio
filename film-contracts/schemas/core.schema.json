@@ -1,0 +1,201 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://filmos.local/contracts/v0/core.schema.json",
+  "title": "FilmOS Studio Core Contracts V0",
+  "schema_version": "0.1.0",
+  "$defs": {
+    "FilmEntityId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "ContentHash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "HostReferences": {
+      "type": "object",
+      "properties": {
+        "host_project_id": { "type": "string", "minLength": 1 },
+        "host_unit_id": { "type": "string", "minLength": 1 },
+        "host_shot_id": { "type": "string", "minLength": 1 },
+        "host_asset_id": { "type": "string", "minLength": 1 },
+        "host_asset_version_id": { "type": "string", "minLength": 1 },
+        "host_canvas_id": { "type": "string", "minLength": 1 },
+        "host_resource_id": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "VersionGuard": {
+      "type": "object",
+      "required": ["film_entity_id", "expected_version"],
+      "properties": {
+        "film_entity_id": { "$ref": "#/$defs/FilmEntityId" },
+        "expected_version": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "FormalStateAxes": {
+      "type": "object",
+      "required": ["creative_stage", "execution_state", "review_state", "lock_state", "delivery_state", "stale_state"],
+      "properties": {
+        "creative_stage": { "enum": ["draft", "authored", "reviewed", "locked"] },
+        "execution_state": { "enum": ["not_started", "ready", "queued", "running", "succeeded", "failed", "cancelled"] },
+        "review_state": { "enum": ["not_reviewed", "pending", "in_review", "changes_requested", "rejected", "passed", "approved"] },
+        "lock_state": { "enum": ["unlocked", "soft_locked", "locked"] },
+        "delivery_state": { "enum": ["not_ready", "ready", "packaged", "delivered", "superseded"] },
+        "stale_state": { "enum": ["fresh", "stale", "blocked"] }
+      },
+      "additionalProperties": false
+    },
+    "FilmEntityRef": {
+      "type": "object",
+      "required": ["film_entity_id", "entity_type", "version", "content_hash"],
+      "properties": {
+        "film_entity_id": { "$ref": "#/$defs/FilmEntityId" },
+        "entity_type": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "version": { "type": "integer", "minimum": 1 },
+        "content_hash": { "$ref": "#/$defs/ContentHash" }
+      },
+      "additionalProperties": false
+    },
+    "FilmProjectExtension": {
+      "type": "object",
+      "required": ["ref", "host", "states"],
+      "properties": {
+        "ref": { "$ref": "#/$defs/FilmEntityRef" },
+        "host": { "$ref": "#/$defs/HostReferences" },
+        "states": { "$ref": "#/$defs/FormalStateAxes" }
+      },
+      "additionalProperties": false
+    },
+    "ContentUnitExtension": {
+      "type": "object",
+      "required": ["ref", "host", "states", "unit_kind"],
+      "properties": {
+        "ref": { "$ref": "#/$defs/FilmEntityRef" },
+        "host": { "$ref": "#/$defs/HostReferences" },
+        "states": { "$ref": "#/$defs/FormalStateAxes" },
+        "unit_kind": { "enum": ["chapter", "episode", "special", "trailer", "extra", "film", "season", "arc", "volume"] }
+      },
+      "additionalProperties": false
+    },
+    "ScriptVersion": {
+      "type": "object",
+      "required": ["ref", "host", "states", "script_text"],
+      "properties": {
+        "ref": { "$ref": "#/$defs/FilmEntityRef" },
+        "host": { "$ref": "#/$defs/HostReferences" },
+        "states": { "$ref": "#/$defs/FormalStateAxes" },
+        "script_text": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "DirectorUnit": {
+      "type": "object",
+      "required": ["ref", "script_version_id", "states", "narrative_purpose"],
+      "properties": {
+        "ref": { "$ref": "#/$defs/FilmEntityRef" },
+        "script_version_id": { "$ref": "#/$defs/FilmEntityId" },
+        "states": { "$ref": "#/$defs/FormalStateAxes" },
+        "narrative_purpose": { "type": "string", "minLength": 1 },
+        "performance_beats": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    },
+    "ShotExtension": {
+      "type": "object",
+      "required": ["ref", "host", "states"],
+      "properties": {
+        "ref": { "$ref": "#/$defs/FilmEntityRef" },
+        "host": { "$ref": "#/$defs/HostReferences" },
+        "states": { "$ref": "#/$defs/FormalStateAxes" },
+        "director_unit_ids": { "type": "array", "items": { "$ref": "#/$defs/FilmEntityId" } }
+      },
+      "additionalProperties": false
+    },
+    "PromptDraft": {
+      "type": "object",
+      "required": ["ref", "states", "director_ir_hash", "model_capability_profile", "prompt_text"],
+      "properties": {
+        "ref": { "$ref": "#/$defs/FilmEntityRef" },
+        "states": { "$ref": "#/$defs/FormalStateAxes" },
+        "director_ir_hash": { "$ref": "#/$defs/ContentHash" },
+        "visual_lock_hash": { "$ref": "#/$defs/ContentHash" },
+        "model_capability_profile": { "type": "string", "minLength": 1 },
+        "prompt_text": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "GenerationPackage": {
+      "type": "object",
+      "required": ["ref", "prompt_draft_id", "provider_kind", "input_hash"],
+      "properties": {
+        "ref": { "$ref": "#/$defs/FilmEntityRef" },
+        "prompt_draft_id": { "$ref": "#/$defs/FilmEntityId" },
+        "provider_kind": { "enum": ["manual_web", "dreamina_cli", "flova_cli", "comfy_bridge", "blender", "generic_api"] },
+        "input_hash": { "$ref": "#/$defs/ContentHash" }
+      },
+      "additionalProperties": false
+    },
+    "Candidate": {
+      "type": "object",
+      "required": ["ref", "generation_package_id", "host", "states", "output_hash"],
+      "properties": {
+        "ref": { "$ref": "#/$defs/FilmEntityRef" },
+        "generation_package_id": { "$ref": "#/$defs/FilmEntityId" },
+        "host": { "$ref": "#/$defs/HostReferences" },
+        "states": { "$ref": "#/$defs/FormalStateAxes" },
+        "output_hash": { "$ref": "#/$defs/ContentHash" }
+      },
+      "additionalProperties": false
+    },
+    "Review": {
+      "type": "object",
+      "required": ["ref", "target_id", "review_state", "reviewer_kind"],
+      "properties": {
+        "ref": { "$ref": "#/$defs/FilmEntityRef" },
+        "target_id": { "$ref": "#/$defs/FilmEntityId" },
+        "review_state": { "$ref": "#/$defs/FormalStateAxes/properties/review_state" },
+        "reviewer_kind": { "enum": ["human", "agent", "automated_qc"] },
+        "findings": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    },
+    "Approval": {
+      "type": "object",
+      "required": ["ref", "target_id", "approved_by", "approved_content_hash"],
+      "properties": {
+        "ref": { "$ref": "#/$defs/FilmEntityRef" },
+        "target_id": { "$ref": "#/$defs/FilmEntityId" },
+        "approved_by": { "type": "string", "minLength": 1 },
+        "approved_content_hash": { "$ref": "#/$defs/ContentHash" }
+      },
+      "additionalProperties": false
+    },
+    "AuditEvent": {
+      "type": "object",
+      "required": ["event_id", "actor_kind", "action", "target_id", "recorded_at"],
+      "properties": {
+        "event_id": { "$ref": "#/$defs/FilmEntityId" },
+        "actor_kind": { "enum": ["human", "codex", "deepseek", "claude", "local_model", "system"] },
+        "action": { "type": "string", "minLength": 1 },
+        "target_id": { "$ref": "#/$defs/FilmEntityId" },
+        "recorded_at": { "type": "string", "format": "date-time" }
+      },
+      "additionalProperties": false
+    },
+    "ImpactEdge": {
+      "type": "object",
+      "required": ["source_id", "target_id", "relation", "propagates_stale"],
+      "properties": {
+        "source_id": { "$ref": "#/$defs/FilmEntityId" },
+        "target_id": { "$ref": "#/$defs/FilmEntityId" },
+        "relation": { "type": "string", "minLength": 1 },
+        "propagates_stale": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    }
+  }
+}
+
