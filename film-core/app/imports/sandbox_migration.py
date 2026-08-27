@@ -101,6 +101,8 @@ class SandboxMigration:
             film_ids[binding.film_entity_id] = path
 
         inventory_paths = {item.source_path for item in inventory.items}
+        if not inventory.items:
+            blockers.append(blocker("EMPTY_SOURCE_INVENTORY", inventory.source_root, "空来源不能形成可导出的迁移预演"))
         manifest_items: list[dict[str, Any]] = []
         for item in inventory.items:
             binding = binding_by_path.get(item.source_path)
@@ -322,10 +324,12 @@ def is_uuid_v4(value: str) -> bool:
         parsed = uuid.UUID(value)
     except (ValueError, AttributeError, TypeError):
         return False
-    return parsed.version == 4 and str(parsed) == value.lower()
+    return parsed.version == 4 and str(parsed) == value
 
 
 def validate_export_manifest(manifest: dict[str, Any]) -> None:
+    if manifest.get("schema_version") != 1:
+        raise MigrationSafetyError("manifest schema version is invalid")
     if manifest.get("mode") != "dry_run" or manifest.get("formal_apply") is not False or manifest.get("candidate_only") is not True:
         raise MigrationSafetyError("only a non-formal dry-run candidate manifest can be exported")
     if manifest.get("status") != "READY_FOR_SANDBOX_EXPORT" or manifest.get("blockers"):
@@ -361,9 +365,21 @@ def validate_export_manifest(manifest: dict[str, Any]) -> None:
         film_ids.add(film_id)
     backup = manifest.get("backup")
     rollback = manifest.get("rollback_plan")
-    if not isinstance(backup, dict) or backup.get("source_sha256") != source["sha256"]:
+    if (
+        not isinstance(backup, dict)
+        or backup.get("strategy") != "immutable_source"
+        or backup.get("source_sha256") != source["sha256"]
+        or not isinstance(backup.get("formal_import_requirement"), str)
+        or not backup["formal_import_requirement"].strip()
+    ):
         raise MigrationSafetyError("manifest backup binding is invalid")
-    if not isinstance(rollback, dict) or rollback.get("automatic_actions") != [] or not rollback.get("steps"):
+    if (
+        not isinstance(rollback, dict)
+        or rollback.get("automatic_actions") != []
+        or not isinstance(rollback.get("steps"), list)
+        or not rollback["steps"]
+        or any(not isinstance(step, str) or not step.strip() for step in rollback["steps"])
+    ):
         raise MigrationSafetyError("manifest rollback plan is invalid")
 
 

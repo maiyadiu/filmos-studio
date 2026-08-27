@@ -85,6 +85,28 @@ class SandboxMigrationTest(unittest.TestCase):
         with self.assertRaisesRegex(MigrationSafetyError, "Film identity is invalid"):
             engine.export_and_verify(self.source, self.root / "forged-package", forged)
 
+        uppercase = engine.build_dry_run_manifest(
+            inventory,
+            [
+                IdBinding("assets/角色.txt", "A0000000-0000-4000-8000-000000000001", "AssetVersion", 1),
+                bindings()[1],
+            ],
+        )
+        self.assertIn("FILM_UUID_V4_REQUIRED", [item["code"] for item in uppercase["blockers"]])
+
+    def test_empty_or_schema_less_manifest_cannot_export(self) -> None:
+        engine = SandboxMigration(self.root, enabled=True)
+        empty_source = self.root / "empty"
+        empty_source.mkdir()
+        empty_inventory = engine.inventory(empty_source, source_origin="generic-fixture")
+        empty_manifest = engine.build_dry_run_manifest(empty_inventory, [])
+        self.assertIn("EMPTY_SOURCE_INVENTORY", [item["code"] for item in empty_manifest["blockers"]])
+
+        manifest = engine.build_dry_run_manifest(engine.inventory(self.source, source_origin="generic-fixture"), bindings())
+        del manifest["schema_version"]
+        with self.assertRaisesRegex(MigrationSafetyError, "schema version"):
+            engine.export_and_verify(self.source, self.root / "schema-less", manifest)
+
     def test_export_verify_is_idempotent_and_source_remains_unchanged(self) -> None:
         engine = SandboxMigration(self.root, enabled=True)
         inventory = engine.inventory(self.source, source_origin="system-a-fixture")
