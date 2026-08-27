@@ -1,7 +1,23 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { describe, test } from "node:test";
 
-import { isFilmDynamicContentUnitsEnabled, parseFilmFeatureFlag, projectFilmContentUnits, projectFilmOverview, type FilmContentUnitExtension, type FilmFormalStateAxes, type HostProjectSnapshot } from "./index";
+import {
+    FILM_CONTENT_UNIT_KINDS,
+    FILM_CREATIVE_STAGES,
+    FILM_DELIVERY_STATES,
+    FILM_EXECUTION_STATES,
+    FILM_LOCK_STATES,
+    FILM_REVIEW_STATES,
+    FILM_STALE_STATES,
+    isFilmDynamicContentUnitsEnabled,
+    parseFilmFeatureFlag,
+    projectFilmContentUnits,
+    projectFilmOverview,
+    type FilmContentUnitExtension,
+    type FilmFormalStateAxes,
+    type HostProjectSnapshot,
+} from "./index";
 
 const freshDraft: FilmFormalStateAxes = {
     creative_stage: "draft",
@@ -35,6 +51,20 @@ const snapshot: HostProjectSnapshot = {
 };
 
 describe("Film ContentUnit Host adapter", () => {
+    test("Film 枚举与共享 JSON Schema 保持一致", () => {
+        const contract = JSON.parse(readFileSync(new URL("../../../../film-contracts/schemas/core.schema.json", import.meta.url), "utf8")) as {
+            $defs: Record<string, { properties?: Record<string, { enum?: string[] }> }>;
+        };
+        const axes = contract.$defs.FormalStateAxes.properties!;
+        assert.deepEqual([...FILM_CONTENT_UNIT_KINDS], contract.$defs.ContentUnitExtension.properties!.unit_kind.enum);
+        assert.deepEqual([...FILM_CREATIVE_STAGES], axes.creative_stage.enum);
+        assert.deepEqual([...FILM_EXECUTION_STATES], axes.execution_state.enum);
+        assert.deepEqual([...FILM_REVIEW_STATES], axes.review_state.enum);
+        assert.deepEqual([...FILM_LOCK_STATES], axes.lock_state.enum);
+        assert.deepEqual([...FILM_DELIVERY_STATES], axes.delivery_state.enum);
+        assert.deepEqual([...FILM_STALE_STATES], axes.stale_state.enum);
+    });
+
     test("复用 Host position 排序并保留未知 kind 与 parentId", () => {
         const units = projectFilmContentUnits(snapshot);
 
