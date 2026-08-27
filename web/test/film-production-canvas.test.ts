@@ -3,6 +3,18 @@ import { describe, expect, test } from "bun:test";
 import { FILM_PRODUCTION_CANVAS_DEFAULT_ENABLED, buildCreateProductionCanvasCommand, candidateFromGeneratedResult, projectProductionCanvas, resolveProductionCanvasNavigation, type FilmProductionCanvasSnapshot } from "../src/film/canvas/production-canvas";
 
 const HASH = "a".repeat(64);
+const FILM_IDS = {
+    scene: "00000000-0000-4000-8000-000000000001",
+    director1: "00000000-0000-4000-8000-000000000002",
+    director2: "00000000-0000-4000-8000-000000000003",
+    shot1: "00000000-0000-4000-8000-000000000004",
+    shot2: "00000000-0000-4000-8000-000000000005",
+    candidate: "00000000-0000-4000-8000-000000000006",
+    relation1: "00000000-0000-4000-8000-000000000101",
+    relation2: "00000000-0000-4000-8000-000000000102",
+    relation3: "00000000-0000-4000-8000-000000000103",
+    relation4: "00000000-0000-4000-8000-000000000104",
+} as const;
 
 describe("Film Production Canvas navigation", () => {
     test("feature defaults off", () => {
@@ -60,20 +72,21 @@ describe("Film Production Canvas writes and projections", () => {
     });
 
     test("provider result can only materialize as Candidate", () => {
-        expect(candidateFromGeneratedResult({ id: "candidate-1", providerResultId: "result-1" })).toEqual({
-            id: "candidate-1",
+        expect(candidateFromGeneratedResult({ id: FILM_IDS.candidate, providerResultId: "result-1" })).toEqual({
+            id: FILM_IDS.candidate,
             kind: "candidate",
             providerResultId: "result-1",
         });
+        expect(() => candidateFromGeneratedResult({ id: "client-picked-id", providerResultId: "result-1" })).toThrow("Film Core UUIDv4");
     });
 
     test("projection persists IDs, layout and relationships without duplicating film facts", () => {
         const snapshot = productionSnapshot();
         const first = projectProductionCanvas(snapshot);
-        const shotNode = first.nodes.find((node) => node.entityId === "shot-1")!;
+        const shotNode = first.nodes.find((node) => node.entityId === FILM_IDS.shot1)!;
         const moved = projectProductionCanvas(snapshot, { [shotNode.id]: { x: 999, y: 333 } });
 
-        expect(moved.nodes.find((node) => node.entityId === "shot-1")?.layout).toEqual({ x: 999, y: 333 });
+        expect(moved.nodes.find((node) => node.entityId === FILM_IDS.shot1)?.layout).toEqual({ x: 999, y: 333 });
         expect(moved.edges).toHaveLength(4);
         expect(JSON.stringify(moved)).not.toContain("台词正文不得进入画布");
         expect(Object.keys(moved.nodes[0]).sort()).toEqual(["entityId", "id", "kind", "lane", "layout"]);
@@ -95,18 +108,18 @@ function productionSnapshot(): FilmProductionCanvasSnapshot {
         filmCoreVersion: 3,
         contentHash: HASH,
         entities: [
-            { id: "scene-1", kind: "scene", position: 0 },
-            { id: "director-1", kind: "director_unit", position: 0 },
-            { id: "director-2", kind: "director_unit", position: 1 },
-            { id: "shot-1", kind: "shot", position: 0 },
-            { id: "shot-2", kind: "shot", position: 1 },
-            { id: "candidate-1", kind: "candidate", position: 0 },
+            { id: FILM_IDS.scene, kind: "scene", position: 0 },
+            { id: FILM_IDS.director1, kind: "director_unit", position: 0 },
+            { id: FILM_IDS.director2, kind: "director_unit", position: 1 },
+            { id: FILM_IDS.shot1, kind: "shot", position: 0 },
+            { id: FILM_IDS.shot2, kind: "shot", position: 1 },
+            { id: FILM_IDS.candidate, kind: "candidate", position: 0 },
         ],
         relations: [
-            { id: "scene-director", fromEntityId: "scene-1", toEntityId: "director-1", kind: "contains" },
-            { id: "coverage-1", fromEntityId: "director-1", toEntityId: "shot-1", kind: "coverage" },
-            { id: "coverage-2", fromEntityId: "director-1", toEntityId: "shot-2", kind: "coverage" },
-            { id: "coverage-3", fromEntityId: "director-2", toEntityId: "shot-2", kind: "coverage" },
+            { id: FILM_IDS.relation1, fromEntityId: FILM_IDS.scene, toEntityId: FILM_IDS.director1, kind: "contains" },
+            { id: FILM_IDS.relation2, fromEntityId: FILM_IDS.director1, toEntityId: FILM_IDS.shot1, kind: "coverage" },
+            { id: FILM_IDS.relation3, fromEntityId: FILM_IDS.director1, toEntityId: FILM_IDS.shot2, kind: "coverage" },
+            { id: FILM_IDS.relation4, fromEntityId: FILM_IDS.director2, toEntityId: FILM_IDS.shot2, kind: "coverage" },
         ],
     };
 }

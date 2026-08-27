@@ -100,6 +100,8 @@ const LANE_X: Record<FilmProductionCanvasLane, number> = {
 };
 
 const HASH_PATTERN = /^[a-f0-9]{64}$/;
+const FILM_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+const NODE_KIND_SET = new Set<FilmProductionCanvasNodeKind>(["scene", "director_unit", "shot", "coverage_link", "asset_binding", "previs", "prompt_draft", "candidate", "approved", "review"]);
 
 export function isFilmProductionCanvasEnabled(explicit?: boolean) {
     return explicit ?? FILM_PRODUCTION_CANVAS_DEFAULT_ENABLED;
@@ -142,7 +144,8 @@ export function buildCreateProductionCanvasCommand(input: { hostProjectId: strin
 
 export function candidateFromGeneratedResult(input: { id: string; providerResultId: string }): GeneratedCandidate {
     return {
-        id: requiredId(input.id, "candidateId"),
+        // Film Core issues the Candidate ID; the canvas never invents formal identity.
+        id: requiredFilmId(input.id, "candidateId"),
         kind: "candidate",
         providerResultId: requiredId(input.providerResultId, "providerResultId"),
     };
@@ -199,15 +202,22 @@ export function projectProductionCanvas(snapshot: FilmProductionCanvasSnapshot, 
 function validateSnapshot(snapshot: FilmProductionCanvasSnapshot) {
     requiredId(snapshot.hostProjectId, "hostProjectId");
     requiredId(snapshot.hostUnitId, "hostUnitId");
-    if (!Number.isSafeInteger(snapshot.filmCoreVersion) || snapshot.filmCoreVersion < 0) {
-        throw new Error("filmCoreVersion 必须是非负安全整数");
+    if (!Number.isSafeInteger(snapshot.filmCoreVersion) || snapshot.filmCoreVersion < 1) {
+        throw new Error("filmCoreVersion 必须是正安全整数");
     }
     if (!HASH_PATTERN.test(snapshot.contentHash)) throw new Error("contentHash 必须是小写 SHA-256");
     const ids = new Set<string>();
     for (const entity of snapshot.entities) {
-        requiredId(entity.id, "entityId");
+        requiredFilmId(entity.id, "entityId");
+        if (!NODE_KIND_SET.has(entity.kind)) throw new Error(`正式快照包含未知实体类型：${String(entity.kind)}`);
         if (ids.has(entity.id)) throw new Error(`正式快照包含重复实体 ID：${entity.id}`);
         ids.add(entity.id);
+    }
+    const relationIds = new Set<string>();
+    for (const relation of snapshot.relations) {
+        requiredFilmId(relation.id, "relationId");
+        if (relationIds.has(relation.id)) throw new Error(`正式快照包含重复关系 ID：${relation.id}`);
+        relationIds.add(relation.id);
     }
 }
 
@@ -239,5 +249,11 @@ function laneForKind(kind: FilmProductionCanvasNodeKind): FilmProductionCanvasLa
 function requiredId(value: string, field: string) {
     const normalized = value.trim();
     if (!normalized) throw new Error(`${field} 不能为空`);
+    return normalized;
+}
+
+function requiredFilmId(value: string, field: string) {
+    const normalized = requiredId(value, field);
+    if (!FILM_ID_PATTERN.test(normalized)) throw new Error(`${field} 必须是 Film Core UUIDv4`);
     return normalized;
 }

@@ -11,6 +11,7 @@
 ## 已实施
 
 - `web/src/film/canvas/production-canvas.ts`：默认关闭的 navigation resolver、revision/hash 写命令、五泳道纯投影、关系重建与 Candidate 构造器。
+- 集成复核补强：实体、关系和 Candidate 仅接受 Film Core 已签发 UUIDv4；正式快照版本从 1 起，未知实体类型与重复关系 ID 被拒绝，Canvas 不生成正式身份。
 - 投影输出只含实体 ID、节点类型、泳道、布局、关系和正式快照版本标记；不复制台词、Prompt、审批或资产正文。
 - 多个 production 链接返回显式 conflict；单一链接复用原 Canvas；无链接仅返回 create intent。
 - `CR-05-001`：向共享 Owner 请求正式幂等写路径、唯一性和乐观并发约束。
