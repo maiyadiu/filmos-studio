@@ -1,0 +1,87 @@
+name: FilmOS upstream compatibility
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_ref:
+        description: Read-only Yingce Candidate ref
+        required: true
+        default: upstream-yingce/main
+  schedule:
+    - cron: "20 2 * * *"
+  pull_request:
+    paths:
+      - scripts/upstream/**
+      - .github/workflows/film-upstream-compat.yml
+      - implementation/UPSTREAM_COMPATIBILITY.md
+
+permissions:
+  contents: read
+
+jobs:
+  compatibility:
+    name: Stable v1.2.1 vs Yingce Candidate
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure read-only source remotes
+        shell: bash
+        run: |
+          if git remote get-url upstream-yingce >/dev/null 2>&1; then
+            git remote set-url upstream-yingce https://github.com/ddcat-ai/open-ai-canvas.git
+          else
+            git remote add upstream-yingce https://github.com/ddcat-ai/open-ai-canvas.git
+          fi
+          if git remote get-url reference-tigerowo >/dev/null 2>&1; then
+            git remote set-url reference-tigerowo https://github.com/tigerowo/infinite-canvas.git
+          else
+            git remote add reference-tigerowo https://github.com/tigerowo/infinite-canvas.git
+          fi
+          if git remote get-url reference-basket >/dev/null 2>&1; then
+            git remote set-url reference-basket https://github.com/basketikun/infinite-canvas.git
+          else
+            git remote add reference-basket https://github.com/basketikun/infinite-canvas.git
+          fi
+
+      - name: Fetch refs without merging
+        shell: bash
+        run: |
+          git fetch --no-tags upstream-yingce main:refs/remotes/upstream-yingce/main
+          git fetch --no-tags reference-tigerowo main:refs/remotes/reference-tigerowo/main
+          git fetch --no-tags reference-basket main:refs/remotes/reference-basket/main
+          git fetch upstream-yingce refs/tags/v1.2.1:refs/tags/v1.2.1
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache: true
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.9
+
+      - name: Run Track 00 regression tests
+        run: python3 -m unittest discover -s scripts/upstream/tests -p 'test_*.py' -v
+
+      - name: Analyze and build isolated Candidate
+        env:
+          CANDIDATE_REF: ${{ inputs.candidate_ref || 'upstream-yingce/main' }}
+        run: |
+          scripts/upstream/run-compat \
+            --candidate "$CANDIDATE_REF" \
+            --build-candidate \
+            --output .local/upstream-compat \
+            --fail-on D_BLOCKED
+
+      - name: Upload compatibility evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: film-upstream-compat
+          path: .local/upstream-compat/
+          if-no-files-found: error
+          retention-days: 14

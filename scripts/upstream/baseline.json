@@ -1,0 +1,21 @@
+{
+  "repository": "ddcat-ai/open-ai-canvas",
+  "release_api": "https://api.github.com/repos/ddcat-ai/open-ai-canvas/releases/latest",
+  "stable": {
+    "tag": "v1.2.1",
+    "alias_tag": "filmos-upstream-v1.2.1",
+    "commit": "61b332583c4fcbf71890ae67e3f0f104d67706b9",
+    "tree": "87c68a9da95ef4f5914b7fc5d662dc0aac452264"
+  },
+  "candidate_ref": "upstream-yingce/main",
+  "dev_ref": "HEAD",
+  "remotes": {
+    "upstream-yingce": "https://github.com/ddcat-ai/open-ai-canvas.git",
+    "reference-tigerowo": "https://github.com/tigerowo/infinite-canvas.git",
+    "reference-basket": "https://github.com/basketikun/infinite-canvas.git"
+  },
+  "read_only_reference_remotes": [
+    "reference-tigerowo",
+    "reference-basket"
+  ]
+}
