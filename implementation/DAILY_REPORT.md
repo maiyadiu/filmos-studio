@@ -34,3 +34,14 @@
 - 生产画布：ID-only 纯投影、唯一默认画布冲突提示、revision/hash 写入意图和多对多 Coverage `7/0`；Canvas 仍非正式事实源。
 - 联合验证：Film Web 专项合计 `23/0`，TypeScript 与生产构建通过；保留既有大 chunk 告警。
 - 未完成：真实 Golden A 纵向链、浏览器 UI、签名 `.app`、Host 唯一 production 画布写路径与系统 A/B 来源验证仍未完成。
+
+## 2026-08-28 开工批次 05
+
+- 集成：Track 06–12 已完成首切片审查并合入 `integration`；十四轨均已启动并留下独立分支、代码/计划或核查证据。
+- 资产/提示词/导演：Asset/VisualLock `10/0`，PromptDraft `8/0`，Director 连续性 `9/0`；稳定 ID、版本、哈希、Host opaque ID 和 Candidate/Approved 分离均失败关闭。ObjectID 仍为 `MISSING_NOT_IMPLEMENTED`。
+- Agent：离线 Read → Preview → Apply 网关 `13/0`；Canvas Agent 原生回归 `328/0`、5 个 Windows 专项 skip。实际 Film MCP 尚未注册，真实 Sidecar/MCP Golden 未跑。
+- Provider：本地 Submission Package 与 Manual Result Import `11/0`；包固定 `not_submitted`，导入只产生 Candidate。Dreamina 仅声明源码可证实的图像/视频复用边界；Comfy 未推断具体模型能力；Flova 保持 `UNVERIFIED_SOURCE_ABSENT/DEFERRED`。
+- 迁移/远程：沙箱迁移预演 `8/0`，未打开数据库或真实用户数据；Remote Authority Preview `8/0`、48 assertions，网络动作和上传均为 0。
+- 当前头总门禁：Film Web `69/0`、189 assertions，TypeScript 与生产构建通过；Film Core `10/0`；Contracts 通过；Golden A 离线 Mock `4/0`；迁移 `8/0`。
+- 过程证据：Agent 首次集成专项因依赖目录未安装而无法加载 `zod`，按锁文件安装后专项、构建和完整回归通过；Film Core 总门禁第一次命令路径重复写入 `film-core/tests`，没有进入测试，改为当前目录 `tests` 后 `10/0` 通过。
+- 准确边界：无外部生成、上传、远程发布或积分消费；Candidate 分支仍未通过真实 Golden，不是可发布候选版。
