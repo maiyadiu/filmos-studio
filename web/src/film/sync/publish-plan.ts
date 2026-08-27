@@ -233,19 +233,41 @@ function validatePlanInput(input: RemotePublishPlanInput): RemotePublishPlanInpu
     if (!isDateTime(input.generated_at)) throw new Error("generated_at 必须为 RFC3339 时间");
     if (!Array.isArray(input.content_units) || !Array.isArray(input.assets)) throw new Error("content_units/assets 必须为数组");
     input.content_units.forEach((selection, index) => validateSelection(selection, `content_units[${index}]`));
+    validateUniqueSelections(input.content_units, "content_units");
     input.assets.forEach((selection, index) => {
         validateSelection(selection, `assets[${index}]`);
         if (!["LOCAL_ONLY", "LOCAL_PROXY_READY", "REMOTE_RESOURCE"].includes(selection.availability)) {
             throw new Error(`assets[${index}].availability 无效`);
         }
         if (selection.proxy_ref) validateReference(selection.proxy_ref, `assets[${index}].proxy_ref`);
+        if (selection.availability === "LOCAL_ONLY" && !selection.local) throw new Error(`assets[${index}].local 是 LOCAL_ONLY 资产的必填正式引用`);
+        if (selection.availability === "LOCAL_PROXY_READY" && (!selection.local || !selection.proxy_ref)) {
+            throw new Error(`assets[${index}] 的 LOCAL_PROXY_READY 必须同时绑定 local 与 proxy_ref`);
+        }
+        if (selection.availability === "REMOTE_RESOURCE" && !selection.remote) throw new Error(`assets[${index}].remote 是 REMOTE_RESOURCE 的必填正式引用`);
     });
+    validateUniqueSelections(input.assets, "assets");
     if (input.remote_results !== undefined && !Array.isArray(input.remote_results)) throw new Error("remote_results 必须为数组");
     input.remote_results?.forEach((result, index) => {
         validateReference(result.candidate_ref, `remote_results[${index}].candidate_ref`);
         validateReference(result.target_ref, `remote_results[${index}].target_ref`);
+        if (result.candidate_ref.entity_type !== "candidate") throw new Error(`remote_results[${index}].candidate_ref 必须引用 Candidate`);
+    });
+    const resultIds = new Set<string>();
+    input.remote_results?.forEach((result, index) => {
+        if (resultIds.has(result.candidate_ref.film_entity_id)) throw new Error(`remote_results[${index}] 重复引用同一 Candidate`);
+        resultIds.add(result.candidate_ref.film_entity_id);
     });
     return structuredClone(input);
+}
+
+function validateUniqueSelections(selections: PublishSelection[], path: string) {
+    const ids = new Set<string>();
+    selections.forEach((selection, index) => {
+        const identity = selection.local?.film_entity_id ?? selection.remote?.film_entity_id;
+        if (identity && ids.has(identity)) throw new Error(`${path}[${index}] 重复选择同一 Film 实体`);
+        if (identity) ids.add(identity);
+    });
 }
 
 function validateSelection(selection: PublishSelection, path: string) {
@@ -273,11 +295,13 @@ function requireUuid4(value: string, path: string) {
 }
 
 function requireOpaqueId(value: string, path: string) {
-    if (typeof value !== "string" || !value.trim() || value.length > 512) throw new Error(`${path} 必须为非空 Host opaque ID`);
+    if (typeof value !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(value)) {
+        throw new Error(`${path} 必须为无路径、无 URL 的 Host opaque ID`);
+    }
 }
 
 function isDateTime(value: string) {
-    return typeof value === "string" && Number.isFinite(Date.parse(value));
+    return typeof value === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(value) && Number.isFinite(Date.parse(value));
 }
 
 async function sha256(value: unknown) {

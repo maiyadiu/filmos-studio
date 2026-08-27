@@ -130,8 +130,16 @@ describe("Film remote authority and publish preview", () => {
         await expect(buildRemotePublishPreview(invalidHash, enabledPolicy())).rejects.toThrow("SHA-256");
 
         const invalidHost = cloneFixture();
-        invalidHost.remote_results![0].candidate_ref.host_ref.opaque_id = "";
+        invalidHost.remote_results![0].candidate_ref.host_ref.opaque_id = "/tmp/result.json";
         await expect(buildRemotePublishPreview(invalidHost, enabledPolicy())).rejects.toThrow("Host opaque ID");
+
+        const invalidCandidate = cloneFixture();
+        invalidCandidate.remote_results![0].candidate_ref.entity_type = "approved_asset";
+        await expect(buildRemotePublishPreview(invalidCandidate, enabledPolicy())).rejects.toThrow("Candidate");
+
+        const invalidAvailability = cloneFixture();
+        invalidAvailability.assets[0].availability = "REMOTE_RESOURCE";
+        await expect(buildRemotePublishPreview(invalidAvailability, enabledPolicy())).rejects.toThrow("REMOTE_RESOURCE");
     });
 
     test("unsafe policy cannot enable network publication or implicit local asset upload", () => {

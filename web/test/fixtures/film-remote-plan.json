@@ -1,6 +1,6 @@
 {
     "plan_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-    "host_project_id": "host-project:opaque/001",
+    "host_project_id": "host-project:opaque-001",
     "generated_at": "2026-08-28T09:00:00.000Z",
     "content_units": [
         {
@@ -11,7 +11,7 @@
                 "content_hash": "1111111111111111111111111111111111111111111111111111111111111111",
                 "host_ref": {
                     "object_kind": "project_unit",
-                    "opaque_id": "host-unit:opaque/001"
+                    "opaque_id": "host-unit:opaque-001"
                 }
             }
         }
@@ -26,7 +26,7 @@
                 "content_hash": "2222222222222222222222222222222222222222222222222222222222222222",
                 "host_ref": {
                     "object_kind": "asset_version",
-                    "opaque_id": "host-asset-version:opaque/001"
+                    "opaque_id": "host-asset-version:opaque-001"
                 }
             },
             "proxy_ref": {
@@ -36,7 +36,7 @@
                 "content_hash": "3333333333333333333333333333333333333333333333333333333333333333",
                 "host_ref": {
                     "object_kind": "resource",
-                    "opaque_id": "host-resource:opaque/proxy-001"
+                    "opaque_id": "host-resource:opaque-proxy-001"
                 }
             }
         }
@@ -50,7 +50,7 @@
                 "content_hash": "4444444444444444444444444444444444444444444444444444444444444444",
                 "host_ref": {
                     "object_kind": "resource",
-                    "opaque_id": "remote-result:opaque/001"
+                    "opaque_id": "remote-result:opaque-001"
                 }
             },
             "target_ref": {
@@ -60,7 +60,7 @@
                 "content_hash": "1111111111111111111111111111111111111111111111111111111111111111",
                 "host_ref": {
                     "object_kind": "project_unit",
-                    "opaque_id": "host-unit:opaque/001"
+                    "opaque_id": "host-unit:opaque-001"
                 }
             }
         }

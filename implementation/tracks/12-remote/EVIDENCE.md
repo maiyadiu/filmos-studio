@@ -36,7 +36,7 @@
 
 命令：`cd web && bun test test/film-remote-sync.test.ts`
 
-结果：`8 pass / 0 fail / 46 expect()`。
+结果：`8 pass / 0 fail / 48 expect()`。
 
 覆盖：
 
@@ -45,7 +45,7 @@
 - Film ID/entity type/version/hash 分歧全部显式阻断；
 - Remote Authority 缺远端事实时禁止静默回退；
 - 远端结果 Candidate-only，必须本地批准；
-- UUIDv4/version/SHA-256/Host opaque ID 校验；
+- UUIDv4/version/SHA-256/无路径 Host opaque ID、Candidate 类型与资产 availability 绑定校验；
 - 运行时拒绝开启网络与隐式上传；
 - 相同输入生成相同 manifest hash。
 
@@ -60,7 +60,7 @@
 以 fixture 和仅用于离线测试的 `enabled=true / LOCAL_AUTHORITY` 策略生成 Preview：
 
 - `execution_state=PREVIEW_ONLY`
-- `manifest_hash=0aa29e242a9a433e3da504252c6c08686ee83feb263b5dc2cf71ade1ba2316db`
+- `manifest_hash=948c99b9d1cb033f216a3d10788dd00f6263cb1319be8aee5b30e258ea1ac724`
 - `network.executed=false`
 - `network.actions=[]`
 - 远端结果为 `CANDIDATE_ONLY / REQUIRED / can_auto_promote=false`
@@ -71,3 +71,4 @@
 - `proxy_jobs.state=NOT_GENERATED` 只表示需要本地代理，不表示代理已生成。
 - 本切片没有共享 Film Contract、OpenAPI、Host 核心表或现有 User Data Sync 改动。
 - 后续接线必须先通过 CR，由对应 Owner 实施，并重新校验 manifest hash、用户授权、对象归属和 Film version/hash。
+- Program Integrator 已统一 Host opaque ID 为无路径/无 URL 形式，并补充 Remote Resource、Candidate 类型、重复选择和严格 UTC 时间门禁。
