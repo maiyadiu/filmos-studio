@@ -316,6 +316,18 @@ test("Preview rejects missing formal guards before transport", async () => {
   assert.equal(transport.previewCalls, 0);
 });
 
+test("gateway exposes only command types implemented by the current Film Core contract", async () => {
+  const { gateway, transport } = fixture();
+  const guards = guardsFrom(await readEntity(gateway));
+  await assert.rejects(
+    gateway.callTool("film_command_preview", {
+      command: { ...updateCommand, command_type: "director.update" },
+      guards,
+    }),
+  );
+  assert.equal(transport.previewCalls, 0);
+});
+
 test("non-human Agent cannot self-approve or lock a script and the denial is audited", async () => {
   const { gateway, transport, audit } = fixture();
   const guards = guardsFrom(await readEntity(gateway));
@@ -449,7 +461,7 @@ test("project context requires an opaque Host id", async () => {
   );
 });
 
-test("Provider and generation commands remain outside Track 08", async () => {
+test("Provider and generation commands are rejected by the current contract before transport", async () => {
   const { gateway, transport } = fixture();
   const guards = guardsFrom(await readEntity(gateway));
   await assert.rejects(
@@ -457,9 +469,6 @@ test("Provider and generation commands remain outside Track 08", async () => {
       command: { ...updateCommand, command_type: "provider.submit" },
       guards,
     }),
-    (error: unknown) =>
-      error instanceof FilmAgentGatewayError &&
-      error.code === "provider_boundary",
   );
   assert.equal(transport.previewCalls, 0);
 });

@@ -31,7 +31,7 @@
 
 ```text
 bun test test/film-agent-gateway.test.ts
-12 pass / 0 fail
+13 pass / 0 fail
 
 npm test
 326 pass / 0 fail / 5 skipped (Windows-specific)
@@ -50,3 +50,4 @@ exit 0
 2. Track 02 的新版 Command 合同包含 `actor_kind`；旧 V0 OpenAPI 未列该字段。integration 必须先含 Track 02 后再接线。
 3. 接线后需由 Track 13 运行真实 MCP 注册、Film Core Sidecar、冲突与恢复 Golden；本轨离线测试不能替代生产可用性证明。
 4. Program Integrator 已要求 Preview 完整匹配命令/目标/结果版本/哈希，并将 Human Only 的操作者、确认时间和原因绑定进 AgentAudit。
+5. 离线网关当前只接受 Film Core 已实现的 `entity.create` 与 `entity.set_states`；其他计划命令在共享 OpenAPI/生成式 MCP Schema 落地前失败关闭。

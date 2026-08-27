@@ -33,15 +33,26 @@ export const filmActorKindSchema = z.enum([
 ]);
 export type FilmActorKind = z.infer<typeof filmActorKindSchema>;
 
-export const filmCommandSchema = z
-  .object({
-    command_type: z.string().trim().min(1).max(128),
-    target_id: uuid4Schema.nullable(),
-    expected_version: z.number().int().nonnegative(),
-    actor_kind: filmActorKindSchema.optional(),
-    payload: z.record(z.unknown()),
-  })
-  .strict();
+export const filmCommandSchema = z.discriminatedUnion("command_type", [
+  z
+    .object({
+      command_type: z.literal("entity.create"),
+      target_id: z.null(),
+      expected_version: z.literal(0),
+      actor_kind: filmActorKindSchema.optional(),
+      payload: z.record(z.unknown()),
+    })
+    .strict(),
+  z
+    .object({
+      command_type: z.literal("entity.set_states"),
+      target_id: uuid4Schema,
+      expected_version: z.number().int().min(1),
+      actor_kind: filmActorKindSchema.optional(),
+      payload: z.record(z.unknown()),
+    })
+    .strict(),
+]);
 export type FilmCommand = z.infer<typeof filmCommandSchema>;
 
 export const filmWriteGuardsSchema = z

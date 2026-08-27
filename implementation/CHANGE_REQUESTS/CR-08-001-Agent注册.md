@@ -10,7 +10,8 @@ Track 08 只拥有 `canvas-agent/src/film/**`。首切片已提供默认关闭�
 
 1. 在 `canvas-agent/src/mcp-server.ts` 调用 `registerFilmAgentMcp(server, config)`；注册函数自身仅在 `FILMOS_AGENT_GATEWAY_ENABLED=true` 时暴露工具。
 2. 保持现有 `canvasOnly` 与 Dreamina 行为不变；默认环境下 Film 工具数量必须为 0。
-3. 若发布独立 `plugins/film-agent/`，再由 marketplace Owner 增加插件登记；本 CR 不要求提前发布。
+3. 注册前由 Track 02/08 将 Film Core OpenAPI 生成为 MCP/Zod Schema，或增加严格合同同步门禁；不得长期保留 API、Agent 和 UI 三套手写定义。
+4. 若发布独立 `plugins/film-agent/`，再由 marketplace Owner 增加插件登记；本 CR 不要求提前发布。
 
 ## 依赖
 
