@@ -22,7 +22,7 @@
 
 ```text
 bun test test/film-prompt-draft.test.ts
-6 pass, 0 fail, 24 expect() calls
+8 pass, 0 fail
 ```
 
 ```text
@@ -47,3 +47,4 @@ Bundled 1 module
 - 全量 Web typecheck 已通过；未运行完整 Vite 产品构建，纯 TypeScript 首切片另以 browser bundle 验证。
 - 未运行 Provider/MCP 集成测试：首切片没有接入它们。
 - 未声称真实生成或 Golden A：本次只有本地 PromptDraft 编译与审计。
+- Flova 在当前源码中无可验证 Provider 实现，编译器对 `flova_cli` 失败关闭并标记为 `UNVERIFIED/DEFER`。

@@ -164,6 +164,26 @@ describe("Film PromptDraft compiler", () => {
         expect(after.hashes.prompt_hash).not.toBe(before.hashes.prompt_hash);
         expect(after.bindings.assets.some((asset) => asset.binding.contentHash === "e".repeat(64))).toBe(true);
     });
+
+    it("returns a structured failure before normalization when nested input is missing", async () => {
+        const input = await validInput();
+        delete (input as Partial<PromptDraftCompilerInput>).scope;
+        await expectCompileFailure(input, "PROJECT_MISSING");
+    });
+
+    it("rejects path-like Host references, unknown Host kinds and unverified Flova capability", async () => {
+        const pathLike = await validInput();
+        pathLike.scope.project.hostReferences = [{ kind: "project", id: "/tmp/project.json" }];
+        await expectCompileFailure(pathLike, "PROJECT_HOST_REF_0_ID_INVALID");
+
+        const unknownKind = await validInput();
+        unknownKind.scope.project.hostReferences = [{ kind: "collection" as never, id: "host-project-1" }];
+        await expectCompileFailure(unknownKind, "PROJECT_HOST_REF_0_KIND_INVALID");
+
+        const flova = await validInput();
+        flova.providerCapability.providerKind = "flova_cli";
+        await expectCompileFailure(flova, "CAPABILITY_PROVIDER_UNVERIFIED");
+    });
 });
 
 function binding(filmEntityId: string, entityType: string, hashCharacter: string, kind: "project" | "unit" | "shot" | "asset_version", id: string) {

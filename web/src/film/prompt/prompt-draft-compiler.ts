@@ -158,8 +158,13 @@ export class PromptDraftCompileError extends Error {
 
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const SHA256 = /^[0-9a-f]{64}$/;
+const HOST_REFERENCE_KINDS: readonly HostReferenceKind[] = ["project", "unit", "shot", "asset", "asset_version", "canvas", "resource"];
+const PATH_OR_PUBLIC_URL = /(?:[\\/]|^(?:~|file:|https?:|[a-zA-Z]:))/;
 
 export async function compilePromptDraft(input: PromptDraftCompilerInput): Promise<CompiledPromptDraft> {
+    const preflight = await auditPromptDraftInput(input);
+    if (preflight.status === "FAIL") throw new PromptDraftCompileError(preflight);
+
     const normalized = normalizeInput(input);
     const report = await auditPromptDraftInput(normalized);
     if (report.status === "FAIL") throw new PromptDraftCompileError(report);
@@ -395,6 +400,10 @@ function validateBinding(binding: FilmHostBinding | undefined, code: string, req
     const seen = new Set<string>();
     binding.hostReferences.forEach((reference, index) => {
         if (!reference?.kind || !reference.id?.trim()) fail(`HOST_REF_${index}_INVALID`, "Host reference kind and id are required");
+        else {
+            if (!HOST_REFERENCE_KINDS.includes(reference.kind)) fail(`HOST_REF_${index}_KIND_INVALID`, "Host reference kind is outside the Film Contracts V0 allow-list");
+            if (PATH_OR_PUBLIC_URL.test(reference.id.trim())) fail(`HOST_REF_${index}_ID_INVALID`, "Host reference id must be opaque, not a path or public URL");
+        }
         const key = `${reference?.kind}:${reference?.id}`;
         if (seen.has(key)) fail(`HOST_REF_${index}_DUPLICATE`, "Host references must be unique");
         seen.add(key);
@@ -414,7 +423,7 @@ function validateTemplate(template: PromptDraftCompilerInput["template"] | undef
         fail("TEMPLATE_MISSING", "Host PromptTemplate binding is required");
         return;
     }
-    if (!template.hostPromptTemplateId?.trim()) fail("TEMPLATE_HOST_ID_INVALID", "Host PromptTemplate id is required");
+    if (!template.hostPromptTemplateId?.trim() || PATH_OR_PUBLIC_URL.test(template.hostPromptTemplateId.trim())) fail("TEMPLATE_HOST_ID_INVALID", "Host PromptTemplate id must be an opaque reference");
     if (!template.operation?.trim()) fail("TEMPLATE_OPERATION_INVALID", "PromptTemplate operation is required");
     if (!Number.isInteger(template.version) || template.version < 1) fail("TEMPLATE_VERSION_INVALID", "PromptTemplate version must be positive");
     if (!SHA256.test(template.contentHash)) fail("TEMPLATE_HASH_INVALID", "PromptTemplate contentHash must be a lowercase SHA-256");
@@ -427,8 +436,9 @@ function validateCapability(capability: ProviderCapabilityProfile | undefined, f
         fail("CAPABILITY_MISSING", "Provider capability profile is required");
         return;
     }
-    if (!capability.profileId?.trim() || !capability.dialect?.trim()) fail("CAPABILITY_ID_INVALID", "Capability profile id and dialect are required");
+    if (!capability.profileId?.trim() || PATH_OR_PUBLIC_URL.test(capability.profileId.trim()) || !capability.dialect?.trim()) fail("CAPABILITY_ID_INVALID", "Capability profile id must be opaque and dialect is required");
     if (!["manual_web", "dreamina_cli", "flova_cli", "comfy_bridge", "blender", "generic_api"].includes(capability.providerKind)) fail("CAPABILITY_PROVIDER_INVALID", "providerKind is not supported by Film Contracts V0");
+    if (capability.providerKind === "flova_cli") fail("CAPABILITY_PROVIDER_UNVERIFIED", "Flova capability is not verified in the current source and remains DEFER");
     if (!["text", "image", "video", "audio", "scene"].includes(capability.outputKind)) fail("CAPABILITY_OUTPUT_INVALID", "outputKind is invalid");
     if (!Number.isInteger(capability.profileVersion) || capability.profileVersion < 1) fail("CAPABILITY_VERSION_INVALID", "Capability profile version must be positive");
     if (!Number.isInteger(capability.limits?.maxPromptCharacters) || capability.limits.maxPromptCharacters < 1) fail("CAPABILITY_PROMPT_LIMIT_INVALID", "maxPromptCharacters must be positive");

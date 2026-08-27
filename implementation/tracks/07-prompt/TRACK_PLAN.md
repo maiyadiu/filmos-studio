@@ -26,10 +26,11 @@ STATUS: `LOCAL_SLICE_IMPLEMENTED_NOT_INTEGRATED`
 
 - `web/src/film/prompt/prompt-draft-compiler.ts`
   - 调用方必须显式传入 `film.prompt_kernel=true`，仓库默认仍关闭。
-  - Draft ID 使用外部分配的 UUIDv4；写入必须携带 `expectedVersion`，且 `targetVersion = expectedVersion + 1`。
+  - Draft ID 使用 Film Core 外部分配的 UUIDv4；Web 编译器不自行生成正式身份；写入必须携带 `expectedVersion`，且 `targetVersion = expectedVersion + 1`。
   - Project、Shot、DirectorUnit、VisualLock、每个 Asset 均绑定稳定 Film ID、Host reference、version、SHA-256。
   - Director IR、VisualLock 与 Host PromptTemplate 正文逐项重算 SHA-256；不接受陈旧 hash。
   - Provider kind、输出类型、方言、支持项、必填项、字符和参考资产上限全部显式输入。
+  - Host 引用与模板/能力配置 ID 只能使用不含路径或公开 URL 的稳定不透明标识；当前源码无 Flova 实现，因此 `flova_cli` 明确失败为 `UNVERIFIED/DEFER`。
   - 对资产顺序和 Host refs 做稳定排序，以 canonical JSON + SHA-256 生成 `input_hash`、`prompt_hash`、`capability_hash`。
   - 输出固定为 `NOT_SUBMITTED / CANDIDATE_ONLY / SEPARATE_HUMAN_ACTION_REQUIRED`。
 - `web/test/film-prompt-draft.test.ts`
