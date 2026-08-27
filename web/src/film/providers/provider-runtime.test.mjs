@@ -36,6 +36,7 @@ describe("Film Provider registry", () => {
 
     test("keeps Flova explicitly unverified and refuses to prepare it", async () => {
         const registry = enabledRegistry();
+        expect(registry.get("dreamina_cli")?.capabilityIds).toEqual(["image", "video"]);
         expect(registry.get("flova_cli")).toMatchObject({
             sourceState: "UNVERIFIED_SOURCE_ABSENT",
             boundary: "DEFERRED",
@@ -66,6 +67,10 @@ describe("Film Provider registry", () => {
             evidence: ["UNVERIFIED_SOURCE_ABSENT"],
         };
         expect(() => new FilmProviderRegistry({ enabled: true, providers: [invalid] })).toThrow("cannot expose local operations");
+        expect(() => new FilmProviderRegistry({
+            enabled: true,
+            providers: [{ ...invalid, sourceState: "VERIFIED_SOURCE_PRESENT", capabilityIds: ["image"], boundary: "DEFERRED" }],
+        })).toThrow("Deferred Provider");
     });
 });
 
@@ -114,6 +119,7 @@ describe("Submission Package", () => {
             { reference: "https://example.test/image.png" },
             { reference: "data:image/png;base64,AAAA" },
             { reference: "/Users/example/image.png" },
+            { reference: "../outside/image.png" },
         ];
         for (const parameters of rejectedParameters) {
             await expect(
@@ -190,6 +196,16 @@ describe("Manual Result Import", () => {
         await expect(
             importManualProviderResult(registry, importInput(generationPackage, { outputs: [] })),
         ).rejects.toMatchObject({ code: "manual_result_outputs_empty" });
+        await expect(
+            importManualProviderResult(registry, importInput(generationPackage, {
+                receipt: { receiptId: "manual-receipt-001", contentHash: HASH_C, capturedAt: "2026-08-28T02:03:00.000Z" },
+            })),
+        ).rejects.toMatchObject({ code: "import_precedes_receipt" });
+        await expect(
+            importManualProviderResult(registry, importInput(generationPackage, {
+                outputs: [{ ...importInput(generationPackage).outputs[0], bytes: 0 }],
+            })),
+        ).rejects.toMatchObject({ code: "output_bytes_invalid" });
     });
 });
 

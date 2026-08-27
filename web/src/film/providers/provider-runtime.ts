@@ -49,7 +49,7 @@ export const BUILTIN_FILM_PROVIDERS: readonly FilmProviderDescriptor[] = Object.
         displayName: "Dreamina CLI",
         sourceState: "VERIFIED_SOURCE_PRESENT",
         boundary: "REUSE_HOST_RUNTIME",
-        capabilityIds: Object.freeze(["text", "image", "video"]),
+        capabilityIds: Object.freeze(["image", "video"]),
         canPreparePackage: true,
         canImportManualResult: true,
         externalExecution: "NOT_EXPOSED",
@@ -405,6 +405,12 @@ export async function importManualProviderResult(
     assertOpaqueId(input.manualSource.importedBy, "manualSource.importedBy");
     assertOpaqueId(input.manualSource.authorizationEvidenceId, "manualSource.authorizationEvidenceId");
     assertIsoTimestamp(input.manualSource.importedAt, "manualSource.importedAt");
+    if (Date.parse(generationPackage.preparedAt) > Date.parse(input.receipt.capturedAt)) {
+        throw new FilmProviderBoundaryError("receipt_precedes_package", "Provider receipt cannot predate the prepared package");
+    }
+    if (Date.parse(input.receipt.capturedAt) > Date.parse(input.manualSource.importedAt)) {
+        throw new FilmProviderBoundaryError("import_precedes_receipt", "Manual import cannot predate the captured Provider receipt");
+    }
     const outputs = normalizeOutputs(input.outputs);
     if (outputs.some((output) => output.outputKind !== generationPackage.capabilityId)) {
         throw new FilmProviderBoundaryError("provider_result_capability_mismatch", "Manual result output kind does not match the prepared capability");
@@ -547,8 +553,23 @@ function normalizeDescriptor(descriptor: FilmProviderDescriptor): FilmProviderDe
         assertCapabilityId(capabilityId);
         return capabilityId;
     }))].sort();
+    if (!["VERIFIED_SOURCE_PRESENT", "UNVERIFIED_SOURCE_ABSENT"].includes(descriptor.sourceState)) {
+        throw new FilmProviderBoundaryError("provider_source_state_invalid", `Provider ${descriptor.providerId} has an invalid source state`);
+    }
+    if (!["LOCAL_MANUAL_BOUNDARY", "REUSE_HOST_RUNTIME", "DEFERRED"].includes(descriptor.boundary)) {
+        throw new FilmProviderBoundaryError("provider_boundary_invalid", `Provider ${descriptor.providerId} has an invalid boundary`);
+    }
+    if (!["NOT_EXPOSED", "UNVERIFIED"].includes(descriptor.externalExecution)) {
+        throw new FilmProviderBoundaryError("provider_execution_state_invalid", `Provider ${descriptor.providerId} has an invalid execution state`);
+    }
+    if (!Array.isArray(descriptor.evidence) || descriptor.evidence.length === 0 || descriptor.evidence.some((item) => !item.trim())) {
+        throw new FilmProviderBoundaryError("provider_evidence_missing", `Provider ${descriptor.providerId} must declare source evidence`);
+    }
     if (descriptor.sourceState === "UNVERIFIED_SOURCE_ABSENT" && (descriptor.canPreparePackage || descriptor.canImportManualResult)) {
         throw new FilmProviderBoundaryError("provider_unverified_capability", `Unverified Provider ${descriptor.providerId} cannot expose local operations`);
+    }
+    if (descriptor.boundary === "DEFERRED" && (descriptor.canPreparePackage || descriptor.canImportManualResult)) {
+        throw new FilmProviderBoundaryError("provider_deferred_capability", `Deferred Provider ${descriptor.providerId} cannot expose local operations`);
     }
     return Object.freeze({
         ...descriptor,
@@ -669,8 +690,8 @@ function normalizeOutputs(input: readonly ImportedResultOutput[]): ImportedResul
             if (!MIME_PATTERN.test(output.mimeType)) {
                 throw new FilmProviderBoundaryError("output_mime_invalid", `${prefix}.mimeType must be a MIME type`);
             }
-            if (!Number.isSafeInteger(output.bytes) || output.bytes < 0) {
-                throw new FilmProviderBoundaryError("output_bytes_invalid", `${prefix}.bytes must be a non-negative safe integer`);
+            if (!Number.isSafeInteger(output.bytes) || output.bytes < 1) {
+                throw new FilmProviderBoundaryError("output_bytes_invalid", `${prefix}.bytes must be a positive safe integer`);
             }
             return { ...output };
         })
@@ -708,7 +729,7 @@ function assertSafeJson(input: JsonValue, field: string, ancestors: Set<object>)
     if (typeof input === "number" && !Number.isFinite(input)) {
         throw new FilmProviderBoundaryError("parameter_number_invalid", `${field} contains a non-finite number`);
     }
-    if (typeof input === "string" && FORBIDDEN_STRING_PATTERN.test(input.trim())) {
+    if (typeof input === "string" && (FORBIDDEN_STRING_PATTERN.test(input.trim()) || /(?:^|[\\/])\.\.?[\\/]/.test(input.trim()))) {
         throw new FilmProviderBoundaryError("parameter_locator_forbidden", `${field} contains a URL, data payload, or file path`);
     }
     if (input === null || typeof input !== "object") return;
