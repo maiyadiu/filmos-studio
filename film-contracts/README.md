@@ -6,5 +6,6 @@
 - `openapi.json`：Film Core V0 HTTP 工具面。
 - `稳定ID.md`：ID 生成、映射与不可变规则。
 
-修改本目录必须经 `implementation/CHANGE_REQUESTS/` 和 `track-film-core` Owner，并同步合同测试。
+`openapi.json` 中每个 operation 必须使用 `x-implementation-state`：`implemented` 表示当前 Sidecar 已注册并有合同测试，`planned` 只表示 V0 目标工具面，不得宣称为可用 API。
 
+修改本目录必须经 `implementation/CHANGE_REQUESTS/` 和 `track-film-core` Owner，并同步合同测试。

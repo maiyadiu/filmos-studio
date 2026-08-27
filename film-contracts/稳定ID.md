@@ -6,4 +6,4 @@
 4. `content_hash` 是小写 SHA-256，用于内容相等与生产血缘，不是实体身份。
 5. 正式写入必须携带 `expected_version`；不匹配时返回冲突，不静默覆盖。
 6. 禁止复用已删除实体的 Film ID；审计事件永久保留原 ID。
-
+7. `entity.create` 命令必须传 `target_id: null` 和 `expected_version: 0`；只有 Film Core 可在 apply 时生成 Film ID，客户端不得预选身份。

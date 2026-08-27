@@ -1,110 +1,1376 @@
 {
-  "openapi": "3.1.0",
-  "info": {
-    "title": "FilmOS Studio Film Core API",
-    "version": "0.1.0",
-    "description": "Sidecar Film Core contract. Yingce remains authoritative for generic host entities."
+  "components": {
+    "schemas": {
+      "ActorKind": {
+        "enum": [
+          "human",
+          "codex",
+          "deepseek",
+          "claude",
+          "local_model",
+          "system"
+        ],
+        "title": "ActorKind",
+        "type": "string"
+      },
+      "AuditEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "minLength": 1,
+            "title": "Action",
+            "type": "string"
+          },
+          "actor_kind": {
+            "$ref": "#/components/schemas/ActorKind"
+          },
+          "event_id": {
+            "format": "uuid4",
+            "title": "Event Id",
+            "type": "string"
+          },
+          "recorded_at": {
+            "format": "date-time",
+            "title": "Recorded At",
+            "type": "string"
+          },
+          "target_id": {
+            "format": "uuid4",
+            "title": "Target Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "event_id",
+          "actor_kind",
+          "action",
+          "target_id",
+          "recorded_at"
+        ],
+        "title": "AuditEvent",
+        "type": "object"
+      },
+      "CommandApplyResult": {
+        "additionalProperties": false,
+        "properties": {
+          "audit_event": {
+            "$ref": "#/components/schemas/AuditEvent"
+          },
+          "entity": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FilmProjectExtension"
+              },
+              {
+                "$ref": "#/components/schemas/ContentUnitExtension"
+              },
+              {
+                "$ref": "#/components/schemas/ShotExtension"
+              }
+            ],
+            "title": "Entity"
+          },
+          "mode": {
+            "const": "applied",
+            "default": "applied",
+            "title": "Mode",
+            "type": "string"
+          }
+        },
+        "required": [
+          "entity",
+          "audit_event"
+        ],
+        "title": "CommandApplyResult",
+        "type": "object"
+      },
+      "CommandPreviewResult": {
+        "additionalProperties": false,
+        "properties": {
+          "changes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Changes",
+            "type": "array"
+          },
+          "command_type": {
+            "title": "Command Type",
+            "type": "string"
+          },
+          "content_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Content Hash",
+            "type": "string"
+          },
+          "current_version": {
+            "title": "Current Version",
+            "type": "integer"
+          },
+          "mode": {
+            "const": "preview",
+            "default": "preview",
+            "title": "Mode",
+            "type": "string"
+          },
+          "resulting_version": {
+            "title": "Resulting Version",
+            "type": "integer"
+          },
+          "target_id": {
+            "anyOf": [
+              {
+                "format": "uuid4",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Id"
+          }
+        },
+        "required": [
+          "command_type",
+          "target_id",
+          "current_version",
+          "resulting_version",
+          "content_hash",
+          "changes"
+        ],
+        "title": "CommandPreviewResult",
+        "type": "object"
+      },
+      "ContentUnitExtension": {
+        "additionalProperties": false,
+        "properties": {
+          "host": {
+            "$ref": "#/components/schemas/HostReferences-Output"
+          },
+          "ref": {
+            "$ref": "#/components/schemas/FilmEntityRef"
+          },
+          "states": {
+            "$ref": "#/components/schemas/FormalStateAxes"
+          },
+          "unit_kind": {
+            "$ref": "#/components/schemas/UnitKind"
+          }
+        },
+        "required": [
+          "ref",
+          "host",
+          "states",
+          "unit_kind"
+        ],
+        "title": "ContentUnitExtension",
+        "type": "object"
+      },
+      "CreateContentUnitPayload": {
+        "additionalProperties": false,
+        "properties": {
+          "entity_type": {
+            "const": "content_unit_extension",
+            "title": "Entity Type",
+            "type": "string"
+          },
+          "host": {
+            "$ref": "#/components/schemas/HostReferences-Input"
+          },
+          "states": {
+            "$ref": "#/components/schemas/FormalStateAxes"
+          },
+          "unit_kind": {
+            "$ref": "#/components/schemas/UnitKind"
+          }
+        },
+        "required": [
+          "entity_type",
+          "host",
+          "states",
+          "unit_kind"
+        ],
+        "title": "CreateContentUnitPayload",
+        "type": "object"
+      },
+      "CreateEntityCommand": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_kind": {
+            "$ref": "#/components/schemas/ActorKind",
+            "default": "human"
+          },
+          "command_type": {
+            "const": "entity.create",
+            "title": "Command Type",
+            "type": "string"
+          },
+          "expected_version": {
+            "const": 0,
+            "title": "Expected Version",
+            "type": "integer"
+          },
+          "payload": {
+            "discriminator": {
+              "mapping": {
+                "content_unit_extension": "#/components/schemas/CreateContentUnitPayload",
+                "film_project_extension": "#/components/schemas/CreateFilmProjectPayload",
+                "shot_extension": "#/components/schemas/CreateShotPayload"
+              },
+              "propertyName": "entity_type"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/CreateFilmProjectPayload"
+              },
+              {
+                "$ref": "#/components/schemas/CreateContentUnitPayload"
+              },
+              {
+                "$ref": "#/components/schemas/CreateShotPayload"
+              }
+            ],
+            "title": "Payload"
+          },
+          "target_id": {
+            "title": "Target Id",
+            "type": "null"
+          }
+        },
+        "required": [
+          "command_type",
+          "target_id",
+          "expected_version",
+          "payload"
+        ],
+        "title": "CreateEntityCommand",
+        "type": "object"
+      },
+      "CreateFilmProjectPayload": {
+        "additionalProperties": false,
+        "properties": {
+          "entity_type": {
+            "const": "film_project_extension",
+            "title": "Entity Type",
+            "type": "string"
+          },
+          "host": {
+            "$ref": "#/components/schemas/HostReferences-Input"
+          },
+          "states": {
+            "$ref": "#/components/schemas/FormalStateAxes"
+          }
+        },
+        "required": [
+          "entity_type",
+          "host",
+          "states"
+        ],
+        "title": "CreateFilmProjectPayload",
+        "type": "object"
+      },
+      "CreateShotPayload": {
+        "additionalProperties": false,
+        "properties": {
+          "director_unit_ids": {
+            "items": {
+              "format": "uuid4",
+              "type": "string"
+            },
+            "title": "Director Unit Ids",
+            "type": "array"
+          },
+          "entity_type": {
+            "const": "shot_extension",
+            "title": "Entity Type",
+            "type": "string"
+          },
+          "host": {
+            "$ref": "#/components/schemas/HostReferences-Input"
+          },
+          "states": {
+            "$ref": "#/components/schemas/FormalStateAxes"
+          }
+        },
+        "required": [
+          "entity_type",
+          "host",
+          "states"
+        ],
+        "title": "CreateShotPayload",
+        "type": "object"
+      },
+      "CreativeStage": {
+        "enum": [
+          "draft",
+          "authored",
+          "reviewed",
+          "locked"
+        ],
+        "title": "CreativeStage",
+        "type": "string"
+      },
+      "DeliveryState": {
+        "enum": [
+          "not_ready",
+          "ready",
+          "packaged",
+          "delivered",
+          "superseded"
+        ],
+        "title": "DeliveryState",
+        "type": "string"
+      },
+      "EntityType": {
+        "enum": [
+          "film_project_extension",
+          "content_unit_extension",
+          "shot_extension"
+        ],
+        "title": "EntityType",
+        "type": "string"
+      },
+      "ErrorDetail": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "current_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Version"
+          },
+          "expected_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Version"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "target_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Id"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "ErrorDetail",
+        "type": "object"
+      },
+      "ErrorResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "detail": {
+            "$ref": "#/components/schemas/ErrorDetail"
+          }
+        },
+        "required": [
+          "detail"
+        ],
+        "title": "ErrorResponse",
+        "type": "object"
+      },
+      "ExecutionState": {
+        "enum": [
+          "not_started",
+          "ready",
+          "queued",
+          "running",
+          "succeeded",
+          "failed",
+          "cancelled"
+        ],
+        "title": "ExecutionState",
+        "type": "string"
+      },
+      "FilmEntityRef": {
+        "additionalProperties": false,
+        "properties": {
+          "content_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Content Hash",
+            "type": "string"
+          },
+          "entity_type": {
+            "$ref": "#/components/schemas/EntityType"
+          },
+          "film_entity_id": {
+            "format": "uuid4",
+            "title": "Film Entity Id",
+            "type": "string"
+          },
+          "version": {
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "film_entity_id",
+          "entity_type",
+          "version",
+          "content_hash"
+        ],
+        "title": "FilmEntityRef",
+        "type": "object"
+      },
+      "FilmProjectContext": {
+        "additionalProperties": false,
+        "properties": {
+          "audit_event_count": {
+            "minimum": 0.0,
+            "title": "Audit Event Count",
+            "type": "integer"
+          },
+          "content_units": {
+            "items": {
+              "$ref": "#/components/schemas/ContentUnitExtension"
+            },
+            "title": "Content Units",
+            "type": "array"
+          },
+          "film_authority": {
+            "const": "film_core_sidecar",
+            "default": "film_core_sidecar",
+            "title": "Film Authority",
+            "type": "string"
+          },
+          "film_project": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FilmProjectExtension"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "host_authority": {
+            "const": "yingce",
+            "default": "yingce",
+            "title": "Host Authority",
+            "type": "string"
+          },
+          "host_project_id": {
+            "minLength": 1,
+            "title": "Host Project Id",
+            "type": "string"
+          },
+          "shots": {
+            "items": {
+              "$ref": "#/components/schemas/ShotExtension"
+            },
+            "title": "Shots",
+            "type": "array"
+          }
+        },
+        "required": [
+          "host_project_id",
+          "film_project",
+          "content_units",
+          "shots",
+          "audit_event_count"
+        ],
+        "title": "FilmProjectContext",
+        "type": "object"
+      },
+      "FilmProjectExtension": {
+        "additionalProperties": false,
+        "properties": {
+          "host": {
+            "$ref": "#/components/schemas/HostReferences-Output"
+          },
+          "ref": {
+            "$ref": "#/components/schemas/FilmEntityRef"
+          },
+          "states": {
+            "$ref": "#/components/schemas/FormalStateAxes"
+          }
+        },
+        "required": [
+          "ref",
+          "host",
+          "states"
+        ],
+        "title": "FilmProjectExtension",
+        "type": "object"
+      },
+      "FormalStateAxes": {
+        "additionalProperties": false,
+        "properties": {
+          "creative_stage": {
+            "$ref": "#/components/schemas/CreativeStage"
+          },
+          "delivery_state": {
+            "$ref": "#/components/schemas/DeliveryState"
+          },
+          "execution_state": {
+            "$ref": "#/components/schemas/ExecutionState"
+          },
+          "lock_state": {
+            "$ref": "#/components/schemas/LockState"
+          },
+          "review_state": {
+            "$ref": "#/components/schemas/ReviewState"
+          },
+          "stale_state": {
+            "$ref": "#/components/schemas/StaleState"
+          }
+        },
+        "required": [
+          "creative_stage",
+          "execution_state",
+          "review_state",
+          "lock_state",
+          "delivery_state",
+          "stale_state"
+        ],
+        "title": "FormalStateAxes",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "HealthResult": {
+        "additionalProperties": false,
+        "properties": {
+          "database": {
+            "const": "sqlite-sidecar",
+            "default": "sqlite-sidecar",
+            "title": "Database",
+            "type": "string"
+          },
+          "journal_mode": {
+            "title": "Journal Mode",
+            "type": "string"
+          },
+          "schema_version": {
+            "minimum": 1.0,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "service": {
+            "const": "film-production-core",
+            "default": "film-production-core",
+            "title": "Service",
+            "type": "string"
+          },
+          "status": {
+            "const": "ok",
+            "default": "ok",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_version",
+          "journal_mode"
+        ],
+        "title": "HealthResult",
+        "type": "object"
+      },
+      "HostReferences-Input": {
+        "additionalProperties": false,
+        "properties": {
+          "host_asset_id": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Host Asset Id"
+          },
+          "host_asset_version_id": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Host Asset Version Id"
+          },
+          "host_canvas_id": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Host Canvas Id"
+          },
+          "host_project_id": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Host Project Id"
+          },
+          "host_resource_id": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Host Resource Id"
+          },
+          "host_shot_id": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Host Shot Id"
+          },
+          "host_unit_id": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Host Unit Id"
+          }
+        },
+        "title": "HostReferences",
+        "type": "object"
+      },
+      "HostReferences-Output": {
+        "additionalProperties": {
+          "type": "string"
+        },
+        "type": "object"
+      },
+      "LockState": {
+        "enum": [
+          "unlocked",
+          "soft_locked",
+          "locked"
+        ],
+        "title": "LockState",
+        "type": "string"
+      },
+      "ReviewState": {
+        "enum": [
+          "not_reviewed",
+          "pending",
+          "in_review",
+          "changes_requested",
+          "rejected",
+          "passed",
+          "approved"
+        ],
+        "title": "ReviewState",
+        "type": "string"
+      },
+      "SetStatesCommand": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_kind": {
+            "$ref": "#/components/schemas/ActorKind",
+            "default": "human"
+          },
+          "command_type": {
+            "const": "entity.set_states",
+            "title": "Command Type",
+            "type": "string"
+          },
+          "expected_version": {
+            "minimum": 1.0,
+            "title": "Expected Version",
+            "type": "integer"
+          },
+          "payload": {
+            "$ref": "#/components/schemas/SetStatesPayload"
+          },
+          "target_id": {
+            "format": "uuid4",
+            "title": "Target Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "command_type",
+          "target_id",
+          "expected_version",
+          "payload"
+        ],
+        "title": "SetStatesCommand",
+        "type": "object"
+      },
+      "SetStatesPayload": {
+        "additionalProperties": false,
+        "properties": {
+          "states": {
+            "$ref": "#/components/schemas/FormalStateAxes"
+          }
+        },
+        "required": [
+          "states"
+        ],
+        "title": "SetStatesPayload",
+        "type": "object"
+      },
+      "ShotExtension": {
+        "additionalProperties": false,
+        "properties": {
+          "director_unit_ids": {
+            "items": {
+              "format": "uuid4",
+              "type": "string"
+            },
+            "title": "Director Unit Ids",
+            "type": "array"
+          },
+          "host": {
+            "$ref": "#/components/schemas/HostReferences-Output"
+          },
+          "ref": {
+            "$ref": "#/components/schemas/FilmEntityRef"
+          },
+          "states": {
+            "$ref": "#/components/schemas/FormalStateAxes"
+          }
+        },
+        "required": [
+          "ref",
+          "host",
+          "states"
+        ],
+        "title": "ShotExtension",
+        "type": "object"
+      },
+      "StaleState": {
+        "enum": [
+          "fresh",
+          "stale",
+          "blocked"
+        ],
+        "title": "StaleState",
+        "type": "string"
+      },
+      "UnitKind": {
+        "enum": [
+          "chapter",
+          "episode",
+          "special",
+          "trailer",
+          "extra",
+          "film",
+          "season",
+          "arc",
+          "volume"
+        ],
+        "title": "UnitKind",
+        "type": "string"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      }
+    }
   },
-  "servers": [{ "url": "/film" }],
+  "info": {
+    "description": "Sidecar Film Core contract. Yingce remains authoritative for generic Host Project, ProjectUnit, Shot, Asset, Workflow and Task entities.",
+    "title": "FilmOS Studio Film Core API",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
   "paths": {
-    "/projects/{hostProjectId}/context": {
+    "/audit-events": {
       "get": {
-        "operationId": "filmProjectContextGet",
-        "parameters": [{ "$ref": "#/components/parameters/HostProjectId" }],
-        "responses": { "200": { "$ref": "#/components/responses/Ok" } }
-      }
-    },
-    "/units/{hostUnitId}": {
-      "get": {
-        "operationId": "filmUnitGet",
-        "parameters": [{ "$ref": "#/components/parameters/HostUnitId" }],
-        "responses": { "200": { "$ref": "#/components/responses/Ok" } }
-      }
-    },
-    "/shots/{hostShotId}": {
-      "get": {
-        "operationId": "filmShotGet",
-        "parameters": [{ "$ref": "#/components/parameters/HostShotId" }],
-        "responses": { "200": { "$ref": "#/components/responses/Ok" } }
-      }
-    },
-    "/commands/preview": {
-      "post": {
-        "operationId": "filmCommandPreview",
-        "requestBody": { "$ref": "#/components/requestBodies/Command" },
-        "responses": { "200": { "$ref": "#/components/responses/Ok" } }
+        "operationId": "filmAuditEventsGet",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "targetId",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid4",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Targetid"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AuditEvent"
+                  },
+                  "title": "Response Filmauditeventsget",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Audit Events",
+        "x-implementation-state": "implemented"
       }
     },
     "/commands/apply": {
       "post": {
         "operationId": "filmCommandApply",
-        "requestBody": { "$ref": "#/components/requestBodies/Command" },
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/CreateEntityCommand"
+                  },
+                  {
+                    "$ref": "#/components/schemas/SetStatesCommand"
+                  }
+                ],
+                "title": "Command"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
-          "200": { "$ref": "#/components/responses/Ok" },
-          "409": { "$ref": "#/components/responses/Conflict" }
-        }
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandApplyResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Command Apply",
+        "x-implementation-state": "implemented"
       }
     },
-    "/impacts/{entityId}": {
-      "get": {
-        "operationId": "filmImpactGet",
-        "parameters": [{ "$ref": "#/components/parameters/EntityId" }],
-        "responses": { "200": { "$ref": "#/components/responses/Ok" } }
-      }
-    },
-    "/reviews": {
+    "/commands/preview": {
       "post": {
-        "operationId": "filmReviewSubmit",
-        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "./schemas/core.schema.json#/$defs/Review" } } } },
-        "responses": { "200": { "$ref": "#/components/responses/Ok" } }
-      }
-    },
-    "/prompts/compile": {
-      "post": {
-        "operationId": "filmPromptCompile",
-        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object" } } } },
-        "responses": { "200": { "$ref": "#/components/responses/Ok" } }
+        "operationId": "filmCommandPreview",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/CreateEntityCommand"
+                  },
+                  {
+                    "$ref": "#/components/schemas/SetStatesCommand"
+                  }
+                ],
+                "title": "Command"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandPreviewResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Command Preview",
+        "x-implementation-state": "implemented"
       }
     },
     "/continuity/check": {
       "post": {
         "operationId": "filmContinuityCheck",
-        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object" } } } },
-        "responses": { "200": { "$ref": "#/components/responses/Ok" } }
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Target contract; not implemented in Film Core V0"
+          }
+        },
+        "x-implementation-state": "planned"
+      }
+    },
+    "/entities/{filmEntityId}": {
+      "get": {
+        "operationId": "filmEntityGet",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "filmEntityId",
+            "required": true,
+            "schema": {
+              "format": "uuid4",
+              "title": "Filmentityid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/FilmProjectExtension"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ContentUnitExtension"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ShotExtension"
+                    }
+                  ],
+                  "title": "Response Filmentityget"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Entity Get",
+        "x-implementation-state": "implemented"
+      }
+    },
+    "/health": {
+      "get": {
+        "operationId": "filmHealthGet",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health",
+        "x-implementation-state": "implemented"
+      }
+    },
+    "/impacts/{entityId}": {
+      "get": {
+        "operationId": "filmImpactGet",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "entityId",
+            "required": true,
+            "schema": {
+              "$ref": "./schemas/core.schema.json#/$defs/FilmEntityId"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Target contract; not implemented in Film Core V0"
+          }
+        },
+        "x-implementation-state": "planned"
+      }
+    },
+    "/projects/{hostProjectId}/context": {
+      "get": {
+        "operationId": "filmProjectContextGet",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "hostProjectId",
+            "required": true,
+            "schema": {
+              "title": "Hostprojectid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FilmProjectContext"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Project Context",
+        "x-implementation-state": "implemented"
+      }
+    },
+    "/prompts/compile": {
+      "post": {
+        "operationId": "filmPromptCompile",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Target contract; not implemented in Film Core V0"
+          }
+        },
+        "x-implementation-state": "planned"
+      }
+    },
+    "/reviews": {
+      "post": {
+        "operationId": "filmReviewSubmit",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "./schemas/core.schema.json#/$defs/Review"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Target contract; not implemented in Film Core V0"
+          }
+        },
+        "x-implementation-state": "planned"
+      }
+    },
+    "/shots/{hostShotId}": {
+      "get": {
+        "operationId": "filmShotGet",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "hostShotId",
+            "required": true,
+            "schema": {
+              "title": "Hostshotid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShotExtension"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Shot Get",
+        "x-implementation-state": "implemented"
+      }
+    },
+    "/units/{hostUnitId}": {
+      "get": {
+        "operationId": "filmUnitGet",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "hostUnitId",
+            "required": true,
+            "schema": {
+              "title": "Hostunitid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContentUnitExtension"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Unit Get",
+        "x-implementation-state": "implemented"
       }
     }
   },
-  "components": {
-    "parameters": {
-      "HostProjectId": { "name": "hostProjectId", "in": "path", "required": true, "schema": { "type": "string", "minLength": 1 } },
-      "HostUnitId": { "name": "hostUnitId", "in": "path", "required": true, "schema": { "type": "string", "minLength": 1 } },
-      "HostShotId": { "name": "hostShotId", "in": "path", "required": true, "schema": { "type": "string", "minLength": 1 } },
-      "EntityId": { "name": "entityId", "in": "path", "required": true, "schema": { "$ref": "./schemas/core.schema.json#/$defs/FilmEntityId" } }
-    },
-    "requestBodies": {
-      "Command": {
-        "required": true,
-        "content": {
-          "application/json": {
-            "schema": {
-              "type": "object",
-              "required": ["command_type", "target_id", "expected_version", "payload"],
-              "properties": {
-                "command_type": { "type": "string", "minLength": 1 },
-                "target_id": { "$ref": "./schemas/core.schema.json#/$defs/FilmEntityId" },
-                "expected_version": { "type": "integer", "minimum": 0 },
-                "payload": { "type": "object" }
-              },
-              "additionalProperties": false
-            }
-          }
-        }
-      }
-    },
-    "responses": {
-      "Ok": { "description": "Success", "content": { "application/json": { "schema": { "type": "object" } } } },
-      "Conflict": { "description": "expected_version does not match current version", "content": { "application/json": { "schema": { "type": "object" } } } }
+  "servers": [
+    {
+      "url": "/film"
     }
-  }
+  ]
 }
-

@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "film-production-core"
+version = "0.1.0"
+description = "FilmOS Studio Film Core V0 sidecar"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.116,<1",
+  "pydantic>=2.11,<3",
+  "uvicorn>=0.35,<1",
+]
+
+[project.optional-dependencies]
+test = [
+  "httpx>=0.28,<1",
+  "jsonschema>=4.23,<5",
+  "pytest>=8.3,<10",
+]
+
+[project.scripts]
+filmos-core = "film_production_core.main:run"
+filmos-core-export-contracts = "film_production_core.contracts:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+pythonpath = ["src"]
+testpaths = ["tests"]
