@@ -25,12 +25,12 @@ Tigerowo 比较基线：`reference-tigerowo/main@57b13aa1a2d7439955b0e65abe742bc
 - Film Core UUIDv4、expected_version/hash、投影只可 Candidate、禁止自动 Approved。
 - DirectorUnit/Shot Coverage 多对多图校验。
 - 轴线、Camera、脚位、躯干、脸、视线、双手、动作入出与道具接触状态连续性校验。
-- projection 明确 `projection_only`、`formalMutationAllowed=false`、`approvalAllowed=false`，声明 RGB/Depth/Normal/ObjectID 目标 pass。
+- projection 明确 `projection_only`、`formalMutationAllowed=false`、`approvalAllowed=false`；RGB/Depth/Normal/ObjectID 仅列为目标计划，并明确 ObjectID 当前 `MISSING_NOT_IMPLEMENTED`。
 - R0-R4 纯决策函数，不启动 Blender。
 
 ## 验证
 
-- `cd web && bun test test/film-director-domain-gate.test.ts`：7 pass / 0 fail。
+- `cd web && bun test test/film-director-domain-gate.test.ts`：9 pass / 0 fail。
 - `cd web && bun run typecheck`：通过。
 - `cd web && bunx prettier --check src/film/director/director-domain-gate.ts test/film-director-domain-gate.test.ts`：通过。
 - `git diff --check`：通过。

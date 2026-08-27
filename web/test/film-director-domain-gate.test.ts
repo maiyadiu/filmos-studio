@@ -84,8 +84,23 @@ describe("Film director domain gate", () => {
     test("3D/Canvas output is projection-only and cannot approve", () => {
         const projection = buildDirectorProjection(validInput());
         expect(projection).toMatchObject({ authority: "projection_only", formalMutationAllowed: false, approvalAllowed: false });
-        expect(projection.renderPasses).toEqual(["rgb", "depth", "normal", "object_id"]);
+        expect(projection.targetRenderPasses).toEqual(["rgb", "depth", "normal", "object_id"]);
+        expect(projection.objectIdPassState).toBe("MISSING_NOT_IMPLEMENTED");
         expect(Object.keys(projection)).not.toContain("approved");
+    });
+
+    test("projection builder cannot bypass the default-off feature gate", () => {
+        const input = validInput();
+        input.enabled = undefined;
+        expect(() => buildDirectorProjection(input)).toThrow("导演领域门禁未通过");
+    });
+
+    test("rejects ambiguous prop state and non-lowercase formal identities", () => {
+        const input = validInput();
+        input.continuity.propInteractions.push({ ...input.continuity.propInteractions[0]!, interactionId: ID.coverage2 });
+        input.continuity.camera.cameraVersionId = ID.camera.toUpperCase();
+        const codes = evaluateDirectorDomainGate(input).issues.map((item) => item.code);
+        expect(codes).toEqual(expect.arrayContaining(["AMBIGUOUS_PROP_INTERACTION", "FILM_UUID_V4_REQUIRED"]));
     });
 
     test("selects R0-R4 without launching Blender", () => {

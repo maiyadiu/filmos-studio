@@ -132,10 +132,11 @@ export type DirectorProjection = {
     };
     entityIds: string[];
     coverageIds: string[];
-    renderPasses: readonly ["rgb", "depth", "normal", "object_id"];
+    targetRenderPasses: readonly ["rgb", "depth", "normal", "object_id"];
+    objectIdPassState: "MISSING_NOT_IMPLEMENTED";
 };
 
-const UUID_V4_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const UUID_V4_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const SHA_256_PATTERN = /^[a-f0-9]{64}$/;
 
 export function isFilmDirectorEnabled(explicit?: boolean) {
@@ -159,7 +160,7 @@ export function evaluateDirectorDomainGate(input: DirectorDomainGateInput): Dire
 }
 
 export function buildDirectorProjection(input: DirectorDomainGateInput): DirectorProjection {
-    const gate = evaluateDirectorDomainGate({ ...input, enabled: true });
+    const gate = evaluateDirectorDomainGate(input);
     if (gate.state !== "ready") {
         throw new Error(`导演领域门禁未通过：${gate.issues.map((item) => item.code).join(", ")}`);
     }
@@ -177,7 +178,8 @@ export function buildDirectorProjection(input: DirectorDomainGateInput): Directo
         },
         entityIds: Array.from(new Set([...input.directorUnitIds, ...input.shotIds, ...input.continuity.actors.map((actor) => actor.actorId), ...input.continuity.propInteractions.map((interaction) => interaction.propId)])).sort(),
         coverageIds: input.coverage.map((item) => item.coverageId).sort(),
-        renderPasses: ["rgb", "depth", "normal", "object_id"],
+        targetRenderPasses: ["rgb", "depth", "normal", "object_id"],
+        objectIdPassState: "MISSING_NOT_IMPLEMENTED",
     };
 }
 
@@ -203,6 +205,12 @@ function validateWriteIntent(write: DirectorWriteIntent, issues: DirectorGateIss
     if (write.sourceAuthority !== "film_core" && (write.formalApply || write.reviewIntent !== "candidate")) {
         issue(issues, "PROJECTION_CANNOT_WRITE_FACTS", "write.sourceAuthority", "3D/Canvas 只能提交 Candidate 投影，不能写正式影视事实");
     }
+    if (!["film_core", "canvas_projection", "three_d_projection"].includes(write.sourceAuthority)) {
+        issue(issues, "SOURCE_AUTHORITY_INVALID", "write.sourceAuthority", "来源权威类型不在允许列表中");
+    }
+    if (!["draft", "candidate", "review_required", "approved"].includes(write.reviewIntent)) {
+        issue(issues, "REVIEW_INTENT_INVALID", "write.reviewIntent", "审查意图不在允许列表中");
+    }
 }
 
 function validateUuidSet(ids: string[], path: string, issues: DirectorGateIssue[]) {
@@ -217,6 +225,7 @@ function validateUuidSet(ids: string[], path: string, issues: DirectorGateIssue[
 
 function validateCoverage(coverage: DirectorShotCoverage[], directorUnitIds: Set<string>, shotIds: Set<string>, issues: DirectorGateIssue[]) {
     const pairs = new Set<string>();
+    if (coverage.length === 0) issue(issues, "COVERAGE_REQUIRED", "coverage", "DirectorUnit 必须显式覆盖至少一个 Shot");
     coverage.forEach((item, index) => {
         const path = `coverage[${index}]`;
         requireUuid(item.coverageId, `${path}.coverageId`, issues);
@@ -243,7 +252,15 @@ function validateContinuity(contract: DirectorContinuityContract, issues: Direct
         if (actors.has(actor.actorId)) issue(issues, "DUPLICATE_ACTOR_BLOCKING", `continuity.actors[${index}].actorId`, "同一演员只能有一条当前 Blocking 链");
         actors.set(actor.actorId, actor);
     });
-    contract.propInteractions.forEach((interaction, index) => validatePropInteraction(interaction, actors, `continuity.propInteractions[${index}]`, issues));
+    const interactionIds = new Set<string>();
+    const interactionProps = new Set<string>();
+    contract.propInteractions.forEach((interaction, index) => {
+        validatePropInteraction(interaction, actors, `continuity.propInteractions[${index}]`, issues);
+        if (interactionIds.has(interaction.interactionId)) issue(issues, "DUPLICATE_INTERACTION_ID", `continuity.propInteractions[${index}].interactionId`, "道具交互 ID 不得重复");
+        if (interactionProps.has(interaction.propId)) issue(issues, "AMBIGUOUS_PROP_INTERACTION", `continuity.propInteractions[${index}].propId`, "同一连续性段中的道具交互必须唯一或拆分为有序段落");
+        interactionIds.add(interaction.interactionId);
+        interactionProps.add(interaction.propId);
+    });
     if (contract.continuityIn) validateContinuityIn(contract, actors, issues);
 }
 
@@ -252,6 +269,8 @@ function validateAxis(axis: DirectorAxisContract, issues: DirectorGateIssue[]) {
     requireUuid(axis.fromAnchorId, "continuity.axis.fromAnchorId", issues);
     requireUuid(axis.toAnchorId, "continuity.axis.toAnchorId", issues);
     if (axis.fromAnchorId === axis.toAnchorId) issue(issues, "AXIS_DEGENERATE", "continuity.axis", "轴线起点与终点不能相同");
+    if (!["left", "right", "on_axis"].includes(axis.cameraSide)) issue(issues, "AXIS_SIDE_INVALID", "continuity.axis.cameraSide", "轴线侧别不在允许列表中");
+    if (!["locked", "declared"].includes(axis.crossing)) issue(issues, "AXIS_CROSSING_INVALID", "continuity.axis.crossing", "跨轴状态不在允许列表中");
 }
 
 function validateCamera(camera: CameraContract, axis: DirectorAxisContract, issues: DirectorGateIssue[]) {
@@ -261,6 +280,7 @@ function validateCamera(camera: CameraContract, axis: DirectorAxisContract, issu
     if (!Number.isFinite(camera.lensMm) || camera.lensMm <= 0) issue(issues, "LENS_INVALID", "continuity.camera.lensMm", "镜头焦距必须大于 0");
     if (!Number.isFinite(camera.fovDegrees) || camera.fovDegrees <= 0 || camera.fovDegrees >= 180) issue(issues, "FOV_INVALID", "continuity.camera.fovDegrees", "FOV 必须在 0 到 180 度之间");
     if (camera.cameraSide !== axis.cameraSide) issue(issues, "CAMERA_AXIS_SIDE_MISMATCH", "continuity.camera.cameraSide", "CameraVersion 与轴线合同的机位侧不一致");
+    if (!["left", "right", "on_axis"].includes(camera.cameraSide)) issue(issues, "CAMERA_SIDE_INVALID", "continuity.camera.cameraSide", "机位侧别不在允许列表中");
 }
 
 function validateActor(actor: ActorBlocking, path: string, issues: DirectorGateIssue[]) {
@@ -274,6 +294,8 @@ function validateActor(actor: ActorBlocking, path: string, issues: DirectorGateI
     if (actor.rightHandTargetId) requireUuid(actor.rightHandTargetId, `${path}.rightHandTargetId`, issues);
     requireText(actor.actionStateIn, `${path}.actionStateIn`, "必须声明动作入状态", issues);
     requireText(actor.actionStateOut, `${path}.actionStateOut`, "必须声明动作出状态", issues);
+    if (!["left", "right", "on_axis"].includes(actor.axisSideIn)) issue(issues, "ACTOR_AXIS_IN_INVALID", `${path}.axisSideIn`, "人物入状态轴线侧别不在允许列表中");
+    if (!["left", "right", "on_axis"].includes(actor.axisSideOut)) issue(issues, "ACTOR_AXIS_OUT_INVALID", `${path}.axisSideOut`, "人物出状态轴线侧别不在允许列表中");
 }
 
 function validatePropInteraction(interaction: PropInteraction, actors: Map<string, ActorBlocking>, path: string, issues: DirectorGateIssue[]) {
@@ -284,6 +306,7 @@ function validatePropInteraction(interaction: PropInteraction, actors: Map<strin
     requireText(interaction.action, `${path}.action`, "道具交互必须声明动作", issues);
     requireText(interaction.contactStateIn, `${path}.contactStateIn`, "道具交互必须声明接触入状态", issues);
     requireText(interaction.contactStateOut, `${path}.contactStateOut`, "道具交互必须声明接触出状态", issues);
+    if (!["left", "right", "both"].includes(interaction.hand)) issue(issues, "INTERACTION_HAND_INVALID", `${path}.hand`, "交互手别不在允许列表中");
     const actor = actors.get(interaction.actorId);
     if (!actor) {
         issue(issues, "INTERACTION_ACTOR_MISSING", `${path}.actorId`, "道具交互演员没有 Blocking 链");
@@ -302,6 +325,7 @@ function validateContinuityIn(contract: DirectorContinuityContract, actors: Map<
     if (previous.cameraSide !== contract.camera.cameraSide && contract.axis.crossing !== "declared") {
         issue(issues, "UNDECLARED_AXIS_CROSSING", "continuity.axis.crossing", "机位跨轴必须显式声明");
     }
+    const previousActorIds = new Set<string>();
     previous.actors.forEach((out, index) => {
         const path = `continuity.continuityIn.actors[${index}]`;
         requireUuid(out.actorId, `${path}.actorId`, issues);
@@ -312,6 +336,8 @@ function validateContinuityIn(contract: DirectorContinuityContract, actors: Map<
         if (out.leftHandTargetId) requireUuid(out.leftHandTargetId, `${path}.leftHandTargetId`, issues);
         if (out.rightHandTargetId) requireUuid(out.rightHandTargetId, `${path}.rightHandTargetId`, issues);
         requireText(out.actionState, `${path}.actionState`, "上一 Shot 必须提供动作出状态", issues);
+        if (previousActorIds.has(out.actorId)) issue(issues, "DUPLICATE_CONTINUITY_ACTOR", `${path}.actorId`, "上一 Shot 的演员连续性输出不得重复");
+        previousActorIds.add(out.actorId);
         const actor = actors.get(out.actorId);
         if (!actor) {
             issue(issues, "CONTINUITY_ACTOR_MISSING", `${path}.actorId`, "上一 Shot 的演员在当前 Blocking 中缺失");
@@ -327,11 +353,16 @@ function validateContinuityIn(contract: DirectorContinuityContract, actors: Map<
         compareContinuity(out.axisSide, actor.axisSideIn, "ACTOR_AXIS_SIDE_BROKEN", `${path}.axisSide`, issues);
     });
     const interactionsByProp = new Map(contract.propInteractions.map((item) => [item.propId, item]));
+    const previousPropIds = new Set<string>();
     previous.props.forEach((out, index) => {
         requireUuid(out.propId, `continuity.continuityIn.props[${index}].propId`, issues);
         requireText(out.contactState, `continuity.continuityIn.props[${index}].contactState`, "上一 Shot 必须提供道具接触出状态", issues);
+        if (previousPropIds.has(out.propId)) issue(issues, "DUPLICATE_CONTINUITY_PROP", `continuity.continuityIn.props[${index}].propId`, "上一 Shot 的道具连续性输出不得重复");
+        previousPropIds.add(out.propId);
         const interaction = interactionsByProp.get(out.propId);
-        if (interaction && interaction.contactStateIn !== out.contactState) {
+        if (!interaction) {
+            issue(issues, "CONTINUITY_PROP_MISSING", `continuity.continuityIn.props[${index}].propId`, "上一 Shot 的受控道具在当前连续性段中没有明确交互状态");
+        } else if (interaction.contactStateIn !== out.contactState) {
             issue(issues, "PROP_STATE_CONTINUITY_BROKEN", `continuity.continuityIn.props[${index}].contactState`, "道具上一 Shot 出状态与当前交互入状态不一致");
         }
     });
