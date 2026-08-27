@@ -173,7 +173,7 @@ export type VisualLockConsumer = {
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const SHA_256 = /^[0-9a-f]{64}$/;
 const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
-const ABSOLUTE_PATH_OR_PUBLIC_URL = /^(?:\/|~[\\/]|file:|https?:|[a-zA-Z]:[\\/])/;
+const PATH_OR_PUBLIC_URL = /(?:[\\/]|^(?:~|file:|https?:|[a-zA-Z]:))/;
 
 export class FilmAssetLayerDisabledError extends Error {
     constructor() {
@@ -209,7 +209,7 @@ export async function createCandidateAssetBinding(
     assertEnabled(gate);
     assertUuidV4(input.id, "candidate binding id");
     assertUuidV4(input.auditEventId, "audit event id");
-    assertText(input.hostProjectId, "host project id");
+    assertOpaqueReference(input.hostProjectId, "host project id");
     assertTarget(input.target);
     assertPurpose(input.purpose);
     assertTimestamp(input.createdAt, "createdAt");
@@ -258,7 +258,7 @@ export async function approveCandidateAssetBinding(
     assertEnabled(gate);
     if (candidate.lifecycle !== "candidate") throw new FilmAssetValidationError("Only a Candidate binding can be approved");
     assertUuidV4(candidate.id, "candidate binding id");
-    assertText(candidate.hostProjectId, "host project id");
+    assertOpaqueReference(candidate.hostProjectId, "host project id");
     assertTarget(candidate.target);
     assertPurpose(candidate.purpose);
     assertTimestamp(candidate.createdAt, "candidate createdAt");
@@ -268,8 +268,8 @@ export async function approveCandidateAssetBinding(
     if (input.qcOutcome !== "pass") throw new FilmAssetValidationError("A passing QC result is required before approval");
     assertUuidV4(input.approvedBindingId, "approved binding id");
     assertUuidV4(input.auditEventId, "audit event id");
-    assertText(input.reviewId, "review id");
-    assertText(input.qcReportId, "QC report id");
+    assertUuidV4(input.reviewId, "review id");
+    assertUuidV4(input.qcReportId, "QC report id");
     assertText(input.actorId, "approval actor id");
     assertTimestamp(input.approvedAt, "approvedAt");
     if (input.approvedBindingId === candidate.id) throw new FilmAssetValidationError("Approved binding must not overwrite its Candidate source");
@@ -313,7 +313,7 @@ export function approvedBindingLockReference(binding: ApprovedAssetBinding): App
     assertUuidV4(binding.id, "approved binding id");
     if (!Number.isInteger(binding.version) || binding.version < 1) throw new FilmAssetValidationError("approved binding version must be positive");
     assertPurpose(binding.purpose);
-    assertText(binding.approval.reviewId, "review id");
+    assertUuidV4(binding.approval.reviewId, "review id");
     assertHash(binding.asset.host.contentHash);
     return Object.freeze({
         lifecycle: "approved",
@@ -329,7 +329,7 @@ export function approvedBindingLockReference(binding: ApprovedAssetBinding): App
 export async function createVisualLockSet(input: { id: string; scopeId: string; version: number; createdAt: string; components: VisualLockComponents }, gate: AssetLayerGate = {}): Promise<VisualLockSet> {
     assertEnabled(gate);
     assertUuidV4(input.id, "VisualLock id");
-    assertText(input.scopeId, "VisualLock scope id");
+    assertUuidV4(input.scopeId, "VisualLock scope id");
     if (!Number.isInteger(input.version) || input.version < 1) throw new FilmAssetValidationError("VisualLock version must be a positive integer");
     assertTimestamp(input.createdAt, "VisualLock createdAt");
     const components = normalizeVisualLockComponents(input.components);
@@ -358,10 +358,18 @@ export async function createVisualLockSet(input: { id: string; scopeId: string; 
 }
 
 export function diffVisualLockSets(previous: VisualLockSet, next: VisualLockSet, consumers: readonly VisualLockConsumer[]) {
+    assertUuidV4(previous.id, "previous VisualLock id");
+    assertUuidV4(next.id, "next VisualLock id");
+    assertUuidV4(previous.scopeId, "previous VisualLock scope id");
+    assertUuidV4(next.scopeId, "next VisualLock scope id");
     if (previous.scopeId !== next.scopeId) throw new FilmAssetValidationError("VisualLock scopes do not match");
     const dependencyKeys = new Set([...Object.keys(previous.dependencyHashes), ...Object.keys(next.dependencyHashes)]);
     const changedDependencies = [...dependencyKeys].filter((key) => previous.dependencyHashes[key] !== next.dependencyHashes[key]).sort();
     const changed = new Set(changedDependencies);
+    for (const consumer of consumers) {
+        assertUuidV4(consumer.entityId, "VisualLock consumer entity id");
+        for (const dependency of consumer.dependencies) assertText(dependency, "VisualLock dependency");
+    }
     const staleEntityIds = consumers
         .filter((consumer) => consumer.dependencies.some((dependency) => changed.has(dependency)))
         .map((consumer) => consumer.entityId)
@@ -391,7 +399,7 @@ function assertText(value: string, label: string) {
 
 function assertOpaqueReference(value: string, label: string) {
     assertText(value, label);
-    if (ABSOLUTE_PATH_OR_PUBLIC_URL.test(value.trim())) throw new FilmAssetValidationError(`${label} must be an opaque reference, not a path or public URL`);
+    if (PATH_OR_PUBLIC_URL.test(value.trim())) throw new FilmAssetValidationError(`${label} must be an opaque reference, not a path or public URL`);
 }
 
 function assertUuidV4(value: string, label: string) {
@@ -408,15 +416,16 @@ function assertTimestamp(value: string, label: string) {
 
 function assertTarget(target: AssetBindingTarget) {
     if (!["project", "host_unit", "film_scene", "director_unit", "host_shot"].includes(target.kind)) throw new FilmAssetValidationError("Unsupported binding target");
-    assertText(target.id, "binding target id");
+    if (target.kind === "film_scene" || target.kind === "director_unit") assertUuidV4(target.id, "Film binding target id");
+    else assertOpaqueReference(target.id, "Host binding target id");
 }
 
 function normalizeHostReference(input: HostAssetVersionReference): HostAssetVersionReference {
-    assertText(input.hostAssetId, "host asset id");
-    assertText(input.hostAssetVersionId, "host asset version id");
+    assertOpaqueReference(input.hostAssetId, "host asset id");
+    assertOpaqueReference(input.hostAssetVersionId, "host asset version id");
     assertHash(input.contentHash);
-    if (input.hostRepresentationId !== undefined) assertText(input.hostRepresentationId, "host representation id");
-    if (input.hostResourceId !== undefined) assertText(input.hostResourceId, "host resource id");
+    if (input.hostRepresentationId !== undefined) assertOpaqueReference(input.hostRepresentationId, "host representation id");
+    if (input.hostResourceId !== undefined) assertOpaqueReference(input.hostResourceId, "host resource id");
     return Object.freeze({
         hostAssetId: input.hostAssetId,
         hostAssetVersionId: input.hostAssetVersionId,
@@ -429,7 +438,7 @@ function normalizeHostReference(input: HostAssetVersionReference): HostAssetVers
 function normalizeMediaLocator(input: MediaLocator): MediaLocator {
     switch (input.kind) {
         case "host_resource":
-            assertText(input.hostResourceId, "host resource id");
+            assertOpaqueReference(input.hostResourceId, "host resource id");
             return Object.freeze({ kind: input.kind, hostResourceId: input.hostResourceId });
         case "managed_copy":
             assertOpaqueReference(input.workspaceObjectId, "workspace object id");
@@ -529,9 +538,9 @@ function normalizeVisualLockComponents(input: VisualLockComponents): VisualLockC
                 assertUuidV4(reference.bindingId, "approved binding id");
                 if (!Number.isInteger(reference.bindingVersion) || reference.bindingVersion < 1) throw new FilmAssetValidationError("approved binding version must be positive");
                 assertPurpose(reference.purpose);
-                assertText(reference.hostAssetVersionId, "host asset version id");
+                assertOpaqueReference(reference.hostAssetVersionId, "host asset version id");
                 assertHash(reference.contentHash);
-                assertText(reference.reviewId, "review id");
+                assertUuidV4(reference.reviewId, "review id");
                 normalized[role] = Object.freeze({ ...reference });
             }
             result.referenceRoleMap = Object.freeze(normalized);
@@ -554,8 +563,8 @@ function normalizeVisualLockComponents(input: VisualLockComponents): VisualLockC
 }
 
 function normalizeLockReference(reference: VersionedLockReference): VersionedLockReference {
-    assertText(reference.entityId, "lock entity id");
-    assertText(reference.versionId, "lock version id");
+    assertUuidV4(reference.entityId, "lock entity id");
+    assertUuidV4(reference.versionId, "lock version id");
     assertHash(reference.contentHash);
     return Object.freeze({ entityId: reference.entityId, versionId: reference.versionId, contentHash: reference.contentHash });
 }
