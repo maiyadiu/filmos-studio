@@ -1,15 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import {
-    isFilmDynamicContentUnitsEnabled,
-    parseFilmFeatureFlag,
-    projectFilmContentUnits,
-    projectFilmOverview,
-    type FilmContentUnitExtension,
-    type FilmFormalStateAxes,
-    type HostProjectSnapshot,
-} from "./index";
+import { isFilmDynamicContentUnitsEnabled, parseFilmFeatureFlag, projectFilmContentUnits, projectFilmOverview, type FilmContentUnitExtension, type FilmFormalStateAxes, type HostProjectSnapshot } from "./index";
 
 const freshDraft: FilmFormalStateAxes = {
     creative_stage: "draft",
@@ -46,11 +38,17 @@ describe("Film ContentUnit Host adapter", () => {
     test("复用 Host position 排序并保留未知 kind 与 parentId", () => {
         const units = projectFilmContentUnits(snapshot);
 
-        assert.deepEqual(units.map((unit) => unit.hostUnitId), ["unit-a", "unit-c", "unit-b"]);
+        assert.deepEqual(
+            units.map((unit) => unit.hostUnitId),
+            ["unit-a", "unit-c", "unit-b"],
+        );
         assert.equal(units[2].kind, "unknown");
         assert.equal(units[2].hostKind, "legacy-kind");
         assert.equal(units[2].parentId, "unit-a");
-        assert.equal(units.every((unit) => unit.states === null), true);
+        assert.equal(
+            units.every((unit) => unit.states === null),
+            true,
+        );
     });
 
     test("只绑定匹配项目的最高 sidecar 版本且不把 Host status 冒充六轴状态", () => {
@@ -58,6 +56,8 @@ describe("Film ContentUnit Host adapter", () => {
             extension("unit-b", 1, "special", freshDraft),
             extension("unit-b", 2, "extra", { ...freshDraft, creative_stage: "locked", review_state: "pending", stale_state: "stale" }),
             extension("unit-b", 3, "film", freshDraft, "other-project"),
+            { ...extension("unit-b", 4, "film", freshDraft), host: { host_unit_id: "unit-b" } },
+            { ...extension("unit-b", 5, "film", freshDraft), ref: { ...extension("unit-b", 5, "film", freshDraft).ref, film_entity_id: "client-picked-id" } },
             { broken: true },
         ];
 
@@ -119,17 +119,11 @@ describe("film.dynamic_content_units flag", () => {
     });
 });
 
-function extension(
-    hostUnitId: string,
-    version: number,
-    kind: FilmContentUnitExtension["unit_kind"],
-    states: FilmFormalStateAxes,
-    hostProjectId = "project-1",
-): FilmContentUnitExtension {
+function extension(hostUnitId: string, version: number, kind: FilmContentUnitExtension["unit_kind"], states: FilmFormalStateAxes, hostProjectId = "project-1"): FilmContentUnitExtension {
     return {
         ref: {
             film_entity_id: `00000000-0000-4000-8000-${String(version).padStart(12, "0")}`,
-            entity_type: "ContentUnitExtension",
+            entity_type: "content_unit_extension",
             version,
             content_hash: String(version).repeat(64),
         },

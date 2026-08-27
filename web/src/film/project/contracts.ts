@@ -1,14 +1,4 @@
-export const FILM_CONTENT_UNIT_KINDS = [
-    "chapter",
-    "episode",
-    "special",
-    "trailer",
-    "extra",
-    "film",
-    "season",
-    "arc",
-    "volume",
-] as const;
+export const FILM_CONTENT_UNIT_KINDS = ["chapter", "episode", "special", "trailer", "extra", "film", "season", "arc", "volume"] as const;
 
 export const FILM_CREATIVE_STAGES = ["draft", "authored", "reviewed", "locked"] as const;
 export const FILM_EXECUTION_STATES = ["not_started", "ready", "queued", "running", "succeeded", "failed", "cancelled"] as const;
@@ -39,13 +29,13 @@ export type FilmFormalStateAxes = {
 export type FilmContentUnitExtension = {
     ref: {
         film_entity_id: string;
-        entity_type: string;
+        entity_type: "content_unit_extension";
         version: number;
         content_hash: string;
     };
     host: {
-        host_project_id?: string;
-        host_unit_id?: string;
+        host_project_id: string;
+        host_unit_id: string;
     };
     states: FilmFormalStateAxes;
     unit_kind: FilmContentUnitKind;
@@ -58,6 +48,8 @@ const reviewStateSet = new Set<string>(FILM_REVIEW_STATES);
 const lockStateSet = new Set<string>(FILM_LOCK_STATES);
 const deliveryStateSet = new Set<string>(FILM_DELIVERY_STATES);
 const staleStateSet = new Set<string>(FILM_STALE_STATES);
+const filmEntityIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+const contentHashPattern = /^[0-9a-f]{64}$/;
 
 export function isFilmContentUnitKind(value: unknown): value is FilmContentUnitKind {
     return typeof value === "string" && contentUnitKindSet.has(value);
@@ -65,21 +57,26 @@ export function isFilmContentUnitKind(value: unknown): value is FilmContentUnitK
 
 export function isFilmContentUnitExtension(value: unknown): value is FilmContentUnitExtension {
     if (!isRecord(value) || !isRecord(value.ref) || !isRecord(value.host) || !isRecord(value.states)) return false;
-    return typeof value.ref.film_entity_id === "string"
-        && typeof value.ref.entity_type === "string"
-        && Number.isInteger(value.ref.version)
-        && Number(value.ref.version) >= 1
-        && typeof value.ref.content_hash === "string"
-        && typeof value.host.host_unit_id === "string"
-        && value.host.host_unit_id.trim().length > 0
-        && (value.host.host_project_id === undefined || typeof value.host.host_project_id === "string")
-        && isFilmContentUnitKind(value.unit_kind)
-        && creativeStageSet.has(String(value.states.creative_stage))
-        && executionStateSet.has(String(value.states.execution_state))
-        && reviewStateSet.has(String(value.states.review_state))
-        && lockStateSet.has(String(value.states.lock_state))
-        && deliveryStateSet.has(String(value.states.delivery_state))
-        && staleStateSet.has(String(value.states.stale_state));
+    return (
+        typeof value.ref.film_entity_id === "string" &&
+        filmEntityIdPattern.test(value.ref.film_entity_id) &&
+        value.ref.entity_type === "content_unit_extension" &&
+        Number.isInteger(value.ref.version) &&
+        Number(value.ref.version) >= 1 &&
+        typeof value.ref.content_hash === "string" &&
+        contentHashPattern.test(value.ref.content_hash) &&
+        typeof value.host.host_unit_id === "string" &&
+        value.host.host_unit_id.trim().length > 0 &&
+        typeof value.host.host_project_id === "string" &&
+        value.host.host_project_id.trim().length > 0 &&
+        isFilmContentUnitKind(value.unit_kind) &&
+        creativeStageSet.has(String(value.states.creative_stage)) &&
+        executionStateSet.has(String(value.states.execution_state)) &&
+        reviewStateSet.has(String(value.states.review_state)) &&
+        lockStateSet.has(String(value.states.lock_state)) &&
+        deliveryStateSet.has(String(value.states.delivery_state)) &&
+        staleStateSet.has(String(value.states.stale_state))
+    );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

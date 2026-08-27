@@ -45,3 +45,8 @@
 ## 尚未验证
 
 - 默认关闭和显式开启的 UI 浏览器验证由集成/QA Track 继续执行；本轨不自行启动 dev server。
+
+## 集成复核补强
+
+- Program Integrator 在合入前将 Sidecar 消费边界收紧为真实 Film Core 形状：`entity_type=content_unit_extension`、Film ID 必须为 UUIDv4、内容哈希必须为小写 SHA-256，且 `host_project_id/host_unit_id` 均为必填显式映射。
+- 缺失项目映射、跨项目映射或客户端自选非 UUID ID 的候选会被只读适配器拒绝；专项测试仍为 `6 pass / 0 fail`，TypeScript 检查通过。
