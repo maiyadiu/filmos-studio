@@ -18,17 +18,23 @@ EXPECTED_AXES = {
     "delivery_state",
     "stale_state",
 }
-EXPECTED_PATHS = {
+EXPECTED_IMPLEMENTED_PATHS = {
+    "/health",
     "/projects/{hostProjectId}/context",
     "/units/{hostUnitId}",
     "/shots/{hostShotId}",
+    "/entities/{filmEntityId}",
     "/commands/preview",
     "/commands/apply",
+    "/audit-events",
+}
+EXPECTED_PLANNED_PATHS = {
     "/impacts/{entityId}",
     "/reviews",
     "/prompts/compile",
     "/continuity/check",
 }
+EXPECTED_PATHS = EXPECTED_IMPLEMENTED_PATHS | EXPECTED_PLANNED_PATHS
 REQUIRED_CHAIN_DEFS = {
     "ContentUnitExtension",
     "ScriptVersion",
@@ -70,12 +76,43 @@ def main() -> None:
 
     assert openapi["openapi"] == "3.1.0"
     assert set(openapi["paths"]) == EXPECTED_PATHS
-    apply_schema = openapi["components"]["requestBodies"]["Command"]["content"]["application/json"]["schema"]
-    assert "expected_version" in apply_schema["required"]
 
-    print(f"FILM_CONTRACTS_OK schema={schema['schema_version']} paths={len(EXPECTED_PATHS)} axes={len(EXPECTED_AXES)}")
+    implementation_states = {}
+    for path, path_item in openapi["paths"].items():
+        states = {
+            operation.get("x-implementation-state")
+            for operation in path_item.values()
+            if isinstance(operation, dict) and "x-implementation-state" in operation
+        }
+        assert len(states) == 1, f"{path} must declare one implementation state"
+        implementation_states[path] = states.pop()
+
+    assert {
+        path for path, state in implementation_states.items() if state == "implemented"
+    } == EXPECTED_IMPLEMENTED_PATHS
+    assert {
+        path for path, state in implementation_states.items() if state == "planned"
+    } == EXPECTED_PLANNED_PATHS
+
+    apply_schema = openapi["paths"]["/commands/apply"]["post"]["requestBody"][
+        "content"
+    ]["application/json"]["schema"]
+    command_refs = {item["$ref"] for item in apply_schema["anyOf"]}
+    assert command_refs == {
+        "#/components/schemas/CreateEntityCommand",
+        "#/components/schemas/SetStatesCommand",
+    }
+    for command_name in ("CreateEntityCommand", "SetStatesCommand"):
+        assert "expected_version" in openapi["components"]["schemas"][command_name][
+            "required"
+        ]
+
+    print(
+        f"FILM_CONTRACTS_OK schema={schema['schema_version']} "
+        f"paths={len(EXPECTED_PATHS)} implemented={len(EXPECTED_IMPLEMENTED_PATHS)} "
+        f"planned={len(EXPECTED_PLANNED_PATHS)} axes={len(EXPECTED_AXES)}"
+    )
 
 
 if __name__ == "__main__":
     main()
-
