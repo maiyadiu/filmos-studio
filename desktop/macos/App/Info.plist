@@ -20,11 +20,53 @@
     <string>0.5.0</string>
     <key>CFBundleVersion</key>
     <string>1</string>
+    <key>CFBundleDocumentTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleTypeExtensions</key>
+            <array>
+                <string>filmosproposal</string>
+            </array>
+            <key>CFBundleTypeName</key>
+            <string>FilmOS Proposal</string>
+            <key>CFBundleTypeRole</key>
+            <string>Viewer</string>
+            <key>LSHandlerRank</key>
+            <string>Owner</string>
+            <key>LSItemContentTypes</key>
+            <array>
+                <string>com.filmos.proposal</string>
+            </array>
+        </dict>
+    </array>
     <key>LSMinimumSystemVersion</key>
     <string>13.0</string>
     <key>NSHighResolutionCapable</key>
     <true/>
     <key>NSPrincipalClass</key>
     <string>NSApplication</string>
+    <key>UTExportedTypeDeclarations</key>
+    <array>
+        <dict>
+            <key>UTTypeConformsTo</key>
+            <array>
+                <string>public.json</string>
+                <string>public.data</string>
+            </array>
+            <key>UTTypeDescription</key>
+            <string>FilmOS Proposal Package</string>
+            <key>UTTypeIdentifier</key>
+            <string>com.filmos.proposal</string>
+            <key>UTTypeTagSpecification</key>
+            <dict>
+                <key>public.filename-extension</key>
+                <array>
+                    <string>filmosproposal</string>
+                </array>
+                <key>public.mime-type</key>
+                <string>application/vnd.filmos.proposal+json</string>
+            </dict>
+        </dict>
+    </array>
 </dict>
 </plist>

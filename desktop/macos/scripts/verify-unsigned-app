@@ -13,6 +13,9 @@ plutil -lint "$plist" >/dev/null
 
 test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist")" = "com.filmos.studio.localbeta"
 test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$plist")" = "FilmOSStudioDesktop"
+test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleDocumentTypes:0:LSItemContentTypes:0' "$plist")" = "com.filmos.proposal"
+test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleDocumentTypes:0:CFBundleTypeExtensions:0' "$plist")" = "filmosproposal"
+test "$(/usr/libexec/PlistBuddy -c 'Print :UTExportedTypeDeclarations:0:UTTypeIdentifier' "$plist")" = "com.filmos.proposal"
 test -x "$binary"
 file "$binary" | grep -q 'Mach-O'
 
