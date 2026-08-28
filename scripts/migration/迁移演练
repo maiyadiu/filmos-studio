@@ -1,0 +1,26 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import json
+import tempfile
+
+from synthetic_migration import run_demo
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="FilmOS synthetic migration and recovery drill")
+    parser.add_argument(
+        "--synthetic",
+        action="store_true",
+        help="required acknowledgement that no user database may be opened",
+    )
+    args = parser.parse_args()
+    if not args.synthetic:
+        parser.error("--synthetic is required; real user databases are not accepted")
+    with tempfile.TemporaryDirectory(prefix="filmos-migration-beta-") as directory:
+        print(json.dumps(run_demo(directory), ensure_ascii=False, indent=2))
+
+
+if __name__ == "__main__":
+    main()

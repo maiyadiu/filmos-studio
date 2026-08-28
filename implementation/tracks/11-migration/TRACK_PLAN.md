@@ -12,11 +12,11 @@ REASONING: `XHigh`
    - BUILD：系统 A/B 语义 Adapter、Film Core ImportPlan/Receipt、引用图核对、正式事务与恢复演练。
    - DEFER：任何真实项目/数据库读取与写入、垃圾清理、来源删除、正式 apply；见 `CR-11-001`。
 4. 证据：见本轨 `EVIDENCE.md`。
-5. 最小修改：默认关闭，只允许标记过的 fixture/临时 sandbox；不打开数据库。
+5. 最小修改：默认关闭，只允许标记过的 synthetic fixture/临时 sandbox；不接受、不打开用户真实数据库。
 6. 不做：不迁移历史垃圾/无引用中间件；不删原系统数据。
 7. 影响：见 `FILE_OWNERSHIP.yaml#migration`。
-8. 测试：sandbox containment、源哈希、幂等重放、ID Mapping、版本、篡改检测、回滚计划和来源不变。
-9. 回滚：导入前备份 Sidecar；本阶段仅 DryRun无写入。
+8. 测试：sandbox containment、源哈希、行数/FK/稳定 ID、幂等 receipt、异清单冲突、包篡改、事务故障、备份恢复、变更后回滚拒绝和来源不变。
+9. 回滚：合成 SQLite 本地等价导入前创建精确备份，receipt 绑定备份哈希；目标变更后拒绝自动回滚。
 10. 依赖：Track 02、06、09、13。
 
-STATUS: `FIRST_SLICE_IMPLEMENTED_PENDING_INTEGRATION`
+STATUS: `BETA_SYNTHETIC_PACKAGE_PASSED_REAL_PG_BLOCKED`
