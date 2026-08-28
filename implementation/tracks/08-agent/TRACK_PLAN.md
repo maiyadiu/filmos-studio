@@ -17,8 +17,11 @@ REASONING: `XHigh`
 7. 审计：读、Preview、Apply 派发、Apply 成功、拒绝/失败均有完整 AgentAudit；默认实现为仅追加 JSONL，正式 Apply 同时校验 Film Core 返回的持久 AuditEvent。
 8. 第二阶段接入：共享 `src/mcp-server.ts` 已调用默认关闭的 Film 注册函数；默认和 `canvasOnly` 工具集合不变，外部 MCP 仅在 `FILMOS_AGENT_GATEWAY_ENABLED=true` 时新增既定 5 个 Film 工具。
 9. 合同门：`scripts/sync-film-openapi.mjs` 只抽取既有 5 个映射并生成 `src/film/generated/openapi-contract.ts`；严格校验 operationId、路径/方法、参数、两个 Command type 与 ActorKind，允许其他 Core operation 存在但不自动暴露。
-10. 验证：真实 MCP SDK `listTools/callTool`；生产 FastAPI + 临时 SQLite 的真实 HTTP Read → Preview → Apply；过期 version/hash/Canvas revision/stateHash、Agent Approved/Locked 均 fail closed。Canvas Agent 全量为 `343 tests / 338 pass / 0 fail / 5 Windows skip`，构建通过。
-11. 回滚：保持 `film.agent_gateway=false` / `FILMOS_AGENT_GATEWAY_ENABLED!=true`，或移除共享入口注册调用；影策原 MCP 不受影响。
-12. 依赖：真实 HTTP 测试需要 `film-core[test]` Python 环境，可通过 `FILMOS_CORE_PYTHON` 指定；当前只兼容已实现 `entity.create` / `entity.set_states`。
+10. 第五阶段扩展：增加供应商中立 `FilmAgentProfile` / capability 合同。`codex_app_server`、`deepseek_compatible`、`claude_code`、`local_model`、`system`、`human_only` 复用同一 MCP 工具面；未知或冲突声明失败关闭，不读取模型端点/密钥，不在声明或注册时发网络。
+11. 第五阶段权限：非人工 Profile 只允许 Read → Preview，正式 Apply 由 `human_only` 携带新鲜、身份匹配的人工确认执行；Agent 即使伪造 `human_confirmation` 也会在 Core transport 前以 `human_apply_required` 拒绝并审计，且继续禁止 Approval/Locked/Script Lock。
+12. Dreamina 顺序诊断：指定长驻 CLI 查询测试在隔离、相邻进程/Runtime 套件和完整串行套件均通过；现有实现已在首个合法状态 JSON 后终止精确进程树并等待 child close。当前唯一可复现的全量前置失败是未指定含 FastAPI/Pydantic/Uvicorn 的 Python，补 `FILMOS_CORE_PYTHON` 后全量通过，因此没有证据修改 Dreamina 运行时代码。
+13. 验证：真实 MCP SDK `listTools/callTool`；生产 FastAPI + 临时 SQLite 的真实 HTTP Read → Preview → Apply；Profile 离线/密钥隔离/DeepSeek Actor/人工 Apply/Approval 拒绝；过期 version/hash/Canvas revision/stateHash 均 fail closed。Canvas Agent 全量为 `354 tests / 349 pass / 0 fail / 5 Windows skip`，构建与 OpenAPI 同步门通过。
+14. 回滚：保持 `film.agent_gateway=false` / `FILMOS_AGENT_GATEWAY_ENABLED!=true`，或移除共享入口注册调用；影策原 MCP 不受影响。
+15. 依赖：真实 HTTP 测试需要 `film-core[test]` Python 环境，可通过 `FILMOS_CORE_PYTHON` 指定；当前只兼容已实现 `entity.create` / `entity.set_states`。
 
-STATUS: `STAGE2_REGISTERED_DEFAULT_OFF_REAL_HTTP_VERIFIED`
+STATUS: `STAGE5_PROVIDER_NEUTRAL_PROFILE_DEEPSEEK_OFFLINE_VERIFIED`

@@ -19,10 +19,11 @@ import {
 
 type JsonRecord = Record<string, unknown>;
 type CanvasObservation = { revision: number; stateHash: string };
-type GatewayIdentity = {
+export type FilmAgentGatewayIdentity = {
   actorKind: FilmActorKind;
   actorId: string;
   mode?: "agent" | "human_only";
+  formalApplyPolicy?: "preview_receipt" | "human_only";
 };
 
 export interface FilmCoreTransport {
@@ -44,7 +45,7 @@ export interface FilmCanvasObservationSource {
 }
 
 export type FilmAgentGatewayOptions = {
-  identity: GatewayIdentity;
+  identity: FilmAgentGatewayIdentity;
   transport: FilmCoreTransport;
   canvas: FilmCanvasObservationSource;
   audit: FilmAgentAuditSink;
@@ -85,7 +86,7 @@ export class FilmAgentGatewayError extends Error {
 export class FilmAgentGateway {
   private readonly reads = new Map<string, ReadReceipt>();
   private readonly previews = new Map<string, PreviewReceipt>();
-  private readonly identity: Required<GatewayIdentity>;
+  private readonly identity: Required<FilmAgentGatewayIdentity>;
   private readonly now: () => Date;
   private readonly randomUUID: () => string;
   private readonly receiptTtlMs: number;
@@ -97,6 +98,8 @@ export class FilmAgentGateway {
       ...options.identity,
       actorId,
       mode: options.identity.mode ?? "agent",
+      formalApplyPolicy:
+        options.identity.formalApplyPolicy ?? "human_only",
     };
     if (
       this.identity.mode === "human_only" &&
@@ -476,6 +479,16 @@ export class FilmAgentGateway {
         "Film Agent Gateway 不执行 Provider 调用或外部生成",
       );
     }
+    if (
+      formalApply &&
+      this.identity.mode === "agent" &&
+      this.identity.formalApplyPolicy === "human_only"
+    ) {
+      throw new FilmAgentGatewayError(
+        "human_apply_required",
+        "Agent 只能读取和 Preview，正式 Apply 必须由 Human Only 操作者执行",
+      );
+    }
     const forbidden = detectsAgentApprovalOrLock(commandType, command.payload);
     if (this.identity.mode === "agent" && forbidden) {
       throw new FilmAgentGatewayError(
@@ -486,18 +499,16 @@ export class FilmAgentGateway {
     if (
       this.identity.mode === "human_only" &&
       formalApply &&
-      forbidden &&
       !humanConfirmation
     ) {
       throw new FilmAgentGatewayError(
         "human_confirmation_required",
-        "Human Only 模式执行批准或锁定时必须提供显式人工确认",
+        "Human Only 模式正式 Apply 必须提供显式人工确认",
       );
     }
     if (
       this.identity.mode === "human_only" &&
       formalApply &&
-      forbidden &&
       humanConfirmation
     ) {
       if (humanConfirmation.confirmed_by !== this.identity.actorId) {

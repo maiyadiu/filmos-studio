@@ -297,7 +297,11 @@ function createGateway(
   audit: MemoryFilmAgentAuditSink,
 ) {
   return new FilmAgentGateway({
-    identity: { actorKind: "codex", actorId: "codex-http-integration" },
+    identity: {
+      actorKind: "codex",
+      actorId: "codex-http-integration",
+      formalApplyPolicy: "preview_receipt",
+    },
     transport,
     canvas,
     audit,

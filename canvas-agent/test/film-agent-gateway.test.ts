@@ -124,7 +124,11 @@ function fixture() {
   const audit = new MemoryFilmAgentAuditSink();
   let uuidCounter = 100;
   const gateway = new FilmAgentGateway({
-    identity: { actorKind: "codex", actorId: "codex-fixture" },
+    identity: {
+      actorKind: "codex",
+      actorId: "codex-fixture",
+      formalApplyPolicy: "preview_receipt",
+    },
     transport,
     canvas,
     audit,

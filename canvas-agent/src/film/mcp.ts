@@ -9,7 +9,6 @@ import {
   filmToolDescriptions,
   filmToolInputSchemas,
   filmToolNames,
-  type FilmActorKind,
 } from "./contracts.js";
 import { FilmAgentGateway } from "./gateway.js";
 import {
@@ -18,6 +17,7 @@ import {
   filmCoreBaseUrl,
   HttpFilmCoreTransport,
 } from "./http.js";
+import { resolveFilmAgentProfile } from "./profile.js";
 
 export type FilmAgentMcpOptions = {
   enabled?: boolean;
@@ -36,7 +36,7 @@ export function registerFilmAgentMcp(
   const gateway =
     options.gateway ??
     new FilmAgentGateway({
-      identity: filmIdentity(env),
+      identity: resolveFilmAgentProfile(env).identity,
       transport: new HttpFilmCoreTransport(filmCoreBaseUrl(env)),
       canvas: new CanvasAgentObservationSource(config),
       audit: new JsonlFilmAgentAuditSink(
@@ -67,33 +67,4 @@ export function registerFilmAgentMcp(
     );
   }
   return { enabled: true, registered: [...filmToolNames] };
-}
-
-function filmIdentity(env: NodeJS.ProcessEnv) {
-  const mode =
-    env.FILMOS_AGENT_MODE === "human_only"
-      ? ("human_only" as const)
-      : ("agent" as const);
-  const actorKind: FilmActorKind =
-    mode === "human_only"
-      ? "human"
-      : parseAgentActorKind(env.FILMOS_AGENT_ACTOR_KIND);
-  return {
-    mode,
-    actorKind,
-    actorId: (env.FILMOS_AGENT_ACTOR_ID || `${actorKind}-mcp`).trim(),
-  };
-}
-
-function parseAgentActorKind(
-  value: string | undefined,
-): Exclude<FilmActorKind, "human"> {
-  if (
-    value === "deepseek" ||
-    value === "claude" ||
-    value === "local_model" ||
-    value === "system"
-  )
-    return value;
-  return "codex";
 }

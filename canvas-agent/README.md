@@ -146,6 +146,10 @@ default_tools_approval_mode = "approve"
 - `canvas_create_text_node`
 - `canvas_create_image_prompt_flow`
 
+FilmOS 的 Production / Canvas / Film MCP 工具面不绑定单一模型供应商。它默认关闭，只有 `FILMOS_AGENT_GATEWAY_ENABLED=true` 时才注册；`FILMOS_AGENT_PROFILE` 可声明 `codex_app_server`、`deepseek_compatible`、`claude_code`、`local_model`、`system` 或 `human_only`。Profile 只描述本机 MCP 身份和能力，不读取、保存或调用模型 API Key、Base URL，也不会因为声明 `deepseek_compatible` 就发起网络请求。
+
+非人工 Profile 的权限固定为 Read → Preview；正式 Apply 必须切换到 `human_only` 并提供当次人工确认，Agent 不能 Approval 或 Locked/Script Lock。所有 Profile 复用同一组 MCP 工具名、Film Core `expected_version/content_hash` 守卫和 Canvas `revision/stateHash` 守卫；未知 Profile 或 ActorKind 会失败关闭，不会静默回退为 Codex。
+
 `canvas_create_workflow` 是创建流水线/节点图的高阶工具，不要把工作流退化成批量文本节点。它会根据节点语义自动选择真实节点类型、按实际尺寸布局、创建默认顺序连线，并复核连接与重叠结果：
 
 | kind | 画布节点类型 | 用途 |

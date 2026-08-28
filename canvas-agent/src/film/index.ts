@@ -4,3 +4,4 @@ export * from "./dreamina-lineage.js";
 export * from "./gateway.js";
 export * from "./http.js";
 export * from "./mcp.js";
+export * from "./profile.js";

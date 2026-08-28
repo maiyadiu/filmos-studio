@@ -3,7 +3,7 @@
 ## 状态
 
 - 分支：`stage/agent-mcp`
-- 第二阶段：`STAGE2_REGISTERED_DEFAULT_OFF_REAL_HTTP_VERIFIED`
+- 第五阶段：`STAGE5_PROVIDER_NEUTRAL_PROFILE_DEEPSEEK_OFFLINE_VERIFIED`
 - 默认开关：`film.agent_gateway=false`；运行时仅精确环境值 `FILMOS_AGENT_GATEWAY_ENABLED=true` 才允许注册。
 - 外部副作用：未启动 dev server，未调用 Provider，未生成、上传或消费积分。
 
@@ -31,6 +31,16 @@
 - `canvas-agent/test/film-mcp-registration.test.ts`：共享入口差集测试及真实 MCP SDK in-memory `listTools/callTool`。
 - `canvas-agent/test/film-openapi-contract.test.ts`：生成物新鲜度、Zod 严格性和 operationId 漂移失败测试。
 - `canvas-agent/test/film-agent-http-integration.test.ts`：生产 FastAPI `create_app()`、临时 SQLite、真实 loopback HTTP 的 Read → Preview → Apply 与冲突/权限测试。
+- `canvas-agent/src/film/profile.ts`：供应商中立 Profile/Capability 合同；DeepSeek-compatible 只声明本地 MCP 身份，不携带客户端端点或密钥，也不执行网络。
+- `canvas-agent/test/film-agent-profile.test.ts`：六类 Adapter 共用工具面、未知/冲突配置失败关闭、DeepSeek 离线零网络零密钥、Agent Apply 拒绝审计、Human Only 确认 Apply、默认关闭注册。
+
+## 第五阶段 Dreamina 顺序诊断
+
+1. 隔离运行 `Dreamina production query consumes one JSON status before a long-lived CLI exits`：`1 pass / 0 fail`。
+2. 与 `dreamina-cli-process.test.ts`、完整 `dreamina-cli-runtime.test.ts`、Film Profile/MCP 测试按串行顺序运行：`101 tests / 99 pass / 0 fail / 2 Windows skip`；指定测试通过。
+3. 未指定 Film Core Python 时，全量中可复现的仅是 2 个 HTTP Sidecar 测试因缺少 FastAPI/Pydantic/Uvicorn 而失败，指定 `/tmp/filmos-core-venv-02/bin/python` 后 `354 tests / 349 pass / 0 fail / 5 Windows skip`；指定 Dreamina 测试仍通过。
+4. 代码证据：非下载查询设置 `completeOnJsonOutput=isCompleteQueryOutput`；只接受含 `status/state/genStatus/code/completed` 的受限 JSON；`runDreaminaProcess` 接受后终止精确进程树，并以 child close 作为清理屏障。相邻 process tests 已覆盖“早期 JSON → 等待 close”和“长驻 child → 清理”。
+5. 裁决：没有证据表明当前代码存在 Dreamina 测试顺序依赖，不修改、不跳过、不删除 Dreamina 源码或测试；保留现有门禁。
 
 ## 验证
 
@@ -38,8 +48,11 @@
 npm run check:film-openapi
 exit 0
 
-npm test
-343 tests / 338 pass / 0 fail / 5 skipped (Windows-specific)
+npm run sync:film-openapi
+exit 0
+
+FILMOS_CORE_PYTHON=/tmp/filmos-core-venv-02/bin/python npm test
+354 tests / 349 pass / 0 fail / 5 skipped (Windows-specific)
 
 npm run build
 tsc -p tsconfig.json
@@ -56,3 +69,4 @@ exit 0
 3. Gateway 读取/Preview 收据仍是 MCP 进程内短期状态；进程重启后必须重新 Read/Preview，这是 fail closed，不是恢复实现。
 4. 当前只接受 Film Core 已实现的 `entity.create` 与 `entity.set_states`；新增正式写命令必须先扩展 OpenAPI 门与权限测试。
 5. 没有执行 Provider、外部生成、上传、远端发布或积分消费；没有声明新 Core operation 已具备 Agent 面。
+6. `deepseek_compatible` 当前是离线 Profile/Capability 和 MCP 身份适配，不包含 DeepSeek HTTP 客户端、Tool Call 循环或凭据管理；接入真实客户端前仍需独立网络/密钥授权与安全实现。
