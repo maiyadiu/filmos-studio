@@ -26,21 +26,15 @@ import { App, Modal } from "antd";
 import { getNodeSpec } from "@/constant/canvas";
 import { CanvasConfigComposer } from "@/components/canvas/canvas-config-composer";
 import { CanvasConfigNodePanel } from "@/components/canvas/canvas-config-node-panel";
-import { CanvasAssistantPanel } from "@/components/canvas/canvas-assistant-panel";
 import { AssistantPanelColumn, getPanelWidthBounds } from "./canvas-assistant-panel-column";
 import { CanvasActiveTaskPanel } from "@/components/canvas/canvas-active-task-panel";
 import { CanvasAssetTray } from "@/components/canvas/canvas-asset-tray";
 import { CanvasProjectSidebar } from "@/components/canvas/canvas-project-sidebar";
-import { CanvasProjectAssetModal } from "@/components/canvas/canvas-project-asset-modal";
 import { CanvasCharacterReferenceNodeContent } from "@/components/canvas/canvas-character-reference-node";
-import { CanvasCharacterReferenceModal } from "@/components/canvas/canvas-character-reference-modal";
 import { WorkspaceState } from "@/components/layout/workspace-state";
 import { resolveProjectCanvasStyle } from "@/components/canvas/canvas-style-picker-modal";
 import { createStyleProfileSnapshot, resolveStyleProfile, serializeStyleProfile } from "@/lib/canvas/style-profile";
 import { CanvasNodeToolbar, CanvasNodeInfoModal } from "@/components/canvas/canvas-node-toolbar";
-import { CanvasSubtitleDialog } from "@/components/canvas/canvas-subtitle-dialog";
-import { CanvasVideoSegmentDialog } from "@/components/canvas/canvas-video-segment-dialog";
-import { CanvasTimelineDialog } from "@/components/canvas/canvas-timeline-dialog";
 import { syncNodeSubtitlesToTimeline } from "@/lib/timeline/timeline-build";
 import type { TimelineDirectMedia } from "@/types/timeline";
 import { CanvasNodeAnglePanel } from "@/components/canvas/canvas-node-angle-dialog";
@@ -61,7 +55,6 @@ import { CanvasScriptEditor, CanvasScriptNodeContent } from "@/components/canvas
 import { STORYBOARD_HEADER_HEIGHT, STORYBOARD_ROW_HEIGHT, storyboardMinNodeHeight, storyboardTableHeight } from "@/lib/canvas/canvas-storyboard-layout";
 import { CanvasDirectorNodePanel } from "@/components/canvas/director/canvas-director-node-panel";
 import { CanvasVersionCompareModal } from "@/components/canvas/canvas-version-compare-modal";
-import { CanvasLocalAgentPanel } from "@/components/canvas/canvas-local-agent-panel";
 import { useFocusMode } from "@/hooks/use-focus-mode";
 import { useCanvasAgentStore } from "@/stores/canvas/use-canvas-agent-store";
 import { getContextResourceNodes, removeCanvasResourceMention, type CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
@@ -87,12 +80,10 @@ import { CanvasProjectSelectionToolbar } from "./canvas-project-selection-toolba
 import { CanvasProjectStatusDialogs } from "./canvas-project-status-dialogs";
 import { CanvasProjectWorldLayers } from "./canvas-project-world-layers";
 import { CanvasNodeActionContext } from "@/components/canvas/canvas-node-action-context";
-import { PortraitClearanceModal } from "@/components/canvas/portrait-clearance/portrait-clearance-modal";
 import { CanvasNodeGraphContext, type CanvasNodeGraphContextValue } from "@/components/canvas/canvas-node-graph-context";
 import { CanvasRefreshShell } from "./canvas-refresh-shell";
 import { queryGenerationTask } from "@/services/api/task-center";
 import type { CanvasImageEmotionPayload } from "@/components/canvas/canvas-node-emotion-panel";
-import { CanvasEmotionWorkspace } from "@/components/canvas/canvas-emotion-workspace";
 import { removeCanvasDrawing } from "@/lib/canvas/canvas-drawing-storage";
 import { useCanvasConnectionController } from "./use-canvas-connection-controller";
 import { useCanvasAgentOperations } from "./use-canvas-agent-operations";
@@ -142,6 +133,15 @@ import { reconcilePortraitClearanceInputBindings } from "@/lib/portrait-clearanc
 
 const CanvasDirectorWorkbench = lazy(() => import("@/components/canvas/director/canvas-director-workbench").then((module) => ({ default: module.CanvasDirectorWorkbench })));
 const CanvasDrawingEditorModal = lazy(() => import("@/components/canvas/canvas-drawing-editor-modal").then((module) => ({ default: module.CanvasDrawingEditorModal })));
+const CanvasAssistantPanel = lazy(() => import("@/components/canvas/canvas-assistant-panel").then((module) => ({ default: module.CanvasAssistantPanel })));
+const CanvasCharacterReferenceModal = lazy(() => import("@/components/canvas/canvas-character-reference-modal").then((module) => ({ default: module.CanvasCharacterReferenceModal })));
+const CanvasEmotionWorkspace = lazy(() => import("@/components/canvas/canvas-emotion-workspace").then((module) => ({ default: module.CanvasEmotionWorkspace })));
+const CanvasLocalAgentPanel = lazy(() => import("@/components/canvas/canvas-local-agent-panel").then((module) => ({ default: module.CanvasLocalAgentPanel })));
+const CanvasProjectAssetModal = lazy(() => import("@/components/canvas/canvas-project-asset-modal").then((module) => ({ default: module.CanvasProjectAssetModal })));
+const CanvasSubtitleDialog = lazy(() => import("@/components/canvas/canvas-subtitle-dialog").then((module) => ({ default: module.CanvasSubtitleDialog })));
+const CanvasTimelineDialog = lazy(() => import("@/components/canvas/canvas-timeline-dialog").then((module) => ({ default: module.CanvasTimelineDialog })));
+const CanvasVideoSegmentDialog = lazy(() => import("@/components/canvas/canvas-video-segment-dialog").then((module) => ({ default: module.CanvasVideoSegmentDialog })));
+const PortraitClearanceModal = lazy(() => import("@/components/canvas/portrait-clearance/portrait-clearance-modal").then((module) => ({ default: module.PortraitClearanceModal })));
 
 const NODE_STATUS_SUCCESS = "success" as const;
 const EMPTY_RESOURCE_REFERENCES: CanvasResourceReference[] = [];
@@ -2195,29 +2195,31 @@ function InfiniteCanvasPage() {
                         {assistantMounted ? (
                             <AssistantPanelColumn width={assistantWidth} closing={assistantClosing} topInset={focusMode ? "0px" : "var(--canvas-topbar-offset)"} onWidthChange={setAssistantWidth}>
                                 {(resizing) => (
-                                    <CanvasAssistantPanel
-                                        nodes={nodes}
-                                        selectedNodeIds={selectedNodeIds}
-                                        snapshot={agentSnapshot}
-                                        projectId={projectId}
-                                        sessions={chatSessions}
-                                        activeSessionId={activeChatId}
-                                        onSelectNodeIds={setSelectedNodeIds}
-                                        onSessionsChange={handleAssistantSessionsChange}
-                                        onApplyOps={applyAgentOps}
-                                        canUndoOps={canUndoAgentOps}
-                                        undoOpsCount={agentUndoCount}
-                                        onUndoOps={undoAgentOps}
-                                        onPasteImage={pasteAssistantImage}
-                                        agentMode={agentMode}
-                                        onAgentModeChange={setAgentMode}
-                                        autoConnectLocal={codexAutoConnect}
-                                        closing={assistantClosing}
-                                        onCollapse={closeAgent}
-                                        cinematicEntry={cinematicAgentEntry}
-                                        onCinematicEntryConsumed={() => setCinematicAgentEntry(false)}
-                                        resizing={resizing}
-                                    />
+                                    <Suspense fallback={<WorkspaceState icon="loading" title="正在加载 AI 助手" description="正在准备本地画布上下文。" />}>
+                                        <CanvasAssistantPanel
+                                            nodes={nodes}
+                                            selectedNodeIds={selectedNodeIds}
+                                            snapshot={agentSnapshot}
+                                            projectId={projectId}
+                                            sessions={chatSessions}
+                                            activeSessionId={activeChatId}
+                                            onSelectNodeIds={setSelectedNodeIds}
+                                            onSessionsChange={handleAssistantSessionsChange}
+                                            onApplyOps={applyAgentOps}
+                                            canUndoOps={canUndoAgentOps}
+                                            undoOpsCount={agentUndoCount}
+                                            onUndoOps={undoAgentOps}
+                                            onPasteImage={pasteAssistantImage}
+                                            agentMode={agentMode}
+                                            onAgentModeChange={setAgentMode}
+                                            autoConnectLocal={codexAutoConnect}
+                                            closing={assistantClosing}
+                                            onCollapse={closeAgent}
+                                            cinematicEntry={cinematicAgentEntry}
+                                            onCinematicEntryConsumed={() => setCinematicAgentEntry(false)}
+                                            resizing={resizing}
+                                        />
+                                    </Suspense>
                                 )}
                             </AssistantPanelColumn>
                         ) : null}
@@ -2244,17 +2246,19 @@ function InfiniteCanvasPage() {
                     ) : null}
 
                     {emotionNode?.metadata?.content ? (
-                        <CanvasEmotionWorkspace
-                            node={emotionNode}
-                            viewport={viewport}
-                            containerRef={containerRef}
-                            dragOffset={dragPreview?.nodeIds.has(emotionNode.id) ? { x: dragPreview.x, y: dragPreview.y } : null}
-                            isDragging={isNodeDragging && Boolean(dragPreview?.nodeIds.has(emotionNode.id))}
-                            onClose={() => setEmotionNodeId(null)}
-                            onConfirm={(payload: CanvasImageEmotionPayload) => {
-                                void generateEmotionNode(emotionNode, payload);
-                            }}
-                        />
+                        <Suspense fallback={null}>
+                            <CanvasEmotionWorkspace
+                                node={emotionNode}
+                                viewport={viewport}
+                                containerRef={containerRef}
+                                dragOffset={dragPreview?.nodeIds.has(emotionNode.id) ? { x: dragPreview.x, y: dragPreview.y } : null}
+                                isDragging={isNodeDragging && Boolean(dragPreview?.nodeIds.has(emotionNode.id))}
+                                onClose={() => setEmotionNodeId(null)}
+                                onConfirm={(payload: CanvasImageEmotionPayload) => {
+                                    void generateEmotionNode(emotionNode, payload);
+                                }}
+                            />
+                        </Suspense>
                     ) : null}
 
                     {dialogNode && dialogNode.type !== CanvasNodeType.Script && dialogNode.type !== CanvasNodeType.Drawing && !selectionBox ? (
@@ -2440,66 +2444,76 @@ function InfiniteCanvasPage() {
                     <CanvasNodeInfoModal node={infoNode} open={Boolean(infoNode)} onClose={() => setInfoNodeId(null)} onMetadataChange={handleConfigNodeChange} />
 
                     {subtitleNode ? (
-                        <CanvasSubtitleDialog
-                            node={subtitleNode}
-                            open={Boolean(subtitleNode)}
-                            projectId={projectId}
-                            config={effectiveConfig}
-                            onClose={() => setSubtitleNodeId(null)}
-                            onSave={(nodeId, patch) => {
-                                handleConfigNodeChange(nodeId, patch);
-                                const currentTimeline = currentProject?.timeline;
-                                if (currentTimeline) {
-                                    const next = syncNodeSubtitlesToTimeline(currentTimeline, nodeId, patch.subtitleEntries || []);
-                                    if (next !== currentTimeline) updateProject(projectId, { timeline: next });
-                                }
-                            }}
-                        />
+                        <Suspense fallback={null}>
+                            <CanvasSubtitleDialog
+                                node={subtitleNode}
+                                open={Boolean(subtitleNode)}
+                                projectId={projectId}
+                                config={effectiveConfig}
+                                onClose={() => setSubtitleNodeId(null)}
+                                onSave={(nodeId, patch) => {
+                                    handleConfigNodeChange(nodeId, patch);
+                                    const currentTimeline = currentProject?.timeline;
+                                    if (currentTimeline) {
+                                        const next = syncNodeSubtitlesToTimeline(currentTimeline, nodeId, patch.subtitleEntries || []);
+                                        if (next !== currentTimeline) updateProject(projectId, { timeline: next });
+                                    }
+                                }}
+                            />
+                        </Suspense>
                     ) : null}
 
                     {segmentNode && segmentDialogMode ? (
-                        <CanvasVideoSegmentDialog
-                            node={segmentNode}
-                            nodes={nodes}
-                            connections={connections}
-                            open={Boolean(segmentNode && segmentDialogMode)}
-                            mode={segmentDialogMode}
-                            config={effectiveConfig}
-                            timeline={currentProject?.timeline || null}
-                            onClose={closeSegmentDialog}
-                            onConfirm={(params) => void handleSegmentConfirm(segmentNode, params)}
-                        />
+                        <Suspense fallback={null}>
+                            <CanvasVideoSegmentDialog
+                                node={segmentNode}
+                                nodes={nodes}
+                                connections={connections}
+                                open={Boolean(segmentNode && segmentDialogMode)}
+                                mode={segmentDialogMode}
+                                config={effectiveConfig}
+                                timeline={currentProject?.timeline || null}
+                                onClose={closeSegmentDialog}
+                                onConfirm={(params) => void handleSegmentConfirm(segmentNode, params)}
+                            />
+                        </Suspense>
                     ) : null}
 
                     {timelineNode ? (
-                        <CanvasTimelineDialog
-                            node={timelineNode}
-                            open={Boolean(timelineNode)}
-                            nodes={nodes}
-                            timeline={currentProject?.timeline || null}
-                            onClose={() => setTimelineNodeId(null)}
-                            onOpenSubtitleDialog={(subNodeId) => {
-                                setTimelineNodeId(null);
-                                setSubtitleNodeId(subNodeId);
-                            }}
-                            onSave={(next) => updateProject(projectId, { timeline: next })}
-                            onSaveSubtitles={(subNodeId, entries) =>
-                                handleConfigNodeChange(subNodeId, {
-                                    subtitleEntries: entries,
-                                    ...(entries.length ? {} : { subtitleHighlights: [] }),
-                                    subtitleUpdatedAt: new Date().toISOString(),
-                                })
-                            }
-                            onOpenAssetLibrary={openTimelineAssetLibrary}
-                            onOpenProjectAssets={() => openProjectAssets("all", undefined, "timeline")}
-                            onUploadLocalFiles={uploadTimelineMedia}
-                            addNodeToTimelineRef={timelineAddNodeRef}
-                            addMediaToTimelineRef={timelineMediaAddRef}
-                            onCreateAssembledNode={createVideoNodeFromBlob}
-                        />
+                        <Suspense fallback={null}>
+                            <CanvasTimelineDialog
+                                node={timelineNode}
+                                open={Boolean(timelineNode)}
+                                nodes={nodes}
+                                timeline={currentProject?.timeline || null}
+                                onClose={() => setTimelineNodeId(null)}
+                                onOpenSubtitleDialog={(subNodeId) => {
+                                    setTimelineNodeId(null);
+                                    setSubtitleNodeId(subNodeId);
+                                }}
+                                onSave={(next) => updateProject(projectId, { timeline: next })}
+                                onSaveSubtitles={(subNodeId, entries) =>
+                                    handleConfigNodeChange(subNodeId, {
+                                        subtitleEntries: entries,
+                                        ...(entries.length ? {} : { subtitleHighlights: [] }),
+                                        subtitleUpdatedAt: new Date().toISOString(),
+                                    })
+                                }
+                                onOpenAssetLibrary={openTimelineAssetLibrary}
+                                onOpenProjectAssets={() => openProjectAssets("all", undefined, "timeline")}
+                                onUploadLocalFiles={uploadTimelineMedia}
+                                addNodeToTimelineRef={timelineAddNodeRef}
+                                addMediaToTimelineRef={timelineMediaAddRef}
+                                onCreateAssembledNode={createVideoNodeFromBlob}
+                            />
+                        </Suspense>
                     ) : null}
 
-                    <CanvasCharacterReferenceModal node={characterReferenceNode} open={Boolean(characterReferenceNode)} onClose={() => setCharacterReferenceNodeId(null)} />
+                    {characterReferenceNode ? (
+                        <Suspense fallback={null}>
+                            <CanvasCharacterReferenceModal node={characterReferenceNode} open onClose={() => setCharacterReferenceNodeId(null)} />
+                        </Suspense>
+                    ) : null}
 
                     <CanvasTextEditorModal
                         node={textEditorNode}
@@ -2547,15 +2561,19 @@ function InfiniteCanvasPage() {
                         </Suspense>
                     ) : null}
 
-                        <PortraitClearanceModal
-                            projectId={projectId}
-                            node={portraitClearanceNode}
-                        upstreamNodes={portraitClearanceInputs}
-                        open={Boolean(portraitClearanceNode)}
-                        onClose={() => setPortraitClearanceNodeId(null)}
-                        onUpdateState={(nodeId, state: PortraitClearanceNodeState) => handleConfigNodeChange(nodeId, { portraitClearance: state })}
-                        onAddCandidate={addPortraitCandidateToCanvas}
-                    />
+                    {portraitClearanceNode ? (
+                        <Suspense fallback={null}>
+                            <PortraitClearanceModal
+                                projectId={projectId}
+                                node={portraitClearanceNode}
+                                upstreamNodes={portraitClearanceInputs}
+                                open
+                                onClose={() => setPortraitClearanceNodeId(null)}
+                                onUpdateState={(nodeId, state: PortraitClearanceNodeState) => handleConfigNodeChange(nodeId, { portraitClearance: state })}
+                                onAddCandidate={addPortraitCandidateToCanvas}
+                            />
+                        </Suspense>
+                    ) : null}
 
                     <CanvasScriptEditor
                         node={activeScriptNode}
@@ -2648,9 +2666,15 @@ function InfiniteCanvasPage() {
                     />
 
                     <AssetPickerModal open={assetPickerOpen} onInsert={handleTimelineAssetInsert} onClose={closeAssetPicker} />
-                    <CanvasProjectAssetModal open={projectAssetOpen} detail={linkedProjectQuery.data} initialCategory={projectAssetInitialCategory} initialFolderId={projectAssetInitialFolderId} onClose={closeProjectAssets} onInsert={handleTimelineProjectAssetsInsert} onInsertFolder={projectAssetScope === "canvas" ? handleProjectFolderInsert : undefined} />
+                    {projectAssetOpen ? (
+                        <Suspense fallback={null}>
+                            <CanvasProjectAssetModal open detail={linkedProjectQuery.data} initialCategory={projectAssetInitialCategory} initialFolderId={projectAssetInitialFolderId} onClose={closeProjectAssets} onInsert={handleTimelineProjectAssetsInsert} onInsertFolder={projectAssetScope === "canvas" ? handleProjectFolderInsert : undefined} />
+                        </Suspense>
+                    ) : null}
                     {codexCompactAgent && !assistantMounted ? (
-                        <CanvasLocalAgentPanel headless snapshot={agentSnapshot} canUndoOps={canUndoAgentOps} undoOpsCount={agentUndoCount} onApplyOps={applyAgentOps} onUndoOps={undoAgentOps} autoConnect={codexAutoConnect} />
+                        <Suspense fallback={null}>
+                            <CanvasLocalAgentPanel headless snapshot={agentSnapshot} canUndoOps={canUndoAgentOps} undoOpsCount={agentUndoCount} onApplyOps={applyAgentOps} onUndoOps={undoAgentOps} autoConnect={codexAutoConnect} />
+                        </Suspense>
                     ) : null}
                     </section>
                 </CanvasOverlayLayerProvider>
