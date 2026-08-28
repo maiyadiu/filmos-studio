@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://filmos.local/contracts/v0/core.schema.json",
-  "title": "FilmOS Studio Core Contracts V0",
-  "schema_version": "0.1.0",
+  "$id": "https://filmos.local/contracts/v0.2/core.schema.json",
+  "title": "FilmOS Studio Core Contracts V0.2",
+  "schema_version": "0.2.0",
   "$defs": {
     "FilmEntityId": {
       "type": "string",
@@ -28,10 +28,21 @@
     },
     "VersionGuard": {
       "type": "object",
-      "required": ["film_entity_id", "expected_version"],
+      "required": ["film_entity_id", "expected_version", "expected_content_hash"],
       "properties": {
         "film_entity_id": { "$ref": "#/$defs/FilmEntityId" },
-        "expected_version": { "type": "integer", "minimum": 0 }
+        "expected_version": { "type": "integer", "minimum": 1 },
+        "expected_content_hash": { "$ref": "#/$defs/ContentHash" }
+      },
+      "additionalProperties": false
+    },
+    "CreateTargetGuard": {
+      "type": "object",
+      "required": ["target_id", "expected_version", "expected_content_hash"],
+      "properties": {
+        "target_id": { "type": "null" },
+        "expected_version": { "const": 0 },
+        "expected_content_hash": { "const": "0000000000000000000000000000000000000000000000000000000000000000" }
       },
       "additionalProperties": false
     },
@@ -93,13 +104,53 @@
     },
     "DirectorUnit": {
       "type": "object",
-      "required": ["ref", "script_version_id", "states", "narrative_purpose"],
+      "required": ["ref", "script_version_id", "states", "director_ir_text", "director_ir_hash", "narrative_purpose"],
       "properties": {
         "ref": { "$ref": "#/$defs/FilmEntityRef" },
         "script_version_id": { "$ref": "#/$defs/FilmEntityId" },
         "states": { "$ref": "#/$defs/FormalStateAxes" },
+        "director_ir_text": { "type": "string", "minLength": 1 },
+        "director_ir_hash": { "$ref": "#/$defs/ContentHash" },
         "narrative_purpose": { "type": "string", "minLength": 1 },
         "performance_beats": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    },
+    "CoverageLink": {
+      "type": "object",
+      "required": ["ref", "director_unit_id", "shot_id", "purpose"],
+      "properties": {
+        "ref": { "$ref": "#/$defs/FilmEntityRef" },
+        "director_unit_id": { "$ref": "#/$defs/FilmEntityId" },
+        "shot_id": { "$ref": "#/$defs/FilmEntityId" },
+        "purpose": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "VisualLockSet": {
+      "type": "object",
+      "required": ["ref", "project_id", "shot_id", "states", "visual_lock_text", "visual_lock_hash", "locks"],
+      "properties": {
+        "ref": { "$ref": "#/$defs/FilmEntityRef" },
+        "project_id": { "$ref": "#/$defs/FilmEntityId" },
+        "shot_id": { "$ref": "#/$defs/FilmEntityId" },
+        "states": { "$ref": "#/$defs/FormalStateAxes" },
+        "visual_lock_text": { "type": "string", "minLength": 1 },
+        "visual_lock_hash": { "$ref": "#/$defs/ContentHash" },
+        "locks": { "type": "object" }
+      },
+      "additionalProperties": false
+    },
+    "AssetBinding": {
+      "type": "object",
+      "required": ["ref", "project_id", "host", "role", "priority", "asset_content_hash"],
+      "properties": {
+        "ref": { "$ref": "#/$defs/FilmEntityRef" },
+        "project_id": { "$ref": "#/$defs/FilmEntityId" },
+        "host": { "$ref": "#/$defs/HostReferences" },
+        "role": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "priority": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "asset_content_hash": { "$ref": "#/$defs/ContentHash" }
       },
       "additionalProperties": false
     },
@@ -116,7 +167,7 @@
     },
     "PromptDraft": {
       "type": "object",
-      "required": ["ref", "states", "director_ir_hash", "model_capability_profile", "prompt_text"],
+      "required": ["ref", "states", "director_ir_hash", "visual_lock_hash", "model_capability_profile", "prompt_text"],
       "properties": {
         "ref": { "$ref": "#/$defs/FilmEntityRef" },
         "states": { "$ref": "#/$defs/FormalStateAxes" },
@@ -127,23 +178,148 @@
       },
       "additionalProperties": false
     },
-    "GenerationPackage": {
+    "BoundEntityReference": {
       "type": "object",
-      "required": ["ref", "prompt_draft_id", "provider_kind", "input_hash"],
+      "required": ["film_entity_id", "entity_type", "expected_version", "expected_content_hash", "host"],
+      "properties": {
+        "film_entity_id": { "$ref": "#/$defs/FilmEntityId" },
+        "entity_type": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "expected_version": { "type": "integer", "minimum": 1 },
+        "expected_content_hash": { "$ref": "#/$defs/ContentHash" },
+        "host": { "$ref": "#/$defs/HostReferences" }
+      },
+      "additionalProperties": false
+    },
+    "PromptTemplateBinding": {
+      "type": "object",
+      "required": ["host_prompt_template_id", "operation", "version", "content_hash"],
+      "properties": {
+        "host_prompt_template_id": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "operation": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "version": { "type": "integer", "minimum": 1 },
+        "content_hash": { "$ref": "#/$defs/ContentHash" }
+      },
+      "additionalProperties": false
+    },
+    "PromptAssetBinding": {
+      "type": "object",
+      "required": ["binding", "asset_content_hash"],
+      "properties": {
+        "binding": { "$ref": "#/$defs/BoundEntityReference" },
+        "asset_content_hash": { "$ref": "#/$defs/ContentHash" }
+      },
+      "additionalProperties": false
+    },
+    "ProviderCapabilityProfile": {
+      "type": "object",
+      "required": ["profile_id", "profile_version", "provider_id", "output_kind", "dialect", "capabilities"],
+      "properties": {
+        "profile_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "profile_version": { "type": "integer", "minimum": 1 },
+        "provider_id": { "type": "string", "pattern": "^[a-z][a-z0-9._-]{2,63}$" },
+        "output_kind": { "enum": ["text", "image", "video", "audio", "workflow", "three_d"] },
+        "dialect": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "capabilities": { "type": "object" }
+      },
+      "additionalProperties": false
+    },
+    "ProviderParameters": {
+      "type": "object",
+      "required": ["aspect_ratio", "duration_seconds", "seed", "negative_prompt"],
+      "properties": {
+        "aspect_ratio": { "type": ["string", "null"] },
+        "duration_seconds": { "type": ["number", "null"], "exclusiveMinimum": 0 },
+        "seed": { "type": ["integer", "null"] },
+        "negative_prompt": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "PromptDraftProvenance": {
+      "type": "object",
+      "required": ["ref", "prompt_draft_id", "expected_version", "director_ir_hash", "visual_lock_hash", "project", "shot", "director_unit", "visual_lock", "prompt_template", "assets", "capability_profile", "provider_parameters", "input_hash", "prompt_hash", "capability_hash", "submission_state", "generated_result_state", "approval_state"],
       "properties": {
         "ref": { "$ref": "#/$defs/FilmEntityRef" },
         "prompt_draft_id": { "$ref": "#/$defs/FilmEntityId" },
-        "provider_kind": { "enum": ["manual_web", "dreamina_cli", "flova_cli", "comfy_bridge", "blender", "generic_api"] },
-        "input_hash": { "$ref": "#/$defs/ContentHash" }
+        "expected_version": { "type": "integer", "minimum": 0 },
+        "director_ir_hash": { "$ref": "#/$defs/ContentHash" },
+        "visual_lock_hash": { "$ref": "#/$defs/ContentHash" },
+        "project": { "$ref": "#/$defs/BoundEntityReference" },
+        "shot": { "$ref": "#/$defs/BoundEntityReference" },
+        "director_unit": { "$ref": "#/$defs/BoundEntityReference" },
+        "visual_lock": { "$ref": "#/$defs/BoundEntityReference" },
+        "prompt_template": { "$ref": "#/$defs/PromptTemplateBinding" },
+        "assets": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/PromptAssetBinding" } },
+        "capability_profile": { "$ref": "#/$defs/ProviderCapabilityProfile" },
+        "provider_parameters": { "$ref": "#/$defs/ProviderParameters" },
+        "input_hash": { "$ref": "#/$defs/ContentHash" },
+        "prompt_hash": { "$ref": "#/$defs/ContentHash" },
+        "capability_hash": { "$ref": "#/$defs/ContentHash" },
+        "submission_state": { "const": "NOT_SUBMITTED" },
+        "generated_result_state": { "const": "CANDIDATE_ONLY" },
+        "approval_state": { "const": "SEPARATE_HUMAN_ACTION_REQUIRED" }
+      },
+      "additionalProperties": false
+    },
+    "GenerationPackage": {
+      "type": "object",
+      "required": ["ref", "prompt_draft_id", "host_project_id", "provider_id", "capability_id", "parameters", "parameter_hash", "prompt_hash", "input_hash", "submission_state"],
+      "properties": {
+        "ref": { "$ref": "#/$defs/FilmEntityRef" },
+        "prompt_draft_id": { "$ref": "#/$defs/FilmEntityId" },
+        "host_project_id": { "type": "string", "minLength": 1 },
+        "provider_id": { "type": "string", "pattern": "^[a-z][a-z0-9._-]{2,63}$" },
+        "capability_id": { "type": "string", "pattern": "^[a-z][a-z0-9._-]{1,63}$" },
+        "parameters": { "type": "object" },
+        "parameter_hash": { "$ref": "#/$defs/ContentHash" },
+        "prompt_hash": { "$ref": "#/$defs/ContentHash" },
+        "input_hash": { "$ref": "#/$defs/ContentHash" },
+        "submission_state": { "const": "NOT_SUBMITTED" }
+      },
+      "additionalProperties": false
+    },
+    "ImportedOutputReference": {
+      "type": "object",
+      "required": ["film_representation_id", "host_resource_id", "output_kind", "content_hash", "mime_type", "bytes"],
+      "properties": {
+        "film_representation_id": { "$ref": "#/$defs/FilmEntityId" },
+        "host_resource_id": { "type": "string", "minLength": 1 },
+        "output_kind": { "enum": ["text", "image", "video", "audio", "workflow", "three_d"] },
+        "content_hash": { "$ref": "#/$defs/ContentHash" },
+        "mime_type": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9.+-]*/[A-Za-z0-9][A-Za-z0-9.+-]*$" },
+        "bytes": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "GenerationAttemptEvidence": {
+      "type": "object",
+      "required": ["ref", "generation_package_id", "provider_id", "provider_task_id", "receipt_id", "receipt_hash", "receipt_captured_at", "parameter_hash", "prompt_hash", "input_hash", "parameters", "manual_import_source_id", "imported_by", "imported_at", "authorization_evidence_id", "outputs"],
+      "properties": {
+        "ref": { "$ref": "#/$defs/FilmEntityRef" },
+        "generation_package_id": { "$ref": "#/$defs/FilmEntityId" },
+        "provider_id": { "type": "string", "pattern": "^[a-z][a-z0-9._-]{2,63}$" },
+        "provider_task_id": { "type": "string", "minLength": 1 },
+        "receipt_id": { "type": "string", "minLength": 1 },
+        "receipt_hash": { "$ref": "#/$defs/ContentHash" },
+        "receipt_captured_at": { "type": "string", "format": "date-time" },
+        "parameter_hash": { "$ref": "#/$defs/ContentHash" },
+        "prompt_hash": { "$ref": "#/$defs/ContentHash" },
+        "input_hash": { "$ref": "#/$defs/ContentHash" },
+        "parameters": { "type": "object" },
+        "manual_import_source_id": { "type": "string", "minLength": 1 },
+        "imported_by": { "type": "string", "minLength": 1 },
+        "imported_at": { "type": "string", "format": "date-time" },
+        "authorization_evidence_id": { "type": "string", "minLength": 1 },
+        "outputs": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/ImportedOutputReference" } }
       },
       "additionalProperties": false
     },
     "Candidate": {
       "type": "object",
-      "required": ["ref", "generation_package_id", "host", "states", "output_hash"],
+      "required": ["ref", "generation_package_id", "generation_attempt_evidence_id", "host", "states", "output_hash"],
       "properties": {
         "ref": { "$ref": "#/$defs/FilmEntityRef" },
         "generation_package_id": { "$ref": "#/$defs/FilmEntityId" },
+        "generation_attempt_evidence_id": { "$ref": "#/$defs/FilmEntityId" },
         "host": { "$ref": "#/$defs/HostReferences" },
         "states": { "$ref": "#/$defs/FormalStateAxes" },
         "output_hash": { "$ref": "#/$defs/ContentHash" }
@@ -152,11 +328,12 @@
     },
     "Review": {
       "type": "object",
-      "required": ["ref", "target_id", "review_state", "reviewer_kind"],
+      "required": ["ref", "target_id", "target_content_hash", "review_state", "reviewer_kind", "findings"],
       "properties": {
         "ref": { "$ref": "#/$defs/FilmEntityRef" },
         "target_id": { "$ref": "#/$defs/FilmEntityId" },
-        "review_state": { "$ref": "#/$defs/FormalStateAxes/properties/review_state" },
+        "target_content_hash": { "$ref": "#/$defs/ContentHash" },
+        "review_state": { "enum": ["changes_requested", "rejected", "passed"] },
         "reviewer_kind": { "enum": ["human", "agent", "automated_qc"] },
         "findings": { "type": "array", "items": { "type": "string" } }
       },
@@ -164,12 +341,38 @@
     },
     "Approval": {
       "type": "object",
-      "required": ["ref", "target_id", "approved_by", "approved_content_hash"],
+      "required": ["ref", "target_id", "review_id", "actor_kind", "approved_by", "approved_content_hash"],
       "properties": {
         "ref": { "$ref": "#/$defs/FilmEntityRef" },
         "target_id": { "$ref": "#/$defs/FilmEntityId" },
+        "review_id": { "$ref": "#/$defs/FilmEntityId" },
+        "actor_kind": { "const": "human" },
         "approved_by": { "type": "string", "minLength": 1 },
         "approved_content_hash": { "$ref": "#/$defs/ContentHash" }
+      },
+      "additionalProperties": false
+    },
+    "ContinuityBlocker": {
+      "type": "object",
+      "required": ["code", "dimension", "subject_id", "expected_value", "actual_value"],
+      "properties": {
+        "code": { "type": "string", "minLength": 1 },
+        "dimension": { "enum": ["axis", "eyeline", "action", "prop_contact", "blocking"] },
+        "subject_id": { "type": "string", "minLength": 1 },
+        "expected_value": { "type": "string" },
+        "actual_value": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "ContinuityCheckResult": {
+      "type": "object",
+      "required": ["ref", "previous_shot_id", "current_shot_id", "passed", "blockers"],
+      "properties": {
+        "ref": { "$ref": "#/$defs/FilmEntityRef" },
+        "previous_shot_id": { "anyOf": [{ "$ref": "#/$defs/FilmEntityId" }, { "type": "null" }] },
+        "current_shot_id": { "$ref": "#/$defs/FilmEntityId" },
+        "passed": { "type": "boolean" },
+        "blockers": { "type": "array", "items": { "$ref": "#/$defs/ContinuityBlocker" } }
       },
       "additionalProperties": false
     },
@@ -198,4 +401,3 @@
     }
   }
 }
-

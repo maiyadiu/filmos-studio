@@ -10,10 +10,28 @@ from pydantic import UUID4
 
 from film_production_core.database import SQLiteDatabase
 from film_production_core.errors import (
+    ContentHashConflict,
+    DomainRuleViolation,
     EntityNotFound,
     HostMappingNotFound,
     VersionConflict,
 )
+from film_production_core.formal_models import (
+    Approval,
+    ApprovalCreateRequest,
+    ContinuityCheckRequest,
+    ContinuityCheckResult,
+    FormalEntity,
+    FormalRecordApplyResult,
+    FormalRecordCreateRequest,
+    ManualResultImportRequest,
+    ManualResultImportResult,
+    PromptCompileRequest,
+    PromptCompileResult,
+    Review,
+    ReviewCreateRequest,
+)
+from film_production_core.formal_service import FormalService
 from film_production_core.models import (
     AuditEvent,
     Command,
@@ -40,9 +58,10 @@ def default_database_path() -> Path:
 def create_app(database_path: str | Path | None = None) -> FastAPI:
     repository = FilmRepository(SQLiteDatabase(database_path or default_database_path()))
     service = FilmService(repository)
+    formal_service = FormalService(repository)
     app = FastAPI(
         title="FilmOS Studio Film Core API",
-        version="0.1.0",
+        version="0.2.0",
         description=(
             "Sidecar Film Core contract. Yingce remains authoritative for generic "
             "Host Project, ProjectUnit, Shot, Asset, Workflow and Task entities."
@@ -50,6 +69,7 @@ def create_app(database_path: str | Path | None = None) -> FastAPI:
         servers=[{"url": "/film"}],
     )
     app.state.film_service = service
+    app.state.formal_service = formal_service
 
     @app.exception_handler(VersionConflict)
     async def version_conflict_handler(
@@ -81,6 +101,32 @@ def create_app(database_path: str | Path | None = None) -> FastAPI:
                     "target_id": error.target_id,
                 }
             },
+        )
+
+    @app.exception_handler(ContentHashConflict)
+    async def content_hash_conflict_handler(
+        _request: Request, error: ContentHashConflict
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=409,
+            content={
+                "detail": {
+                    "code": "content_hash_conflict",
+                    "message": str(error),
+                    "target_id": error.target_id,
+                    "expected_content_hash": error.expected_content_hash,
+                    "current_content_hash": error.current_content_hash,
+                }
+            },
+        )
+
+    @app.exception_handler(DomainRuleViolation)
+    async def domain_rule_handler(
+        _request: Request, error: DomainRuleViolation
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=409,
+            content={"detail": {"code": error.code, "message": str(error)}},
         )
 
     @app.exception_handler(HostMappingNotFound)
@@ -139,6 +185,75 @@ def create_app(database_path: str | Path | None = None) -> FastAPI:
     )
     def entity_get(filmEntityId: UUID4) -> FilmEntity:
         return service.entity(str(filmEntityId))
+
+    @app.get(
+        "/formal-records/{filmEntityId}",
+        response_model=FormalEntity,
+        operation_id="filmFormalRecordGet",
+        responses={404: {"model": ErrorResponse}},
+    )
+    def formal_record_get(filmEntityId: UUID4) -> FormalEntity:
+        return formal_service.formal_record(str(filmEntityId))
+
+    @app.post(
+        "/formal-records",
+        response_model=FormalRecordApplyResult,
+        operation_id="filmFormalRecordCreate",
+        responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}},
+    )
+    def formal_record_create(
+        request: FormalRecordCreateRequest,
+    ) -> FormalRecordApplyResult:
+        return formal_service.create_record(request)
+
+    @app.post(
+        "/prompts/compile",
+        response_model=PromptCompileResult,
+        operation_id="filmPromptCompile",
+        responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}},
+    )
+    def prompt_compile(request: PromptCompileRequest) -> PromptCompileResult:
+        return formal_service.compile_prompt(request)
+
+    @app.post(
+        "/manual-results/import",
+        response_model=ManualResultImportResult,
+        operation_id="filmManualResultImport",
+        responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}},
+    )
+    def manual_result_import(
+        request: ManualResultImportRequest,
+    ) -> ManualResultImportResult:
+        return formal_service.import_manual_result(request)
+
+    @app.post(
+        "/reviews",
+        response_model=Review,
+        operation_id="filmReviewSubmit",
+        responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}},
+    )
+    def review_submit(request: ReviewCreateRequest) -> Review:
+        return formal_service.create_review(request)
+
+    @app.post(
+        "/approvals",
+        response_model=Approval,
+        operation_id="filmApprovalCreate",
+        responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}},
+    )
+    def approval_create(request: ApprovalCreateRequest) -> Approval:
+        return formal_service.create_approval(request)
+
+    @app.post(
+        "/continuity/check",
+        response_model=ContinuityCheckResult,
+        operation_id="filmContinuityCheck",
+        responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}},
+    )
+    def continuity_check(
+        request: ContinuityCheckRequest,
+    ) -> ContinuityCheckResult:
+        return formal_service.check_continuity(request)
 
     @app.post(
         "/commands/preview",

@@ -13,6 +13,124 @@
         "title": "ActorKind",
         "type": "string"
       },
+      "Approval": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_kind": {
+            "const": "human",
+            "title": "Actor Kind",
+            "type": "string"
+          },
+          "approved_by": {
+            "minLength": 1,
+            "title": "Approved By",
+            "type": "string"
+          },
+          "approved_content_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Approved Content Hash",
+            "type": "string"
+          },
+          "ref": {
+            "$ref": "#/components/schemas/FilmEntityRef"
+          },
+          "review_id": {
+            "format": "uuid4",
+            "title": "Review Id",
+            "type": "string"
+          },
+          "target_id": {
+            "format": "uuid4",
+            "title": "Target Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ref",
+          "target_id",
+          "review_id",
+          "actor_kind",
+          "approved_by",
+          "approved_content_hash"
+        ],
+        "title": "Approval",
+        "type": "object"
+      },
+      "ApprovalCreateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_kind": {
+            "$ref": "#/components/schemas/ActorKind"
+          },
+          "approved_by": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Approved By",
+            "type": "string"
+          },
+          "candidate": {
+            "$ref": "#/components/schemas/EntityVersionGuard"
+          },
+          "passed_review": {
+            "$ref": "#/components/schemas/EntityVersionGuard"
+          },
+          "write": {
+            "$ref": "#/components/schemas/CreateTargetGuard"
+          }
+        },
+        "required": [
+          "write",
+          "actor_kind",
+          "candidate",
+          "passed_review",
+          "approved_by"
+        ],
+        "title": "ApprovalCreateRequest",
+        "type": "object"
+      },
+      "AssetBinding": {
+        "additionalProperties": false,
+        "properties": {
+          "asset_content_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Asset Content Hash",
+            "type": "string"
+          },
+          "host": {
+            "$ref": "#/components/schemas/HostReferences-Output"
+          },
+          "priority": {
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Priority",
+            "type": "integer"
+          },
+          "project_id": {
+            "format": "uuid4",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "ref": {
+            "$ref": "#/components/schemas/FilmEntityRef"
+          },
+          "role": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ref",
+          "project_id",
+          "host",
+          "role",
+          "priority",
+          "asset_content_hash"
+        ],
+        "title": "AssetBinding",
+        "type": "object"
+      },
       "AuditEvent": {
         "additionalProperties": false,
         "properties": {
@@ -48,6 +166,121 @@
           "recorded_at"
         ],
         "title": "AuditEvent",
+        "type": "object"
+      },
+      "BoundEntityReference-Input": {
+        "additionalProperties": false,
+        "properties": {
+          "entity_type": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Entity Type",
+            "type": "string"
+          },
+          "expected_content_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Expected Content Hash",
+            "type": "string"
+          },
+          "expected_version": {
+            "minimum": 1.0,
+            "title": "Expected Version",
+            "type": "integer"
+          },
+          "film_entity_id": {
+            "format": "uuid4",
+            "title": "Film Entity Id",
+            "type": "string"
+          },
+          "host": {
+            "$ref": "#/components/schemas/HostReferences-Input"
+          }
+        },
+        "required": [
+          "film_entity_id",
+          "entity_type",
+          "expected_version",
+          "expected_content_hash",
+          "host"
+        ],
+        "title": "BoundEntityReference",
+        "type": "object"
+      },
+      "BoundEntityReference-Output": {
+        "additionalProperties": false,
+        "properties": {
+          "entity_type": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Entity Type",
+            "type": "string"
+          },
+          "expected_content_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Expected Content Hash",
+            "type": "string"
+          },
+          "expected_version": {
+            "minimum": 1.0,
+            "title": "Expected Version",
+            "type": "integer"
+          },
+          "film_entity_id": {
+            "format": "uuid4",
+            "title": "Film Entity Id",
+            "type": "string"
+          },
+          "host": {
+            "$ref": "#/components/schemas/HostReferences-Output"
+          }
+        },
+        "required": [
+          "film_entity_id",
+          "entity_type",
+          "expected_version",
+          "expected_content_hash",
+          "host"
+        ],
+        "title": "BoundEntityReference",
+        "type": "object"
+      },
+      "Candidate": {
+        "additionalProperties": false,
+        "properties": {
+          "generation_attempt_evidence_id": {
+            "format": "uuid4",
+            "title": "Generation Attempt Evidence Id",
+            "type": "string"
+          },
+          "generation_package_id": {
+            "format": "uuid4",
+            "title": "Generation Package Id",
+            "type": "string"
+          },
+          "host": {
+            "$ref": "#/components/schemas/HostReferences-Output"
+          },
+          "output_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Output Hash",
+            "type": "string"
+          },
+          "ref": {
+            "$ref": "#/components/schemas/FilmEntityRef"
+          },
+          "states": {
+            "$ref": "#/components/schemas/FormalStateAxes"
+          }
+        },
+        "required": [
+          "ref",
+          "generation_package_id",
+          "generation_attempt_evidence_id",
+          "host",
+          "states",
+          "output_hash"
+        ],
+        "title": "Candidate",
         "type": "object"
       },
       "CommandApplyResult": {
@@ -166,6 +399,243 @@
         "title": "ContentUnitExtension",
         "type": "object"
       },
+      "ContinuityBlocker": {
+        "additionalProperties": false,
+        "properties": {
+          "actual_value": {
+            "title": "Actual Value",
+            "type": "string"
+          },
+          "code": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Code",
+            "type": "string"
+          },
+          "dimension": {
+            "$ref": "#/components/schemas/ContinuityDimension"
+          },
+          "expected_value": {
+            "title": "Expected Value",
+            "type": "string"
+          },
+          "subject_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Subject Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "dimension",
+          "subject_id",
+          "expected_value",
+          "actual_value"
+        ],
+        "title": "ContinuityBlocker",
+        "type": "object"
+      },
+      "ContinuityCheckInput": {
+        "additionalProperties": false,
+        "properties": {
+          "actual_value": {
+            "title": "Actual Value",
+            "type": "string"
+          },
+          "dimension": {
+            "$ref": "#/components/schemas/ContinuityDimension"
+          },
+          "expected_value": {
+            "title": "Expected Value",
+            "type": "string"
+          },
+          "subject_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Subject Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "dimension",
+          "subject_id",
+          "expected_value",
+          "actual_value"
+        ],
+        "title": "ContinuityCheckInput",
+        "type": "object"
+      },
+      "ContinuityCheckRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_kind": {
+            "$ref": "#/components/schemas/ActorKind"
+          },
+          "checks": {
+            "items": {
+              "$ref": "#/components/schemas/ContinuityCheckInput"
+            },
+            "minItems": 1,
+            "title": "Checks",
+            "type": "array"
+          },
+          "current_shot": {
+            "$ref": "#/components/schemas/EntityVersionGuard"
+          },
+          "previous_shot": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EntityVersionGuard"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "write": {
+            "$ref": "#/components/schemas/CreateTargetGuard"
+          }
+        },
+        "required": [
+          "write",
+          "actor_kind",
+          "current_shot",
+          "checks"
+        ],
+        "title": "ContinuityCheckRequest",
+        "type": "object"
+      },
+      "ContinuityCheckResult": {
+        "additionalProperties": false,
+        "properties": {
+          "blockers": {
+            "items": {
+              "$ref": "#/components/schemas/ContinuityBlocker"
+            },
+            "title": "Blockers",
+            "type": "array"
+          },
+          "current_shot_id": {
+            "format": "uuid4",
+            "title": "Current Shot Id",
+            "type": "string"
+          },
+          "passed": {
+            "title": "Passed",
+            "type": "boolean"
+          },
+          "previous_shot_id": {
+            "anyOf": [
+              {
+                "format": "uuid4",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous Shot Id"
+          },
+          "ref": {
+            "$ref": "#/components/schemas/FilmEntityRef"
+          }
+        },
+        "required": [
+          "ref",
+          "previous_shot_id",
+          "current_shot_id",
+          "passed",
+          "blockers"
+        ],
+        "title": "ContinuityCheckResult",
+        "type": "object"
+      },
+      "ContinuityDimension": {
+        "enum": [
+          "axis",
+          "eyeline",
+          "action",
+          "prop_contact",
+          "blocking"
+        ],
+        "title": "ContinuityDimension",
+        "type": "string"
+      },
+      "CoverageLink": {
+        "additionalProperties": false,
+        "properties": {
+          "director_unit_id": {
+            "format": "uuid4",
+            "title": "Director Unit Id",
+            "type": "string"
+          },
+          "purpose": {
+            "minLength": 1,
+            "title": "Purpose",
+            "type": "string"
+          },
+          "ref": {
+            "$ref": "#/components/schemas/FilmEntityRef"
+          },
+          "shot_id": {
+            "format": "uuid4",
+            "title": "Shot Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ref",
+          "director_unit_id",
+          "shot_id",
+          "purpose"
+        ],
+        "title": "CoverageLink",
+        "type": "object"
+      },
+      "CreateAssetBindingPayload": {
+        "additionalProperties": false,
+        "properties": {
+          "asset_content_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Asset Content Hash",
+            "type": "string"
+          },
+          "entity_type": {
+            "const": "asset_binding",
+            "title": "Entity Type",
+            "type": "string"
+          },
+          "host": {
+            "$ref": "#/components/schemas/HostReferences-Input"
+          },
+          "priority": {
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Priority",
+            "type": "integer"
+          },
+          "project": {
+            "$ref": "#/components/schemas/EntityVersionGuard"
+          },
+          "role": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "entity_type",
+          "project",
+          "host",
+          "role",
+          "priority",
+          "asset_content_hash"
+        ],
+        "title": "CreateAssetBindingPayload",
+        "type": "object"
+      },
       "CreateContentUnitPayload": {
         "additionalProperties": false,
         "properties": {
@@ -191,6 +661,83 @@
           "unit_kind"
         ],
         "title": "CreateContentUnitPayload",
+        "type": "object"
+      },
+      "CreateCoverageLinkPayload": {
+        "additionalProperties": false,
+        "properties": {
+          "director_unit": {
+            "$ref": "#/components/schemas/EntityVersionGuard"
+          },
+          "entity_type": {
+            "const": "coverage_link",
+            "title": "Entity Type",
+            "type": "string"
+          },
+          "purpose": {
+            "minLength": 1,
+            "title": "Purpose",
+            "type": "string"
+          },
+          "shot": {
+            "$ref": "#/components/schemas/EntityVersionGuard"
+          }
+        },
+        "required": [
+          "entity_type",
+          "director_unit",
+          "shot",
+          "purpose"
+        ],
+        "title": "CreateCoverageLinkPayload",
+        "type": "object"
+      },
+      "CreateDirectorUnitPayload": {
+        "additionalProperties": false,
+        "properties": {
+          "director_ir_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Director Ir Hash",
+            "type": "string"
+          },
+          "director_ir_text": {
+            "minLength": 1,
+            "title": "Director Ir Text",
+            "type": "string"
+          },
+          "entity_type": {
+            "const": "director_unit",
+            "title": "Entity Type",
+            "type": "string"
+          },
+          "narrative_purpose": {
+            "minLength": 1,
+            "title": "Narrative Purpose",
+            "type": "string"
+          },
+          "performance_beats": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Performance Beats",
+            "type": "array"
+          },
+          "script_version": {
+            "$ref": "#/components/schemas/EntityVersionGuard"
+          },
+          "states": {
+            "$ref": "#/components/schemas/FormalStateAxes"
+          }
+        },
+        "required": [
+          "entity_type",
+          "script_version",
+          "states",
+          "director_ir_text",
+          "director_ir_hash",
+          "narrative_purpose"
+        ],
+        "title": "CreateDirectorUnitPayload",
         "type": "object"
       },
       "CreateEntityCommand": {
@@ -269,6 +816,78 @@
         "title": "CreateFilmProjectPayload",
         "type": "object"
       },
+      "CreateGenerationPackagePayload": {
+        "additionalProperties": false,
+        "properties": {
+          "capability_id": {
+            "pattern": "^[a-z][a-z0-9._-]{1,63}$",
+            "title": "Capability Id",
+            "type": "string"
+          },
+          "entity_type": {
+            "const": "generation_package",
+            "title": "Entity Type",
+            "type": "string"
+          },
+          "host_project_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Host Project Id",
+            "type": "string"
+          },
+          "parameters": {
+            "additionalProperties": true,
+            "title": "Parameters",
+            "type": "object"
+          },
+          "prompt_draft": {
+            "$ref": "#/components/schemas/EntityVersionGuard"
+          },
+          "provider_id": {
+            "pattern": "^[a-z][a-z0-9._-]{2,63}$",
+            "title": "Provider Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "entity_type",
+          "prompt_draft",
+          "host_project_id",
+          "provider_id",
+          "capability_id",
+          "parameters"
+        ],
+        "title": "CreateGenerationPackagePayload",
+        "type": "object"
+      },
+      "CreateScriptVersionPayload": {
+        "additionalProperties": false,
+        "properties": {
+          "entity_type": {
+            "const": "script_version",
+            "title": "Entity Type",
+            "type": "string"
+          },
+          "host": {
+            "$ref": "#/components/schemas/HostReferences-Input"
+          },
+          "script_text": {
+            "title": "Script Text",
+            "type": "string"
+          },
+          "states": {
+            "$ref": "#/components/schemas/FormalStateAxes"
+          }
+        },
+        "required": [
+          "entity_type",
+          "host",
+          "states",
+          "script_text"
+        ],
+        "title": "CreateScriptVersionPayload",
+        "type": "object"
+      },
       "CreateShotPayload": {
         "additionalProperties": false,
         "properties": {
@@ -300,6 +919,77 @@
         "title": "CreateShotPayload",
         "type": "object"
       },
+      "CreateTargetGuard": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_content_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Expected Content Hash",
+            "type": "string"
+          },
+          "expected_version": {
+            "const": 0,
+            "title": "Expected Version",
+            "type": "integer"
+          },
+          "target_id": {
+            "title": "Target Id",
+            "type": "null"
+          }
+        },
+        "required": [
+          "target_id",
+          "expected_version",
+          "expected_content_hash"
+        ],
+        "title": "CreateTargetGuard",
+        "type": "object"
+      },
+      "CreateVisualLockSetPayload": {
+        "additionalProperties": false,
+        "properties": {
+          "entity_type": {
+            "const": "visual_lock_set",
+            "title": "Entity Type",
+            "type": "string"
+          },
+          "locks": {
+            "additionalProperties": true,
+            "title": "Locks",
+            "type": "object"
+          },
+          "project": {
+            "$ref": "#/components/schemas/EntityVersionGuard"
+          },
+          "shot": {
+            "$ref": "#/components/schemas/EntityVersionGuard"
+          },
+          "states": {
+            "$ref": "#/components/schemas/FormalStateAxes"
+          },
+          "visual_lock_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Visual Lock Hash",
+            "type": "string"
+          },
+          "visual_lock_text": {
+            "minLength": 1,
+            "title": "Visual Lock Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "entity_type",
+          "project",
+          "shot",
+          "states",
+          "visual_lock_text",
+          "visual_lock_hash",
+          "locks"
+        ],
+        "title": "CreateVisualLockSetPayload",
+        "type": "object"
+      },
       "CreativeStage": {
         "enum": [
           "draft",
@@ -321,14 +1011,102 @@
         "title": "DeliveryState",
         "type": "string"
       },
+      "DirectorUnit": {
+        "additionalProperties": false,
+        "properties": {
+          "director_ir_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Director Ir Hash",
+            "type": "string"
+          },
+          "director_ir_text": {
+            "minLength": 1,
+            "title": "Director Ir Text",
+            "type": "string"
+          },
+          "narrative_purpose": {
+            "minLength": 1,
+            "title": "Narrative Purpose",
+            "type": "string"
+          },
+          "performance_beats": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Performance Beats",
+            "type": "array"
+          },
+          "ref": {
+            "$ref": "#/components/schemas/FilmEntityRef"
+          },
+          "script_version_id": {
+            "format": "uuid4",
+            "title": "Script Version Id",
+            "type": "string"
+          },
+          "states": {
+            "$ref": "#/components/schemas/FormalStateAxes"
+          }
+        },
+        "required": [
+          "ref",
+          "script_version_id",
+          "states",
+          "director_ir_text",
+          "director_ir_hash",
+          "narrative_purpose"
+        ],
+        "title": "DirectorUnit",
+        "type": "object"
+      },
       "EntityType": {
         "enum": [
           "film_project_extension",
           "content_unit_extension",
-          "shot_extension"
+          "shot_extension",
+          "script_version",
+          "director_unit",
+          "coverage_link",
+          "visual_lock_set",
+          "asset_binding",
+          "prompt_draft",
+          "prompt_draft_provenance",
+          "generation_package",
+          "generation_attempt_evidence",
+          "candidate",
+          "review",
+          "approval",
+          "continuity_check_result"
         ],
         "title": "EntityType",
         "type": "string"
+      },
+      "EntityVersionGuard": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_content_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Expected Content Hash",
+            "type": "string"
+          },
+          "expected_version": {
+            "minimum": 1.0,
+            "title": "Expected Version",
+            "type": "integer"
+          },
+          "film_entity_id": {
+            "format": "uuid4",
+            "title": "Film Entity Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "film_entity_id",
+          "expected_version",
+          "expected_content_hash"
+        ],
+        "title": "EntityVersionGuard",
+        "type": "object"
       },
       "ErrorDetail": {
         "additionalProperties": false,
@@ -336,6 +1114,17 @@
           "code": {
             "title": "Code",
             "type": "string"
+          },
+          "current_content_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Content Hash"
           },
           "current_version": {
             "anyOf": [
@@ -347,6 +1136,17 @@
               }
             ],
             "title": "Current Version"
+          },
+          "expected_content_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Content Hash"
           },
           "expected_version": {
             "anyOf": [
@@ -521,6 +1321,118 @@
         "title": "FilmProjectExtension",
         "type": "object"
       },
+      "FormalRecordApplyResult": {
+        "additionalProperties": false,
+        "properties": {
+          "audit_event_id": {
+            "format": "uuid4",
+            "title": "Audit Event Id",
+            "type": "string"
+          },
+          "entity": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ScriptVersion"
+              },
+              {
+                "$ref": "#/components/schemas/DirectorUnit"
+              },
+              {
+                "$ref": "#/components/schemas/CoverageLink"
+              },
+              {
+                "$ref": "#/components/schemas/VisualLockSet"
+              },
+              {
+                "$ref": "#/components/schemas/AssetBinding"
+              },
+              {
+                "$ref": "#/components/schemas/PromptDraft"
+              },
+              {
+                "$ref": "#/components/schemas/PromptDraftProvenance"
+              },
+              {
+                "$ref": "#/components/schemas/GenerationPackage"
+              },
+              {
+                "$ref": "#/components/schemas/GenerationAttemptEvidence"
+              },
+              {
+                "$ref": "#/components/schemas/Candidate"
+              },
+              {
+                "$ref": "#/components/schemas/Review"
+              },
+              {
+                "$ref": "#/components/schemas/Approval"
+              },
+              {
+                "$ref": "#/components/schemas/ContinuityCheckResult"
+              }
+            ],
+            "title": "Entity"
+          }
+        },
+        "required": [
+          "entity",
+          "audit_event_id"
+        ],
+        "title": "FormalRecordApplyResult",
+        "type": "object"
+      },
+      "FormalRecordCreateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_kind": {
+            "$ref": "#/components/schemas/ActorKind"
+          },
+          "payload": {
+            "discriminator": {
+              "mapping": {
+                "asset_binding": "#/components/schemas/CreateAssetBindingPayload",
+                "coverage_link": "#/components/schemas/CreateCoverageLinkPayload",
+                "director_unit": "#/components/schemas/CreateDirectorUnitPayload",
+                "generation_package": "#/components/schemas/CreateGenerationPackagePayload",
+                "script_version": "#/components/schemas/CreateScriptVersionPayload",
+                "visual_lock_set": "#/components/schemas/CreateVisualLockSetPayload"
+              },
+              "propertyName": "entity_type"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/CreateScriptVersionPayload"
+              },
+              {
+                "$ref": "#/components/schemas/CreateDirectorUnitPayload"
+              },
+              {
+                "$ref": "#/components/schemas/CreateCoverageLinkPayload"
+              },
+              {
+                "$ref": "#/components/schemas/CreateVisualLockSetPayload"
+              },
+              {
+                "$ref": "#/components/schemas/CreateAssetBindingPayload"
+              },
+              {
+                "$ref": "#/components/schemas/CreateGenerationPackagePayload"
+              }
+            ],
+            "title": "Payload"
+          },
+          "write": {
+            "$ref": "#/components/schemas/CreateTargetGuard"
+          }
+        },
+        "required": [
+          "write",
+          "actor_kind",
+          "payload"
+        ],
+        "title": "FormalRecordCreateRequest",
+        "type": "object"
+      },
       "FormalStateAxes": {
         "additionalProperties": false,
         "properties": {
@@ -552,6 +1464,185 @@
           "stale_state"
         ],
         "title": "FormalStateAxes",
+        "type": "object"
+      },
+      "GenerationAttemptEvidence": {
+        "additionalProperties": false,
+        "properties": {
+          "authorization_evidence_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Authorization Evidence Id",
+            "type": "string"
+          },
+          "generation_package_id": {
+            "format": "uuid4",
+            "title": "Generation Package Id",
+            "type": "string"
+          },
+          "imported_at": {
+            "format": "date-time",
+            "title": "Imported At",
+            "type": "string"
+          },
+          "imported_by": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Imported By",
+            "type": "string"
+          },
+          "input_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Input Hash",
+            "type": "string"
+          },
+          "manual_import_source_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Manual Import Source Id",
+            "type": "string"
+          },
+          "outputs": {
+            "items": {
+              "$ref": "#/components/schemas/ImportedOutputReference"
+            },
+            "minItems": 1,
+            "title": "Outputs",
+            "type": "array"
+          },
+          "parameter_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Parameter Hash",
+            "type": "string"
+          },
+          "parameters": {
+            "additionalProperties": true,
+            "title": "Parameters",
+            "type": "object"
+          },
+          "prompt_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Prompt Hash",
+            "type": "string"
+          },
+          "provider_id": {
+            "pattern": "^[a-z][a-z0-9._-]{2,63}$",
+            "title": "Provider Id",
+            "type": "string"
+          },
+          "provider_task_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Provider Task Id",
+            "type": "string"
+          },
+          "receipt_captured_at": {
+            "format": "date-time",
+            "title": "Receipt Captured At",
+            "type": "string"
+          },
+          "receipt_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Receipt Hash",
+            "type": "string"
+          },
+          "receipt_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Receipt Id",
+            "type": "string"
+          },
+          "ref": {
+            "$ref": "#/components/schemas/FilmEntityRef"
+          }
+        },
+        "required": [
+          "ref",
+          "generation_package_id",
+          "provider_id",
+          "provider_task_id",
+          "receipt_id",
+          "receipt_hash",
+          "receipt_captured_at",
+          "parameter_hash",
+          "prompt_hash",
+          "input_hash",
+          "parameters",
+          "manual_import_source_id",
+          "imported_by",
+          "imported_at",
+          "authorization_evidence_id",
+          "outputs"
+        ],
+        "title": "GenerationAttemptEvidence",
+        "type": "object"
+      },
+      "GenerationPackage": {
+        "additionalProperties": false,
+        "properties": {
+          "capability_id": {
+            "pattern": "^[a-z][a-z0-9._-]{1,63}$",
+            "title": "Capability Id",
+            "type": "string"
+          },
+          "host_project_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Host Project Id",
+            "type": "string"
+          },
+          "input_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Input Hash",
+            "type": "string"
+          },
+          "parameter_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Parameter Hash",
+            "type": "string"
+          },
+          "parameters": {
+            "additionalProperties": true,
+            "title": "Parameters",
+            "type": "object"
+          },
+          "prompt_draft_id": {
+            "format": "uuid4",
+            "title": "Prompt Draft Id",
+            "type": "string"
+          },
+          "prompt_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Prompt Hash",
+            "type": "string"
+          },
+          "provider_id": {
+            "pattern": "^[a-z][a-z0-9._-]{2,63}$",
+            "title": "Provider Id",
+            "type": "string"
+          },
+          "ref": {
+            "$ref": "#/components/schemas/FilmEntityRef"
+          },
+          "submission_state": {
+            "const": "NOT_SUBMITTED",
+            "title": "Submission State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ref",
+          "prompt_draft_id",
+          "host_project_id",
+          "provider_id",
+          "capability_id",
+          "parameters",
+          "parameter_hash",
+          "prompt_hash",
+          "input_hash",
+          "submission_state"
+        ],
+        "title": "GenerationPackage",
         "type": "object"
       },
       "HTTPValidationError": {
@@ -702,6 +1793,50 @@
         },
         "type": "object"
       },
+      "ImportedOutputReference": {
+        "additionalProperties": false,
+        "properties": {
+          "bytes": {
+            "minimum": 0.0,
+            "title": "Bytes",
+            "type": "integer"
+          },
+          "content_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Content Hash",
+            "type": "string"
+          },
+          "film_representation_id": {
+            "format": "uuid4",
+            "title": "Film Representation Id",
+            "type": "string"
+          },
+          "host_resource_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Host Resource Id",
+            "type": "string"
+          },
+          "mime_type": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9.+-]*/[A-Za-z0-9][A-Za-z0-9.+-]*$",
+            "title": "Mime Type",
+            "type": "string"
+          },
+          "output_kind": {
+            "$ref": "#/components/schemas/OutputKind"
+          }
+        },
+        "required": [
+          "film_representation_id",
+          "host_resource_id",
+          "output_kind",
+          "content_hash",
+          "mime_type",
+          "bytes"
+        ],
+        "title": "ImportedOutputReference",
+        "type": "object"
+      },
       "LockState": {
         "enum": [
           "unlocked",
@@ -709,6 +1844,742 @@
           "locked"
         ],
         "title": "LockState",
+        "type": "string"
+      },
+      "ManualImportOutputInput": {
+        "additionalProperties": false,
+        "properties": {
+          "bytes": {
+            "minimum": 0.0,
+            "title": "Bytes",
+            "type": "integer"
+          },
+          "content_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Content Hash",
+            "type": "string"
+          },
+          "host_resource_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Host Resource Id",
+            "type": "string"
+          },
+          "mime_type": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9.+-]*/[A-Za-z0-9][A-Za-z0-9.+-]*$",
+            "title": "Mime Type",
+            "type": "string"
+          },
+          "output_kind": {
+            "$ref": "#/components/schemas/OutputKind"
+          }
+        },
+        "required": [
+          "host_resource_id",
+          "output_kind",
+          "content_hash",
+          "mime_type",
+          "bytes"
+        ],
+        "title": "ManualImportOutputInput",
+        "type": "object"
+      },
+      "ManualReceiptInput": {
+        "additionalProperties": false,
+        "properties": {
+          "captured_at": {
+            "format": "date-time",
+            "title": "Captured At",
+            "type": "string"
+          },
+          "content_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Content Hash",
+            "type": "string"
+          },
+          "receipt_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Receipt Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "receipt_id",
+          "content_hash",
+          "captured_at"
+        ],
+        "title": "ManualReceiptInput",
+        "type": "object"
+      },
+      "ManualResultImportRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_kind": {
+            "$ref": "#/components/schemas/ActorKind"
+          },
+          "candidate_write": {
+            "$ref": "#/components/schemas/CreateTargetGuard"
+          },
+          "evidence_write": {
+            "$ref": "#/components/schemas/CreateTargetGuard"
+          },
+          "generation_package": {
+            "$ref": "#/components/schemas/EntityVersionGuard"
+          },
+          "manual_source": {
+            "$ref": "#/components/schemas/ManualSourceInput"
+          },
+          "outputs": {
+            "items": {
+              "$ref": "#/components/schemas/ManualImportOutputInput"
+            },
+            "minItems": 1,
+            "title": "Outputs",
+            "type": "array"
+          },
+          "provider_task_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Provider Task Id",
+            "type": "string"
+          },
+          "receipt": {
+            "$ref": "#/components/schemas/ManualReceiptInput"
+          }
+        },
+        "required": [
+          "evidence_write",
+          "candidate_write",
+          "actor_kind",
+          "generation_package",
+          "provider_task_id",
+          "receipt",
+          "manual_source",
+          "outputs"
+        ],
+        "title": "ManualResultImportRequest",
+        "type": "object"
+      },
+      "ManualResultImportResult": {
+        "additionalProperties": false,
+        "properties": {
+          "audit_event_ids": {
+            "items": {
+              "format": "uuid4",
+              "type": "string"
+            },
+            "title": "Audit Event Ids",
+            "type": "array"
+          },
+          "candidate": {
+            "$ref": "#/components/schemas/Candidate"
+          },
+          "evidence": {
+            "$ref": "#/components/schemas/GenerationAttemptEvidence"
+          }
+        },
+        "required": [
+          "evidence",
+          "candidate",
+          "audit_event_ids"
+        ],
+        "title": "ManualResultImportResult",
+        "type": "object"
+      },
+      "ManualSourceInput": {
+        "additionalProperties": false,
+        "properties": {
+          "authorization_evidence_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Authorization Evidence Id",
+            "type": "string"
+          },
+          "imported_at": {
+            "format": "date-time",
+            "title": "Imported At",
+            "type": "string"
+          },
+          "imported_by": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Imported By",
+            "type": "string"
+          },
+          "source_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Source Id",
+            "type": "string"
+          },
+          "source_kind": {
+            "$ref": "#/components/schemas/ManualSourceKind"
+          }
+        },
+        "required": [
+          "source_id",
+          "source_kind",
+          "imported_by",
+          "imported_at",
+          "authorization_evidence_id"
+        ],
+        "title": "ManualSourceInput",
+        "type": "object"
+      },
+      "ManualSourceKind": {
+        "enum": [
+          "provider_console",
+          "manual_download",
+          "local_runtime_export",
+          "other_authorized"
+        ],
+        "title": "ManualSourceKind",
+        "type": "string"
+      },
+      "OutputKind": {
+        "enum": [
+          "text",
+          "image",
+          "video",
+          "audio",
+          "workflow",
+          "three_d"
+        ],
+        "title": "OutputKind",
+        "type": "string"
+      },
+      "PromptAssetBinding-Input": {
+        "additionalProperties": false,
+        "properties": {
+          "asset_content_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Asset Content Hash",
+            "type": "string"
+          },
+          "binding": {
+            "$ref": "#/components/schemas/BoundEntityReference-Input"
+          }
+        },
+        "required": [
+          "binding",
+          "asset_content_hash"
+        ],
+        "title": "PromptAssetBinding",
+        "type": "object"
+      },
+      "PromptAssetBinding-Output": {
+        "additionalProperties": false,
+        "properties": {
+          "asset_content_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Asset Content Hash",
+            "type": "string"
+          },
+          "binding": {
+            "$ref": "#/components/schemas/BoundEntityReference-Output"
+          }
+        },
+        "required": [
+          "binding",
+          "asset_content_hash"
+        ],
+        "title": "PromptAssetBinding",
+        "type": "object"
+      },
+      "PromptCompileRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_kind": {
+            "$ref": "#/components/schemas/ActorKind"
+          },
+          "assets": {
+            "items": {
+              "$ref": "#/components/schemas/PromptAssetBinding-Input"
+            },
+            "minItems": 1,
+            "title": "Assets",
+            "type": "array"
+          },
+          "capability_profile": {
+            "$ref": "#/components/schemas/ProviderCapabilityProfile"
+          },
+          "director_ir_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Director Ir Hash",
+            "type": "string"
+          },
+          "director_unit": {
+            "$ref": "#/components/schemas/BoundEntityReference-Input"
+          },
+          "draft_write": {
+            "$ref": "#/components/schemas/CreateTargetGuard"
+          },
+          "model_capability_profile": {
+            "minLength": 1,
+            "title": "Model Capability Profile",
+            "type": "string"
+          },
+          "project": {
+            "$ref": "#/components/schemas/BoundEntityReference-Input"
+          },
+          "prompt_template": {
+            "$ref": "#/components/schemas/PromptTemplateBinding"
+          },
+          "prompt_text": {
+            "minLength": 1,
+            "title": "Prompt Text",
+            "type": "string"
+          },
+          "provenance_write": {
+            "$ref": "#/components/schemas/CreateTargetGuard"
+          },
+          "provider_parameters": {
+            "$ref": "#/components/schemas/ProviderParameters"
+          },
+          "shot": {
+            "$ref": "#/components/schemas/BoundEntityReference-Input"
+          },
+          "states": {
+            "$ref": "#/components/schemas/FormalStateAxes"
+          },
+          "visual_lock": {
+            "$ref": "#/components/schemas/BoundEntityReference-Input"
+          },
+          "visual_lock_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Visual Lock Hash",
+            "type": "string"
+          }
+        },
+        "required": [
+          "draft_write",
+          "provenance_write",
+          "actor_kind",
+          "states",
+          "director_ir_hash",
+          "visual_lock_hash",
+          "model_capability_profile",
+          "prompt_text",
+          "project",
+          "shot",
+          "director_unit",
+          "visual_lock",
+          "prompt_template",
+          "assets",
+          "capability_profile",
+          "provider_parameters"
+        ],
+        "title": "PromptCompileRequest",
+        "type": "object"
+      },
+      "PromptCompileResult": {
+        "additionalProperties": false,
+        "properties": {
+          "audit_event_ids": {
+            "items": {
+              "format": "uuid4",
+              "type": "string"
+            },
+            "title": "Audit Event Ids",
+            "type": "array"
+          },
+          "prompt_draft": {
+            "$ref": "#/components/schemas/PromptDraft"
+          },
+          "provenance": {
+            "$ref": "#/components/schemas/PromptDraftProvenance"
+          }
+        },
+        "required": [
+          "prompt_draft",
+          "provenance",
+          "audit_event_ids"
+        ],
+        "title": "PromptCompileResult",
+        "type": "object"
+      },
+      "PromptDraft": {
+        "additionalProperties": false,
+        "properties": {
+          "director_ir_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Director Ir Hash",
+            "type": "string"
+          },
+          "model_capability_profile": {
+            "minLength": 1,
+            "title": "Model Capability Profile",
+            "type": "string"
+          },
+          "prompt_text": {
+            "minLength": 1,
+            "title": "Prompt Text",
+            "type": "string"
+          },
+          "ref": {
+            "$ref": "#/components/schemas/FilmEntityRef"
+          },
+          "states": {
+            "$ref": "#/components/schemas/FormalStateAxes"
+          },
+          "visual_lock_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Visual Lock Hash",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ref",
+          "states",
+          "director_ir_hash",
+          "visual_lock_hash",
+          "model_capability_profile",
+          "prompt_text"
+        ],
+        "title": "PromptDraft",
+        "type": "object"
+      },
+      "PromptDraftProvenance": {
+        "additionalProperties": false,
+        "properties": {
+          "approval_state": {
+            "const": "SEPARATE_HUMAN_ACTION_REQUIRED",
+            "title": "Approval State",
+            "type": "string"
+          },
+          "assets": {
+            "items": {
+              "$ref": "#/components/schemas/PromptAssetBinding-Output"
+            },
+            "title": "Assets",
+            "type": "array"
+          },
+          "capability_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Capability Hash",
+            "type": "string"
+          },
+          "capability_profile": {
+            "$ref": "#/components/schemas/ProviderCapabilityProfile"
+          },
+          "director_ir_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Director Ir Hash",
+            "type": "string"
+          },
+          "director_unit": {
+            "$ref": "#/components/schemas/BoundEntityReference-Output"
+          },
+          "expected_version": {
+            "minimum": 0.0,
+            "title": "Expected Version",
+            "type": "integer"
+          },
+          "generated_result_state": {
+            "const": "CANDIDATE_ONLY",
+            "title": "Generated Result State",
+            "type": "string"
+          },
+          "input_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Input Hash",
+            "type": "string"
+          },
+          "project": {
+            "$ref": "#/components/schemas/BoundEntityReference-Output"
+          },
+          "prompt_draft_id": {
+            "format": "uuid4",
+            "title": "Prompt Draft Id",
+            "type": "string"
+          },
+          "prompt_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Prompt Hash",
+            "type": "string"
+          },
+          "prompt_template": {
+            "$ref": "#/components/schemas/PromptTemplateBinding"
+          },
+          "provider_parameters": {
+            "$ref": "#/components/schemas/ProviderParameters"
+          },
+          "ref": {
+            "$ref": "#/components/schemas/FilmEntityRef"
+          },
+          "shot": {
+            "$ref": "#/components/schemas/BoundEntityReference-Output"
+          },
+          "submission_state": {
+            "const": "NOT_SUBMITTED",
+            "title": "Submission State",
+            "type": "string"
+          },
+          "visual_lock": {
+            "$ref": "#/components/schemas/BoundEntityReference-Output"
+          },
+          "visual_lock_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Visual Lock Hash",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ref",
+          "prompt_draft_id",
+          "expected_version",
+          "director_ir_hash",
+          "visual_lock_hash",
+          "project",
+          "shot",
+          "director_unit",
+          "visual_lock",
+          "prompt_template",
+          "assets",
+          "capability_profile",
+          "provider_parameters",
+          "input_hash",
+          "prompt_hash",
+          "capability_hash",
+          "submission_state",
+          "generated_result_state",
+          "approval_state"
+        ],
+        "title": "PromptDraftProvenance",
+        "type": "object"
+      },
+      "PromptTemplateBinding": {
+        "additionalProperties": false,
+        "properties": {
+          "content_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Content Hash",
+            "type": "string"
+          },
+          "host_prompt_template_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Host Prompt Template Id",
+            "type": "string"
+          },
+          "operation": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Operation",
+            "type": "string"
+          },
+          "version": {
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "host_prompt_template_id",
+          "operation",
+          "version",
+          "content_hash"
+        ],
+        "title": "PromptTemplateBinding",
+        "type": "object"
+      },
+      "ProviderCapabilityProfile": {
+        "additionalProperties": false,
+        "properties": {
+          "capabilities": {
+            "additionalProperties": true,
+            "title": "Capabilities",
+            "type": "object"
+          },
+          "dialect": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Dialect",
+            "type": "string"
+          },
+          "output_kind": {
+            "$ref": "#/components/schemas/OutputKind"
+          },
+          "profile_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Profile Id",
+            "type": "string"
+          },
+          "profile_version": {
+            "minimum": 1.0,
+            "title": "Profile Version",
+            "type": "integer"
+          },
+          "provider_id": {
+            "pattern": "^[a-z][a-z0-9._-]{2,63}$",
+            "title": "Provider Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "profile_id",
+          "profile_version",
+          "provider_id",
+          "output_kind",
+          "dialect",
+          "capabilities"
+        ],
+        "title": "ProviderCapabilityProfile",
+        "type": "object"
+      },
+      "ProviderParameters": {
+        "additionalProperties": false,
+        "properties": {
+          "aspect_ratio": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Aspect Ratio"
+          },
+          "duration_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Seconds"
+          },
+          "negative_prompt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Negative Prompt"
+          },
+          "seed": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seed"
+          }
+        },
+        "required": [
+          "aspect_ratio",
+          "duration_seconds",
+          "seed",
+          "negative_prompt"
+        ],
+        "title": "ProviderParameters",
+        "type": "object"
+      },
+      "Review": {
+        "additionalProperties": false,
+        "properties": {
+          "findings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Findings",
+            "type": "array"
+          },
+          "ref": {
+            "$ref": "#/components/schemas/FilmEntityRef"
+          },
+          "review_state": {
+            "$ref": "#/components/schemas/ReviewOutcome"
+          },
+          "reviewer_kind": {
+            "$ref": "#/components/schemas/ReviewKind"
+          },
+          "target_content_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Target Content Hash",
+            "type": "string"
+          },
+          "target_id": {
+            "format": "uuid4",
+            "title": "Target Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ref",
+          "target_id",
+          "target_content_hash",
+          "review_state",
+          "reviewer_kind",
+          "findings"
+        ],
+        "title": "Review",
+        "type": "object"
+      },
+      "ReviewCreateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_kind": {
+            "$ref": "#/components/schemas/ActorKind"
+          },
+          "candidate": {
+            "$ref": "#/components/schemas/EntityVersionGuard"
+          },
+          "findings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Findings",
+            "type": "array"
+          },
+          "review_state": {
+            "$ref": "#/components/schemas/ReviewOutcome"
+          },
+          "reviewer_kind": {
+            "$ref": "#/components/schemas/ReviewKind"
+          },
+          "write": {
+            "$ref": "#/components/schemas/CreateTargetGuard"
+          }
+        },
+        "required": [
+          "write",
+          "actor_kind",
+          "candidate",
+          "review_state",
+          "reviewer_kind",
+          "findings"
+        ],
+        "title": "ReviewCreateRequest",
+        "type": "object"
+      },
+      "ReviewKind": {
+        "enum": [
+          "human",
+          "agent",
+          "automated_qc"
+        ],
+        "title": "ReviewKind",
+        "type": "string"
+      },
+      "ReviewOutcome": {
+        "enum": [
+          "changes_requested",
+          "rejected",
+          "passed"
+        ],
+        "title": "ReviewOutcome",
         "type": "string"
       },
       "ReviewState": {
@@ -723,6 +2594,32 @@
         ],
         "title": "ReviewState",
         "type": "string"
+      },
+      "ScriptVersion": {
+        "additionalProperties": false,
+        "properties": {
+          "host": {
+            "$ref": "#/components/schemas/HostReferences-Output"
+          },
+          "ref": {
+            "$ref": "#/components/schemas/FilmEntityRef"
+          },
+          "script_text": {
+            "title": "Script Text",
+            "type": "string"
+          },
+          "states": {
+            "$ref": "#/components/schemas/FormalStateAxes"
+          }
+        },
+        "required": [
+          "ref",
+          "host",
+          "states",
+          "script_text"
+        ],
+        "title": "ScriptVersion",
+        "type": "object"
       },
       "SetStatesCommand": {
         "additionalProperties": false,
@@ -864,16 +2761,122 @@
         ],
         "title": "ValidationError",
         "type": "object"
+      },
+      "VisualLockSet": {
+        "additionalProperties": false,
+        "properties": {
+          "locks": {
+            "additionalProperties": true,
+            "title": "Locks",
+            "type": "object"
+          },
+          "project_id": {
+            "format": "uuid4",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "ref": {
+            "$ref": "#/components/schemas/FilmEntityRef"
+          },
+          "shot_id": {
+            "format": "uuid4",
+            "title": "Shot Id",
+            "type": "string"
+          },
+          "states": {
+            "$ref": "#/components/schemas/FormalStateAxes"
+          },
+          "visual_lock_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Visual Lock Hash",
+            "type": "string"
+          },
+          "visual_lock_text": {
+            "minLength": 1,
+            "title": "Visual Lock Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ref",
+          "project_id",
+          "shot_id",
+          "states",
+          "visual_lock_text",
+          "visual_lock_hash",
+          "locks"
+        ],
+        "title": "VisualLockSet",
+        "type": "object"
       }
     }
   },
   "info": {
     "description": "Sidecar Film Core contract. Yingce remains authoritative for generic Host Project, ProjectUnit, Shot, Asset, Workflow and Task entities.",
     "title": "FilmOS Studio Film Core API",
-    "version": "0.1.0"
+    "version": "0.2.0"
   },
   "openapi": "3.1.0",
   "paths": {
+    "/approvals": {
+      "post": {
+        "operationId": "filmApprovalCreate",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApprovalCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Approval"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Approval Create",
+        "x-implementation-state": "implemented"
+      }
+    },
     "/audit-events": {
       "get": {
         "operationId": "filmAuditEventsGet",
@@ -1069,7 +3072,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "type": "object"
+                "$ref": "#/components/schemas/ContinuityCheckRequest"
               }
             }
           },
@@ -1077,10 +3080,48 @@
         },
         "responses": {
           "200": {
-            "description": "Target contract; not implemented in Film Core V0"
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContinuityCheckResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
-        "x-implementation-state": "planned"
+        "summary": "Continuity Check",
+        "x-implementation-state": "implemented"
       }
     },
     "/entities/{filmEntityId}": {
@@ -1145,6 +3186,157 @@
         "x-implementation-state": "implemented"
       }
     },
+    "/formal-records": {
+      "post": {
+        "operationId": "filmFormalRecordCreate",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FormalRecordCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FormalRecordApplyResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Formal Record Create",
+        "x-implementation-state": "implemented"
+      }
+    },
+    "/formal-records/{filmEntityId}": {
+      "get": {
+        "operationId": "filmFormalRecordGet",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "filmEntityId",
+            "required": true,
+            "schema": {
+              "format": "uuid4",
+              "title": "Filmentityid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ScriptVersion"
+                    },
+                    {
+                      "$ref": "#/components/schemas/DirectorUnit"
+                    },
+                    {
+                      "$ref": "#/components/schemas/CoverageLink"
+                    },
+                    {
+                      "$ref": "#/components/schemas/VisualLockSet"
+                    },
+                    {
+                      "$ref": "#/components/schemas/AssetBinding"
+                    },
+                    {
+                      "$ref": "#/components/schemas/PromptDraft"
+                    },
+                    {
+                      "$ref": "#/components/schemas/PromptDraftProvenance"
+                    },
+                    {
+                      "$ref": "#/components/schemas/GenerationPackage"
+                    },
+                    {
+                      "$ref": "#/components/schemas/GenerationAttemptEvidence"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Candidate"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Review"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Approval"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ContinuityCheckResult"
+                    }
+                  ],
+                  "title": "Response Filmformalrecordget"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Formal Record Get",
+        "x-implementation-state": "implemented"
+      }
+    },
     "/health": {
       "get": {
         "operationId": "filmHealthGet",
@@ -1183,6 +3375,65 @@
           }
         },
         "x-implementation-state": "planned"
+      }
+    },
+    "/manual-results/import": {
+      "post": {
+        "operationId": "filmManualResultImport",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ManualResultImportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManualResultImportResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Manual Result Import",
+        "x-implementation-state": "implemented"
       }
     },
     "/projects/{hostProjectId}/context": {
@@ -1232,7 +3483,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "type": "object"
+                "$ref": "#/components/schemas/PromptCompileRequest"
               }
             }
           },
@@ -1240,10 +3491,48 @@
         },
         "responses": {
           "200": {
-            "description": "Target contract; not implemented in Film Core V0"
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromptCompileResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
-        "x-implementation-state": "planned"
+        "summary": "Prompt Compile",
+        "x-implementation-state": "implemented"
       }
     },
     "/reviews": {
@@ -1253,7 +3542,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "./schemas/core.schema.json#/$defs/Review"
+                "$ref": "#/components/schemas/ReviewCreateRequest"
               }
             }
           },
@@ -1261,10 +3550,48 @@
         },
         "responses": {
           "200": {
-            "description": "Target contract; not implemented in Film Core V0"
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Review"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
-        "x-implementation-state": "planned"
+        "summary": "Review Submit",
+        "x-implementation-state": "implemented"
       }
     },
     "/shots/{hostShotId}": {

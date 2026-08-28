@@ -59,16 +59,18 @@ def test_committed_openapi_matches_export_and_marks_implementation_state() -> No
         "/units/{hostUnitId}",
         "/shots/{hostShotId}",
         "/entities/{filmEntityId}",
+        "/formal-records/{filmEntityId}",
+        "/formal-records",
+        "/prompts/compile",
+        "/manual-results/import",
+        "/reviews",
+        "/approvals",
+        "/continuity/check",
         "/commands/preview",
         "/commands/apply",
         "/audit-events",
     }
-    assert planned_paths == {
-        "/impacts/{entityId}",
-        "/reviews",
-        "/prompts/compile",
-        "/continuity/check",
-    }
+    assert planned_paths == {"/impacts/{entityId}"}
 
 
 def test_planned_contract_paths_are_not_registered_as_runtime_routes(tmp_path) -> None:
@@ -78,6 +80,6 @@ def test_planned_contract_paths_are_not_registered_as_runtime_routes(tmp_path) -
     runtime_paths = {route.path for route in app.routes}
 
     assert "/impacts/{entityId}" not in runtime_paths
-    assert "/reviews" not in runtime_paths
-    assert "/prompts/compile" not in runtime_paths
-    assert "/continuity/check" not in runtime_paths
+    assert "/reviews" in runtime_paths
+    assert "/prompts/compile" in runtime_paths
+    assert "/continuity/check" in runtime_paths

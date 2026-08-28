@@ -1,0 +1,668 @@
+from __future__ import annotations
+
+import hashlib
+import json
+from typing import Any, cast
+from uuid import uuid4
+
+from film_production_core.errors import (
+    ContentHashConflict,
+    DomainRuleViolation,
+    EntityNotFound,
+    VersionConflict,
+)
+from film_production_core.formal_models import (
+    Approval,
+    ApprovalBoundaryState,
+    ApprovalCreateRequest,
+    AssetBinding,
+    BoundEntityReference,
+    Candidate,
+    ContinuityBlocker,
+    ContinuityCheckRequest,
+    ContinuityCheckResult,
+    CoverageLink,
+    CreateAssetBindingPayload,
+    CreateCoverageLinkPayload,
+    CreateDirectorUnitPayload,
+    CreateGenerationPackagePayload,
+    CreateScriptVersionPayload,
+    CreateVisualLockSetPayload,
+    DirectorUnit,
+    EntityVersionGuard,
+    FormalEntity,
+    FormalRecordApplyResult,
+    FormalRecordCreateRequest,
+    GeneratedResultState,
+    GenerationAttemptEvidence,
+    GenerationPackage,
+    ImportedOutputReference,
+    ManualResultImportRequest,
+    ManualResultImportResult,
+    PromptCompileRequest,
+    PromptCompileResult,
+    PromptDraft,
+    PromptDraftProvenance,
+    ProviderSubmissionState,
+    Review,
+    ReviewCreateRequest,
+    ReviewOutcome,
+    ScriptVersion,
+    VisualLockSet,
+)
+from film_production_core.models import (
+    ActorKind,
+    EntityType,
+    FilmEntityRef,
+    FormalStateAxes,
+    HostReferences,
+)
+from film_production_core.repository import FilmRepository, canonical_json
+from film_production_core.service import utc_now
+
+
+FORMAL_MODEL_BY_TYPE: dict[str, type[FormalEntity]] = {
+    EntityType.SCRIPT_VERSION.value: ScriptVersion,
+    EntityType.DIRECTOR_UNIT.value: DirectorUnit,
+    EntityType.COVERAGE_LINK.value: CoverageLink,
+    EntityType.VISUAL_LOCK_SET.value: VisualLockSet,
+    EntityType.ASSET_BINDING.value: AssetBinding,
+    EntityType.PROMPT_DRAFT.value: PromptDraft,
+    EntityType.PROMPT_DRAFT_PROVENANCE.value: PromptDraftProvenance,
+    EntityType.GENERATION_PACKAGE.value: GenerationPackage,
+    EntityType.GENERATION_ATTEMPT_EVIDENCE.value: GenerationAttemptEvidence,
+    EntityType.CANDIDATE.value: Candidate,
+    EntityType.REVIEW.value: Review,
+    EntityType.APPROVAL.value: Approval,
+    EntityType.CONTINUITY_CHECK_RESULT.value: ContinuityCheckResult,
+}
+
+
+def hash_json(value: Any) -> str:
+    return hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
+
+
+def hash_text(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+class FormalService:
+    def __init__(self, repository: FilmRepository) -> None:
+        self.repository = repository
+
+    def formal_record(self, film_entity_id: str) -> FormalEntity:
+        return self._formal_from_row(self.repository.formal_record(film_entity_id))
+
+    def create_record(
+        self, request: FormalRecordCreateRequest
+    ) -> FormalRecordApplyResult:
+        payload = request.payload
+        if isinstance(payload, CreateScriptVersionPayload):
+            body = {
+                "host": payload.host.model_dump(mode="json", exclude_none=True),
+                "states": payload.states.model_dump(mode="json"),
+                "script_text": payload.script_text,
+            }
+            entity_type = EntityType.SCRIPT_VERSION
+        elif isinstance(payload, CreateDirectorUnitPayload):
+            self._require_current(
+                payload.script_version, {EntityType.SCRIPT_VERSION.value}
+            )
+            if payload.director_ir_hash != hash_text(payload.director_ir_text):
+                raise DomainRuleViolation(
+                    "director_ir_hash_mismatch",
+                    "director_ir_hash must equal sha256(director_ir_text)",
+                )
+            body = {
+                "script_version_id": str(payload.script_version.film_entity_id),
+                "states": payload.states.model_dump(mode="json"),
+                "director_ir_text": payload.director_ir_text,
+                "director_ir_hash": payload.director_ir_hash,
+                "narrative_purpose": payload.narrative_purpose,
+                "performance_beats": payload.performance_beats,
+            }
+            entity_type = EntityType.DIRECTOR_UNIT
+        elif isinstance(payload, CreateCoverageLinkPayload):
+            self._require_current(
+                payload.director_unit, {EntityType.DIRECTOR_UNIT.value}
+            )
+            self._require_current(payload.shot, {EntityType.SHOT_EXTENSION.value})
+            body = {
+                "director_unit_id": str(payload.director_unit.film_entity_id),
+                "shot_id": str(payload.shot.film_entity_id),
+                "purpose": payload.purpose,
+            }
+            entity_type = EntityType.COVERAGE_LINK
+        elif isinstance(payload, CreateVisualLockSetPayload):
+            self._require_current(
+                payload.project, {EntityType.FILM_PROJECT_EXTENSION.value}
+            )
+            self._require_current(payload.shot, {EntityType.SHOT_EXTENSION.value})
+            if payload.visual_lock_hash != hash_text(payload.visual_lock_text):
+                raise DomainRuleViolation(
+                    "visual_lock_hash_mismatch",
+                    "visual_lock_hash must equal sha256(visual_lock_text)",
+                )
+            body = {
+                "project_id": str(payload.project.film_entity_id),
+                "shot_id": str(payload.shot.film_entity_id),
+                "states": payload.states.model_dump(mode="json"),
+                "visual_lock_text": payload.visual_lock_text,
+                "visual_lock_hash": payload.visual_lock_hash,
+                "locks": payload.locks,
+            }
+            entity_type = EntityType.VISUAL_LOCK_SET
+        elif isinstance(payload, CreateAssetBindingPayload):
+            self._require_current(
+                payload.project, {EntityType.FILM_PROJECT_EXTENSION.value}
+            )
+            body = {
+                "project_id": str(payload.project.film_entity_id),
+                "host": payload.host.model_dump(mode="json", exclude_none=True),
+                "role": payload.role,
+                "priority": payload.priority,
+                "asset_content_hash": payload.asset_content_hash,
+            }
+            entity_type = EntityType.ASSET_BINDING
+        elif isinstance(payload, CreateGenerationPackagePayload):
+            prompt = cast(
+                PromptDraft,
+                self._require_current(
+                    payload.prompt_draft, {EntityType.PROMPT_DRAFT.value}
+                ),
+            )
+            parameters = payload.parameters
+            parameter_hash = hash_json(parameters)
+            prompt_hash = hash_text(prompt.prompt_text)
+            input_hash = hash_json(
+                {
+                    "prompt_draft": payload.prompt_draft.model_dump(mode="json"),
+                    "host_project_id": payload.host_project_id,
+                    "provider_id": payload.provider_id,
+                    "capability_id": payload.capability_id,
+                    "parameter_hash": parameter_hash,
+                    "prompt_hash": prompt_hash,
+                }
+            )
+            body = {
+                "prompt_draft_id": str(payload.prompt_draft.film_entity_id),
+                "host_project_id": payload.host_project_id,
+                "provider_id": payload.provider_id,
+                "capability_id": payload.capability_id,
+                "parameters": parameters,
+                "parameter_hash": parameter_hash,
+                "prompt_hash": prompt_hash,
+                "input_hash": input_hash,
+                "submission_state": ProviderSubmissionState.NOT_SUBMITTED.value,
+            }
+            entity_type = EntityType.GENERATION_PACKAGE
+        else:  # pragma: no cover - discriminated Pydantic union is exhaustive
+            raise TypeError("unsupported formal record payload")
+
+        entities, event_ids = self._persist(
+            [(entity_type, body)],
+            actor_kind=request.actor_kind,
+            command_type="formal_record.create",
+            command_payload=request.model_dump(mode="json"),
+        )
+        return FormalRecordApplyResult(entity=entities[0], audit_event_id=event_ids[0])
+
+    def compile_prompt(self, request: PromptCompileRequest) -> PromptCompileResult:
+        project = self._require_binding_current(
+            request.project, {EntityType.FILM_PROJECT_EXTENSION.value}
+        )
+        shot = self._require_binding_current(
+            request.shot, {EntityType.SHOT_EXTENSION.value}
+        )
+        director_unit = self._require_binding_current(
+            request.director_unit, {EntityType.DIRECTOR_UNIT.value}
+        )
+        visual_lock = cast(
+            VisualLockSet,
+            self._require_binding_current(
+                request.visual_lock, {EntityType.VISUAL_LOCK_SET.value}
+            ),
+        )
+        assets = [
+            cast(
+                AssetBinding,
+                self._require_binding_current(
+                    asset.binding, {EntityType.ASSET_BINDING.value}
+                ),
+            )
+            for asset in request.assets
+        ]
+        if request.director_ir_hash != director_unit.director_ir_hash:
+            raise DomainRuleViolation(
+                "director_ir_hash_mismatch",
+                "director_ir_hash must equal the current DirectorUnit raw IR hash",
+            )
+        if request.visual_lock_hash != visual_lock.visual_lock_hash:
+            raise DomainRuleViolation(
+                "visual_lock_hash_mismatch",
+                "visual_lock_hash must equal the current VisualLockSet raw text hash",
+            )
+        if visual_lock.project_id != request.project.film_entity_id:
+            raise DomainRuleViolation(
+                "visual_lock_project_mismatch",
+                "VisualLockSet must belong to the prompt project",
+            )
+        if visual_lock.shot_id != request.shot.film_entity_id:
+            raise DomainRuleViolation(
+                "visual_lock_shot_mismatch",
+                "VisualLockSet must belong to the prompt shot",
+            )
+        if any(
+            asset.project_id != request.project.film_entity_id for asset in assets
+        ):
+            raise DomainRuleViolation(
+                "asset_project_mismatch",
+                "Every AssetBinding must belong to the prompt project",
+            )
+        if any(
+            requested.asset_content_hash != persisted.asset_content_hash
+            for requested, persisted in zip(request.assets, assets, strict=True)
+        ):
+            raise DomainRuleViolation(
+                "asset_content_hash_mismatch",
+                "Every asset_content_hash must match its current AssetBinding source hash",
+            )
+        project_host_id = project.host.host_project_id
+        if shot.host.host_project_id != project_host_id:
+            raise DomainRuleViolation(
+                "shot_project_mismatch", "Shot must belong to the prompt project"
+            )
+        script = cast(
+            ScriptVersion,
+            self._require_current(
+                EntityVersionGuard(
+                    film_entity_id=director_unit.script_version_id,
+                    expected_version=1,
+                    expected_content_hash=self.formal_record(
+                        str(director_unit.script_version_id)
+                    ).ref.content_hash,
+                ),
+                {EntityType.SCRIPT_VERSION.value},
+            ),
+        )
+        if script.host.host_project_id != project_host_id:
+            raise DomainRuleViolation(
+                "director_unit_project_mismatch",
+                "DirectorUnit ScriptVersion must belong to the prompt project",
+            )
+        if (
+            request.states.review_state != "not_reviewed"
+            or request.states.execution_state != "not_started"
+            or request.states.lock_state != "unlocked"
+        ):
+            raise DomainRuleViolation(
+                "prompt_draft_state_invalid",
+                "Prompt compile cannot create reviewed, executed, or locked state",
+            )
+
+        prompt_id = str(uuid4())
+        provenance_id = str(uuid4())
+        prompt_hash = hash_text(request.prompt_text)
+        capability_hash = hash_json(
+            request.capability_profile.model_dump(mode="json")
+        )
+        provenance_material = request.model_dump(
+            mode="json",
+            exclude={"draft_write", "provenance_write", "actor_kind"},
+        )
+        input_hash = hash_json(provenance_material)
+        prompt_body = {
+            "states": request.states.model_dump(mode="json"),
+            "director_ir_hash": request.director_ir_hash,
+            "visual_lock_hash": request.visual_lock_hash,
+            "model_capability_profile": request.model_capability_profile,
+            "prompt_text": request.prompt_text,
+        }
+        provenance_body = {
+            "prompt_draft_id": prompt_id,
+            "expected_version": request.draft_write.expected_version,
+            "director_ir_hash": request.director_ir_hash,
+            "visual_lock_hash": request.visual_lock_hash,
+            "project": request.project.model_dump(mode="json"),
+            "shot": request.shot.model_dump(mode="json"),
+            "director_unit": request.director_unit.model_dump(mode="json"),
+            "visual_lock": request.visual_lock.model_dump(mode="json"),
+            "prompt_template": request.prompt_template.model_dump(mode="json"),
+            "assets": [asset.model_dump(mode="json") for asset in request.assets],
+            "capability_profile": request.capability_profile.model_dump(mode="json"),
+            "provider_parameters": request.provider_parameters.model_dump(mode="json"),
+            "input_hash": input_hash,
+            "prompt_hash": prompt_hash,
+            "capability_hash": capability_hash,
+            "submission_state": ProviderSubmissionState.NOT_SUBMITTED.value,
+            "generated_result_state": GeneratedResultState.CANDIDATE_ONLY.value,
+            "approval_state": ApprovalBoundaryState.SEPARATE_HUMAN_ACTION_REQUIRED.value,
+        }
+        entities, event_ids = self._persist(
+            [
+                (EntityType.PROMPT_DRAFT, prompt_body, prompt_id),
+                (
+                    EntityType.PROMPT_DRAFT_PROVENANCE,
+                    provenance_body,
+                    provenance_id,
+                ),
+            ],
+            actor_kind=request.actor_kind,
+            command_type="prompt.compile",
+            command_payload=request.model_dump(mode="json"),
+        )
+        return PromptCompileResult(
+            prompt_draft=cast(PromptDraft, entities[0]),
+            provenance=cast(PromptDraftProvenance, entities[1]),
+            audit_event_ids=event_ids,
+        )
+
+    def import_manual_result(
+        self, request: ManualResultImportRequest
+    ) -> ManualResultImportResult:
+        package = cast(
+            GenerationPackage,
+            self._require_current(
+                request.generation_package,
+                {EntityType.GENERATION_PACKAGE.value},
+            ),
+        )
+        if package.submission_state != ProviderSubmissionState.NOT_SUBMITTED.value:
+            raise DomainRuleViolation(
+                "external_submission_forbidden",
+                "Golden A accepts only NOT_SUBMITTED manual packages",
+            )
+        if any(output.output_kind != package.capability_id for output in request.outputs):
+            raise DomainRuleViolation(
+                "provider_result_capability_mismatch",
+                "Manual result output kind must match GenerationPackage capability",
+            )
+
+        evidence_id = str(uuid4())
+        candidate_id = str(uuid4())
+        outputs = [
+            ImportedOutputReference(
+                film_representation_id=uuid4(),
+                **output.model_dump(mode="json"),
+            ).model_dump(mode="json")
+            for output in request.outputs
+        ]
+        evidence_body = {
+            "generation_package_id": str(package.ref.film_entity_id),
+            "provider_id": package.provider_id,
+            "provider_task_id": request.provider_task_id,
+            "receipt_id": request.receipt.receipt_id,
+            "receipt_hash": request.receipt.content_hash,
+            "receipt_captured_at": request.receipt.model_dump(mode="json")[
+                "captured_at"
+            ],
+            "parameter_hash": package.parameter_hash,
+            "prompt_hash": package.prompt_hash,
+            "input_hash": package.input_hash,
+            "parameters": package.parameters,
+            "manual_import_source_id": request.manual_source.source_id,
+            "imported_by": request.manual_source.imported_by,
+            "imported_at": request.manual_source.model_dump(mode="json")["imported_at"],
+            "authorization_evidence_id": request.manual_source.authorization_evidence_id,
+            "outputs": outputs,
+        }
+        candidate_body = {
+            "generation_package_id": str(package.ref.film_entity_id),
+            "generation_attempt_evidence_id": evidence_id,
+            "host": {"host_project_id": package.host_project_id},
+            "states": candidate_states().model_dump(mode="json"),
+            "output_hash": hash_json(outputs),
+        }
+        entities, event_ids = self._persist(
+            [
+                (
+                    EntityType.GENERATION_ATTEMPT_EVIDENCE,
+                    evidence_body,
+                    evidence_id,
+                ),
+                (EntityType.CANDIDATE, candidate_body, candidate_id),
+            ],
+            actor_kind=request.actor_kind,
+            command_type="manual_result.import",
+            command_payload=request.model_dump(mode="json"),
+        )
+        return ManualResultImportResult(
+            evidence=cast(GenerationAttemptEvidence, entities[0]),
+            candidate=cast(Candidate, entities[1]),
+            audit_event_ids=event_ids,
+        )
+
+    def create_review(self, request: ReviewCreateRequest) -> Review:
+        candidate = cast(
+            Candidate,
+            self._require_current(
+                request.candidate, {EntityType.CANDIDATE.value}
+            ),
+        )
+        body = {
+            "target_id": str(candidate.ref.film_entity_id),
+            "target_content_hash": candidate.ref.content_hash,
+            "review_state": enum_value(request.review_state),
+            "reviewer_kind": enum_value(request.reviewer_kind),
+            "findings": request.findings,
+        }
+        entities, _ = self._persist(
+            [(EntityType.REVIEW, body)],
+            actor_kind=request.actor_kind,
+            command_type="review.create",
+            command_payload=request.model_dump(mode="json"),
+        )
+        return cast(Review, entities[0])
+
+    def create_approval(self, request: ApprovalCreateRequest) -> Approval:
+        if enum_value(request.actor_kind) != ActorKind.HUMAN.value:
+            raise DomainRuleViolation(
+                "human_approval_required", "Only a human actor can create Approval"
+            )
+        candidate = cast(
+            Candidate,
+            self._require_current(
+                request.candidate, {EntityType.CANDIDATE.value}
+            ),
+        )
+        review = cast(
+            Review,
+            self._require_current(request.passed_review, {EntityType.REVIEW.value}),
+        )
+        if (
+            enum_value(review.review_state) != ReviewOutcome.PASSED.value
+            or review.target_id != candidate.ref.film_entity_id
+            or review.target_content_hash != candidate.ref.content_hash
+        ):
+            raise DomainRuleViolation(
+                "passed_review_required",
+                "Approval requires a passed Review bound to the current Candidate hash",
+            )
+        body = {
+            "target_id": str(candidate.ref.film_entity_id),
+            "review_id": str(review.ref.film_entity_id),
+            "actor_kind": ActorKind.HUMAN.value,
+            "approved_by": request.approved_by,
+            "approved_content_hash": candidate.ref.content_hash,
+        }
+        entities, _ = self._persist(
+            [(EntityType.APPROVAL, body)],
+            actor_kind=request.actor_kind,
+            command_type="approval.create",
+            command_payload=request.model_dump(mode="json"),
+        )
+        return cast(Approval, entities[0])
+
+    def check_continuity(
+        self, request: ContinuityCheckRequest
+    ) -> ContinuityCheckResult:
+        current = self._require_current(
+            request.current_shot, {EntityType.SHOT_EXTENSION.value}
+        )
+        previous = (
+            self._require_current(
+                request.previous_shot, {EntityType.SHOT_EXTENSION.value}
+            )
+            if request.previous_shot is not None
+            else None
+        )
+        blockers = [
+            ContinuityBlocker(
+                code=f"{enum_value(check.dimension).upper()}_CONTINUITY_BROKEN",
+                dimension=check.dimension,
+                subject_id=check.subject_id,
+                expected_value=check.expected_value,
+                actual_value=check.actual_value,
+            )
+            for check in request.checks
+            if check.expected_value != check.actual_value
+        ]
+        body = {
+            "previous_shot_id": (
+                str(previous.ref.film_entity_id) if previous is not None else None
+            ),
+            "current_shot_id": str(current.ref.film_entity_id),
+            "passed": not blockers,
+            "blockers": [blocker.model_dump(mode="json") for blocker in blockers],
+        }
+        entities, _ = self._persist(
+            [(EntityType.CONTINUITY_CHECK_RESULT, body)],
+            actor_kind=request.actor_kind,
+            command_type="continuity.check",
+            command_payload=request.model_dump(mode="json"),
+        )
+        return cast(ContinuityCheckResult, entities[0])
+
+    def _require_binding_current(
+        self, binding: BoundEntityReference, allowed_types: set[str]
+    ) -> FormalEntity | Any:
+        if binding.entity_type not in allowed_types:
+            raise DomainRuleViolation(
+                "source_entity_type_mismatch",
+                f"Source entity type {binding.entity_type} is not allowed",
+            )
+        entity = self._require_current(
+            EntityVersionGuard(
+                film_entity_id=binding.film_entity_id,
+                expected_version=binding.expected_version,
+                expected_content_hash=binding.expected_content_hash,
+            ),
+            allowed_types,
+        )
+        actual_host = getattr(entity, "host", HostReferences())
+        if binding.host.model_dump(mode="json", exclude_none=True) != actual_host.model_dump(
+            mode="json", exclude_none=True
+        ):
+            raise DomainRuleViolation(
+                "source_host_reference_mismatch",
+                "Bound source Host references must match the persisted record",
+            )
+        return entity
+
+    def _require_current(
+        self, guard: EntityVersionGuard, allowed_types: set[str]
+    ) -> FormalEntity | Any:
+        film_entity_id = str(guard.film_entity_id)
+        try:
+            row = self.repository.formal_record(film_entity_id)
+            entity = self._formal_from_row(row)
+        except EntityNotFound:
+            row = self.repository.entity(film_entity_id)
+            entity = self._legacy_ref_entity(row)
+        entity_type = enum_value(entity.ref.entity_type)
+        if entity_type not in allowed_types:
+            raise DomainRuleViolation(
+                "source_entity_type_mismatch",
+                f"Source entity {film_entity_id} has type {entity_type}",
+            )
+        if entity.ref.version != guard.expected_version:
+            raise VersionConflict(
+                film_entity_id, guard.expected_version, entity.ref.version
+            )
+        if entity.ref.content_hash != guard.expected_content_hash:
+            raise ContentHashConflict(
+                film_entity_id,
+                guard.expected_content_hash,
+                entity.ref.content_hash,
+            )
+        return entity
+
+    def _persist(
+        self,
+        entries: list[
+            tuple[EntityType, dict[str, Any]]
+            | tuple[EntityType, dict[str, Any], str]
+        ],
+        *,
+        actor_kind: ActorKind | str,
+        command_type: str,
+        command_payload: dict[str, Any],
+    ) -> tuple[list[FormalEntity], list[str]]:
+        now = utc_now()
+        records: list[dict[str, Any]] = []
+        audits: list[dict[str, Any]] = []
+        for entry in entries:
+            entity_type, body = entry[0], entry[1]
+            film_entity_id = entry[2] if len(entry) == 3 else str(uuid4())
+            event_id = str(uuid4())
+            records.append(
+                {
+                    "film_entity_id": film_entity_id,
+                    "entity_type": entity_type.value,
+                    "version": 1,
+                    "content_hash": hash_json(body),
+                    "payload_json": canonical_json(body),
+                    "created_at": now,
+                    "updated_at": now,
+                }
+            )
+            audits.append(
+                {
+                    "event_id": event_id,
+                    "actor_kind": enum_value(actor_kind),
+                    "action": f"{entity_type.value}.created",
+                    "target_id": film_entity_id,
+                    "previous_version": None,
+                    "resulting_version": 1,
+                    "command_type": command_type,
+                    "command_payload_json": canonical_json(command_payload),
+                    "recorded_at": now,
+                }
+            )
+        rows, _ = self.repository.create_formal_records_with_audits(records, audits)
+        return [self._formal_from_row(row) for row in rows], [a["event_id"] for a in audits]
+
+    @staticmethod
+    def _formal_from_row(row) -> FormalEntity:
+        entity_type = str(row["entity_type"])
+        model = FORMAL_MODEL_BY_TYPE.get(entity_type)
+        if model is None:
+            raise ValueError(f"Unsupported formal entity type: {entity_type}")
+        reference = FilmEntityRef(
+            film_entity_id=row["film_entity_id"],
+            entity_type=entity_type,
+            version=row["version"],
+            content_hash=row["content_hash"],
+        )
+        payload = json.loads(row["payload_json"])
+        return model(ref=reference, **payload)
+
+    def _legacy_ref_entity(self, row):
+        from film_production_core.service import FilmService
+
+        return FilmService(self.repository)._entity_from_row(row)
+
+
+def candidate_states() -> FormalStateAxes:
+    return FormalStateAxes(
+        creative_stage="authored",
+        execution_state="succeeded",
+        review_state="pending",
+        lock_state="unlocked",
+        delivery_state="not_ready",
+        stale_state="fresh",
+    )
+
+
+def enum_value(value: Any) -> str:
+    return str(getattr(value, "value", value))

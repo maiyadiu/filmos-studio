@@ -24,6 +24,19 @@ class EntityType(str, Enum):
     FILM_PROJECT_EXTENSION = "film_project_extension"
     CONTENT_UNIT_EXTENSION = "content_unit_extension"
     SHOT_EXTENSION = "shot_extension"
+    SCRIPT_VERSION = "script_version"
+    DIRECTOR_UNIT = "director_unit"
+    COVERAGE_LINK = "coverage_link"
+    VISUAL_LOCK_SET = "visual_lock_set"
+    ASSET_BINDING = "asset_binding"
+    PROMPT_DRAFT = "prompt_draft"
+    PROMPT_DRAFT_PROVENANCE = "prompt_draft_provenance"
+    GENERATION_PACKAGE = "generation_package"
+    GENERATION_ATTEMPT_EVIDENCE = "generation_attempt_evidence"
+    CANDIDATE = "candidate"
+    REVIEW = "review"
+    APPROVAL = "approval"
+    CONTINUITY_CHECK_RESULT = "continuity_check_result"
 
 
 class CreativeStage(str, Enum):
@@ -272,6 +285,8 @@ class ErrorDetail(StrictModel):
     target_id: UUID | None = None
     expected_version: int | None = None
     current_version: int | None = None
+    expected_content_hash: str | None = None
+    current_content_hash: str | None = None
 
 
 class ErrorResponse(StrictModel):

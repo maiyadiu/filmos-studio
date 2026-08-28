@@ -4,7 +4,7 @@ import sqlite3
 from pathlib import Path
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 MIGRATION_001 = """
 CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -141,6 +141,83 @@ END;
 
 """
 
+MIGRATION_002 = """
+CREATE TABLE IF NOT EXISTS formal_records (
+    film_entity_id TEXT PRIMARY KEY CHECK (
+        length(film_entity_id) = 36
+        AND film_entity_id = lower(film_entity_id)
+        AND substr(film_entity_id, 9, 1) = '-'
+        AND substr(film_entity_id, 14, 1) = '-'
+        AND substr(film_entity_id, 15, 1) = '4'
+        AND substr(film_entity_id, 19, 1) = '-'
+        AND substr(film_entity_id, 20, 1) IN ('8', '9', 'a', 'b')
+        AND substr(film_entity_id, 24, 1) = '-'
+    ),
+    entity_type TEXT NOT NULL CHECK (
+        entity_type IN (
+            'script_version', 'director_unit', 'coverage_link',
+            'visual_lock_set', 'asset_binding',
+            'prompt_draft', 'prompt_draft_provenance',
+            'generation_package', 'generation_attempt_evidence',
+            'candidate', 'review', 'approval', 'continuity_check_result'
+        )
+    ),
+    version INTEGER NOT NULL CHECK (version >= 1),
+    content_hash TEXT NOT NULL CHECK (
+        length(content_hash) = 64
+        AND content_hash = lower(content_hash)
+        AND content_hash NOT GLOB '*[^0-9a-f]*'
+    ),
+    payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_formal_records_type_created
+ON formal_records(entity_type, created_at, film_entity_id);
+
+CREATE TABLE IF NOT EXISTS formal_audit_events (
+    event_id TEXT PRIMARY KEY CHECK (
+        length(event_id) = 36
+        AND event_id = lower(event_id)
+        AND substr(event_id, 9, 1) = '-'
+        AND substr(event_id, 14, 1) = '-'
+        AND substr(event_id, 15, 1) = '4'
+        AND substr(event_id, 19, 1) = '-'
+        AND substr(event_id, 20, 1) IN ('8', '9', 'a', 'b')
+        AND substr(event_id, 24, 1) = '-'
+    ),
+    actor_kind TEXT NOT NULL CHECK (
+        actor_kind IN ('human', 'codex', 'deepseek', 'claude', 'local_model', 'system')
+    ),
+    action TEXT NOT NULL,
+    target_id TEXT NOT NULL,
+    previous_version INTEGER,
+    resulting_version INTEGER NOT NULL CHECK (resulting_version >= 1),
+    command_type TEXT NOT NULL,
+    command_payload_json TEXT NOT NULL CHECK (json_valid(command_payload_json)),
+    recorded_at TEXT NOT NULL,
+    FOREIGN KEY(target_id) REFERENCES formal_records(film_entity_id) ON DELETE RESTRICT
+);
+
+CREATE INDEX IF NOT EXISTS idx_formal_audit_target_recorded
+ON formal_audit_events(target_id, recorded_at, event_id);
+
+CREATE TRIGGER IF NOT EXISTS formal_audit_events_no_update
+BEFORE UPDATE ON formal_audit_events
+BEGIN
+    SELECT RAISE(ABORT, 'formal_audit_events are append-only');
+END;
+
+CREATE TRIGGER IF NOT EXISTS formal_audit_events_no_delete
+BEFORE DELETE ON formal_audit_events
+BEGIN
+    SELECT RAISE(ABORT, 'formal_audit_events are append-only');
+END;
+"""
+
+MIGRATIONS = ((1, MIGRATION_001), (2, MIGRATION_002))
+
 
 class SQLiteDatabase:
     def __init__(self, path: str | Path) -> None:
@@ -162,12 +239,13 @@ class SQLiteDatabase:
 
     def migrate(self) -> None:
         with self.connect() as connection:
-            connection.executescript(MIGRATION_001)
-            connection.execute(
-                "INSERT OR IGNORE INTO schema_migrations(version, applied_at) "
-                "VALUES (?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
-                (SCHEMA_VERSION,),
-            )
+            for version, migration in MIGRATIONS:
+                connection.executescript(migration)
+                connection.execute(
+                    "INSERT OR IGNORE INTO schema_migrations(version, applied_at) "
+                    "VALUES (?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
+                    (version,),
+                )
 
     def health(self) -> tuple[int, str]:
         with self.connect() as connection:

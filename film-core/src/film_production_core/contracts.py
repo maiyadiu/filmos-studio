@@ -29,57 +29,6 @@ PLANNED_PATHS = {
             },
         }
     },
-    "/reviews": {
-        "post": {
-            "operationId": "filmReviewSubmit",
-            "x-implementation-state": "planned",
-            "requestBody": {
-                "required": True,
-                "content": {
-                    "application/json": {
-                        "schema": {
-                            "$ref": "./schemas/core.schema.json#/$defs/Review"
-                        }
-                    }
-                },
-            },
-            "responses": {
-                "200": {
-                    "description": "Target contract; not implemented in Film Core V0"
-                }
-            },
-        }
-    },
-    "/prompts/compile": {
-        "post": {
-            "operationId": "filmPromptCompile",
-            "x-implementation-state": "planned",
-            "requestBody": {
-                "required": True,
-                "content": {"application/json": {"schema": {"type": "object"}}},
-            },
-            "responses": {
-                "200": {
-                    "description": "Target contract; not implemented in Film Core V0"
-                }
-            },
-        }
-    },
-    "/continuity/check": {
-        "post": {
-            "operationId": "filmContinuityCheck",
-            "x-implementation-state": "planned",
-            "requestBody": {
-                "required": True,
-                "content": {"application/json": {"schema": {"type": "object"}}},
-            },
-            "responses": {
-                "200": {
-                    "description": "Target contract; not implemented in Film Core V0"
-                }
-            },
-        }
-    },
 }
 
 

@@ -1,0 +1,638 @@
+from __future__ import annotations
+
+import re
+from datetime import datetime
+from enum import Enum
+from typing import Annotated, Any, Literal, TypeAlias
+
+from pydantic import Field, UUID4, field_validator, model_validator
+
+from film_production_core.models import (
+    ActorKind,
+    EntityType,
+    FilmEntityRef,
+    FormalStateAxes,
+    HostReferences,
+    StrictModel,
+)
+
+
+ZERO_CONTENT_HASH = "0" * 64
+HASH_PATTERN = r"^[0-9a-f]{64}$"
+OPAQUE_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$")
+PROVIDER_ID_PATTERN = r"^[a-z][a-z0-9._-]{2,63}$"
+CAPABILITY_ID_PATTERN = r"^[a-z][a-z0-9._-]{1,63}$"
+MIME_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9.+-]*/[A-Za-z0-9][A-Za-z0-9.+-]*$"
+SECRET_KEY_PATTERN = re.compile(
+    r"(?:api[_-]?key|secret|token|cookie|authorization|password|credential)",
+    re.IGNORECASE,
+)
+LOCATOR_KEY_PATTERN = re.compile(
+    r"(?:^|[_-])(?:url|uri|path|file|filename|upload|base64|binary)(?:$|[_-])",
+    re.IGNORECASE,
+)
+FORBIDDEN_LOCATOR_PATTERN = re.compile(
+    r"^(?:data:|blob:|file:|https?://|/|~/|[A-Za-z]:[\\/])",
+    re.IGNORECASE,
+)
+
+
+class ProviderSubmissionState(str, Enum):
+    NOT_SUBMITTED = "NOT_SUBMITTED"
+
+
+class GeneratedResultState(str, Enum):
+    CANDIDATE_ONLY = "CANDIDATE_ONLY"
+
+
+class ApprovalBoundaryState(str, Enum):
+    SEPARATE_HUMAN_ACTION_REQUIRED = "SEPARATE_HUMAN_ACTION_REQUIRED"
+
+
+class ReviewKind(str, Enum):
+    HUMAN = "human"
+    AGENT = "agent"
+    AUTOMATED_QC = "automated_qc"
+
+
+class ReviewOutcome(str, Enum):
+    CHANGES_REQUESTED = "changes_requested"
+    REJECTED = "rejected"
+    PASSED = "passed"
+
+
+class ManualSourceKind(str, Enum):
+    PROVIDER_CONSOLE = "provider_console"
+    MANUAL_DOWNLOAD = "manual_download"
+    LOCAL_RUNTIME_EXPORT = "local_runtime_export"
+    OTHER_AUTHORIZED = "other_authorized"
+
+
+class OutputKind(str, Enum):
+    TEXT = "text"
+    IMAGE = "image"
+    VIDEO = "video"
+    AUDIO = "audio"
+    WORKFLOW = "workflow"
+    THREE_D = "three_d"
+
+
+class ContinuityDimension(str, Enum):
+    AXIS = "axis"
+    EYELINE = "eyeline"
+    ACTION = "action"
+    PROP_CONTACT = "prop_contact"
+    BLOCKING = "blocking"
+
+
+class CreateTargetGuard(StrictModel):
+    target_id: None
+    expected_version: Literal[0]
+    expected_content_hash: str = Field(pattern=HASH_PATTERN)
+
+    @field_validator("expected_content_hash")
+    @classmethod
+    def require_zero_hash(cls, value: str) -> str:
+        if value != ZERO_CONTENT_HASH:
+            raise ValueError("create target expected_content_hash must be all-zero")
+        return value
+
+
+class EntityVersionGuard(StrictModel):
+    film_entity_id: UUID4
+    expected_version: int = Field(ge=1)
+    expected_content_hash: str = Field(pattern=HASH_PATTERN)
+
+
+class BoundEntityReference(StrictModel):
+    film_entity_id: UUID4
+    entity_type: str = Field(min_length=1, max_length=64)
+    expected_version: int = Field(ge=1)
+    expected_content_hash: str = Field(pattern=HASH_PATTERN)
+    host: HostReferences
+
+
+class ScriptVersion(StrictModel):
+    ref: FilmEntityRef
+    host: HostReferences
+    states: FormalStateAxes
+    script_text: str
+
+
+class DirectorUnit(StrictModel):
+    ref: FilmEntityRef
+    script_version_id: UUID4
+    states: FormalStateAxes
+    director_ir_text: str = Field(min_length=1)
+    director_ir_hash: str = Field(pattern=HASH_PATTERN)
+    narrative_purpose: str = Field(min_length=1)
+    performance_beats: list[str] = Field(default_factory=list)
+
+
+class CoverageLink(StrictModel):
+    ref: FilmEntityRef
+    director_unit_id: UUID4
+    shot_id: UUID4
+    purpose: str = Field(min_length=1)
+
+
+class VisualLockSet(StrictModel):
+    ref: FilmEntityRef
+    project_id: UUID4
+    shot_id: UUID4
+    states: FormalStateAxes
+    visual_lock_text: str = Field(min_length=1)
+    visual_lock_hash: str = Field(pattern=HASH_PATTERN)
+    locks: dict[str, Any]
+
+    @field_validator("locks")
+    @classmethod
+    def validate_locks(cls, value: dict[str, Any]) -> dict[str, Any]:
+        return validate_safe_json_object(value, "locks")
+
+
+class AssetBinding(StrictModel):
+    ref: FilmEntityRef
+    project_id: UUID4
+    host: HostReferences
+    role: str = Field(min_length=1, max_length=128)
+    priority: int = Field(ge=0, le=100)
+    asset_content_hash: str = Field(pattern=HASH_PATTERN)
+
+
+class PromptDraft(StrictModel):
+    ref: FilmEntityRef
+    states: FormalStateAxes
+    director_ir_hash: str = Field(pattern=HASH_PATTERN)
+    visual_lock_hash: str = Field(pattern=HASH_PATTERN)
+    model_capability_profile: str = Field(min_length=1)
+    prompt_text: str = Field(min_length=1)
+
+
+class PromptTemplateBinding(StrictModel):
+    host_prompt_template_id: str = Field(min_length=1, max_length=256)
+    operation: str = Field(min_length=1, max_length=128)
+    version: int = Field(ge=1)
+    content_hash: str = Field(pattern=HASH_PATTERN)
+
+    @field_validator("host_prompt_template_id")
+    @classmethod
+    def validate_host_id(cls, value: str) -> str:
+        return require_opaque_id(value, "host_prompt_template_id")
+
+
+class PromptAssetBinding(StrictModel):
+    binding: BoundEntityReference
+    asset_content_hash: str = Field(pattern=HASH_PATTERN)
+
+
+class ProviderCapabilityProfile(StrictModel):
+    profile_id: str = Field(min_length=1, max_length=128)
+    profile_version: int = Field(ge=1)
+    provider_id: str = Field(pattern=PROVIDER_ID_PATTERN)
+    output_kind: OutputKind
+    dialect: str = Field(min_length=1, max_length=128)
+    capabilities: dict[str, Any]
+
+    @field_validator("capabilities")
+    @classmethod
+    def validate_capabilities(cls, value: dict[str, Any]) -> dict[str, Any]:
+        return validate_safe_json_object(value, "capabilities")
+
+
+class ProviderParameters(StrictModel):
+    aspect_ratio: str | None
+    duration_seconds: float | None
+    seed: int | None
+    negative_prompt: str | None
+
+    @model_validator(mode="after")
+    def validate_values(self) -> ProviderParameters:
+        if self.aspect_ratio is not None and not self.aspect_ratio.strip():
+            raise ValueError("aspect_ratio must be null or non-empty")
+        if self.duration_seconds is not None and self.duration_seconds <= 0:
+            raise ValueError("duration_seconds must be null or positive")
+        return self
+
+
+class PromptDraftProvenance(StrictModel):
+    ref: FilmEntityRef
+    prompt_draft_id: UUID4
+    expected_version: int = Field(ge=0)
+    director_ir_hash: str = Field(pattern=HASH_PATTERN)
+    visual_lock_hash: str = Field(pattern=HASH_PATTERN)
+    project: BoundEntityReference
+    shot: BoundEntityReference
+    director_unit: BoundEntityReference
+    visual_lock: BoundEntityReference
+    prompt_template: PromptTemplateBinding
+    assets: list[PromptAssetBinding]
+    capability_profile: ProviderCapabilityProfile
+    provider_parameters: ProviderParameters
+    input_hash: str = Field(pattern=HASH_PATTERN)
+    prompt_hash: str = Field(pattern=HASH_PATTERN)
+    capability_hash: str = Field(pattern=HASH_PATTERN)
+    submission_state: Literal[ProviderSubmissionState.NOT_SUBMITTED]
+    generated_result_state: Literal[GeneratedResultState.CANDIDATE_ONLY]
+    approval_state: Literal[
+        ApprovalBoundaryState.SEPARATE_HUMAN_ACTION_REQUIRED
+    ]
+
+
+class GenerationPackage(StrictModel):
+    ref: FilmEntityRef
+    prompt_draft_id: UUID4
+    host_project_id: str = Field(min_length=1, max_length=256)
+    provider_id: str = Field(pattern=PROVIDER_ID_PATTERN)
+    capability_id: str = Field(pattern=CAPABILITY_ID_PATTERN)
+    parameters: dict[str, Any]
+    parameter_hash: str = Field(pattern=HASH_PATTERN)
+    prompt_hash: str = Field(pattern=HASH_PATTERN)
+    input_hash: str = Field(pattern=HASH_PATTERN)
+    submission_state: Literal[ProviderSubmissionState.NOT_SUBMITTED]
+
+    @field_validator("host_project_id")
+    @classmethod
+    def validate_project_id(cls, value: str) -> str:
+        return require_opaque_id(value, "host_project_id")
+
+    @field_validator("parameters")
+    @classmethod
+    def validate_parameters(cls, value: dict[str, Any]) -> dict[str, Any]:
+        return validate_safe_json_object(value, "parameters")
+
+
+class ImportedOutputReference(StrictModel):
+    film_representation_id: UUID4
+    host_resource_id: str = Field(min_length=1, max_length=256)
+    output_kind: OutputKind
+    content_hash: str = Field(pattern=HASH_PATTERN)
+    mime_type: str = Field(pattern=MIME_PATTERN)
+    bytes: int = Field(ge=0)
+
+    @field_validator("host_resource_id")
+    @classmethod
+    def validate_resource_id(cls, value: str) -> str:
+        return require_opaque_id(value, "host_resource_id")
+
+
+class GenerationAttemptEvidence(StrictModel):
+    ref: FilmEntityRef
+    generation_package_id: UUID4
+    provider_id: str = Field(pattern=PROVIDER_ID_PATTERN)
+    provider_task_id: str = Field(min_length=1, max_length=256)
+    receipt_id: str = Field(min_length=1, max_length=256)
+    receipt_hash: str = Field(pattern=HASH_PATTERN)
+    receipt_captured_at: datetime
+    parameter_hash: str = Field(pattern=HASH_PATTERN)
+    prompt_hash: str = Field(pattern=HASH_PATTERN)
+    input_hash: str = Field(pattern=HASH_PATTERN)
+    parameters: dict[str, Any]
+    manual_import_source_id: str = Field(min_length=1, max_length=256)
+    imported_by: str = Field(min_length=1, max_length=256)
+    imported_at: datetime
+    authorization_evidence_id: str = Field(min_length=1, max_length=256)
+    outputs: list[ImportedOutputReference] = Field(min_length=1)
+
+    @field_validator(
+        "provider_task_id",
+        "receipt_id",
+        "manual_import_source_id",
+        "imported_by",
+        "authorization_evidence_id",
+    )
+    @classmethod
+    def validate_opaque_ids(cls, value: str, info) -> str:
+        return require_opaque_id(value, info.field_name)
+
+    @field_validator("parameters")
+    @classmethod
+    def validate_parameters(cls, value: dict[str, Any]) -> dict[str, Any]:
+        return validate_safe_json_object(value, "parameters")
+
+
+class Candidate(StrictModel):
+    ref: FilmEntityRef
+    generation_package_id: UUID4
+    generation_attempt_evidence_id: UUID4
+    host: HostReferences
+    states: FormalStateAxes
+    output_hash: str = Field(pattern=HASH_PATTERN)
+
+
+class Review(StrictModel):
+    ref: FilmEntityRef
+    target_id: UUID4
+    target_content_hash: str = Field(pattern=HASH_PATTERN)
+    review_state: ReviewOutcome
+    reviewer_kind: ReviewKind
+    findings: list[str]
+
+
+class Approval(StrictModel):
+    ref: FilmEntityRef
+    target_id: UUID4
+    review_id: UUID4
+    actor_kind: Literal[ActorKind.HUMAN]
+    approved_by: str = Field(min_length=1)
+    approved_content_hash: str = Field(pattern=HASH_PATTERN)
+
+
+class ContinuityBlocker(StrictModel):
+    code: str = Field(min_length=1, max_length=128)
+    dimension: ContinuityDimension
+    subject_id: str = Field(min_length=1, max_length=256)
+    expected_value: str
+    actual_value: str
+
+
+class ContinuityCheckResult(StrictModel):
+    ref: FilmEntityRef
+    previous_shot_id: UUID4 | None
+    current_shot_id: UUID4
+    passed: bool
+    blockers: list[ContinuityBlocker]
+
+
+FormalEntity: TypeAlias = (
+    ScriptVersion
+    | DirectorUnit
+    | CoverageLink
+    | VisualLockSet
+    | AssetBinding
+    | PromptDraft
+    | PromptDraftProvenance
+    | GenerationPackage
+    | GenerationAttemptEvidence
+    | Candidate
+    | Review
+    | Approval
+    | ContinuityCheckResult
+)
+
+
+class CreateScriptVersionPayload(StrictModel):
+    entity_type: Literal[EntityType.SCRIPT_VERSION]
+    host: HostReferences
+    states: FormalStateAxes
+    script_text: str
+
+    @model_validator(mode="after")
+    def require_host_scope(self) -> CreateScriptVersionPayload:
+        if not self.host.host_project_id or not self.host.host_unit_id:
+            raise ValueError("script_version requires host_project_id and host_unit_id")
+        return self
+
+
+class CreateDirectorUnitPayload(StrictModel):
+    entity_type: Literal[EntityType.DIRECTOR_UNIT]
+    script_version: EntityVersionGuard
+    states: FormalStateAxes
+    director_ir_text: str = Field(min_length=1)
+    director_ir_hash: str = Field(pattern=HASH_PATTERN)
+    narrative_purpose: str = Field(min_length=1)
+    performance_beats: list[str] = Field(default_factory=list)
+
+
+class CreateCoverageLinkPayload(StrictModel):
+    entity_type: Literal[EntityType.COVERAGE_LINK]
+    director_unit: EntityVersionGuard
+    shot: EntityVersionGuard
+    purpose: str = Field(min_length=1)
+
+
+class CreateVisualLockSetPayload(StrictModel):
+    entity_type: Literal[EntityType.VISUAL_LOCK_SET]
+    project: EntityVersionGuard
+    shot: EntityVersionGuard
+    states: FormalStateAxes
+    visual_lock_text: str = Field(min_length=1)
+    visual_lock_hash: str = Field(pattern=HASH_PATTERN)
+    locks: dict[str, Any]
+
+    @field_validator("locks")
+    @classmethod
+    def validate_locks(cls, value: dict[str, Any]) -> dict[str, Any]:
+        return validate_safe_json_object(value, "locks")
+
+
+class CreateAssetBindingPayload(StrictModel):
+    entity_type: Literal[EntityType.ASSET_BINDING]
+    project: EntityVersionGuard
+    host: HostReferences
+    role: str = Field(min_length=1, max_length=128)
+    priority: int = Field(ge=0, le=100)
+    asset_content_hash: str = Field(pattern=HASH_PATTERN)
+
+    @model_validator(mode="after")
+    def require_opaque_host_asset(self) -> CreateAssetBindingPayload:
+        required = {
+            "host_project_id": self.host.host_project_id,
+            "host_asset_id": self.host.host_asset_id,
+        }
+        for field, value in required.items():
+            if value is None:
+                raise ValueError(f"asset_binding requires {field}")
+        for field, value in self.host.model_dump(
+            mode="json", exclude_none=True
+        ).items():
+            require_opaque_id(value, field)
+        return self
+
+
+class CreateGenerationPackagePayload(StrictModel):
+    entity_type: Literal[EntityType.GENERATION_PACKAGE]
+    prompt_draft: EntityVersionGuard
+    host_project_id: str = Field(min_length=1, max_length=256)
+    provider_id: str = Field(pattern=PROVIDER_ID_PATTERN)
+    capability_id: str = Field(pattern=CAPABILITY_ID_PATTERN)
+    parameters: dict[str, Any]
+
+    @field_validator("host_project_id")
+    @classmethod
+    def validate_project_id(cls, value: str) -> str:
+        return require_opaque_id(value, "host_project_id")
+
+    @field_validator("parameters")
+    @classmethod
+    def validate_parameters(cls, value: dict[str, Any]) -> dict[str, Any]:
+        return validate_safe_json_object(value, "parameters")
+
+
+FormalRecordPayload: TypeAlias = Annotated[
+    CreateScriptVersionPayload
+    | CreateDirectorUnitPayload
+    | CreateCoverageLinkPayload
+    | CreateVisualLockSetPayload
+    | CreateAssetBindingPayload
+    | CreateGenerationPackagePayload,
+    Field(discriminator="entity_type"),
+]
+
+
+class FormalRecordCreateRequest(StrictModel):
+    write: CreateTargetGuard
+    actor_kind: ActorKind
+    payload: FormalRecordPayload
+
+
+class FormalRecordApplyResult(StrictModel):
+    entity: FormalEntity
+    audit_event_id: UUID4
+
+
+class PromptCompileRequest(StrictModel):
+    draft_write: CreateTargetGuard
+    provenance_write: CreateTargetGuard
+    actor_kind: ActorKind
+    states: FormalStateAxes
+    director_ir_hash: str = Field(pattern=HASH_PATTERN)
+    visual_lock_hash: str = Field(pattern=HASH_PATTERN)
+    model_capability_profile: str = Field(min_length=1)
+    prompt_text: str = Field(min_length=1)
+    project: BoundEntityReference
+    shot: BoundEntityReference
+    director_unit: BoundEntityReference
+    visual_lock: BoundEntityReference
+    prompt_template: PromptTemplateBinding
+    assets: list[PromptAssetBinding] = Field(min_length=1)
+    capability_profile: ProviderCapabilityProfile
+    provider_parameters: ProviderParameters
+
+
+class PromptCompileResult(StrictModel):
+    prompt_draft: PromptDraft
+    provenance: PromptDraftProvenance
+    audit_event_ids: list[UUID4]
+
+
+class ManualReceiptInput(StrictModel):
+    receipt_id: str = Field(min_length=1, max_length=256)
+    content_hash: str = Field(pattern=HASH_PATTERN)
+    captured_at: datetime
+
+    @field_validator("receipt_id")
+    @classmethod
+    def validate_receipt_id(cls, value: str) -> str:
+        return require_opaque_id(value, "receipt_id")
+
+
+class ManualSourceInput(StrictModel):
+    source_id: str = Field(min_length=1, max_length=256)
+    source_kind: ManualSourceKind
+    imported_by: str = Field(min_length=1, max_length=256)
+    imported_at: datetime
+    authorization_evidence_id: str = Field(min_length=1, max_length=256)
+
+    @field_validator("source_id", "imported_by", "authorization_evidence_id")
+    @classmethod
+    def validate_opaque_ids(cls, value: str, info) -> str:
+        return require_opaque_id(value, info.field_name)
+
+
+class ManualImportOutputInput(StrictModel):
+    host_resource_id: str = Field(min_length=1, max_length=256)
+    output_kind: OutputKind
+    content_hash: str = Field(pattern=HASH_PATTERN)
+    mime_type: str = Field(pattern=MIME_PATTERN)
+    bytes: int = Field(ge=0)
+
+    @field_validator("host_resource_id")
+    @classmethod
+    def validate_resource_id(cls, value: str) -> str:
+        return require_opaque_id(value, "host_resource_id")
+
+
+class ManualResultImportRequest(StrictModel):
+    evidence_write: CreateTargetGuard
+    candidate_write: CreateTargetGuard
+    actor_kind: ActorKind
+    generation_package: EntityVersionGuard
+    provider_task_id: str = Field(min_length=1, max_length=256)
+    receipt: ManualReceiptInput
+    manual_source: ManualSourceInput
+    outputs: list[ManualImportOutputInput] = Field(min_length=1)
+
+    @field_validator("provider_task_id")
+    @classmethod
+    def validate_task_id(cls, value: str) -> str:
+        return require_opaque_id(value, "provider_task_id")
+
+
+class ManualResultImportResult(StrictModel):
+    evidence: GenerationAttemptEvidence
+    candidate: Candidate
+    audit_event_ids: list[UUID4]
+
+
+class ReviewCreateRequest(StrictModel):
+    write: CreateTargetGuard
+    actor_kind: ActorKind
+    candidate: EntityVersionGuard
+    review_state: ReviewOutcome
+    reviewer_kind: ReviewKind
+    findings: list[str]
+
+
+class ApprovalCreateRequest(StrictModel):
+    write: CreateTargetGuard
+    actor_kind: ActorKind
+    candidate: EntityVersionGuard
+    passed_review: EntityVersionGuard
+    approved_by: str = Field(min_length=1, max_length=256)
+
+
+class ContinuityCheckInput(StrictModel):
+    dimension: ContinuityDimension
+    subject_id: str = Field(min_length=1, max_length=256)
+    expected_value: str
+    actual_value: str
+
+
+class ContinuityCheckRequest(StrictModel):
+    write: CreateTargetGuard
+    actor_kind: ActorKind
+    previous_shot: EntityVersionGuard | None = None
+    current_shot: EntityVersionGuard
+    checks: list[ContinuityCheckInput] = Field(min_length=1)
+
+
+def require_opaque_id(value: str, field: str) -> str:
+    if not OPAQUE_ID_PATTERN.fullmatch(value):
+        raise ValueError(f"{field} must be an opaque identifier, not a path or URL")
+    return value
+
+
+def validate_safe_json_object(value: dict[str, Any], field: str) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ValueError(f"{field} must be a JSON object")
+    _validate_safe_json(value, field, set())
+    return value
+
+
+def _validate_safe_json(value: Any, field: str, ancestors: set[int]) -> None:
+    if value is None or isinstance(value, (str, bool)):
+        if isinstance(value, str) and FORBIDDEN_LOCATOR_PATTERN.match(value.strip()):
+            raise ValueError(f"{field} contains a URL, data payload, or file path")
+        return
+    if isinstance(value, (int, float)):
+        if isinstance(value, float) and (value != value or value in (float("inf"), float("-inf"))):
+            raise ValueError(f"{field} contains a non-finite number")
+        return
+    if not isinstance(value, (dict, list)):
+        raise ValueError(f"{field} contains a non-JSON value")
+    identity = id(value)
+    if identity in ancestors:
+        raise ValueError(f"{field} contains a cycle")
+    ancestors.add(identity)
+    if isinstance(value, list):
+        for index, item in enumerate(value):
+            _validate_safe_json(item, f"{field}[{index}]", ancestors)
+    else:
+        for key, item in value.items():
+            if SECRET_KEY_PATTERN.search(key):
+                raise ValueError(f"{field}.{key} is a sensitive field")
+            if LOCATOR_KEY_PATTERN.search(key):
+                raise ValueError(f"{field}.{key} must use an audited reference")
+            _validate_safe_json(item, f"{field}.{key}", ancestors)
+    ancestors.remove(identity)

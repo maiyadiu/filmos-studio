@@ -28,6 +28,11 @@ event_id, actor_kind, action, target_id, previous_version,
 resulting_version, command_type, command_payload_json, recorded_at
 """
 
+FORMAL_COLUMNS = """
+film_entity_id, entity_type, version, content_hash, payload_json,
+created_at, updated_at
+"""
+
 
 class FilmRepository:
     def __init__(self, database: SQLiteDatabase) -> None:
@@ -40,6 +45,16 @@ class FilmRepository:
         with self.database.connect() as connection:
             row = connection.execute(
                 f"SELECT {ENTITY_COLUMNS} FROM film_entities WHERE film_entity_id = ?",
+                (film_entity_id,),
+            ).fetchone()
+        if row is None:
+            raise EntityNotFound(film_entity_id)
+        return row
+
+    def formal_record(self, film_entity_id: str) -> sqlite3.Row:
+        with self.database.connect() as connection:
+            row = connection.execute(
+                f"SELECT {FORMAL_COLUMNS} FROM formal_records WHERE film_entity_id = ?",
                 (film_entity_id,),
             ).fetchone()
         if row is None:
@@ -222,15 +237,63 @@ class FilmRepository:
         with self.database.connect() as connection:
             if target_id is None:
                 return connection.execute(
-                    f"SELECT {AUDIT_COLUMNS} FROM audit_events "
-                    "ORDER BY recorded_at, event_id LIMIT ?",
+                    f"SELECT {AUDIT_COLUMNS} FROM ("
+                    f"SELECT {AUDIT_COLUMNS} FROM audit_events UNION ALL "
+                    f"SELECT {AUDIT_COLUMNS} FROM formal_audit_events"
+                    ") ORDER BY recorded_at, event_id LIMIT ?",
                     (limit,),
                 ).fetchall()
             return connection.execute(
-                f"SELECT {AUDIT_COLUMNS} FROM audit_events WHERE target_id = ? "
-                "ORDER BY recorded_at, event_id LIMIT ?",
-                (target_id, limit),
+                f"SELECT {AUDIT_COLUMNS} FROM ("
+                f"SELECT {AUDIT_COLUMNS} FROM audit_events WHERE target_id = ? UNION ALL "
+                f"SELECT {AUDIT_COLUMNS} FROM formal_audit_events WHERE target_id = ?"
+                ") ORDER BY recorded_at, event_id LIMIT ?",
+                (target_id, target_id, limit),
             ).fetchall()
+
+    def create_formal_records_with_audits(
+        self,
+        records: list[Mapping[str, Any]],
+        audits: list[Mapping[str, Any]],
+    ) -> tuple[list[sqlite3.Row], list[sqlite3.Row]]:
+        if len(records) != len(audits) or not records:
+            raise ValueError("formal records and audits must be non-empty pairs")
+        with self.database.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                for record, audit in zip(records, audits, strict=True):
+                    connection.execute(
+                        """
+                        INSERT INTO formal_records(
+                            film_entity_id, entity_type, version, content_hash,
+                            payload_json, created_at, updated_at
+                        ) VALUES (
+                            :film_entity_id, :entity_type, :version, :content_hash,
+                            :payload_json, :created_at, :updated_at
+                        )
+                        """,
+                        record,
+                    )
+                    self._insert_formal_audit(connection, audit)
+                record_rows = [
+                    connection.execute(
+                        f"SELECT {FORMAL_COLUMNS} FROM formal_records WHERE film_entity_id = ?",
+                        (record["film_entity_id"],),
+                    ).fetchone()
+                    for record in records
+                ]
+                audit_rows = [
+                    connection.execute(
+                        f"SELECT {AUDIT_COLUMNS} FROM formal_audit_events WHERE event_id = ?",
+                        (audit["event_id"],),
+                    ).fetchone()
+                    for audit in audits
+                ]
+                connection.execute("COMMIT")
+                return record_rows, audit_rows
+            except Exception:
+                connection.execute("ROLLBACK")
+                raise
 
     def counts(self) -> tuple[int, int]:
         with self.database.connect() as connection:
@@ -241,6 +304,16 @@ class FilmRepository:
                 "SELECT COUNT(*) AS count FROM audit_events"
             ).fetchone()["count"]
         return int(entity_count), int(audit_count)
+
+    def formal_counts(self) -> tuple[int, int]:
+        with self.database.connect() as connection:
+            record_count = connection.execute(
+                "SELECT COUNT(*) AS count FROM formal_records"
+            ).fetchone()["count"]
+            audit_count = connection.execute(
+                "SELECT COUNT(*) AS count FROM formal_audit_events"
+            ).fetchone()["count"]
+        return int(record_count), int(audit_count)
 
     def _mapping_row(
         self, connection: sqlite3.Connection, entity: Mapping[str, Any]
@@ -264,6 +337,23 @@ class FilmRepository:
         connection.execute(
             """
             INSERT INTO audit_events(
+                event_id, actor_kind, action, target_id, previous_version,
+                resulting_version, command_type, command_payload_json, recorded_at
+            ) VALUES (
+                :event_id, :actor_kind, :action, :target_id, :previous_version,
+                :resulting_version, :command_type, :command_payload_json, :recorded_at
+            )
+            """,
+            audit,
+        )
+
+    @staticmethod
+    def _insert_formal_audit(
+        connection: sqlite3.Connection, audit: Mapping[str, Any]
+    ) -> None:
+        connection.execute(
+            """
+            INSERT INTO formal_audit_events(
                 event_id, actor_kind, action, target_id, previous_version,
                 resulting_version, command_type, command_payload_json, recorded_at
             ) VALUES (

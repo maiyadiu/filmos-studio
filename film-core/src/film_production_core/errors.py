@@ -42,3 +42,22 @@ class HostMappingConflict(VersionConflict):
             current_version=current_version,
             message="Host mapping already has a Film entity",
         )
+
+
+class ContentHashConflict(FilmCoreError):
+    def __init__(
+        self,
+        target_id: UUID | str,
+        expected_content_hash: str,
+        current_content_hash: str,
+    ) -> None:
+        self.target_id = str(target_id)
+        self.expected_content_hash = expected_content_hash
+        self.current_content_hash = current_content_hash
+        super().__init__("expected_content_hash does not match current content hash")
+
+
+class DomainRuleViolation(FilmCoreError):
+    def __init__(self, code: str, message: str) -> None:
+        self.code = code
+        super().__init__(message)

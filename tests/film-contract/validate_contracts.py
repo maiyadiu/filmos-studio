@@ -24,27 +24,37 @@ EXPECTED_IMPLEMENTED_PATHS = {
     "/units/{hostUnitId}",
     "/shots/{hostShotId}",
     "/entities/{filmEntityId}",
+    "/formal-records/{filmEntityId}",
+    "/formal-records",
+    "/prompts/compile",
+    "/manual-results/import",
+    "/reviews",
+    "/approvals",
+    "/continuity/check",
     "/commands/preview",
     "/commands/apply",
     "/audit-events",
 }
 EXPECTED_PLANNED_PATHS = {
     "/impacts/{entityId}",
-    "/reviews",
-    "/prompts/compile",
-    "/continuity/check",
 }
 EXPECTED_PATHS = EXPECTED_IMPLEMENTED_PATHS | EXPECTED_PLANNED_PATHS
 REQUIRED_CHAIN_DEFS = {
     "ContentUnitExtension",
     "ScriptVersion",
     "DirectorUnit",
+    "CoverageLink",
+    "VisualLockSet",
+    "AssetBinding",
     "ShotExtension",
     "PromptDraft",
+    "PromptDraftProvenance",
     "GenerationPackage",
+    "GenerationAttemptEvidence",
     "Candidate",
     "Review",
     "Approval",
+    "ContinuityCheckResult",
 }
 
 
@@ -58,7 +68,7 @@ def main() -> None:
     openapi = load_json(OPENAPI_PATH)
     definitions = schema["$defs"]
 
-    assert schema["schema_version"] == "0.1.0"
+    assert schema["schema_version"] == "0.2.0"
     assert REQUIRED_CHAIN_DEFS <= set(definitions)
 
     axes = definitions["FormalStateAxes"]
@@ -106,6 +116,22 @@ def main() -> None:
         assert "expected_version" in openapi["components"]["schemas"][command_name][
             "required"
         ]
+
+    create_guard = openapi["components"]["schemas"]["CreateTargetGuard"]
+    assert {
+        "target_id",
+        "expected_version",
+        "expected_content_hash",
+    } <= set(create_guard["required"])
+    for request_name in (
+        "FormalRecordCreateRequest",
+        "PromptCompileRequest",
+        "ManualResultImportRequest",
+        "ReviewCreateRequest",
+        "ApprovalCreateRequest",
+        "ContinuityCheckRequest",
+    ):
+        assert request_name in openapi["components"]["schemas"]
 
     print(
         f"FILM_CONTRACTS_OK schema={schema['schema_version']} "
