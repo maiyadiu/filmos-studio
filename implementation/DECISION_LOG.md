@@ -63,3 +63,14 @@
 - 外部边界：本阶段不执行 Dreamina/Comfy/Flova/Blender 外部任务，不上传、不消费额度、不发布、不迁移用户真实数据。
 - 回滚：保持 `film.scene_twin`、`film.production_canvas` 与 `film.production_core` 默认关闭；撤销空间 API/UI 不改 Host 核心表、Stable ID、Canvas JSON 或用户媒体。
 - 验收：Core `50/0`，Contracts `0.4.0/23/0 planned`，真实 Golden C、恢复与 Production Canvas 浏览器创建/复用/回退通过；详见 `阶段四验收.md` 与 `test-reports/浏览器GoldenC.md`。
+
+## D-0008｜第五阶段 Beta 硬化
+
+- 状态：已裁定，实施中；尚无生产开关、真实迁移、外部发布或签名授权。
+- Remote：接受 `CR-12-001` 的本地接线与 Human/hash-bound 回执，执行状态最多为 `PREPARED_LOCAL`；网络、上传和远端发布继续为 0。
+- Agent：所有 Agent 复用同一 MCP/Production 工具合同；DeepSeek-compatible 只增加适配能力，不增加正式权限，Approval 仍为 Human-only。
+- 迁移：接受 `CR-11-001` 的合成数据迁移包、故障恢复和回滚演练；真实系统 A/B、用户数据库和 PostgreSQL apply 继续关闭。
+- 性能：Beta 必须记录固定数据集 p50/p95、错误率和包体；已知 Web 大 chunk 与 Agent 顺序依赖测试不得被隐藏。
+- 上游：Candidate 的 D 级门保持 fail closed；不为完成阶段而合并未通过原生、迁移和 Golden 的上游代码。
+- 桌面：允许构建 unsigned `.app` 并做本地结构/启动 smoke；不宣称已签名、公证、可分发或自动更新可用。
+- 回滚：保持 `film.remote_sync`、`film.agent_gateway`、`film.desktop_host`、`film.local_workspace` 和全部 Film Flag 默认关闭；撤销本阶段代码不改变 Host 核心表、Stable ID 或用户数据。
