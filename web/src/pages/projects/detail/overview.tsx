@@ -6,6 +6,7 @@ import { isFilmDynamicContentUnitsEnabled, projectFilmOverview, type FilmProject
 import { projectAttentionCount, projectContinueTarget, projectDetailStage, projectNextActions, projectUnitStages, type ProjectStageCell, type ProjectWorkbenchAction } from "@/lib/project-workbench";
 
 import { formatTime, type ProjectDetailViewProps } from "./shared";
+import { FilmProductionEntry } from "./production-entry";
 
 export default function ProjectOverviewView({ detail }: ProjectDetailViewProps) {
     const { project, units, canvases, shots } = detail;
@@ -69,6 +70,8 @@ export default function ProjectOverviewView({ detail }: ProjectDetailViewProps) 
             </section>
 
             {filmOverview ? <DynamicContentUnitOverview overview={filmOverview} /> : null}
+
+            <FilmProductionEntry detail={detail} />
 
             <section>
                 <div className="project-pipeline-head">
