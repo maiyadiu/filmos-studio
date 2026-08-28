@@ -38,3 +38,15 @@
 - 安全边界：本阶段 Provider 只准备 `NOT_SUBMITTED` 包并导入本地 fixture/人工结果；不进行外部生成、上传、远程发布、额度消耗或真实数据迁移。
 - 正式批准：Candidate 和 Review 不得自动生成 Approval；Approval 必须由 Human 绑定当前 Candidate content hash。
 - 回滚：保持全部 Film Feature Flag 默认关闭，移除 MCP 共享入口的注册调用，并回退 Sidecar 新表/路由；不修改 Host 核心表或稳定 ID。
+
+## D-0006｜第三阶段 Golden B 与精准 STALE
+
+- 状态：已裁定，实施中，尚无生产数据。
+- Golden B：验证多人长对白、DirectorUnit 与 Shot 多对多、Blocking/轴线/视线连续性、受审计的 J-cut 声音先入例外、Character/Costume Lock，以及上游变化后的精准 STALE。
+- 剧本结构：接受 `CR-04-001` 的剩余范围；使用绑定当前 ScriptVersion version/hash 的 companion `ScriptStructureMap` 保存稳定 Section/Cue 映射，不给既有 ScriptVersion 静默补字段，也不复制正文。
+- 影响图：Film Core 正式持有 `ImpactEdge`、Impact 查询和 STALE 写入；只有声明的 cue/section/VisualLock component/AssetBinding dependency 命中才传播，未映射变化只报告 unresolved，不得整图自动污染。
+- Director 边界：Golden B 的 Blocking 只作为 DirectorUnit 表演调度与 Continuity 检查输入；独立 `BlockingVersion`、Camera/Composition 与 SceneTwin 仍属于 Golden C，不在本阶段伪装落地。
+- 资产边界：Host 继续唯一持有 Asset/AssetVersion/Representation/Resource；Film 只保存 opaque ID、版本/hash、用途、来源/授权和影视锁语义。本地预览不得上传或绕过 workspace containment。
+- UI 边界：Story Review 与 Asset 面板各自默认关闭；Web 只产生 preview/recommendation，Human 显式命令才可进入 Core 正式 lock/STALE。
+- Provider 边界：本阶段可完善 Dreamina/Comfy 本地血缘与统一回执，但不执行外部生成、上传、额度消耗或远程发布。
+- 回滚：保持 `film.production_core`、`film.story_studio`、`film.asset_lock` 默认关闭；撤销第三阶段 API/面板不改 Host 核心表、Stable ID 或用户媒体。
