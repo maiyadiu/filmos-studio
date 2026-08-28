@@ -82,3 +82,18 @@ bun test tests/film-golden/test_golden_b_local.test.ts \
 ```
 
 签入的 `golden-b.json` 继续保持 `NOT_RUN`，因为它是不可被某次本地运行污染的验收规格；本次真实运行结论记录在 `证据.md` 与 `implementation/阶段三验收.md`。
+
+## Golden C 真实 Sidecar 与恢复
+
+`golden-c.json` 锁定 SceneTwin → 3 Cameras → Blocking → Composition → Previs → Prompt/Provider → Video → Spatial Continuity QC，签入状态仍为 `NOT_RUN`。
+
+`golden_c_real.py` 使用临时真实 Film Core SQLite/HTTP，检查 SceneTwin 和 3 套独立 Camera/Blocking/Composition 版本，并运行 Sidecar 重启、SQLite backup/restore、事务故障注入、幂等回放和 stale guard。缺 operation 时只返回 `BLOCKED_MISSING_CORE_OPERATION`，不回退 Mock。
+
+Previs 是绑定正式 SceneTwin/Camera/Blocking/Composition hash 的本地投影；Manual Result 只导入本地视频 Candidate。本 runner 不调用外部 Provider，不产生 Approved。
+
+```bash
+python3 tests/film-golden/test_golden_c_spec.py
+bun test tests/film-golden/test_golden_c_local.test.ts
+FILMOS_CORE_PYTHON=/path/to/film-core-python \
+  python3 tests/film-golden/test_golden_c_real.py
+```

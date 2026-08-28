@@ -78,3 +78,16 @@ REASONING: `High`
 - Golden A 离线 Mock 本次运行已 `PASSED`，但签入规格仍为 `NOT_RUN`，真实纵向 Golden A 仍 `DEFERRED`。
 
 STATUS: `FIRST_BASELINE_COMPLETE_GOLDEN_A_MOCK_PASSED`
+
+## 第四阶段：Golden C 与恢复
+
+本轨已将 Golden C 固定为不可被某次运行回写的 `NOT_RUN` 签入规格，并接入临时 Film Core Sidecar / SQLite / HTTP 真实运行器。
+
+- SceneTwin 是三镜共享空间真值，必须含坐标系、固定建筑/道具、Portal、Walkable/Camera Zone、Anchor、Approved View Family 和 RGB/Depth/Normal/ObjectID 血缘。
+- Camera/Blocking/Composition 是 9 个独立正式版本；Blocking 结构化覆盖脚、躯干、脸、视线、手和目标道具，Camera 绑定轴线/锚点，Composition 绑定遮挡约束/安全区。
+- Previs 在本阶段是绑定四类正式 hash 的本地投影，不伪装 `PrevisVersion` 或 Approved。
+- Prompt/Provider/Video 只通过本地 Manual Result fixture 形成 Candidate，外部 Provider 调用固定为 0。
+- 恢复矩阵覆盖 Sidecar 重启、SQLite backup/restore、事务中途审计失败回滚、幂等回放、stale version/hash 零部分写入。
+- Production Canvas 使用 Host 正式取得/创建路径：默认关闭、Human 确认、revision/source hash 乐观并发、单 Unit 唯一、重复历史 fail closed、审计失败零孤儿。
+
+STATUS: `GOLDEN_C_REAL_LOCAL_PASSED_EXTERNAL_EXECUTION_OFF`

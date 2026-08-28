@@ -1,0 +1,126 @@
+{
+  "golden_id": "GOLDEN-C",
+  "title": "复杂空间与视频",
+  "authority": {
+    "scene_twin": "formal_film_core",
+    "host_project_and_canvas": "yingce_host",
+    "provider_execution": "disabled_local_fixture_only"
+  },
+  "pipeline": [
+    "SceneTwin",
+    "3 Cameras",
+    "Blocking",
+    "Composition",
+    "Previs",
+    "Prompt/Provider",
+    "Video",
+    "Spatial Continuity QC"
+  ],
+  "minimums": {
+    "shots": 3,
+    "camera_versions": 3,
+    "blocking_versions": 3,
+    "composition_versions": 3,
+    "previs_projections": 3,
+    "video_candidates": 3
+  },
+  "scene_twin_contract": {
+    "coordinate_system": "right_handed_y_up_meters",
+    "required_collections": [
+      "fixed_architecture",
+      "fixed_props",
+      "portals",
+      "walkable_zones",
+      "anchors",
+      "camera_zones",
+      "approved_view_families"
+    ],
+    "required_pass_lineage": ["rgb", "depth", "normal", "object_id"],
+    "cross_shot_shared": true
+  },
+  "camera_plan": [
+    {
+      "camera_id": "cam-master",
+      "shot_id": "shot-master",
+      "zone": "zone-entry-wide",
+      "approved_view_family": "entry-axis-wide"
+    },
+    {
+      "camera_id": "cam-a",
+      "shot_id": "shot-a-close",
+      "zone": "zone-left-close",
+      "approved_view_family": "axis-a-close"
+    },
+    {
+      "camera_id": "cam-b",
+      "shot_id": "shot-b-reverse",
+      "zone": "zone-right-close",
+      "approved_view_family": "axis-b-reverse"
+    }
+  ],
+  "version_invariants": [
+    "camera_blocking_and_composition_have_independent_film_entity_ids",
+    "previs_is_a_hash_bound_local_projection_not_an_approved_formal_version",
+    "every_version_binds_the_current_scene_twin_version_and_content_hash",
+    "every_downstream_write_checks_expected_version_and_expected_content_hash",
+    "canvas_or_3d_projection_never_auto_approves",
+    "video_result_remains_candidate_until_separate_human_review_and_approval"
+  ],
+  "blocking_interaction_chain": [
+    "feet",
+    "torso",
+    "face",
+    "gaze",
+    "hands",
+    "target_prop"
+  ],
+  "camera_requirements": [
+    "axis_id",
+    "anchor_id",
+    "camera_zone_id",
+    "approved_view_family_id"
+  ],
+  "composition_requirements": [
+    "safe_area",
+    "occlusion_checks",
+    "screen_direction",
+    "subjects"
+  ],
+  "spatial_continuity_dimensions": [
+    "axis",
+    "eyeline",
+    "blocking",
+    "action",
+    "prop_contact",
+    "camera_zone",
+    "walkable_zone",
+    "anchor",
+    "portal",
+    "fixed_architecture",
+    "object_id_lineage"
+  ],
+  "production_canvas_boundary": {
+    "role": "production",
+    "single_default_per_project_unit": true,
+    "concurrent_get_or_create_is_idempotent": true,
+    "requires_expected_project_revision": true,
+    "requires_expected_unit_or_script_hash": true,
+    "duplicate_history_is_report_only": true,
+    "feature_flag_off_preserves_storyboard_flow": true
+  },
+  "recovery_cases": [
+    "sidecar_restart_preserves_ids_versions_hashes_and_audits",
+    "sqlite_backup_restore_preserves_ids_versions_hashes_and_audits",
+    "transaction_failure_has_zero_partial_formal_writes",
+    "idempotent_replay_returns_original_receipt_and_no_duplicate_facts",
+    "stale_version_or_hash_guard_has_zero_partial_formal_writes",
+    "external_provider_call_count_remains_zero"
+  ],
+  "execution": {
+    "test_status": "NOT_RUN",
+    "external_provider_calls": 0,
+    "fallback_mock_allowed": false,
+    "formal_write_requires_real_sidecar": true,
+    "provider_mode": "local_manual_candidate_fixture"
+  }
+}

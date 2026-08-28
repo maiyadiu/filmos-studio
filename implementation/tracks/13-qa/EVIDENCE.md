@@ -65,3 +65,33 @@ Python 运行生成的 `tests/film-golden/__pycache__/` 是可再生缓存；本
 ## 边界
 
 该证据只证明原生基线与 Golden A 离线合同 Mock 在本次环境可重放，不证明真实 Film Core / DB / UI / Canvas / MCP / Provider 纵向链通过，不证明 Golden B/C、Recovery 或 Beta 验收通过。
+
+## 第四阶段 Golden C 实测补充
+
+### 真实链路
+
+- `golden-c.json` 是签入仓库的 `NOT_RUN` 验收规格，不存储过去成功回执。
+- `golden_c_real.py` 启动真实 Film Core HTTP Sidecar，使用临时 SQLite，不读写用户项目数据。
+- 严格检查 `POST/GET/PUT /spatial-versions`、Impact/STALE 等 11 个 operation；缺任一项返回 `BLOCKED_MISSING_CORE_OPERATION`，且 `prepared/persisted/reviewed/approved=false`、`fallback_mock_used=false`、外部调用 0。
+- 实测创建 SceneTwin V1 并幂等回放，更新为同 UUID 的 V2 并再次回放；三镜各自创建 Camera/Blocking/Composition，合计 9 个独立 UUIDv4。
+- 每个 Blocking 真实 payload 含 feet anchor、torso rotation、face/gaze target、left/right hand target、action in/out、axis side 和 prop contact in/out；Camera 含 position/target anchor、axis、side、screen direction；Composition 含 occlusion constraints 与 safe area。
+- 三个 Previs 只是本地 hash-bound projection，`formalApply=false`、`approvalState=not_approved`；三个本地 MP4 fixture 经 Manual Result 正式导入后仍是 Candidate，没有伪造 Approval。
+
+### 恢复与失败关闭
+
+- 停止 Sidecar 后用原 SQLite 重启，全表指纹、实体 ID/version/hash 和审计一致，幂等 receipt 仍可只读回放。
+- 用 SQLite Online Backup API 备份后恢复到独立数据库，全表指纹、实体引用和 receipt 一致。
+- 通过临时 SQLite trigger 在 formal audit insert 中途注入事务失败，HTTP 500 后全表计数不变；移除注入后使用原请求成功恢复，无孤儿 formal record/audit/receipt。
+- 错误 content hash 的 PUT 返回 409，且所有表计数不变。
+- ImpactEdge 先在 SceneTwin V1 上以 previous `lighting_base` hash 建立，然后同 UUID 更新为 V2，最后才传播变化；精确变化只将声明该组件依赖的 1 个 Prompt 标为 STALE。未声明该组件的 Prompt 和 3 个 Candidate 保持 fresh，review/lock 轴未改，幂等回放不新增审计。
+- Host Production Canvas 专项测试已验证 Flag 默认关闭零写入、Human/source hash 门禁、创建/重放同 ID、过期 revision 与重复历史零写入、并发同 ID、审计失败无孤儿。
+
+### 当次可重放回执
+
+| 命令 | 结果 |
+| --- | --- |
+| `bun test tests/film-golden/test_golden_c_local.test.ts` | `1 pass / 0 fail / 7 assertions` |
+| `FILMOS_CORE_PYTHON=/tmp/filmos-core-venv-02/bin/python python -m pytest -q tests/film-golden/test_golden_c_spec.py tests/film-golden/test_golden_c_real.py` | `11 passed` |
+| `cd backend && go test ./internal/service -run 'TestAcquireProductionCanvas' -count=3` | `ok` |
+
+状态边界：本证据是 `PASSED_LOCAL`，证明真 Sidecar/SQLite/HTTP、Host 专项与本地 Candidate 链；外部 Provider/Flova/Blender 执行、额度消费、上传和发布仍未执行。
