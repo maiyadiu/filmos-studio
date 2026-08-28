@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "execution": {
+    "test_status": "NOT_RUN",
+    "external_provider_calls": 0,
+    "network_actions": 0
+  },
+  "dataset": {
+    "content_units": 80,
+    "shots": 80,
+    "samples": 60
+  },
+  "budgets_ms": {
+    "app_init_p95": 2000,
+    "project_context_p95": 250,
+    "entity_read_p95": 100,
+    "command_preview_p95": 100
+  },
+  "web_bundle": {
+    "javascript_warning_bytes": 512000,
+    "javascript_blocking_bytes": 2621440
+  }
+}
