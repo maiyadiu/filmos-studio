@@ -8,6 +8,10 @@ from fastapi import Body, FastAPI, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import UUID4
 
+from film_production_core.cors import (
+    LoopbackCORSMiddleware,
+    configured_cors_origins,
+)
 from film_production_core.database import SQLiteDatabase
 from film_production_core.errors import (
     ContentHashConflict,
@@ -58,6 +62,7 @@ def default_database_path() -> Path:
 
 
 def create_app(database_path: str | Path | None = None) -> FastAPI:
+    cors_origins = configured_cors_origins()
     repository = FilmRepository(SQLiteDatabase(database_path or default_database_path()))
     service = FilmService(repository)
     formal_service = FormalService(repository)
@@ -69,6 +74,10 @@ def create_app(database_path: str | Path | None = None) -> FastAPI:
             "Host Project, ProjectUnit, Shot, Asset, Workflow and Task entities."
         ),
         servers=[{"url": "/film"}],
+    )
+    app.add_middleware(
+        LoopbackCORSMiddleware,
+        exact_origins=cors_origins,
     )
     app.state.film_service = service
     app.state.formal_service = formal_service

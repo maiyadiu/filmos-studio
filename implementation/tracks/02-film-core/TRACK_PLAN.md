@@ -37,7 +37,7 @@ REASONING: `XHigh`
 | --- | --- |
 | `REUSE` | Host Project/Unit/Shot/Asset/Workflow/Task 和现有 Web/Agent 工具面；只保存它们的显式 ID 引用。 |
 | `EXTEND` | 以 `FilmProjectExtension`/`ContentUnitExtension`/`ShotExtension` 映射 Host；不对 Host 原表加列。 |
-| `BUILD` | FastAPI + Pydantic + SQLite WAL Sidecar、schema migration、六轴状态、Film revision、命令 preview/apply、Golden A 正式记录、双层内容哈希、Manual Import、Review/Approval、Continuity、追加式审计、合同导出与不变量测试。 |
+| `BUILD` | FastAPI + Pydantic + SQLite WAL Sidecar、严格 loopback CORS、schema migration、六轴状态、Film revision、命令 preview/apply、Golden A 正式记录、双层内容哈希、Manual Import、Review/Approval、Continuity、追加式审计、合同导出与不变量测试。 |
 | `DEFER` | Host 存在性/所有权在线校验、不可逆迁移、外部生成、Impact/STALE 写入与传播算法、Remote/Hybrid 同步。 |
 
 ## 5. 本次最小修改范围
@@ -68,6 +68,7 @@ REASONING: `XHigh`
 - Pydantic/JSON Schema：UUIDv4、六轴必填与枚举、Host 映射必填、正式记录响应符合 `core.schema.json`。
 - Repository/Service：preview 零写入、Film ID 创建后不变、映射唯一、`expected_version` 冲突不覆盖、审计与实体原子提交、审计表禁止 update/delete。
 - API：health DB round-trip、context/read、preview/apply/409、formal read/create、Prompt compile、Manual Import、Review/Human Approval、Continuity、audit read、OpenAPI 与已提交合同一致。
+- Browser CORS：允许 IPv4/localhost/合法 IPv6 loopback Origin 与预检；拒绝远端、HTTPS、无端口、其他 loopback IPv4 和非法环境白名单；不产生 OpenAPI 漂移。
 - Golden 不变量：ScriptVersion 不能直接伪造 locked，human lock 生成新不可变版本与 Decision；DirectorUnit 必须引用已决策的当前 locked ScriptVersion；聚合记录 hash 与 raw/source hash 分层；所有 source guard 查询当前记录；Candidate/Review/Approval 身份分离；敏感字段、data URL、绝对路径与外部 URL 被拒绝；本地链外部调用为 0。
 
 ## 9. 回滚方式

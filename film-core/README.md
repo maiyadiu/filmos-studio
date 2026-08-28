@@ -47,6 +47,12 @@ POST /continuity/check
 
 `/entities/{filmEntityId}` 继续只读取原有三类扩展，避免把兼容读面隐式扩成任意正式记录查询。
 
+## 浏览器 CORS 边界
+
+Film Core 默认只向带显式有效端口的 loopback HTTP Origin 返回 CORS 授权：`http://127.0.0.1:<port>`、`http://localhost:<port>`，以及解析后严格等于 IPv6 `::1` 的合法括号形式。远端、HTTPS、无端口、其他 `127/8` 地址和非 loopback IPv6 不获得授权；不使用 `*`，也不开放 credentials。
+
+预检只允许 `GET`、`POST`、`OPTIONS` 和 `Accept`、`Content-Type`。可用逗号分隔的 `FILMOS_CORE_CORS_ORIGINS` 将默认动态 loopback 范围收窄为精确 Origin；变量中的每一项仍必须是合法 loopback HTTP Origin，非法值会在数据库初始化前令启动失败。
+
 ## 验证与合同导出
 
 ```bash

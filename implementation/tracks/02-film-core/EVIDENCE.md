@@ -157,7 +157,21 @@ python3 ../tests/film-contract/validate_contracts.py
 git diff --check
 ```
 
-结果：Film Core `21 passed`；合同验证 `schema=0.2.0 paths=17 implemented=16 planned=1 axes=6`；compileall 与 diff check 均通过。Golden 专项覆盖 14 种正式记录的共享 JSON Schema 实例校验、Script Lock/Decision、双层 hash、错误 hash 零部分写入、人工批准边界、Manual Import 敏感材料拒绝、Continuity blocker 和正式审计 trigger。
+结果：Film Core `37 passed`；合同验证 `schema=0.2.0 paths=17 implemented=16 planned=1 axes=6`；compileall、OpenAPI 零漂移与 diff check 均通过。Golden 专项覆盖 14 种正式记录的共享 JSON Schema 实例校验、Script Lock/Decision、双层 hash、错误 hash 零部分写入、人工批准边界、Manual Import 敏感材料拒绝、Continuity blocker 和正式审计 trigger。
+
+### 浏览器 CORS 接线证据
+
+- 默认授权范围只有带显式有效端口的 `http://127.0.0.1`、`http://localhost` 和标准库解析后等于 `::1` 的合法 IPv6 loopback Origin；没有 `*` 或 credentials。
+- 真实 OPTIONS 预检确认 `GET/POST/OPTIONS` 与 `Accept/Content-Type`；简单请求按 Origin 原值回显 `Access-Control-Allow-Origin`。
+- 远端域名、HTTPS loopback、无端口、端口 0、`127.0.0.2`、`::2` 与 `null` Origin 均无授权，预检返回 400。
+- `FILMOS_CORE_CORS_ORIGINS` 只会把默认 loopback 范围收窄为精确列表；通配符、HTTPS 或远端值在 Sidecar 数据库初始化前 fail closed。
+- 新增 16 个 CORS 正反例后 Core 总计 `37 passed`；共享 schema/OpenAPI 未因中间件而改变。
+
+```text
+cors.py       e9a08ca016e443fe7db42f8a7f91578acf27438ac7d5ae605db53e89121c8d75
+api.py        581485f6a8916f4004c01e408c85d2ccfdbf6076c5ed1c562603d8376f9cc0f4
+test_cors.py  6021fb3945484f9b3fe281398f1e1bf4380d5c0d1df136e18235d467dd6206e8
+```
 
 ```text
 openapi.json      194448a55419d012d1ae303f5820aedfaedb2f197bb739c5c4d972b791188036
