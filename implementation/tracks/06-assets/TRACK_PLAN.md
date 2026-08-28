@@ -3,7 +3,7 @@
 TRACK: `06-assets`
 MODEL: `GPT-5.6 Sol`
 REASONING: `XHigh`
-STATUS: `FIRST_SLICE_TESTED_AWAITING_INTEGRATION`
+STATUS: `THIRD_STAGE_READONLY_SLICE_TESTED`
 
 ## 1. 本轨目标
 
@@ -39,11 +39,12 @@ STATUS: `FIRST_SLICE_TESTED_AWAITING_INTEGRATION`
 - `REUSE`：Host Asset/AssetVersion/Representation/Resource/ShotAssetReference、项目资产页、角色版本、StyleProfileSnapshot、资源删除保护、用户隔离缓存。
 - `EXTEND`：用 Film 隔离投影补齐角色/场景/道具/服化/声音语义和完整 Binding Purpose；只保存 Host ID、版本与 hash。
 - `BUILD`：默认关闭的纯领域首切片，包含候选创建、显式审查批准、expected_version、防越权批准、来源/授权检查、VisualLock 规范化 hash、按依赖键精准 STALE、审计事件输出。
-- `DEFER`：Sidecar 持久化/API、桌面 Managed Copy 与安全书签、文件监听、UI 接线、ImpactGraph 正式写入及 VisualLock 审批工作流；待 Track 01/02 的运行合同集成，不在本轨修改共享合同。
+- `DEFER`：Sidecar 持久化/API、Host 通用 AssetVersion 详情读取 API、桌面 Managed Copy 与安全书签、文件监听、ImpactGraph 正式写入及 VisualLock 审批工作流；待 Host/Track 01/02 的运行合同集成，不在本轨修改共享合同。
 
 ## 5. 本次最小修改范围
 
-- `web/src/film/assets/**`：存储无关、无副作用、默认关闭的资产语义投影与单元测试。
+- `web/src/film/assets/**`：存储无关资产语义、默认关闭的 Host 只读投影、Node-only 本地媒体安全检查、Golden B fixture/adapter 与单元测试。
+- `web/src/pages/projects/detail/assets.tsx`：经本阶段明确授权的最小入口；只传入现有 `ProjectDetail`，不新增请求或写路径。
 - `implementation/tracks/06-assets/TRACK_PLAN.md`、`EVIDENCE.md`：证据、边界、测试和回滚记录。
 
 ## 6. 明确不做
@@ -68,15 +69,22 @@ STATUS: `FIRST_SLICE_TESTED_AWAITING_INTEGRATION`
 - 只有声明依赖发生变化的消费者进入精准 STALE。
 - 投影序列化不出现绝对路径或媒体 payload。
 
-最小命令：`cd web && bun test src/film/assets/asset-layer.test.ts`，再执行 `bun x tsc --noEmit` 验证全量类型边界（若耗时或上游基线失败，将如实分开记录）。
+最小命令：`cd web && bun test src/film/assets/asset-layer.test.ts src/film/assets/host-inventory.test.ts src/film/assets/host-inventory-panel.test.tsx src/film/assets/local-media.node.test.ts`，再执行 `bun run typecheck` 与 `bun run build`。
 
 ## 9. Feature Flag 与回滚
 
-Feature Flag：`film.asset_lock`，总控默认值已是 `false`。本切片的入口还要求调用方显式传入 `enabled: true`；未接线时不会改变 Yingce Upstream 行为。
+领域门禁仍为 `film.asset_lock`；第三阶段只读 UI 使用独立 `VITE_FILM_HOST_ASSET_READONLY`，默认值为 `false`，只有字面值 `true` 才显示。关闭时组件在读取 `ProjectDetail` 前返回 `null`，不产生 Film DOM 或请求。
 
-回滚：关闭 `film.asset_lock` 即停用；删除本轨新增隔离目录即可完整回到 Host 原流程。没有数据库迁移、媒体复制或 Host 表变化。
+回滚：关闭 `VITE_FILM_HOST_ASSET_READONLY` 即移除第三阶段入口；关闭 `film.asset_lock` 停用原领域门禁。没有数据库迁移、媒体复制或 Host 表变化。
 
-## 10. 与其他 Track 的依赖
+## 10. 第三阶段首切片
+
+- `REUSE`：现有 `ProjectDetail.assets`、角色 AssetVersion/Representation/Resource 摘要及 Host 资产页面；Host 仍是唯一事实源。
+- `EXTEND`：页面下方加入只读 Film 投影，展示 opaque Host IDs、已知版本、Representation/Resource 摘要；缺少 content hash、元数据、授权与来源时明确标为 Host 事实缺口。
+- `BUILD`：完整 Host 四层 fixture adapter、Candidate/Approved 用途绑定分区、representation metadata 安全验证、Node-only canonical workspace containment 与 SHA-256 检查、Golden B 本地 replay。
+- `DEFER`：Host 当前没有通用 AssetVersion/Representation 详情读取 API，真实页面无法取得完整 content hash/授权/来源；本轨不修改 Host API 或共享合同，也不使用 fixture 冒充真实项目数据。
+
+## 11. 与其他 Track 的依赖
 
 - Track 01：提供 Managed Copy 对象 ID、Linked External File 安全书签 ID 与外链状态观察，Film 对象不接收绝对路径。
 - Track 02：未来持久化 Film AssetBinding/VisualLock/Audit/Impact；本轨不自行修改共享合同。

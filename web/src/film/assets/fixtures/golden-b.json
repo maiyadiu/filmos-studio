@@ -1,0 +1,72 @@
+{
+    "schemaVersion": 1,
+    "asset": {
+        "id": "host-asset-golden-b",
+        "title": "女主门口定妆",
+        "category": "character",
+        "status": "confirmed"
+    },
+    "version": {
+        "id": "host-asset-version-golden-b-v3",
+        "number": 3,
+        "status": "confirmed",
+        "contentHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "representations": [
+        {
+            "id": "host-representation-golden-b-primary",
+            "resource": {
+                "id": "host-resource-golden-b-primary",
+                "mimeType": "image/png",
+                "bytes": 4096,
+                "width": 1080,
+                "height": 1920
+            },
+            "mediaType": "image",
+            "role": "primary",
+            "metadata": {
+                "view": "front",
+                "identityLock": "golden-b-character-v3"
+            }
+        }
+    ],
+    "integrity": {
+        "state": "verified",
+        "observedContentHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "verifiedAt": "2026-08-28T12:00:00.000Z"
+    },
+    "authorization": {
+        "state": "verified",
+        "evidenceId": "rights-golden-b",
+        "scope": "local-readonly-fixture"
+    },
+    "provenance": {
+        "kind": "manual_import",
+        "sourceReceiptId": "source-receipt-golden-b"
+    },
+    "bindings": [
+        {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "lifecycle": "candidate",
+            "purpose": "character_identity",
+            "target": {
+                "kind": "host_shot",
+                "id": "host-shot-golden-b"
+            },
+            "hostAssetVersionId": "host-asset-version-golden-b-v3",
+            "contentHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        {
+            "id": "22222222-2222-4222-8222-222222222222",
+            "lifecycle": "approved",
+            "sourceCandidateId": "11111111-1111-4111-8111-111111111111",
+            "purpose": "continuity_reference",
+            "target": {
+                "kind": "host_shot",
+                "id": "host-shot-golden-b"
+            },
+            "hostAssetVersionId": "host-asset-version-golden-b-v3",
+            "contentHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+    ]
+}

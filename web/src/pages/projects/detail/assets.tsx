@@ -4,6 +4,7 @@ import { App, Button, Dropdown, Form, Input, Modal, Popconfirm, Select, Tabs, ty
 import { Box, Check, ChevronDown, Download, FileText, FolderOpen, FolderPlus, Image as ImageIcon, Link2, MoreHorizontal, MoveRight, Music2, Pencil, Plus, RefreshCw, Sparkles, Trash2, UserRound, Video, VolumeX } from "lucide-react";
 
 import { WorkspaceState } from "@/components/layout/workspace-state";
+import { FilmHostAssetReadonlyEntry } from "@/film/assets/host-inventory-panel";
 import { AssetMediaPreview } from "@/components/asset-media-preview";
 import { CachedResourceImage } from "@/components/cached-resource-image";
 import { AssetLibraryCard, AssetLibraryCardMedia } from "@/components/assets/asset-library-card";
@@ -282,6 +283,7 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
                     <Button type="primary" className="!h-9 !px-3.5" icon={<Plus className="size-3.5" />} onClick={() => openCharacterEditor("new")}>新建角色</Button>
                 </div>
             </header>
+            <FilmHostAssetReadonlyEntry detail={detail} />
             <div className="project-assets-layout mt-3 grid gap-3">
                 <nav className="space-y-0.5 pr-2" aria-label="素材目录与资产分类">
                     <div className="mb-1 flex h-8 items-center justify-between px-2 text-[var(--fs-tiny)] font-medium text-foreground/42"><span>素材目录</span><button type="button" className="rounded p-1 hover:bg-surface-hover" aria-label="新建根目录文件夹" onClick={() => openFolderEditor(undefined, "")}><FolderPlus className="size-3.5" /></button></div>
