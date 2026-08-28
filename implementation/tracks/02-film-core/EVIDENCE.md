@@ -234,7 +234,7 @@ test_impacts.py      91ad3fba6f82385eb1089e1dbfcb184f17169af23cfa7a355c275d1b5ab
 
 ## Known gaps
 
-- 尚未实现 BlockingVersion/SceneTwin；本切片只接受已经声明在 ScriptStructureMap、VisualLock dependency hash 或 AssetBinding source hash 中的精确依赖。
+- 阶段三时尚未实现的 BlockingVersion/SceneTwin 已由下方“阶段四 Golden C 空间版本证据”补齐；旧 ScriptStructureMap、VisualLock 与 AssetBinding 精准依赖语义保持不变。
 - Sidecar 对已持久化 Film/Host 映射做 current version/hash 与 Host ID 一致性校验，但未通过 Host Bridge 在线确认 Host 对象仍存在、当前用户所有权或 Host 删除事件。
 - Sidecar 本身未实现身份认证；`actor_kind=human` 需要本地桌面 Host/Agent Gateway 提供可信身份边界，不能直接暴露为公网批准接口。
 - PromptTemplate/Provider capability 是输入快照，Core 当前只校验安全形状与哈希，不在线查询其他 Track 注册表；跨 Track 集成由阶段二集成分支验证。

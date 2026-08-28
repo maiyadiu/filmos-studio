@@ -66,3 +66,13 @@
 - Agent/Provider：Dreamina 影视血缘只读投影默认关闭，不提交、不批准；Canvas Agent `343/0`、5 个 Windows 专项 skip，OpenAPI 同步与构建通过。
 - 浏览器：真实临时 Host 项目完成 Story/Asset 开启态与关闭态复核；关闭后新增 Film DOM 消失且 Host 原页面可用。登录后只剩既有 Ant Design 弃用告警，无业务错误。
 - 总结：第三阶段状态为 `PASSED_LOCAL_INTEGRATION`，不是生产批准。外部生成、上传、积分消费、远程发布和真实迁移继续关闭。
+
+## 2026-08-28 开工批次 08｜第四阶段
+
+- Core：Schema 升至 `0.4.0`，23 paths 全部 implemented；`SceneTwinVersion`、`CameraVersion`、`BlockingVersion`、`CompositionVersion` 使用独立 UUIDv4、version/hash 守卫与追加审计，50 tests passed。
+- Golden C：真实临时 Sidecar/SQLite/HTTP 完成 SceneTwin V1→V2、三套 Camera/Blocking/Composition、四类 pass 血缘、本地 Previs 与三个 Video Candidate；只命中声明 lighting 组件的一个 Prompt STALE，未关联 Prompt 与 Candidate 保持 fresh，无 Mock 回退，外部调用 0。
+- Production Canvas：新增默认关闭的 Host 正式创建 API；Human confirmation、Project revision、SourceText SHA-256、项目归属与历史重复均失败关闭。Canvas、production Link、Guard、Audit 在同一事务内创建，并发双 Service 只得到一组事实。
+- 恢复：Core 重启、SQLite Online Backup 恢复、事务中途故障、错误 hash 和幂等回放均通过；失败时无孤儿记录，恢复后 Stable ID、状态、审计与 receipt 一致。
+- 浏览器：真实临时 Host 项目从创建预演进入 Human 二次确认，成功返回 created/revision/audit；刷新复用同一 Canvas，关闭 `VITE_FILM_PRODUCTION_CANVAS` 后 Film DOM 消失且 Host 项目、章节和已持久化画布仍可用。
+- 门禁：Contracts `0.4.0/23/0 planned`；Core `50/0`；Golden Python `26/0`，本地 TypeScript `6/0`、37 assertions；Backend、Web 471/0、类型检查和构建通过。Canvas Agent OpenAPI 同步与构建通过；全量有一个既有 Dreamina 长驻 CLI 顺序依赖测试失败，单独 3/3 通过且本阶段未改该路径，按已知非本阶段门禁记录。
+- 边界：第四阶段状态为 `PASSED_LOCAL_INTEGRATION`，不是外部生成、正式 Approval、用户数据库迁移或生产开关批准；Provider、上传、额度、发布和真实迁移写入仍为 0。

@@ -30,9 +30,9 @@
 - `cd web && bun test test/film-production-canvas.test.ts test/film-production-entry.test.tsx`：13 pass / 0 fail / 39 assertions。
 - `cd web && bun run typecheck`：通过。
 
-## 未完成/边界
+## 集成完成/边界
 
-- Web 已接入二次 Human 确认 UI，但 Web 双 flag 与 Host 写 flag 均默认关闭。
-- 新 companion 表/API 需由集成 Owner 同步 `docs/content/docs/backend/backend-database.mdx` 与项目 API/待测试专题；本轨按文件边界未修改共享文档。
+- Web 已接入二次 Human 确认 UI，Web 双 flag 与 Host 写 flag 均默认关闭；集成分支 Playwright 已验证创建、刷新唯一复用与关闭回退。
+- 集成 Owner 已同步 `docs/content/docs/backend/backend-database.mdx`、待测试专题和 `implementation/test-reports/浏览器GoldenC.md`。
 - 未创建 Film Core DirectorUnit/Coverage 数据或 Approved 状态。
-- 未启动 dev server，未进行外部生成、上传或积分消费。
+- Track 自身未启动 dev server；集成分支只针对临时数据库启动浏览器验收服务并已关闭。全程未进行外部生成、上传或积分消费。

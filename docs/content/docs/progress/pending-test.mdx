@@ -5,6 +5,14 @@ description: 影策已实现功能的手工验证清单与未确认边界
 
 # 待测试
 
+## FilmOS Golden C 与 Production Canvas
+
+- [x] Film Core 空间版本、精准 STALE、重启、SQLite 备份恢复、事务故障和幂等重放已通过本地自动化。
+- [x] Production Canvas 默认关闭、Human 确认、revision/hash 守卫、双 Service 并发唯一性与审计回滚已通过本地自动化。
+- [ ] 用真实生产备份演练 SQLite → PostgreSQL 迁移；本阶段未获授权触碰用户正式数据。
+- [x] Playwright 真实浏览器已验证项目详情页、Human 二次确认、创建回执、刷新复用唯一关联、画布导航和关闭开关后的 Host 连续性。
+- [ ] 真实 Dreamina/Comfy/Flova 或其他 Provider 生成仍需单独授权；Golden C 只使用本地回执并保持 Candidate。
+
 ## RunningHub 与 ComfyUI Bridge 工作流
 
 - [x] 后端全量测试、前端类型检查、Canvas Agent 构建和原生 Bridge Go 测试通过。
