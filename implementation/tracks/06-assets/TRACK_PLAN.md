@@ -3,7 +3,7 @@
 TRACK: `06-assets`
 MODEL: `GPT-5.6 Sol`
 REASONING: `XHigh`
-STATUS: `THIRD_STAGE_READONLY_SLICE_TESTED`
+STATUS: `STAGE3_READONLY_AND_CORE_IMPACT_TESTED`
 
 ## 1. 本轨目标
 
@@ -38,8 +38,8 @@ STATUS: `THIRD_STAGE_READONLY_SLICE_TESTED`
 
 - `REUSE`：Host Asset/AssetVersion/Representation/Resource/ShotAssetReference、项目资产页、角色版本、StyleProfileSnapshot、资源删除保护、用户隔离缓存。
 - `EXTEND`：用 Film 隔离投影补齐角色/场景/道具/服化/声音语义和完整 Binding Purpose；只保存 Host ID、版本与 hash。
-- `BUILD`：默认关闭的纯领域首切片，包含候选创建、显式审查批准、expected_version、防越权批准、来源/授权检查、VisualLock 规范化 hash、按依赖键精准 STALE、审计事件输出。
-- `DEFER`：Sidecar 持久化/API、Host 通用 AssetVersion 详情读取 API、桌面 Managed Copy 与安全书签、文件监听、ImpactGraph 正式写入及 VisualLock 审批工作流；待 Host/Track 01/02 的运行合同集成，不在本轨修改共享合同。
+- `BUILD`：默认关闭的纯领域首切片，包含候选创建、显式审查批准、expected_version、防越权批准、来源/授权检查、VisualLock 规范化 hash、按依赖键精准 STALE、审计事件输出；阶段三由 Track 02/06 联合实现 ImpactGraph Sidecar 持久化/API。
+- `DEFER`：Host 通用 AssetVersion 详情 API、桌面 Managed Copy 与安全书签、文件监听及 VisualLock 审批工作流；当前 UI 仅是默认关闭的只读投影，不扩展到 BlockingVersion/SceneTwin。
 
 ## 5. 本次最小修改范围
 
@@ -87,8 +87,8 @@ STATUS: `THIRD_STAGE_READONLY_SLICE_TESTED`
 ## 11. 与其他 Track 的依赖
 
 - Track 01：提供 Managed Copy 对象 ID、Linked External File 安全书签 ID 与外链状态观察，Film 对象不接收绝对路径。
-- Track 02：未来持久化 Film AssetBinding/VisualLock/Audit/Impact；本轨不自行修改共享合同。
+- Track 02：阶段二已持久化 Film AssetBinding/VisualLock，阶段三联合持久化 exact-scope Impact/Audit/STALE；Host 资产表仍不变。
 - Track 05/09：提供 Shot/Director/SceneTwin/Camera/Blocking/Composition 版本引用。
 - Track 13：将本轨单测纳入 Golden B/C 和恢复测试。
 
-当前无共享合同修改请求；若集成要求新增 OpenAPI/Schema，将通过 `implementation/CHANGE_REQUESTS/` 交由 Program Integrator 与 Track 02 裁决。
+阶段三共享合同变更由 Program Integrator 明确授权 Track 02/06 联合实施；未引入新的 Host DTO，也未复制 Track 06 Web 资产 DTO。

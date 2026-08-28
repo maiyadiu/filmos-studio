@@ -131,6 +131,27 @@
         "title": "AssetBinding",
         "type": "object"
       },
+      "AssetBindingSourceImpactScope": {
+        "additionalProperties": false,
+        "properties": {
+          "asset_content_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Asset Content Hash",
+            "type": "string"
+          },
+          "kind": {
+            "const": "asset_binding_source",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "asset_content_hash"
+        ],
+        "title": "AssetBindingSourceImpactScope",
+        "type": "object"
+      },
       "AuditEvent": {
         "additionalProperties": false,
         "properties": {
@@ -1015,6 +1036,61 @@
         "title": "DeliveryState",
         "type": "string"
       },
+      "DependencyChange": {
+        "additionalProperties": false,
+        "properties": {
+          "current_dependency_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Current Dependency Hash",
+            "type": "string"
+          },
+          "dependency_key": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Dependency Key",
+            "type": "string"
+          },
+          "previous_dependency_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Previous Dependency Hash",
+            "type": "string"
+          },
+          "scope": {
+            "discriminator": {
+              "mapping": {
+                "asset_binding_source": "#/components/schemas/AssetBindingSourceImpactScope",
+                "script_cue": "#/components/schemas/ScriptCueImpactScope",
+                "script_section": "#/components/schemas/ScriptSectionImpactScope",
+                "visual_lock_component": "#/components/schemas/VisualLockComponentImpactScope"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ScriptCueImpactScope"
+              },
+              {
+                "$ref": "#/components/schemas/ScriptSectionImpactScope"
+              },
+              {
+                "$ref": "#/components/schemas/VisualLockComponentImpactScope"
+              },
+              {
+                "$ref": "#/components/schemas/AssetBindingSourceImpactScope"
+              }
+            ],
+            "title": "Scope"
+          }
+        },
+        "required": [
+          "dependency_key",
+          "scope",
+          "previous_dependency_hash",
+          "current_dependency_hash"
+        ],
+        "title": "DependencyChange",
+        "type": "object"
+      },
       "DirectorUnit": {
         "additionalProperties": false,
         "properties": {
@@ -1070,6 +1146,7 @@
           "shot_extension",
           "script_version",
           "script_decision",
+          "script_structure_map",
           "director_unit",
           "coverage_link",
           "visual_lock_set",
@@ -1081,7 +1158,8 @@
           "candidate",
           "review",
           "approval",
-          "continuity_check_result"
+          "continuity_check_result",
+          "impact_edge"
         ],
         "title": "EntityType",
         "type": "string"
@@ -1799,6 +1877,241 @@
         "additionalProperties": {
           "type": "string"
         },
+        "type": "object"
+      },
+      "ImpactEdge": {
+        "additionalProperties": false,
+        "properties": {
+          "dependency_content_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Dependency Content Hash",
+            "type": "string"
+          },
+          "dependency_key": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Dependency Key",
+            "type": "string"
+          },
+          "dependency_owner_content_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Dependency Owner Content Hash",
+            "type": "string"
+          },
+          "dependency_owner_id": {
+            "format": "uuid4",
+            "title": "Dependency Owner Id",
+            "type": "string"
+          },
+          "dependency_owner_version": {
+            "minimum": 1.0,
+            "title": "Dependency Owner Version",
+            "type": "integer"
+          },
+          "propagates_stale": {
+            "title": "Propagates Stale",
+            "type": "boolean"
+          },
+          "ref": {
+            "$ref": "#/components/schemas/FilmEntityRef"
+          },
+          "relation": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Relation",
+            "type": "string"
+          },
+          "scope": {
+            "discriminator": {
+              "mapping": {
+                "asset_binding_source": "#/components/schemas/AssetBindingSourceImpactScope",
+                "script_cue": "#/components/schemas/ScriptCueImpactScope",
+                "script_section": "#/components/schemas/ScriptSectionImpactScope",
+                "visual_lock_component": "#/components/schemas/VisualLockComponentImpactScope"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ScriptCueImpactScope"
+              },
+              {
+                "$ref": "#/components/schemas/ScriptSectionImpactScope"
+              },
+              {
+                "$ref": "#/components/schemas/VisualLockComponentImpactScope"
+              },
+              {
+                "$ref": "#/components/schemas/AssetBindingSourceImpactScope"
+              }
+            ],
+            "title": "Scope"
+          },
+          "source_content_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Source Content Hash",
+            "type": "string"
+          },
+          "source_id": {
+            "format": "uuid4",
+            "title": "Source Id",
+            "type": "string"
+          },
+          "source_version": {
+            "minimum": 1.0,
+            "title": "Source Version",
+            "type": "integer"
+          },
+          "target_content_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Target Content Hash",
+            "type": "string"
+          },
+          "target_id": {
+            "format": "uuid4",
+            "title": "Target Id",
+            "type": "string"
+          },
+          "target_version": {
+            "minimum": 1.0,
+            "title": "Target Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "ref",
+          "dependency_owner_id",
+          "dependency_owner_version",
+          "dependency_owner_content_hash",
+          "source_id",
+          "source_version",
+          "source_content_hash",
+          "target_id",
+          "target_version",
+          "target_content_hash",
+          "dependency_key",
+          "dependency_content_hash",
+          "scope",
+          "relation",
+          "propagates_stale"
+        ],
+        "title": "ImpactEdge",
+        "type": "object"
+      },
+      "ImpactEdgeCreateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_kind": {
+            "$ref": "#/components/schemas/ActorKind"
+          },
+          "dependency_key": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Dependency Key",
+            "type": "string"
+          },
+          "dependency_owner": {
+            "$ref": "#/components/schemas/EntityVersionGuard"
+          },
+          "propagates_stale": {
+            "default": true,
+            "title": "Propagates Stale",
+            "type": "boolean"
+          },
+          "relation": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Relation",
+            "type": "string"
+          },
+          "scope": {
+            "discriminator": {
+              "mapping": {
+                "asset_binding_source": "#/components/schemas/AssetBindingSourceImpactScope",
+                "script_cue": "#/components/schemas/ScriptCueImpactScope",
+                "script_section": "#/components/schemas/ScriptSectionImpactScope",
+                "visual_lock_component": "#/components/schemas/VisualLockComponentImpactScope"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ScriptCueImpactScope"
+              },
+              {
+                "$ref": "#/components/schemas/ScriptSectionImpactScope"
+              },
+              {
+                "$ref": "#/components/schemas/VisualLockComponentImpactScope"
+              },
+              {
+                "$ref": "#/components/schemas/AssetBindingSourceImpactScope"
+              }
+            ],
+            "title": "Scope"
+          },
+          "script_structure_map": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EntityVersionGuard"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "source": {
+            "$ref": "#/components/schemas/EntityVersionGuard"
+          },
+          "target": {
+            "$ref": "#/components/schemas/EntityVersionGuard"
+          },
+          "write": {
+            "$ref": "#/components/schemas/CreateTargetGuard"
+          }
+        },
+        "required": [
+          "write",
+          "actor_kind",
+          "dependency_owner",
+          "source",
+          "target",
+          "dependency_key",
+          "scope",
+          "relation"
+        ],
+        "title": "ImpactEdgeCreateRequest",
+        "type": "object"
+      },
+      "ImpactQueryResult": {
+        "additionalProperties": false,
+        "properties": {
+          "entity_id": {
+            "format": "uuid4",
+            "title": "Entity Id",
+            "type": "string"
+          },
+          "incoming": {
+            "items": {
+              "$ref": "#/components/schemas/ImpactEdge"
+            },
+            "title": "Incoming",
+            "type": "array"
+          },
+          "outgoing": {
+            "items": {
+              "$ref": "#/components/schemas/ImpactEdge"
+            },
+            "title": "Outgoing",
+            "type": "array"
+          }
+        },
+        "required": [
+          "entity_id",
+          "incoming",
+          "outgoing"
+        ],
+        "title": "ImpactQueryResult",
         "type": "object"
       },
       "ImportedOutputReference": {
@@ -2603,6 +2916,67 @@
         "title": "ReviewState",
         "type": "string"
       },
+      "ScriptCueEntry": {
+        "additionalProperties": false,
+        "properties": {
+          "cue_id": {
+            "format": "uuid4",
+            "title": "Cue Id",
+            "type": "string"
+          },
+          "cue_text_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Cue Text Hash",
+            "type": "string"
+          },
+          "order": {
+            "minimum": 0.0,
+            "title": "Order",
+            "type": "integer"
+          },
+          "section_id": {
+            "format": "uuid4",
+            "title": "Section Id",
+            "type": "string"
+          },
+          "speaker": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Speaker",
+            "type": "string"
+          }
+        },
+        "required": [
+          "cue_id",
+          "section_id",
+          "speaker",
+          "order",
+          "cue_text_hash"
+        ],
+        "title": "ScriptCueEntry",
+        "type": "object"
+      },
+      "ScriptCueImpactScope": {
+        "additionalProperties": false,
+        "properties": {
+          "cue_id": {
+            "format": "uuid4",
+            "title": "Cue Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "script_cue",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "cue_id"
+        ],
+        "title": "ScriptCueImpactScope",
+        "type": "object"
+      },
       "ScriptDecision": {
         "additionalProperties": false,
         "properties": {
@@ -2645,6 +3019,142 @@
           "approved_by"
         ],
         "title": "ScriptDecision",
+        "type": "object"
+      },
+      "ScriptSectionImpactScope": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "const": "script_section",
+            "title": "Kind",
+            "type": "string"
+          },
+          "section_id": {
+            "format": "uuid4",
+            "title": "Section Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "section_id"
+        ],
+        "title": "ScriptSectionImpactScope",
+        "type": "object"
+      },
+      "ScriptSectionRange": {
+        "additionalProperties": false,
+        "properties": {
+          "end_order": {
+            "minimum": 0.0,
+            "title": "End Order",
+            "type": "integer"
+          },
+          "section_id": {
+            "format": "uuid4",
+            "title": "Section Id",
+            "type": "string"
+          },
+          "start_order": {
+            "minimum": 0.0,
+            "title": "Start Order",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "section_id",
+          "start_order",
+          "end_order"
+        ],
+        "title": "ScriptSectionRange",
+        "type": "object"
+      },
+      "ScriptStructureMap": {
+        "additionalProperties": false,
+        "properties": {
+          "cues": {
+            "items": {
+              "$ref": "#/components/schemas/ScriptCueEntry"
+            },
+            "minItems": 1,
+            "title": "Cues",
+            "type": "array"
+          },
+          "ref": {
+            "$ref": "#/components/schemas/FilmEntityRef"
+          },
+          "script_version_content_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Script Version Content Hash",
+            "type": "string"
+          },
+          "script_version_id": {
+            "format": "uuid4",
+            "title": "Script Version Id",
+            "type": "string"
+          },
+          "script_version_version": {
+            "minimum": 1.0,
+            "title": "Script Version Version",
+            "type": "integer"
+          },
+          "sections": {
+            "items": {
+              "$ref": "#/components/schemas/ScriptSectionRange"
+            },
+            "minItems": 1,
+            "title": "Sections",
+            "type": "array"
+          }
+        },
+        "required": [
+          "ref",
+          "script_version_id",
+          "script_version_version",
+          "script_version_content_hash",
+          "sections",
+          "cues"
+        ],
+        "title": "ScriptStructureMap",
+        "type": "object"
+      },
+      "ScriptStructureMapCreateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_kind": {
+            "$ref": "#/components/schemas/ActorKind"
+          },
+          "cues": {
+            "items": {
+              "$ref": "#/components/schemas/ScriptCueEntry"
+            },
+            "minItems": 1,
+            "title": "Cues",
+            "type": "array"
+          },
+          "script_version": {
+            "$ref": "#/components/schemas/EntityVersionGuard"
+          },
+          "sections": {
+            "items": {
+              "$ref": "#/components/schemas/ScriptSectionRange"
+            },
+            "minItems": 1,
+            "title": "Sections",
+            "type": "array"
+          },
+          "write": {
+            "$ref": "#/components/schemas/CreateTargetGuard"
+          }
+        },
+        "required": [
+          "write",
+          "actor_kind",
+          "script_version",
+          "sections",
+          "cues"
+        ],
+        "title": "ScriptStructureMapCreateRequest",
         "type": "object"
       },
       "ScriptVersion": {
@@ -2827,6 +3337,128 @@
         "title": "ShotExtension",
         "type": "object"
       },
+      "StalePropagationRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_kind": {
+            "$ref": "#/components/schemas/ActorKind"
+          },
+          "changes": {
+            "items": {
+              "$ref": "#/components/schemas/DependencyChange"
+            },
+            "maxItems": 128,
+            "minItems": 1,
+            "title": "Changes",
+            "type": "array"
+          },
+          "dependency_owner": {
+            "$ref": "#/components/schemas/EntityVersionGuard"
+          },
+          "idempotency_key": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Idempotency Key",
+            "type": "string"
+          },
+          "script_structure_map": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EntityVersionGuard"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "idempotency_key",
+          "actor_kind",
+          "dependency_owner",
+          "changes"
+        ],
+        "title": "StalePropagationRequest",
+        "type": "object"
+      },
+      "StalePropagationResult": {
+        "additionalProperties": false,
+        "properties": {
+          "already_stale_entity_ids": {
+            "items": {
+              "format": "uuid4",
+              "type": "string"
+            },
+            "title": "Already Stale Entity Ids",
+            "type": "array"
+          },
+          "audit_event_ids": {
+            "items": {
+              "format": "uuid4",
+              "type": "string"
+            },
+            "title": "Audit Event Ids",
+            "type": "array"
+          },
+          "dependency_owner_id": {
+            "format": "uuid4",
+            "title": "Dependency Owner Id",
+            "type": "string"
+          },
+          "idempotency_key": {
+            "title": "Idempotency Key",
+            "type": "string"
+          },
+          "replayed": {
+            "title": "Replayed",
+            "type": "boolean"
+          },
+          "stale_entity_ids": {
+            "items": {
+              "format": "uuid4",
+              "type": "string"
+            },
+            "title": "Stale Entity Ids",
+            "type": "array"
+          },
+          "traversed_edge_ids": {
+            "items": {
+              "format": "uuid4",
+              "type": "string"
+            },
+            "title": "Traversed Edge Ids",
+            "type": "array"
+          },
+          "unchanged_entity_ids": {
+            "items": {
+              "format": "uuid4",
+              "type": "string"
+            },
+            "title": "Unchanged Entity Ids",
+            "type": "array"
+          },
+          "unresolved_changes": {
+            "items": {
+              "$ref": "#/components/schemas/DependencyChange"
+            },
+            "title": "Unresolved Changes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "idempotency_key",
+          "replayed",
+          "dependency_owner_id",
+          "stale_entity_ids",
+          "already_stale_entity_ids",
+          "unchanged_entity_ids",
+          "unresolved_changes",
+          "traversed_edge_ids",
+          "audit_event_ids"
+        ],
+        "title": "StalePropagationResult",
+        "type": "object"
+      },
       "StaleState": {
         "enum": [
           "fresh",
@@ -2891,6 +3523,28 @@
         "title": "ValidationError",
         "type": "object"
       },
+      "VisualLockComponentImpactScope": {
+        "additionalProperties": false,
+        "properties": {
+          "component_key": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Component Key",
+            "type": "string"
+          },
+          "kind": {
+            "const": "visual_lock_component",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "component_key"
+        ],
+        "title": "VisualLockComponentImpactScope",
+        "type": "object"
+      },
       "VisualLockSet": {
         "additionalProperties": false,
         "properties": {
@@ -2943,7 +3597,7 @@
   "info": {
     "description": "Sidecar Film Core contract. Yingce remains authoritative for generic Host Project, ProjectUnit, Shot, Asset, Workflow and Task entities.",
     "title": "FilmOS Studio Film Core API",
-    "version": "0.2.0"
+    "version": "0.3.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -3488,6 +4142,124 @@
         "x-implementation-state": "implemented"
       }
     },
+    "/impacts": {
+      "post": {
+        "operationId": "filmImpactCreate",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImpactEdgeCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImpactEdge"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Impact Create",
+        "x-implementation-state": "implemented"
+      }
+    },
+    "/impacts/propagate-stale": {
+      "post": {
+        "operationId": "filmImpactPropagateStale",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StalePropagationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StalePropagationResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Impact Propagate Stale",
+        "x-implementation-state": "implemented"
+      }
+    },
     "/impacts/{entityId}": {
       "get": {
         "operationId": "filmImpactGet",
@@ -3497,16 +4269,46 @@
             "name": "entityId",
             "required": true,
             "schema": {
-              "$ref": "./schemas/core.schema.json#/$defs/FilmEntityId"
+              "format": "uuid4",
+              "title": "Entityid",
+              "type": "string"
             }
           }
         ],
         "responses": {
           "200": {
-            "description": "Target contract; not implemented in Film Core V0"
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImpactQueryResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
-        "x-implementation-state": "planned"
+        "summary": "Impact Get",
+        "x-implementation-state": "implemented"
       }
     },
     "/manual-results/import": {
@@ -3723,6 +4525,116 @@
           }
         },
         "summary": "Review Submit",
+        "x-implementation-state": "implemented"
+      }
+    },
+    "/script-structure-maps": {
+      "post": {
+        "operationId": "filmScriptStructureMapCreate",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScriptStructureMapCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScriptStructureMap"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Script Structure Map Create",
+        "x-implementation-state": "implemented"
+      }
+    },
+    "/script-structure-maps/{filmEntityId}": {
+      "get": {
+        "operationId": "filmScriptStructureMapGet",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "filmEntityId",
+            "required": true,
+            "schema": {
+              "format": "uuid4",
+              "title": "Filmentityid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScriptStructureMap"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Script Structure Map Get",
         "x-implementation-state": "implemented"
       }
     },

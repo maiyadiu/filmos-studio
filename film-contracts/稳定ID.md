@@ -8,3 +8,5 @@
 6. 禁止复用已删除实体的 Film ID；审计事件永久保留原 ID。
 7. `entity.create` 命令必须传 `target_id: null` 和 `expected_version: 0`；只有 Film Core 可在 apply 时生成 Film ID，客户端不得预选身份。
 8. ScriptVersion 是不可变版本对象。Human Script Lock 必须为锁定版生成新的 Film UUIDv4，并用 ScriptDecision 固定 source ID、locked ID 与 locked record hash；不得把原 ScriptVersion 就地改成 locked。
+9. ScriptStructureMap 与 ImpactEdge 的 `film_entity_id` 同样由 Core 生成 UUIDv4。Map 中 section/cue ID 是上游脚本结构的稳定 UUIDv4，不从顺序或文本 hash 派生；Core 校验其唯一性、范围和所属关系，但不复制 cue 正文。
+10. Impact dependency owner/source/target 使用稳定 Film ID；edge declaration 保存当时 current version 与聚合 hash。后续 STALE revision 不改写 edge 身份或声明证据。

@@ -239,16 +239,18 @@ class FilmRepository:
                 return connection.execute(
                     f"SELECT {AUDIT_COLUMNS} FROM ("
                     f"SELECT {AUDIT_COLUMNS} FROM audit_events UNION ALL "
-                    f"SELECT {AUDIT_COLUMNS} FROM formal_audit_events"
+                    f"SELECT {AUDIT_COLUMNS} FROM formal_audit_events UNION ALL "
+                    f"SELECT {AUDIT_COLUMNS} FROM impact_audit_events"
                     ") ORDER BY recorded_at, event_id LIMIT ?",
                     (limit,),
                 ).fetchall()
             return connection.execute(
                 f"SELECT {AUDIT_COLUMNS} FROM ("
                 f"SELECT {AUDIT_COLUMNS} FROM audit_events WHERE target_id = ? UNION ALL "
-                f"SELECT {AUDIT_COLUMNS} FROM formal_audit_events WHERE target_id = ?"
+                f"SELECT {AUDIT_COLUMNS} FROM formal_audit_events WHERE target_id = ? UNION ALL "
+                f"SELECT {AUDIT_COLUMNS} FROM impact_audit_events WHERE target_id = ?"
                 ") ORDER BY recorded_at, event_id LIMIT ?",
-                (target_id, target_id, limit),
+                (target_id, target_id, target_id, limit),
             ).fetchall()
 
     def create_formal_records_with_audits(

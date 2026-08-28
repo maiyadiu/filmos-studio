@@ -2,9 +2,9 @@
 
 ## 状态
 
-`THIRD_STAGE_READONLY_SLICE_TESTED`
+`STAGE3_READONLY_AND_CORE_IMPACT_TESTED`
 
-本轨已完成资产语义、VisualLock、默认关闭 Host 只读投影、本地媒体安全检查与 Golden B 本地 fixture 首切片；尚未接入 Host 通用版本详情 API 或 Film Core 持久化，因此不得表述为 FilmOS Asset Studio 已完成，也不得表述为用户资产已迁移或已批准。
+本轨已完成资产语义、VisualLock、默认关闭的 Host 只读投影、本地媒体安全检查，并与 Track 02 联合完成 ImpactGraph/精准 STALE 的 Film Core 持久化和 API。Host 通用版本详情 API、完整资产工作流和用户数据迁移仍未实施，不得表述为 FilmOS Asset Studio 已全部完成，也不得表述为用户资产已迁移或已批准。
 
 ## 核查证据
 
@@ -74,12 +74,20 @@
 
 ## 未实施与风险
 
-- `DEFER`：Sidecar 表、OpenAPI、AuditEvent/ImpactGraph 正式持久化。共享合同归 Track 02，本轨未越权修改。
+- `IMPLEMENTED`：经 Program Integrator 明确授权，Track 02/06 联合在 Sidecar V3 持久化 ImpactEdge、exact scope、幂等传播 receipt 与追加式审计；`GET /impacts/{entityId}` 已是实际 API。
 - `DEFER`：Managed Copy、外链安全书签与文件监听。依赖 Track 01 桌面 Workspace 合同。
 - `DEFER`：Host 通用 AssetVersion/Representation/Resource 详情读取 API；当前 ProjectDetail 的部分投影不会伪造缺失字段。
-- `DEFER`：VisualLock 审批工作流、跨 Shot Continuity、Golden B 真 Core 纵向持久化与恢复测试；本批仅本地可重放 fixture。
+- `DEFER`：VisualLock 审批工作流、跨 Shot 正式 Continuity、BlockingVersion/SceneTwin、Golden C 与恢复测试。当前资产 UI 只是默认关闭的只读入口。
 - 当前 `not_required` 授权状态只允许在提供明确原因时通过纯领域门禁；正式写入时仍应由权限/审计策略裁决。
 
 ## 回滚
 
-关闭 `VITE_FILM_HOST_ASSET_READONLY` 后页面不产生第三阶段 Film DOM/请求，既有 Yingce 资产流程保持原样；关闭 `film.asset_lock` 停用原领域门禁。若需代码级回滚，移除本批 `host-inventory*`、`local-media.node*`、Golden B fixture/adapter 与 `assets.tsx` 单行入口即可；没有数据库迁移、Host 表变化、媒体复制或用户数据变更。
+关闭 `VITE_FILM_HOST_ASSET_READONLY` 后页面不产生第三阶段 Film DOM/请求，关闭 `film.asset_lock` 停用资产领域门禁。Core 回滚应撤销本阶段 Impact 提交，并使用未升级的 V2 Sidecar 数据库备份；不对用户数据执行未授权降级。本阶段没有 Host 表变化、媒体复制或用户数据迁移。
+
+## 阶段三 Core 集成证据
+
+- VisualLock component scope 直接复用首切片的 dependency key 语义：组件级 `propStateVersions` 与叶子级 `propStateVersions:<Film UUIDv4>` 分开声明和匹配；character/camera 等未命中 selector 的消费者保持 fresh。
+- AssetBinding impact scope 同时保留 record aggregate hash guard 与 `asset_content_hash` source hash，不复制 Host Asset/Version/Representation，也不存储媒体、路径或 URL。
+- 没有匹配边的 VisualLock change 返回在 `unresolved_changes`，不会全图 STALE；同请求 replay 返回同一 unresolved 集。
+- 状态传播与变化证据、审计、幂等 receipt 在同一 SQLite 事务；专项故障注入验证零部分写入。图创建/遍历验证 owner 锚定、环检测和 1000 节点/64 层上限。
+- Core 回归结果 `44 passed`，共享合同验证 `schema=0.3.0 paths=21 implemented=21 planned=0 axes=6`；没有执行 Host DB 查询、Provider、上传、媒体迁移或外部网络。

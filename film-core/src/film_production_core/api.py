@@ -38,6 +38,17 @@ from film_production_core.formal_models import (
     ScriptVersionLockResult,
 )
 from film_production_core.formal_service import FormalService
+from film_production_core.impact_models import (
+    ImpactEdge,
+    ImpactEdgeCreateRequest,
+    ImpactQueryResult,
+    ScriptStructureMap,
+    ScriptStructureMapCreateRequest,
+    StalePropagationRequest,
+    StalePropagationResult,
+)
+from film_production_core.impact_repository import ImpactRepository
+from film_production_core.impact_service import ImpactService
 from film_production_core.models import (
     AuditEvent,
     Command,
@@ -63,12 +74,15 @@ def default_database_path() -> Path:
 
 def create_app(database_path: str | Path | None = None) -> FastAPI:
     cors_origins = configured_cors_origins()
-    repository = FilmRepository(SQLiteDatabase(database_path or default_database_path()))
+    database = SQLiteDatabase(database_path or default_database_path())
+    repository = FilmRepository(database)
+    impact_repository = ImpactRepository(database)
     service = FilmService(repository)
     formal_service = FormalService(repository)
+    impact_service = ImpactService(impact_repository, formal_service)
     app = FastAPI(
         title="FilmOS Studio Film Core API",
-        version="0.2.0",
+        version="0.3.0",
         description=(
             "Sidecar Film Core contract. Yingce remains authoritative for generic "
             "Host Project, ProjectUnit, Shot, Asset, Workflow and Task entities."
@@ -81,6 +95,7 @@ def create_app(database_path: str | Path | None = None) -> FastAPI:
     )
     app.state.film_service = service
     app.state.formal_service = formal_service
+    app.state.impact_service = impact_service
 
     @app.exception_handler(VersionConflict)
     async def version_conflict_handler(
@@ -216,6 +231,55 @@ def create_app(database_path: str | Path | None = None) -> FastAPI:
         request: FormalRecordCreateRequest,
     ) -> FormalRecordApplyResult:
         return formal_service.create_record(request)
+
+    @app.get(
+        "/script-structure-maps/{filmEntityId}",
+        response_model=ScriptStructureMap,
+        operation_id="filmScriptStructureMapGet",
+        responses={404: {"model": ErrorResponse}},
+    )
+    def script_structure_map_get(filmEntityId: UUID4) -> ScriptStructureMap:
+        return impact_service.script_structure_map(str(filmEntityId))
+
+    @app.post(
+        "/script-structure-maps",
+        response_model=ScriptStructureMap,
+        operation_id="filmScriptStructureMapCreate",
+        responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}},
+    )
+    def script_structure_map_create(
+        request: ScriptStructureMapCreateRequest,
+    ) -> ScriptStructureMap:
+        return impact_service.create_script_structure_map(request)
+
+    @app.post(
+        "/impacts",
+        response_model=ImpactEdge,
+        operation_id="filmImpactCreate",
+        responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}},
+    )
+    def impact_create(request: ImpactEdgeCreateRequest) -> ImpactEdge:
+        return impact_service.create_impact_edge(request)
+
+    @app.get(
+        "/impacts/{entityId}",
+        response_model=ImpactQueryResult,
+        operation_id="filmImpactGet",
+        responses={404: {"model": ErrorResponse}},
+    )
+    def impact_get(entityId: UUID4) -> ImpactQueryResult:
+        return impact_service.impact_query(str(entityId))
+
+    @app.post(
+        "/impacts/propagate-stale",
+        response_model=StalePropagationResult,
+        operation_id="filmImpactPropagateStale",
+        responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}},
+    )
+    def impact_propagate_stale(
+        request: StalePropagationRequest,
+    ) -> StalePropagationResult:
+        return impact_service.propagate_stale(request)
 
     @app.post(
         "/script-versions/lock",

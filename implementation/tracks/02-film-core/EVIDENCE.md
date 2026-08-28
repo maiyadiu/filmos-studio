@@ -182,9 +182,59 @@ formal_service.py 064f4280151c25edea3493636e684d13deacdf588ab5cb97f1d6673f25bb63
 
 阶段二实现提交稳定点：`dd9848ac`。
 
+## 阶段三 ScriptStructureMap / Impact / STALE 证据
+
+### 合同与数据边界
+
+- Sidecar schema V3 新增 `script_structure_maps`、`impact_edges`、`impact_propagations`、`impact_audit_events`；所有表位于 Film Core 自有 SQLite，未读取或修改 Host DB，也未增加外部网络调用。
+- `ScriptStructureMap` 是 ScriptVersion 的不可变 companion，绑定当前 ScriptVersion version 与聚合 hash；只保存稳定 section/cue UUIDv4、speaker、order、section 范围和 cue 文本 SHA-256，剧本正文仍只在 ScriptVersion。
+- `ImpactEdge` 固定 dependency owner、source、target 的声明 version/聚合 hash，并保存 `dependency_content_hash`，以 canonical `dependency_key + scope` 精确索引。owner 只允许 ScriptVersion、VisualLockSet、AssetBinding；scope 只允许 cue、section、VisualLock component、AssetBinding source hash。
+- VisualLock 的 raw/source hash 来自 `locks.dependencyHashes`（兼容 snake_case），AssetBinding 来自 `asset_content_hash`，Script cue/section 来自 guarded StructureMap；这些 source hash 与 `ref.content_hash` 聚合 guard 分层校验。
+
+### 原子传播与 fail-closed
+
+- `POST /impacts/propagate-stale` 使用 `BEGIN IMMEDIATE`，在同一事务内重查 owner/map current guard、遍历 exact selector、更新命中记录、追加 impact audit 并保存 idempotency receipt；注入第二个目标 UPDATE 失败后，第一个目标、审计和 receipt 均回滚。
+- 传播只把命中目标的 `stale_state` 从 `fresh` 改为 `stale`，同时递增该正式记录 version/聚合 hash；creative、execution、review、lock、delivery 轴保持原值。已 stale、blocked 或没有状态轴的节点不被伪写，仍可作为遍历节点。
+- exact selector 未找到可传播边时，原 `DependencyChange` 返回在 `unresolved_changes`，不自动把任何目标标为 STALE；相同 idempotency request replay 保持相同 unresolved 集。
+- 同 idempotency key + 同请求只读回放原 receipt，不增加版本或审计；同 key + 不同请求返回 409。新增边必须从 owner 可达、禁止形成环；运行时遍历上限为 1000 节点/64 层。
+- `impact_edges`、`script_structure_maps` 不可 UPDATE/DELETE；`impact_propagations`、`impact_audit_events` 追加式，均由 SQLite trigger 强制。
+
+### 实际 API 状态与验证
+
+```text
+GET  /script-structure-maps/{filmEntityId}
+POST /script-structure-maps
+GET  /impacts/{entityId}
+POST /impacts
+POST /impacts/propagate-stale
+```
+
+`GET /impacts/{entityId}` 已从唯一 planned operation 变为实际路由。共享合同现为 `schema=0.3.0 paths=21 implemented=21 planned=0 axes=6`。
+
+```bash
+cd film-core
+PYTHONPATH=src /private/tmp/filmos-core-venv-02/bin/python -m film_production_core.contracts
+/private/tmp/filmos-core-venv-02/bin/pytest -q
+python3 ../tests/film-contract/validate_contracts.py
+PYTHONPATH=src /private/tmp/filmos-core-venv-02/bin/python -m compileall -q src tests
+git diff --check
+```
+
+结果：Film Core `44 passed`（其中阶段三专项 `7 passed`）；合同验证 `schema=0.3.0 paths=21 implemented=21 planned=0 axes=6`；compileall、OpenAPI 零漂移与 diff check 均通过。专项覆盖 companion 无正文、Script/VisualLock/Asset source guard、Track 06 组件级/叶子级精准命中、unmapped unresolved、状态轴隔离、查询双向边、幂等与冲突、环/未锚定/深度拒绝、事务回滚和表级不可变约束。
+
+```text
+openapi.json         8230cd7be7215665dad0c1753dc87a9e02e128f190a7aa308d63ec3b9b911ed2
+core.schema.json     e58a45f52101a5fd5a7e69428275c34c760281101f90e5692667d6ef05c80208
+database.py          c05855bef1fc3fda6643531af6008a16e48354155557e6e51fa9915dfade55d4
+impact_models.py     4f1f30df88d57e913e8ba9d85262761cdf23416ebcd602654b7febe44ac93043
+impact_repository.py 60bc04ce934a3e904edd3376d37b66262958b5a7b6535f5411e1e6b0fa6b89b7
+impact_service.py    c7cf2897530bf11fdbe066769a1d0d1ec7a2b4c5243ef6d9685e5b759849b21d
+test_impacts.py      91ad3fba6f82385eb1089e1dbfcb184f17169af23cfa7a355c275d1b5ab8c8d2
+```
+
 ## Known gaps
 
-- `GET /impacts/{entityId}`、ImpactEdge 写入和精准 STALE 传播仍为 planned；本阶段未建空表或伪路由。
+- 尚未实现 BlockingVersion/SceneTwin；本切片只接受已经声明在 ScriptStructureMap、VisualLock dependency hash 或 AssetBinding source hash 中的精确依赖。
 - Sidecar 对已持久化 Film/Host 映射做 current version/hash 与 Host ID 一致性校验，但未通过 Host Bridge 在线确认 Host 对象仍存在、当前用户所有权或 Host 删除事件。
 - Sidecar 本身未实现身份认证；`actor_kind=human` 需要本地桌面 Host/Agent Gateway 提供可信身份边界，不能直接暴露为公网批准接口。
 - PromptTemplate/Provider capability 是输入快照，Core 当前只校验安全形状与哈希，不在线查询其他 Track 注册表；跨 Track 集成由阶段二集成分支验证。

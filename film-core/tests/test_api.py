@@ -13,7 +13,7 @@ def test_health_performs_sqlite_round_trip(client) -> None:
     assert response.json() == {
         "status": "ok",
         "service": "film-production-core",
-        "schema_version": 2,
+        "schema_version": 3,
         "database": "sqlite-sidecar",
         "journal_mode": "wal",
     }

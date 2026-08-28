@@ -4,7 +4,7 @@ import sqlite3
 from pathlib import Path
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 MIGRATION_001 = """
 CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -216,7 +216,191 @@ BEGIN
 END;
 """
 
-MIGRATIONS = ((1, MIGRATION_001), (2, MIGRATION_002))
+MIGRATION_003 = """
+CREATE TABLE IF NOT EXISTS script_structure_maps (
+    film_entity_id TEXT PRIMARY KEY CHECK (
+        length(film_entity_id) = 36
+        AND film_entity_id = lower(film_entity_id)
+        AND substr(film_entity_id, 9, 1) = '-'
+        AND substr(film_entity_id, 14, 1) = '-'
+        AND substr(film_entity_id, 15, 1) = '4'
+        AND substr(film_entity_id, 19, 1) = '-'
+        AND substr(film_entity_id, 20, 1) IN ('8', '9', 'a', 'b')
+        AND substr(film_entity_id, 24, 1) = '-'
+    ),
+    entity_type TEXT NOT NULL CHECK (entity_type = 'script_structure_map'),
+    version INTEGER NOT NULL CHECK (version = 1),
+    content_hash TEXT NOT NULL CHECK (
+        length(content_hash) = 64
+        AND content_hash = lower(content_hash)
+        AND content_hash NOT GLOB '*[^0-9a-f]*'
+    ),
+    script_version_id TEXT NOT NULL,
+    script_version_version INTEGER NOT NULL CHECK (script_version_version >= 1),
+    script_version_content_hash TEXT NOT NULL CHECK (
+        length(script_version_content_hash) = 64
+        AND script_version_content_hash = lower(script_version_content_hash)
+        AND script_version_content_hash NOT GLOB '*[^0-9a-f]*'
+    ),
+    payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_script_structure_source
+ON script_structure_maps(script_version_id, created_at, film_entity_id);
+
+CREATE TABLE IF NOT EXISTS impact_edges (
+    film_entity_id TEXT PRIMARY KEY CHECK (
+        length(film_entity_id) = 36
+        AND film_entity_id = lower(film_entity_id)
+        AND substr(film_entity_id, 9, 1) = '-'
+        AND substr(film_entity_id, 14, 1) = '-'
+        AND substr(film_entity_id, 15, 1) = '4'
+        AND substr(film_entity_id, 19, 1) = '-'
+        AND substr(film_entity_id, 20, 1) IN ('8', '9', 'a', 'b')
+        AND substr(film_entity_id, 24, 1) = '-'
+    ),
+    entity_type TEXT NOT NULL CHECK (entity_type = 'impact_edge'),
+    version INTEGER NOT NULL CHECK (version = 1),
+    content_hash TEXT NOT NULL CHECK (
+        length(content_hash) = 64
+        AND content_hash = lower(content_hash)
+        AND content_hash NOT GLOB '*[^0-9a-f]*'
+    ),
+    dependency_owner_id TEXT NOT NULL,
+    dependency_owner_version INTEGER NOT NULL CHECK (dependency_owner_version >= 1),
+    dependency_owner_content_hash TEXT NOT NULL CHECK (
+        length(dependency_owner_content_hash) = 64
+        AND dependency_owner_content_hash = lower(dependency_owner_content_hash)
+        AND dependency_owner_content_hash NOT GLOB '*[^0-9a-f]*'
+    ),
+    source_id TEXT NOT NULL,
+    source_version INTEGER NOT NULL CHECK (source_version >= 1),
+    source_content_hash TEXT NOT NULL CHECK (
+        length(source_content_hash) = 64
+        AND source_content_hash = lower(source_content_hash)
+        AND source_content_hash NOT GLOB '*[^0-9a-f]*'
+    ),
+    target_id TEXT NOT NULL,
+    target_version INTEGER NOT NULL CHECK (target_version >= 1),
+    target_content_hash TEXT NOT NULL CHECK (
+        length(target_content_hash) = 64
+        AND target_content_hash = lower(target_content_hash)
+        AND target_content_hash NOT GLOB '*[^0-9a-f]*'
+    ),
+    dependency_key TEXT NOT NULL,
+    dependency_content_hash TEXT NOT NULL CHECK (
+        length(dependency_content_hash) = 64
+        AND dependency_content_hash = lower(dependency_content_hash)
+        AND dependency_content_hash NOT GLOB '*[^0-9a-f]*'
+    ),
+    scope_json TEXT NOT NULL CHECK (json_valid(scope_json)),
+    relation TEXT NOT NULL,
+    propagates_stale INTEGER NOT NULL CHECK (propagates_stale IN (0, 1)),
+    payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    CHECK (source_id <> target_id),
+    UNIQUE (
+        dependency_owner_id, source_id, target_id,
+        dependency_key, scope_json, relation
+    )
+);
+
+CREATE INDEX IF NOT EXISTS idx_impact_edges_outgoing
+ON impact_edges(source_id, dependency_owner_id, dependency_key);
+
+CREATE INDEX IF NOT EXISTS idx_impact_edges_incoming
+ON impact_edges(target_id, dependency_owner_id, dependency_key);
+
+CREATE TABLE IF NOT EXISTS impact_propagations (
+    idempotency_key TEXT PRIMARY KEY,
+    request_hash TEXT NOT NULL CHECK (
+        length(request_hash) = 64
+        AND request_hash = lower(request_hash)
+        AND request_hash NOT GLOB '*[^0-9a-f]*'
+    ),
+    response_json TEXT NOT NULL CHECK (json_valid(response_json)),
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS impact_audit_events (
+    event_id TEXT PRIMARY KEY CHECK (
+        length(event_id) = 36
+        AND event_id = lower(event_id)
+        AND substr(event_id, 9, 1) = '-'
+        AND substr(event_id, 14, 1) = '-'
+        AND substr(event_id, 15, 1) = '4'
+        AND substr(event_id, 19, 1) = '-'
+        AND substr(event_id, 20, 1) IN ('8', '9', 'a', 'b')
+        AND substr(event_id, 24, 1) = '-'
+    ),
+    actor_kind TEXT NOT NULL CHECK (
+        actor_kind IN ('human', 'codex', 'deepseek', 'claude', 'local_model', 'system')
+    ),
+    action TEXT NOT NULL,
+    target_id TEXT NOT NULL,
+    previous_version INTEGER,
+    resulting_version INTEGER NOT NULL CHECK (resulting_version >= 1),
+    command_type TEXT NOT NULL,
+    command_payload_json TEXT NOT NULL CHECK (json_valid(command_payload_json)),
+    recorded_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_impact_audit_target_recorded
+ON impact_audit_events(target_id, recorded_at, event_id);
+
+CREATE TRIGGER IF NOT EXISTS script_structure_maps_no_update
+BEFORE UPDATE ON script_structure_maps
+BEGIN
+    SELECT RAISE(ABORT, 'script_structure_maps are immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS script_structure_maps_no_delete
+BEFORE DELETE ON script_structure_maps
+BEGIN
+    SELECT RAISE(ABORT, 'script_structure_maps are immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS impact_edges_no_update
+BEFORE UPDATE ON impact_edges
+BEGIN
+    SELECT RAISE(ABORT, 'impact_edges are immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS impact_edges_no_delete
+BEFORE DELETE ON impact_edges
+BEGIN
+    SELECT RAISE(ABORT, 'impact_edges are immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS impact_propagations_no_update
+BEFORE UPDATE ON impact_propagations
+BEGIN
+    SELECT RAISE(ABORT, 'impact_propagations are append-only');
+END;
+
+CREATE TRIGGER IF NOT EXISTS impact_propagations_no_delete
+BEFORE DELETE ON impact_propagations
+BEGIN
+    SELECT RAISE(ABORT, 'impact_propagations are append-only');
+END;
+
+CREATE TRIGGER IF NOT EXISTS impact_audit_events_no_update
+BEFORE UPDATE ON impact_audit_events
+BEGIN
+    SELECT RAISE(ABORT, 'impact_audit_events are append-only');
+END;
+
+CREATE TRIGGER IF NOT EXISTS impact_audit_events_no_delete
+BEFORE DELETE ON impact_audit_events
+BEGIN
+    SELECT RAISE(ABORT, 'impact_audit_events are append-only');
+END;
+"""
+
+MIGRATIONS = ((1, MIGRATION_001), (2, MIGRATION_002), (3, MIGRATION_003))
 
 
 class SQLiteDatabase:

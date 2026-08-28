@@ -1,4 +1,4 @@
-# Film Production Core V0.2
+# Film Production Core V0.3
 
 FilmOS Studio 的隔离 Film Core Sidecar。它只保存影视扩展语义、显式 Host ID 映射、Film 版本和审计，不读写 Yingce Host 数据库，不复制 Project、ProjectUnit、Shot、Asset 或 Task 正文。
 
@@ -30,7 +30,7 @@ FILMOS_CORE_DB_PATH="$PWD/.local/film-core.sqlite" .venv/bin/filmos-core
 - Manual Import 只接受安全的本地回执元数据，不包含 Provider 网络执行面；结果先成为 `Candidate`。
 - `Review` 不创建 `Approval`；只有声明为 human 的独立批准写入，且必须引用命中当前 Candidate hash 的 passed Review。Candidate 记录本身不改写。
 
-正式记录保存在 Sidecar `formal_records`，对应 `formal_audit_events` 由数据库 trigger 保证追加式。`film-contracts/openapi.json` 使用 `x-implementation-state` 区分实际与计划 API；当前只有 Impact/STALE 查询仍为 `planned`。
+正式记录保存在 Sidecar `formal_records`，对应 `formal_audit_events` 由数据库 trigger 保证追加式。ScriptStructureMap、ImpactEdge、传播 receipt 与 Impact 审计分别使用隔离的 V3 表，均有不可变或追加式 trigger。`film-contracts/openapi.json` 使用 `x-implementation-state` 声明实际状态；V0.3 没有 planned operation。
 
 ## Golden A API
 
@@ -43,9 +43,23 @@ POST /manual-results/import
 POST /reviews
 POST /approvals
 POST /continuity/check
+GET  /script-structure-maps/{filmEntityId}
+POST /script-structure-maps
+GET  /impacts/{entityId}
+POST /impacts
+POST /impacts/propagate-stale
 ```
 
 `/entities/{filmEntityId}` 继续只读取原有三类扩展，避免把兼容读面隐式扩成任意正式记录查询。
+
+## Golden B Impact/STALE 边界
+
+- `ScriptStructureMap` 是 ScriptVersion 的 companion：只保存稳定 section/cue UUIDv4、speaker、顺序、section 范围和 cue 文本 hash；剧本文本仍只在 ScriptVersion。Map 必须绑定当前 ScriptVersion version 与聚合 hash。
+- Impact owner 仅允许当前 `ScriptVersion`、`VisualLockSet` 或 `AssetBinding`。每条边固定 owner/source/target 的声明 version+聚合 hash，以及一个 exact `dependency_key + dependency_content_hash + scope`。
+- scope 只有 `script_cue`、`script_section`、`visual_lock_component`、`asset_binding_source`。Script cue 使用 `cue_text_hash`；section 使用按 cue order 排序的 canonical `{section_id,start_order,end_order,cues:[{cue_id,cue_text_hash,order}]}` SHA-256；VisualLock 使用 `locks.dependencyHashes`，AssetBinding 使用 `asset_content_hash`。所得 raw/source hash 保存为 edge 的 `dependency_content_hash`，不替代聚合 guard。
+- `POST /impacts/propagate-stale` 在一个 `BEGIN IMMEDIATE` 事务内重查 owner/map guard、遍历 exact scope、仅更新命中后代的 `stale_state`、追加审计并保存幂等 receipt。creative/review/lock 等其他轴保持原值。
+- 相同 idempotency key 与相同请求只回放既有结果；同 key 不同请求返回 409。图必须无环，遍历上限为 1000 节点、64 层。
+- 没有可传播边的 change 进入 `unresolved_changes`，不触发自动 STALE；`replayed=true` 时 unresolved 集保持不变。
 
 ## 浏览器 CORS 边界
 

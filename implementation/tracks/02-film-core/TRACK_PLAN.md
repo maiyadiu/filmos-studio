@@ -6,7 +6,7 @@ REASONING: `XHigh`
 
 ## 1. 本轨目标
 
-在 `film-core/` 建立不修改 Yingce Host 核心表的 SQLite Sidecar。V0 已交付稳定 UUIDv4、六状态轴、显式 Host 映射、`expected_version` 乐观并发、追加式 `AuditEvent`、真实 preview/apply 命令与只读上下文；阶段二继续交付 Golden A 所需正式记录、内容哈希守卫、Manual Import、Review 与 Human Approval 人工门。
+在 `film-core/` 建立不修改 Yingce Host 核心表的 SQLite Sidecar。V0 已交付稳定 UUIDv4、六状态轴、显式 Host 映射、`expected_version` 乐观并发、追加式 `AuditEvent`、真实 preview/apply 命令与只读上下文；阶段二交付 Golden A 正式链，阶段三继续交付 ScriptStructureMap companion、持久化 ImpactEdge 与 exact-scope STALE 传播。
 
 ## 2. 已核查的真实源码、数据库、测试与 UI 合同
 
@@ -37,8 +37,8 @@ REASONING: `XHigh`
 | --- | --- |
 | `REUSE` | Host Project/Unit/Shot/Asset/Workflow/Task 和现有 Web/Agent 工具面；只保存它们的显式 ID 引用。 |
 | `EXTEND` | 以 `FilmProjectExtension`/`ContentUnitExtension`/`ShotExtension` 映射 Host；不对 Host 原表加列。 |
-| `BUILD` | FastAPI + Pydantic + SQLite WAL Sidecar、严格 loopback CORS、schema migration、六轴状态、Film revision、命令 preview/apply、Golden A 正式记录、双层内容哈希、Manual Import、Review/Approval、Continuity、追加式审计、合同导出与不变量测试。 |
-| `DEFER` | Host 存在性/所有权在线校验、不可逆迁移、外部生成、Impact/STALE 写入与传播算法、Remote/Hybrid 同步。 |
+| `BUILD` | FastAPI + Pydantic + SQLite WAL Sidecar、严格 loopback CORS、schema migration、六轴状态、Film revision、命令 preview/apply、Golden A 正式记录、双层内容哈希、Manual Import、Review/Approval、Continuity、ScriptStructureMap、ImpactEdge、精准 STALE、追加式审计、合同导出与不变量测试。 |
+| `DEFER` | Host 存在性/所有权在线校验、不可逆迁移、外部生成、BlockingVersion/SceneTwin、Remote/Hybrid 同步。 |
 
 ## 5. 本次最小修改范围
 
@@ -58,7 +58,7 @@ REASONING: `XHigh`
 ## 7. 受影响文件与数据对象
 
 - 文件：仅限第 5 节路径。
-- Sidecar 表：`schema_migrations`、`film_entities`、`audit_events`、`formal_records`、`formal_audit_events`。Impact/STALE 仍为 planned contract，不建空表冒充实现。
+- Sidecar 表：`schema_migrations`、`film_entities`、`audit_events`、`formal_records`、`formal_audit_events`，以及阶段三的 `script_structure_maps`、`impact_edges`、`impact_propagations`、`impact_audit_events`。
 - 兼容可写对象：FilmProjectExtension、ContentUnitExtension、ShotExtension 的映射、六轴状态与 Film revision。
 - Golden A 正式对象：ScriptVersion、ScriptDecision、DirectorUnit、CoverageLink、VisualLockSet、AssetBinding、PromptDraft/Provenance、GenerationPackage/AttemptEvidence、Candidate、Review、Approval、ContinuityCheckResult。
 - 每次正式写入在同一 SQLite 事务提交记录与追加式审计；组合产物（Prompt+Provenance、Evidence+Candidate）全成或全退。
@@ -67,9 +67,9 @@ REASONING: `XHigh`
 
 - Pydantic/JSON Schema：UUIDv4、六轴必填与枚举、Host 映射必填、正式记录响应符合 `core.schema.json`。
 - Repository/Service：preview 零写入、Film ID 创建后不变、映射唯一、`expected_version` 冲突不覆盖、审计与实体原子提交、审计表禁止 update/delete。
-- API：health DB round-trip、context/read、preview/apply/409、formal read/create、Prompt compile、Manual Import、Review/Human Approval、Continuity、audit read、OpenAPI 与已提交合同一致。
+- API：health DB round-trip、context/read、preview/apply/409、formal read/create、Prompt compile、Manual Import、Review/Human Approval、Continuity、ScriptStructureMap、Impact 查询/写入/传播、audit read、OpenAPI 与已提交合同一致。
 - Browser CORS：允许 IPv4/localhost/合法 IPv6 loopback Origin 与预检；拒绝远端、HTTPS、无端口、其他 loopback IPv4 和非法环境白名单；不产生 OpenAPI 漂移。
-- Golden 不变量：ScriptVersion 不能直接伪造 locked，human lock 生成新不可变版本与 Decision；DirectorUnit 必须引用已决策的当前 locked ScriptVersion；聚合记录 hash 与 raw/source hash 分层；所有 source guard 查询当前记录；Candidate/Review/Approval 身份分离；敏感字段、data URL、绝对路径与外部 URL 被拒绝；本地链外部调用为 0。
+- Golden 不变量：ScriptVersion 不能直接伪造 locked，human lock 生成新不可变版本与 Decision；DirectorUnit 必须引用已决策的当前 locked ScriptVersion；聚合记录 hash 与 raw/source hash 分层；所有 source guard 查询当前记录；Candidate/Review/Approval 身份分离；敏感字段、data URL、绝对路径与外部 URL 被拒绝；ScriptStructureMap 不复制正文；Impact exact scope、unmapped unresolved、原子传播、幂等、环与遍历上限；本地链外部调用为 0。
 
 ## 9. 回滚方式
 

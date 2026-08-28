@@ -7,29 +7,7 @@ from tempfile import TemporaryDirectory
 from film_production_core.api import create_app
 
 
-PLANNED_PATHS = {
-    "/impacts/{entityId}": {
-        "get": {
-            "operationId": "filmImpactGet",
-            "x-implementation-state": "planned",
-            "parameters": [
-                {
-                    "name": "entityId",
-                    "in": "path",
-                    "required": True,
-                    "schema": {
-                        "$ref": "./schemas/core.schema.json#/$defs/FilmEntityId"
-                    },
-                }
-            ],
-            "responses": {
-                "200": {
-                    "description": "Target contract; not implemented in Film Core V0"
-                }
-            },
-        }
-    },
-}
+PLANNED_PATHS: dict[str, dict] = {}
 
 
 def repository_root() -> Path:

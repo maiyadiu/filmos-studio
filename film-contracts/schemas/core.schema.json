@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://filmos.local/contracts/v0.2/core.schema.json",
-  "title": "FilmOS Studio Core Contracts V0.2",
-  "schema_version": "0.2.0",
+  "$id": "https://filmos.local/contracts/v0.3/core.schema.json",
+  "title": "FilmOS Studio Core Contracts V0.3",
+  "schema_version": "0.3.0",
   "$defs": {
     "FilmEntityId": {
       "type": "string",
@@ -403,14 +403,141 @@
       },
       "additionalProperties": false
     },
+    "ScriptSectionRange": {
+      "type": "object",
+      "required": ["section_id", "start_order", "end_order"],
+      "properties": {
+        "section_id": { "$ref": "#/$defs/FilmEntityId" },
+        "start_order": { "type": "integer", "minimum": 0 },
+        "end_order": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "ScriptCueEntry": {
+      "type": "object",
+      "required": ["cue_id", "section_id", "speaker", "order", "cue_text_hash"],
+      "properties": {
+        "cue_id": { "$ref": "#/$defs/FilmEntityId" },
+        "section_id": { "$ref": "#/$defs/FilmEntityId" },
+        "speaker": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "order": { "type": "integer", "minimum": 0 },
+        "cue_text_hash": { "$ref": "#/$defs/ContentHash" }
+      },
+      "additionalProperties": false
+    },
+    "ScriptStructureMap": {
+      "type": "object",
+      "required": ["ref", "script_version_id", "script_version_version", "script_version_content_hash", "sections", "cues"],
+      "properties": {
+        "ref": { "$ref": "#/$defs/FilmEntityRef" },
+        "script_version_id": { "$ref": "#/$defs/FilmEntityId" },
+        "script_version_version": { "type": "integer", "minimum": 1 },
+        "script_version_content_hash": { "$ref": "#/$defs/ContentHash" },
+        "sections": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/ScriptSectionRange" } },
+        "cues": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/ScriptCueEntry" } }
+      },
+      "additionalProperties": false
+    },
+    "ScriptCueImpactScope": {
+      "type": "object",
+      "required": ["kind", "cue_id"],
+      "properties": {
+        "kind": { "const": "script_cue" },
+        "cue_id": { "$ref": "#/$defs/FilmEntityId" }
+      },
+      "additionalProperties": false
+    },
+    "ScriptSectionImpactScope": {
+      "type": "object",
+      "required": ["kind", "section_id"],
+      "properties": {
+        "kind": { "const": "script_section" },
+        "section_id": { "$ref": "#/$defs/FilmEntityId" }
+      },
+      "additionalProperties": false
+    },
+    "VisualLockComponentImpactScope": {
+      "type": "object",
+      "required": ["kind", "component_key"],
+      "properties": {
+        "kind": { "const": "visual_lock_component" },
+        "component_key": { "type": "string", "minLength": 1, "maxLength": 256 }
+      },
+      "additionalProperties": false
+    },
+    "AssetBindingSourceImpactScope": {
+      "type": "object",
+      "required": ["kind", "asset_content_hash"],
+      "properties": {
+        "kind": { "const": "asset_binding_source" },
+        "asset_content_hash": { "$ref": "#/$defs/ContentHash" }
+      },
+      "additionalProperties": false
+    },
+    "ImpactScope": {
+      "oneOf": [
+        { "$ref": "#/$defs/ScriptCueImpactScope" },
+        { "$ref": "#/$defs/ScriptSectionImpactScope" },
+        { "$ref": "#/$defs/VisualLockComponentImpactScope" },
+        { "$ref": "#/$defs/AssetBindingSourceImpactScope" }
+      ]
+    },
     "ImpactEdge": {
       "type": "object",
-      "required": ["source_id", "target_id", "relation", "propagates_stale"],
+      "required": ["ref", "dependency_owner_id", "dependency_owner_version", "dependency_owner_content_hash", "source_id", "source_version", "source_content_hash", "target_id", "target_version", "target_content_hash", "dependency_key", "dependency_content_hash", "scope", "relation", "propagates_stale"],
       "properties": {
+        "ref": { "$ref": "#/$defs/FilmEntityRef" },
+        "dependency_owner_id": { "$ref": "#/$defs/FilmEntityId" },
+        "dependency_owner_version": { "type": "integer", "minimum": 1 },
+        "dependency_owner_content_hash": { "$ref": "#/$defs/ContentHash" },
         "source_id": { "$ref": "#/$defs/FilmEntityId" },
+        "source_version": { "type": "integer", "minimum": 1 },
+        "source_content_hash": { "$ref": "#/$defs/ContentHash" },
         "target_id": { "$ref": "#/$defs/FilmEntityId" },
-        "relation": { "type": "string", "minLength": 1 },
+        "target_version": { "type": "integer", "minimum": 1 },
+        "target_content_hash": { "$ref": "#/$defs/ContentHash" },
+        "dependency_key": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "dependency_content_hash": { "$ref": "#/$defs/ContentHash" },
+        "scope": { "$ref": "#/$defs/ImpactScope" },
+        "relation": { "type": "string", "minLength": 1, "maxLength": 128 },
         "propagates_stale": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "DependencyChange": {
+      "type": "object",
+      "required": ["dependency_key", "scope", "previous_dependency_hash", "current_dependency_hash"],
+      "properties": {
+        "dependency_key": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "scope": { "$ref": "#/$defs/ImpactScope" },
+        "previous_dependency_hash": { "$ref": "#/$defs/ContentHash" },
+        "current_dependency_hash": { "$ref": "#/$defs/ContentHash" }
+      },
+      "additionalProperties": false
+    },
+    "ImpactQueryResult": {
+      "type": "object",
+      "required": ["entity_id", "incoming", "outgoing"],
+      "properties": {
+        "entity_id": { "$ref": "#/$defs/FilmEntityId" },
+        "incoming": { "type": "array", "items": { "$ref": "#/$defs/ImpactEdge" } },
+        "outgoing": { "type": "array", "items": { "$ref": "#/$defs/ImpactEdge" } }
+      },
+      "additionalProperties": false
+    },
+    "StalePropagationResult": {
+      "type": "object",
+      "required": ["idempotency_key", "replayed", "dependency_owner_id", "stale_entity_ids", "already_stale_entity_ids", "unchanged_entity_ids", "unresolved_changes", "traversed_edge_ids", "audit_event_ids"],
+      "properties": {
+        "idempotency_key": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "replayed": { "type": "boolean" },
+        "dependency_owner_id": { "$ref": "#/$defs/FilmEntityId" },
+        "stale_entity_ids": { "type": "array", "items": { "$ref": "#/$defs/FilmEntityId" } },
+        "already_stale_entity_ids": { "type": "array", "items": { "$ref": "#/$defs/FilmEntityId" } },
+        "unchanged_entity_ids": { "type": "array", "items": { "$ref": "#/$defs/FilmEntityId" } },
+        "unresolved_changes": { "type": "array", "items": { "$ref": "#/$defs/DependencyChange" } },
+        "traversed_edge_ids": { "type": "array", "items": { "$ref": "#/$defs/FilmEntityId" } },
+        "audit_event_ids": { "type": "array", "items": { "$ref": "#/$defs/FilmEntityId" } }
       },
       "additionalProperties": false
     }

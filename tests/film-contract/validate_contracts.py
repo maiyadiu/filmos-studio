@@ -26,6 +26,11 @@ EXPECTED_IMPLEMENTED_PATHS = {
     "/entities/{filmEntityId}",
     "/formal-records/{filmEntityId}",
     "/formal-records",
+    "/script-structure-maps/{filmEntityId}",
+    "/script-structure-maps",
+    "/impacts",
+    "/impacts/{entityId}",
+    "/impacts/propagate-stale",
     "/script-versions/lock",
     "/prompts/compile",
     "/manual-results/import",
@@ -36,9 +41,7 @@ EXPECTED_IMPLEMENTED_PATHS = {
     "/commands/apply",
     "/audit-events",
 }
-EXPECTED_PLANNED_PATHS = {
-    "/impacts/{entityId}",
-}
+EXPECTED_PLANNED_PATHS: set[str] = set()
 EXPECTED_PATHS = EXPECTED_IMPLEMENTED_PATHS | EXPECTED_PLANNED_PATHS
 REQUIRED_CHAIN_DEFS = {
     "ContentUnitExtension",
@@ -57,6 +60,11 @@ REQUIRED_CHAIN_DEFS = {
     "Review",
     "Approval",
     "ContinuityCheckResult",
+    "ScriptStructureMap",
+    "ImpactEdge",
+    "ImpactQueryResult",
+    "DependencyChange",
+    "StalePropagationResult",
 }
 
 
@@ -70,7 +78,7 @@ def main() -> None:
     openapi = load_json(OPENAPI_PATH)
     definitions = schema["$defs"]
 
-    assert schema["schema_version"] == "0.2.0"
+    assert schema["schema_version"] == "0.3.0"
     assert REQUIRED_CHAIN_DEFS <= set(definitions)
 
     axes = definitions["FormalStateAxes"]
@@ -133,8 +141,22 @@ def main() -> None:
         "ReviewCreateRequest",
         "ApprovalCreateRequest",
         "ContinuityCheckRequest",
+        "ScriptStructureMapCreateRequest",
+        "ImpactEdgeCreateRequest",
+        "StalePropagationRequest",
     ):
         assert request_name in openapi["components"]["schemas"]
+
+    impact_edge = definitions["ImpactEdge"]
+    assert {
+        "dependency_owner_version",
+        "dependency_owner_content_hash",
+        "dependency_key",
+        "dependency_content_hash",
+        "scope",
+    } <= set(impact_edge["required"])
+    stale_result = definitions["StalePropagationResult"]
+    assert "unresolved_changes" in stale_result["required"]
 
     print(
         f"FILM_CONTRACTS_OK schema={schema['schema_version']} "

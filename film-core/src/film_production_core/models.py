@@ -26,6 +26,7 @@ class EntityType(str, Enum):
     SHOT_EXTENSION = "shot_extension"
     SCRIPT_VERSION = "script_version"
     SCRIPT_DECISION = "script_decision"
+    SCRIPT_STRUCTURE_MAP = "script_structure_map"
     DIRECTOR_UNIT = "director_unit"
     COVERAGE_LINK = "coverage_link"
     VISUAL_LOCK_SET = "visual_lock_set"
@@ -38,6 +39,7 @@ class EntityType(str, Enum):
     REVIEW = "review"
     APPROVAL = "approval"
     CONTINUITY_CHECK_RESULT = "continuity_check_result"
+    IMPACT_EDGE = "impact_edge"
 
 
 class CreativeStage(str, Enum):

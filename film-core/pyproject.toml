@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "film-production-core"
-version = "0.2.0"
-description = "FilmOS Studio Film Core V0.2 Golden A sidecar"
+version = "0.3.0"
+description = "FilmOS Studio Film Core V0.3 Golden A/B sidecar"
 requires-python = ">=3.11"
 dependencies = [
   "fastapi>=0.116,<1",
