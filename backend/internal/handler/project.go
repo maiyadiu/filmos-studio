@@ -286,6 +286,29 @@ func RegisterProjectRoutes(r *gin.RouterGroup, svc *service.Service) {
 		}
 		ok(c, gin.H{"link": link})
 	})
+	r.POST("/projects/:id/units/:unitId/production-canvas", func(c *gin.Context) {
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 16<<10)
+		var req service.AcquireProductionCanvasRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			fail(c, http.StatusBadRequest, err)
+			return
+		}
+		result, err := svc.AcquireProductionCanvas(user.ID, c.Param("id"), c.Param("unitId"), req)
+		if err != nil {
+			if service.IsProjectNotFound(err) {
+				fail(c, http.StatusNotFound, service.BadAuthRequest("项目或 ContentUnit 不存在"))
+				return
+			}
+			failService(c, err)
+			return
+		}
+		ok(c, result)
+	})
 	r.DELETE("/projects/:id/canvas-links/:canvasId/units/:unitId", func(c *gin.Context) {
 		user, err := currentUser(c, svc)
 		if err != nil {

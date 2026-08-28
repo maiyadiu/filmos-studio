@@ -474,12 +474,15 @@ func (s *Service) LinkCanvasUnit(userID string, projectID string, req LinkCanvas
 	if _, err := s.repo.ProjectUnit(projectID, unitID); err != nil {
 		return model.CanvasUnitLink{}, err
 	}
-	if err := s.repo.AssignCanvasToProject(userID, canvasID, projectID); err != nil {
-		return model.CanvasUnitLink{}, err
-	}
 	role := strings.TrimSpace(req.Role)
 	if role == "" {
 		role = "storyboard"
+	}
+	if role == productionCanvasRole {
+		return model.CanvasUnitLink{}, BadAuthRequest("production 关联只能通过专用的 Human 确认与并发守卫端点创建")
+	}
+	if err := s.repo.AssignCanvasToProject(userID, canvasID, projectID); err != nil {
+		return model.CanvasUnitLink{}, err
 	}
 	now := time.Now()
 	link := model.CanvasUnitLink{ID: newID(), ProjectID: projectID, CanvasID: canvasID, UnitID: unitID, Role: role, CreatedAt: now}
@@ -503,8 +506,12 @@ func (s *Service) UnlinkCanvasUnit(userID string, projectID string, canvasID str
 	if canvas.ProjectID != projectID {
 		return BadAuthRequest("画布不属于当前项目")
 	}
-	if _, err := s.repo.CanvasUnitLink(projectID, canvas.ID, strings.TrimSpace(unitID)); err != nil {
+	link, err := s.repo.CanvasUnitLink(projectID, canvas.ID, strings.TrimSpace(unitID))
+	if err != nil {
 		return err
+	}
+	if link.Role == productionCanvasRole {
+		return BadAuthRequest("production 关联不能通过通用解除端点删除")
 	}
 	return s.repo.DeleteCanvasUnitLink(projectID, canvas.ID, strings.TrimSpace(unitID))
 }

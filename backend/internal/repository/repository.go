@@ -1006,6 +1006,9 @@ func (r *Repository) DeleteCanvasProject(userID string, id string) error {
 		if err := tx.Where("canvas_id = ?", id).Delete(&model.CanvasUnitLink{}).Error; err != nil {
 			return err
 		}
+		if err := tx.Where("canvas_id = ?", id).Delete(&model.ProductionCanvasGuard{}).Error; err != nil {
+			return err
+		}
 		// 任务和会话是审计记录，不随独立画布实体保留归属 ID，避免删除后继续挂住画布上下文。
 		if err := tx.Model(&model.Task{}).Where("user_id = ? AND project_id = ?", userID, id).Update("project_id", "").Error; err != nil {
 			return err
@@ -1078,6 +1081,9 @@ func (r *Repository) DeleteProject(userID string, id string, canvasUpdates []mod
 			return err
 		}
 		if err := tx.Where("project_id = ?", id).Delete(&model.CanvasUnitLink{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("project_id = ?", id).Delete(&model.ProductionCanvasGuard{}).Error; err != nil {
 			return err
 		}
 		for _, canvas := range canvasUpdates {
@@ -1209,6 +1215,9 @@ func (r *Repository) DeleteProjectUnit(projectID string, id string) error {
 		if err := tx.Where("project_id = ? AND unit_id = ?", projectID, id).Delete(&model.CanvasUnitLink{}).Error; err != nil {
 			return err
 		}
+		if err := tx.Where("project_id = ? AND unit_id = ?", projectID, id).Delete(&model.ProductionCanvasGuard{}).Error; err != nil {
+			return err
+		}
 		shotIDs := tx.Model(&model.Shot{}).Select("id").Where("project_id = ? AND unit_id = ?", projectID, id)
 		if err := tx.Where("shot_id IN (?)", shotIDs).Delete(&model.ShotAssetReference{}).Error; err != nil {
 			return err
@@ -1295,6 +1304,9 @@ func (r *Repository) AssignCanvasToProject(userID string, canvasID string, proje
 func (r *Repository) UnassignCanvasFromProject(userID string, projectID string, canvasID string, payloadJSON string, updatedAt time.Time) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("project_id = ? AND canvas_id = ?", projectID, canvasID).Delete(&model.CanvasUnitLink{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("project_id = ? AND canvas_id = ?", projectID, canvasID).Delete(&model.ProductionCanvasGuard{}).Error; err != nil {
 			return err
 		}
 		result := tx.Model(&model.CanvasProject{}).Where("id = ? AND user_id = ? AND project_id = ?", canvasID, userID, projectID).Updates(map[string]any{

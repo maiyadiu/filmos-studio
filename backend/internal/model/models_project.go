@@ -202,6 +202,21 @@ type CanvasUnitLink struct {
 	CreatedAt time.Time `json:"createdAt"`
 }
 
+// ProductionCanvasGuard 只守护“每个 Host Unit 唯一默认 production 画布”和追加审计回执。
+// CanvasProject 与 CanvasUnitLink 仍是 Host 画布和关系真值；本表不保存 Film 正式状态或正文。
+type ProductionCanvasGuard struct {
+	ID                 string    `json:"id" gorm:"primaryKey;size:36"`
+	ProjectID          string    `json:"projectId" gorm:"size:36;uniqueIndex:idx_production_canvas_guard_unit,priority:1"`
+	UnitID             string    `json:"unitId" gorm:"size:36;uniqueIndex:idx_production_canvas_guard_unit,priority:2"`
+	CanvasID           string    `json:"canvasId" gorm:"size:80;uniqueIndex"`
+	LinkID             string    `json:"linkId" gorm:"size:36;uniqueIndex"`
+	ConfirmationID     string    `json:"confirmationId" gorm:"size:128"`
+	ConfirmedByUserID  string    `json:"confirmedByUserId" gorm:"size:36"`
+	ObservedSourceHash string    `json:"observedSourceHash" gorm:"size:64"`
+	AuditEventID       string    `json:"auditEventId" gorm:"size:36;uniqueIndex"`
+	CreatedAt          time.Time `json:"createdAt"`
+}
+
 type Shot struct {
 	ID          string    `json:"id" gorm:"primaryKey;size:36"`
 	ProjectID   string    `json:"projectId" gorm:"index;size:36"`

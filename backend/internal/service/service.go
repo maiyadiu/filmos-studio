@@ -26,6 +26,7 @@ type Service struct {
 	redeemBatchMu              sync.Mutex
 	storageMu                  sync.Mutex
 	characterTaskMu            sync.Mutex
+	productionCanvasMu         sync.Mutex
 	activeCancels              map[string]context.CancelFunc
 	pendingStorage             map[string]int64
 	coordinator                *runtimeCoordinator

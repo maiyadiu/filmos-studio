@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { FILM_PRODUCTION_CANVAS_DEFAULT_ENABLED, buildCreateProductionCanvasCommand, candidateFromGeneratedResult, projectProductionCanvas, resolveProductionCanvasNavigation, type FilmProductionCanvasSnapshot } from "../src/film/canvas/production-canvas";
+import { hashHostUnitSourceText } from "../src/film/canvas/production-canvas-api";
 
 const HASH = "a".repeat(64);
 const FILM_IDS = {
@@ -69,6 +70,11 @@ describe("Film Production Canvas writes and projections", () => {
                 expectedContentHash: "not-a-hash",
             }),
         ).toThrow("小写 SHA-256");
+    });
+
+    test("Host SourceText guard uses exact UTF-8 SHA-256", async () => {
+        expect(await hashHostUnitSourceText("")).toBe("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+        expect(await hashHostUnitSourceText("甲：你来了。")).not.toBe(await hashHostUnitSourceText("甲：你来了。\n"));
     });
 
     test("provider result can only materialize as Candidate", () => {

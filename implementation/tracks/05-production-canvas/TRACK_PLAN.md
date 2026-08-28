@@ -10,12 +10,13 @@ REASONING: `High`
    - REUSE：现有 CanvasProject、本地/远端同步、`CanvasUnitLink`、Shot API、Storyboard 投影、节点注册和 Canvas Agent 工作流。
    - EXTEND：Film 专用纯投影、五泳道、production 画布复用/冲突导航、revision/hash 写入意图。
    - BUILD：Film Core DirectorUnit/Coverage 正式读写、Host 幂等默认 production 关联、Inspector UI。
-   - DEFER：共享 Host 表/API 和 Track 03 页面接入，见 `CR-05-001`；外部生成、上传和审批不在本切片执行。
-4. 最小修改：`web/src/film/canvas/` 仅保存 Film 实体 ID、关系、布局和快照标记；默认关闭。
+   - DONE：`CR-05-001` Host 专用取得或创建端点、隔离唯一 guard、Human 确认、原子 audit 回执与项目页二次确认 UI。
+   - DEFER：外部生成、上传和审批不在本切片执行。
+4. 最小修改：复用 Host `CanvasProject`/`CanvasUnitLink`；`ProductionCanvasGuard` 只做唯一性和审计 companion，画布 JSON 不保存 Film 正式真值。
 6. 不做：不换画布引擎，不把审批事实写入 Canvas JSON。
 7. 影响：见 `FILE_OWNERSHIP.yaml#production_canvas`。
-8. 测试：默认关闭、单 Unit 唯一默认画布、重开复用、重复冲突、投影重建、DirectorUnit/Shot 非 1:1、Candidate 边界。
-9. 回滚：关闭 `film.production_canvas`。
+8. 测试：默认关闭、归属、hash/revision 冲突零写入、并发同 ID、重复历史精确 ID、audit 失败无 orphan、重开复用、投影重建和 Candidate 边界。
+9. 回滚：先关闭 Web 双开关和 `CANVAS_FILM_PRODUCTION_CANVAS_WRITE_ENABLED`；保留既有 Canvas/Link/Audit 可读，不自动删除。
 10. 依赖：Track 02、03、09、13。
 
-STATUS: `FIRST_SLICE_IMPLEMENTED_PENDING_INTEGRATION`
+STATUS: `FORMAL_CREATE_BOUNDARY_IMPLEMENTED_PENDING_GOLDEN_C`

@@ -15,17 +15,24 @@
 - 投影输出只含实体 ID、节点类型、泳道、布局、关系和正式快照版本标记；不复制台词、Prompt、审批或资产正文。
 - 多个 production 链接返回显式 conflict；单一链接复用原 Canvas；无链接仅返回 create intent。
 - `CR-05-001`：向共享 Owner 请求正式幂等写路径、唯一性和乐观并发约束。
+- `POST /projects/:id/units/:unitId/production-canvas`：默认 403；只接受 Human 显式确认、安全 `confirmationId`、精确 Project revision 和服务端复核的 SourceText SHA-256。
+- Host `CanvasProject`/`CanvasUnitLink` 模型不加 Film 字段。`ProductionCanvasGuard` 是隔离 companion，以 Project+Unit 自然键守护唯一性和创建回执相关性。
+- Canvas、Link、Guard、`AdminAuditEvent`、Project revision 在同一数据库事务写入；audit 插入失败时五者全部回滚。
+- 幂等不依赖请求号生成对象；以 `projectId + unitId + role=production` 自然键取得原 Canvas/Link，回传首次 Human 确认和 Audit ID。
+- 通用 `LinkCanvasUnit` 在分配画布到项目之前拒绝 `role=production`，既有关系读取不变。历史多 production 关联返回 409 并列出精确 Canvas IDs。
+- Canvas payload 只初始化普通 Host 画布结构，不保存或信任 Film 正式 hash/状态；Unit 正文变更后仍复用原 Canvas。
 
 ## 验证
 
-- `cd web && bun test test/film-production-canvas.test.ts`：7 pass / 0 fail，覆盖默认关闭、复用、重复冲突、revision/hash、Candidate、纯投影和多对多 Coverage。
+- `cd backend && go test ./internal/service -run 'ProductionCanvas|ProductionRole' -count=5`：通过；10 个专项用例重复 5 轮，包含两个独立 Service/Repository 对 SQLite 双并发返回同 Canvas/Link/Audit ID、事务内 SourceText 二次校验、删除 Unit 清理 guard 但保留追加 audit，以及强制 audit 失败零 orphan。
+- `cd backend && go test ./internal/repository -run ProductionCanvas -count=5`：通过；并发错误后的 existing retry fallback 也会重读 Unit 归属和 SourceText hash，不能绕过事务守卫。
+- `cd backend && go test ./...`：通过。
+- `cd web && bun test test/film-production-canvas.test.ts test/film-production-entry.test.tsx`：13 pass / 0 fail / 39 assertions。
 - `cd web && bun run typecheck`：通过。
-- `cd web && bunx prettier --check src/film/canvas/production-canvas.ts test/film-production-canvas.test.ts`：通过。
-- `git diff --check`：通过。
-- 首次 typecheck 因本 worktree 尚未安装依赖而报 `tsc: command not found`；执行 `bun install --frozen-lockfile` 后复跑通过，锁文件未变化。
 
 ## 未完成/边界
 
-- 本切片未接入现有项目 UI，feature 默认关闭。
-- 未创建 Host 表、Film Core DirectorUnit/Coverage 数据或 Approved 状态。
+- Web 已接入二次 Human 确认 UI，但 Web 双 flag 与 Host 写 flag 均默认关闭。
+- 新 companion 表/API 需由集成 Owner 同步 `docs/content/docs/backend/backend-database.mdx` 与项目 API/待测试专题；本轨按文件边界未修改共享文档。
+- 未创建 Film Core DirectorUnit/Coverage 数据或 Approved 状态。
 - 未启动 dev server，未进行外部生成、上传或积分消费。

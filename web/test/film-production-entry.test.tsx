@@ -44,7 +44,7 @@ describe("Film Production 项目入口", () => {
         expect(rolledBack).toBe(disabled);
     });
 
-    test("唯一 production 画布可复用，缺失时只显示预演", () => {
+    test("唯一 production 画布可复用，缺失时显示 Human 二次确认入口", () => {
         const detail = projectDetail();
         detail.canvasUnitLinks.push(link("link-production", "canvas-production", "production"));
         detail.canvases.push(canvas("canvas-production"));
@@ -54,8 +54,8 @@ describe("Film Production 项目入口", () => {
 
         const previewOnly = markup({ state: "available", baseUrl: DEFAULT_FILM_CORE_BASE_URL });
         expect(previewOnly).toContain("创建预演");
-        expect(previewOnly).toContain("不创建画布");
-        expect(previewOnly).not.toContain("已创建");
+        expect(previewOnly).toContain("准备正式创建");
+        expect(previewOnly).not.toContain("Host 已持久化");
     });
 
     test("重复 production 关联 fail closed 且不静默导航", () => {

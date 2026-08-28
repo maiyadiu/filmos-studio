@@ -247,6 +247,7 @@ func migrations() []tableMigration {
 		migrateTable[model.StyleProfile]("style_profiles"),
 		migrateTable[model.ProjectUnit]("project_units"),
 		migrateTable[model.CanvasUnitLink]("canvas_unit_links"),
+		migrateTable[model.ProductionCanvasGuard]("production_canvas_guards"),
 		migrateTable[model.Shot]("shots"),
 		migrateTable[model.ShotAssetReference]("shot_asset_references"),
 		migrateTable[model.WorkflowTemplateVersion]("workflow_template_versions"),

@@ -7,6 +7,16 @@ description: 影策后端核心持久化表与状态边界
 
 后端通过 GORM 管理 SQLite 与 PostgreSQL 表结构。服务启动时由 `backend/internal/database/schema.go` 执行迁移；业务写路径必须通过 service 和 repository 的状态约束，不能直接依赖前端状态。
 
+## Production Canvas
+
+| 表 | 用途 | 关键边界 |
+| --- | --- | --- |
+| `canvas_projects` | Host 画布本体与画布 JSON | 画布 JSON 是交互和布局数据，不是 Film 正式空间事实 |
+| `canvas_unit_links` | 关联 Host Canvas 与 ProjectUnit | `role=production` 只能经过专用 Human 确认端点创建；通用关联/解除接口拒绝该 role |
+| `production_canvas_guards` | 以 Project + Unit 自然键保证唯一默认生产画布，关联 Human 确认、SourceText hash 和追加审计回执 | 只是 Host 并发/审计 companion；不保存 SceneTwin、影视状态或正文，不取代 Film Core |
+
+正式取得/创建在同一数据库事务内重读 Project revision 与 ProjectUnit `SourceText` SHA-256，并提交 Canvas、Link、Guard、`admin_audit_events` 和新 revision。并发重放复用同一 Canvas/Link/Audit ID；重复历史关联会报出精确 Canvas ID 并停止写入。开关 `CANVAS_FILM_PRODUCTION_CANVAS_WRITE_ENABLED` 默认为 `false`。
+
 ## ComfyUI Bridge
 
 | 表 | 用途 | 关键边界 |
