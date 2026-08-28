@@ -66,7 +66,7 @@
 
 ## D-0008｜第五阶段 Beta 硬化
 
-- 状态：已裁定，实施中；尚无生产开关、真实迁移、外部发布或签名授权。
+- 状态：已裁定并通过第五阶段本地验收；尚无生产开关、真实迁移、外部发布或签名授权。
 - Remote：接受 `CR-12-001` 的本地接线与 Human/hash-bound 回执，执行状态最多为 `PREPARED_LOCAL`；网络、上传和远端发布继续为 0。
 - Agent：所有 Agent 复用同一 MCP/Production 工具合同；DeepSeek-compatible 只增加适配能力，不增加正式权限，Approval 仍为 Human-only。
 - 迁移：接受 `CR-11-001` 的合成数据迁移包、故障恢复和回滚演练；真实系统 A/B、用户数据库和 PostgreSQL apply 继续关闭。
@@ -74,3 +74,15 @@
 - 上游：Candidate 的 D 级门保持 fail closed；不为完成阶段而合并未通过原生、迁移和 Golden 的上游代码。
 - 桌面：允许构建 unsigned `.app` 并做本地结构/启动 smoke；不宣称已签名、公证、可分发或自动更新可用。
 - 回滚：保持 `film.remote_sync`、`film.agent_gateway`、`film.desktop_host`、`film.local_workspace` 和全部 Film Flag 默认关闭；撤销本阶段代码不改变 Host 核心表、Stable ID 或用户数据。
+
+## D-0009｜第六阶段 RC 与 ChatGPT Track 14
+
+- 状态：已裁定，实施中；外部账户、真实迁移与发布动作未授权。
+- 并行范围：同时完成 Release Candidate 本地收口和 Track 14 Day 1–5，不以 Day 1 骨架代替完整交付，也不要求重做前五阶段。
+- ChatGPT 形态：采用 MCP Server + MCP Apps bridge 的 `interactive-decoupled` 结构；标准 `search/fetch`、FilmOS 只读数据工具和 Widget render 工具分离。
+- 权限：V1/Pro 工具只读；Project Grant 单项目、短期、可撤销。ChatGPT 会话、Widget 和提案包均不是正式事实源；任何 Apply/Approval/Lock 继续由 Film Core 和 Human 门禁控制。
+- Tunnel：官方 Secure MCP Tunnel 是允许的未来连接方式，但实际创建/运行需要外部 Platform/ChatGPT 权限与凭据。本阶段实现本地 fail-closed 适配和恢复，不执行控制面动作，不公开本机端口。
+- Proposal：`.filmosproposal` 必须签名和 hash-bound，导入只创建 Proposal/Candidate/Review Draft；过期、项目不符、state/version 漂移、非法命令和重复导入均失败关闭或幂等。
+- RC：Web 拆包不提高阈值；统一恢复只用合成/临时数据；上游 Candidate 的 C 级 Models/Migrations 先完成可逆适配和 Golden，仍不得自动合并。
+- 发布边界：`PASSED_LOCAL_RC` 不代表 ChatGPT 已安装、Tunnel 已连接、用户数据已迁移、上游已合并、应用已签名或生产已发布。
+- 回滚：所有 ChatGPT Feature Flag 默认 false；撤销 Track 14/RC 增量后 Host、Codex、Canvas、Provider、Stable ID 和用户数据保持不变。
