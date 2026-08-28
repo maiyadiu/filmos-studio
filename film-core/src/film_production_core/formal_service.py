@@ -16,17 +16,24 @@ from film_production_core.formal_models import (
     ApprovalBoundaryState,
     ApprovalCreateRequest,
     AssetBinding,
+    BlockingVersion,
     BoundEntityReference,
+    CameraVersion,
     Candidate,
+    CompositionVersion,
     ContinuityBlocker,
     ContinuityCheckRequest,
     ContinuityCheckResult,
     CoverageLink,
     CreateAssetBindingPayload,
+    CreateBlockingVersionPayload,
+    CreateCameraVersionPayload,
+    CreateCompositionVersionPayload,
     CreateCoverageLinkPayload,
     CreateDirectorUnitPayload,
     CreateGenerationPackagePayload,
     CreateScriptVersionPayload,
+    CreateSceneTwinVersionPayload,
     CreateVisualLockSetPayload,
     DirectorUnit,
     EntityVersionGuard,
@@ -51,14 +58,22 @@ from film_production_core.formal_models import (
     ScriptVersion,
     ScriptVersionLockRequest,
     ScriptVersionLockResult,
+    SceneTwinVersion,
+    SpatialVersionApplyResult,
+    SpatialVersionCreateRequest,
+    SpatialVersion,
+    SpatialVersionUpdateRequest,
+    VersionSnapshot,
     VisualLockSet,
 )
 from film_production_core.models import (
     ActorKind,
     EntityType,
     FilmEntityRef,
+    ContentUnitExtension,
     FormalStateAxes,
     HostReferences,
+    ShotExtension,
 )
 from film_production_core.repository import FilmRepository, canonical_json
 from film_production_core.service import utc_now
@@ -79,6 +94,10 @@ FORMAL_MODEL_BY_TYPE: dict[str, type[FormalEntity]] = {
     EntityType.REVIEW.value: Review,
     EntityType.APPROVAL.value: Approval,
     EntityType.CONTINUITY_CHECK_RESULT.value: ContinuityCheckResult,
+    EntityType.SCENE_TWIN_VERSION.value: SceneTwinVersion,
+    EntityType.CAMERA_VERSION.value: CameraVersion,
+    EntityType.BLOCKING_VERSION.value: BlockingVersion,
+    EntityType.COMPOSITION_VERSION.value: CompositionVersion,
 }
 
 
@@ -96,6 +115,361 @@ class FormalService:
 
     def formal_record(self, film_entity_id: str) -> FormalEntity:
         return self._formal_from_row(self.repository.formal_record(film_entity_id))
+
+    def spatial_version(self, film_entity_id: str) -> SpatialVersion:
+        entity = self.formal_record(film_entity_id)
+        if enum_value(entity.ref.entity_type) not in {
+            EntityType.SCENE_TWIN_VERSION.value,
+            EntityType.CAMERA_VERSION.value,
+            EntityType.BLOCKING_VERSION.value,
+            EntityType.COMPOSITION_VERSION.value,
+        }:
+            raise DomainRuleViolation(
+                "spatial_version_required",
+                f"Formal record {film_entity_id} is not a spatial version",
+            )
+        return cast(SpatialVersion, entity)
+
+    def create_spatial_version(
+        self, request: SpatialVersionCreateRequest
+    ) -> SpatialVersionApplyResult:
+        return self._apply_spatial_version(request, None)
+
+    def update_spatial_version(
+        self, film_entity_id: str, request: SpatialVersionUpdateRequest
+    ) -> SpatialVersionApplyResult:
+        if str(request.write.film_entity_id) != film_entity_id:
+            raise DomainRuleViolation(
+                "spatial_target_mismatch",
+                "Path filmEntityId must equal write.film_entity_id",
+            )
+        return self._apply_spatial_version(request, film_entity_id)
+
+    def _apply_spatial_version(
+        self,
+        request: SpatialVersionCreateRequest | SpatialVersionUpdateRequest,
+        film_entity_id: str | None,
+    ) -> SpatialVersionApplyResult:
+        operation = "create" if film_entity_id is None else "update"
+        request_payload = {
+            "operation": operation,
+            "film_entity_id": film_entity_id,
+            "request": request.model_dump(mode="json"),
+        }
+        request_hash = hash_json(request_payload)
+        replay = self.repository.spatial_version_receipt(
+            request.idempotency_key, request_hash
+        )
+        if replay is not None:
+            replay["replayed"] = True
+            return SpatialVersionApplyResult.model_validate(replay)
+
+        self._validate_spatial_states(request.payload.states)
+        entity_type, body, parent_guards = self._spatial_body(request.payload)
+        now = utc_now()
+        target_id = film_entity_id or str(uuid4())
+        resulting_version = (
+            1
+            if film_entity_id is None
+            else cast(SpatialVersionUpdateRequest, request).write.expected_version + 1
+        )
+        content_hash = hash_json(body)
+        event_id = str(uuid4())
+        reference = FilmEntityRef(
+            film_entity_id=target_id,
+            entity_type=entity_type,
+            version=resulting_version,
+            content_hash=content_hash,
+        )
+        entity = FORMAL_MODEL_BY_TYPE[entity_type.value](ref=reference, **body)
+        response = SpatialVersionApplyResult(
+            entity=cast(
+                SceneTwinVersion
+                | CameraVersion
+                | BlockingVersion
+                | CompositionVersion,
+                entity,
+            ),
+            audit_event_id=event_id,
+            replayed=False,
+        )
+        record = {
+            "film_entity_id": target_id,
+            "entity_type": entity_type.value,
+            "version": resulting_version,
+            "content_hash": content_hash,
+            "payload_json": canonical_json(body),
+            "created_at": now,
+            "updated_at": now,
+        }
+        audit = {
+            "event_id": event_id,
+            "actor_kind": enum_value(request.actor_kind),
+            "action": f"{entity_type.value}.{operation}d",
+            "target_id": target_id,
+            "previous_version": None if film_entity_id is None else resulting_version - 1,
+            "resulting_version": resulting_version,
+            "command_type": f"spatial_version.{operation}",
+            "command_payload_json": canonical_json(request_payload),
+            "recorded_at": now,
+        }
+        update_guard = (
+            None
+            if film_entity_id is None
+            else cast(SpatialVersionUpdateRequest, request).write.model_dump(mode="json")
+        )
+        persisted, replayed = self.repository.apply_spatial_version_with_receipt(
+            idempotency_key=request.idempotency_key,
+            request_hash=request_hash,
+            response_json=response.model_dump_json(),
+            record=record,
+            audit=audit,
+            parent_guards=[guard.model_dump(mode="json") for guard in parent_guards],
+            update_guard=update_guard,
+        )
+        persisted["replayed"] = replayed
+        return SpatialVersionApplyResult.model_validate(persisted)
+
+    @staticmethod
+    def _validate_spatial_states(states: FormalStateAxes) -> None:
+        if (
+            enum_value(states.review_state) == "approved"
+            or enum_value(states.lock_state) == "locked"
+            or enum_value(states.creative_stage) == "locked"
+        ):
+            raise DomainRuleViolation(
+                "spatial_approval_action_required",
+                "Spatial projection writes cannot directly claim approved or locked state",
+            )
+
+    def _spatial_body(self, payload):
+        def snapshot(guard: EntityVersionGuard) -> dict[str, Any]:
+            return VersionSnapshot(
+                film_entity_id=guard.film_entity_id,
+                version=guard.expected_version,
+                content_hash=guard.expected_content_hash,
+            ).model_dump(mode="json")
+
+        if isinstance(payload, CreateSceneTwinVersionPayload):
+            self._require_current(
+                payload.project, {EntityType.FILM_PROJECT_EXTENSION.value}
+            )
+            self._require_current(
+                payload.content_unit, {EntityType.CONTENT_UNIT_EXTENSION.value}
+            )
+            body = payload.model_dump(mode="json", exclude={"entity_type"})
+            body["project"] = snapshot(payload.project)
+            body["content_unit"] = snapshot(payload.content_unit)
+            return EntityType.SCENE_TWIN_VERSION, body, [
+                payload.project,
+                payload.content_unit,
+            ]
+
+        if isinstance(payload, (CreateCameraVersionPayload, CreateBlockingVersionPayload)):
+            shot = cast(
+                ShotExtension,
+                self._require_current(payload.shot, {EntityType.SHOT_EXTENSION.value}),
+            )
+            scene_twin = cast(
+                SceneTwinVersion,
+                self._require_current(
+                    payload.scene_twin, {EntityType.SCENE_TWIN_VERSION.value}
+                ),
+            )
+            self._validate_shot_scene_scope(shot, scene_twin)
+            body = payload.model_dump(mode="json", exclude={"entity_type"})
+            body["shot"] = snapshot(payload.shot)
+            body["scene_twin"] = snapshot(payload.scene_twin)
+            if isinstance(payload, CreateCameraVersionPayload):
+                self._validate_camera_scene(payload, scene_twin)
+                return EntityType.CAMERA_VERSION, body, [
+                    payload.shot,
+                    payload.scene_twin,
+                ]
+            self._validate_blocking_scene(payload, scene_twin)
+            return EntityType.BLOCKING_VERSION, body, [
+                payload.shot,
+                payload.scene_twin,
+            ]
+
+        if isinstance(payload, CreateCompositionVersionPayload):
+            shot = cast(
+                ShotExtension,
+                self._require_current(payload.shot, {EntityType.SHOT_EXTENSION.value}),
+            )
+            scene_twin = cast(
+                SceneTwinVersion,
+                self._require_current(
+                    payload.scene_twin, {EntityType.SCENE_TWIN_VERSION.value}
+                ),
+            )
+            camera = cast(
+                CameraVersion,
+                self._require_current(
+                    payload.camera, {EntityType.CAMERA_VERSION.value}
+                ),
+            )
+            blocking = cast(
+                BlockingVersion,
+                self._require_current(
+                    payload.blocking, {EntityType.BLOCKING_VERSION.value}
+                ),
+            )
+            self._validate_shot_scene_scope(shot, scene_twin)
+            if camera.shot.film_entity_id != shot.ref.film_entity_id:
+                raise DomainRuleViolation(
+                    "camera_shot_mismatch", "CameraVersion must reference the same Shot"
+                )
+            if blocking.shot.film_entity_id != shot.ref.film_entity_id:
+                raise DomainRuleViolation(
+                    "blocking_shot_mismatch",
+                    "BlockingVersion must reference the same Shot",
+                )
+            if (
+                camera.scene_twin.film_entity_id != scene_twin.ref.film_entity_id
+                or blocking.scene_twin.film_entity_id
+                != scene_twin.ref.film_entity_id
+            ):
+                raise DomainRuleViolation(
+                    "composition_scene_mismatch",
+                    "CameraVersion and BlockingVersion must reference the same SceneTwin",
+                )
+            actor_ids = {actor.actor_id for actor in blocking.actors}
+            subject_ids = {subject.subject_id for subject in payload.subjects}
+            if not subject_ids <= actor_ids:
+                raise DomainRuleViolation(
+                    "composition_subject_mismatch",
+                    "Composition subjects must be present in BlockingVersion actors",
+                )
+            scene_ids = {
+                item.object_id
+                for item in scene_twin.fixed_architecture + scene_twin.fixed_props
+            } | actor_ids
+            for constraint in payload.occlusion_constraints:
+                if (
+                    constraint.occluder_id not in scene_ids
+                    or constraint.subject_id not in subject_ids
+                ):
+                    raise DomainRuleViolation(
+                        "occlusion_reference_mismatch",
+                        "Occlusion constraints must reference scene objects and composition subjects",
+                    )
+            if (
+                payload.screen_direction != "neutral"
+                and camera.screen_direction != "neutral"
+                and payload.screen_direction != camera.screen_direction
+            ):
+                raise DomainRuleViolation(
+                    "composition_axis_mismatch",
+                    "Composition screen direction conflicts with CameraVersion axis contract",
+                )
+            body = payload.model_dump(mode="json", exclude={"entity_type"})
+            body["shot"] = snapshot(payload.shot)
+            body["scene_twin"] = snapshot(payload.scene_twin)
+            body["camera"] = snapshot(payload.camera)
+            body["blocking"] = snapshot(payload.blocking)
+            return EntityType.COMPOSITION_VERSION, body, [
+                payload.shot,
+                payload.scene_twin,
+                payload.camera,
+                payload.blocking,
+            ]
+        raise TypeError("unsupported spatial version payload")
+
+    def _validate_shot_scene_scope(
+        self, shot: ShotExtension, scene_twin: SceneTwinVersion
+    ) -> None:
+        project = self._require_current(
+            EntityVersionGuard(
+                film_entity_id=scene_twin.project.film_entity_id,
+                expected_version=scene_twin.project.version,
+                expected_content_hash=scene_twin.project.content_hash,
+            ),
+            {EntityType.FILM_PROJECT_EXTENSION.value},
+        )
+        unit = cast(
+            ContentUnitExtension,
+            self._require_current(
+                EntityVersionGuard(
+                    film_entity_id=scene_twin.content_unit.film_entity_id,
+                    expected_version=scene_twin.content_unit.version,
+                    expected_content_hash=scene_twin.content_unit.content_hash,
+                ),
+                {EntityType.CONTENT_UNIT_EXTENSION.value},
+            ),
+        )
+        if (
+            shot.host.host_project_id != project.host.host_project_id
+            or shot.host.host_unit_id != unit.host.host_unit_id
+        ):
+            raise DomainRuleViolation(
+                "shot_scene_scope_mismatch",
+                "Shot and SceneTwin must belong to the same Host project and unit",
+            )
+
+    @staticmethod
+    def _validate_camera_scene(
+        payload: CreateCameraVersionPayload, scene_twin: SceneTwinVersion
+    ) -> None:
+        anchor_ids = {item.anchor_id for item in scene_twin.anchors}
+        camera_zone_ids = {item.zone_id for item in scene_twin.camera_zones}
+        families = {
+            item.family_id: set(item.camera_zone_ids)
+            for item in scene_twin.approved_view_families
+        }
+        if (
+            payload.position_anchor_id not in anchor_ids
+            or payload.target_anchor_id not in anchor_ids
+        ):
+            raise DomainRuleViolation(
+                "camera_anchor_mismatch", "Camera anchors must exist in SceneTwin"
+            )
+        if payload.camera_zone_id not in camera_zone_ids:
+            raise DomainRuleViolation(
+                "camera_zone_mismatch", "Camera zone must exist in SceneTwin"
+            )
+        if payload.approved_view_family_id not in families or payload.camera_zone_id not in families[payload.approved_view_family_id]:
+            raise DomainRuleViolation(
+                "view_family_mismatch",
+                "Camera zone must belong to the approved view family",
+            )
+
+    @staticmethod
+    def _validate_blocking_scene(
+        payload: CreateBlockingVersionPayload, scene_twin: SceneTwinVersion
+    ) -> None:
+        anchor_ids = {item.anchor_id for item in scene_twin.anchors}
+        prop_ids = {item.object_id for item in scene_twin.fixed_props}
+        target_ids = anchor_ids | prop_ids | {actor.actor_id for actor in payload.actors}
+        actor_ids = [actor.actor_id for actor in payload.actors]
+        if len(actor_ids) != len(set(actor_ids)):
+            raise DomainRuleViolation(
+                "blocking_actor_duplicate", "Blocking actor ids must be unique"
+            )
+        for actor in payload.actors:
+            if actor.feet_anchor_id not in anchor_ids:
+                raise DomainRuleViolation(
+                    "blocking_feet_anchor_mismatch",
+                    "Actor feet_anchor_id must exist in SceneTwin",
+                )
+            targets = {
+                actor.face_target_id,
+                actor.gaze_target_id,
+                actor.left_hand_target_id,
+                actor.right_hand_target_id,
+            } - {None}
+            if not targets <= target_ids:
+                raise DomainRuleViolation(
+                    "blocking_target_mismatch",
+                    "Face, gaze and hand targets must reference SceneTwin or blocking subjects",
+                )
+            if not (
+                set(actor.prop_contact_in_ids) | set(actor.prop_contact_out_ids)
+            ) <= prop_ids:
+                raise DomainRuleViolation(
+                    "blocking_prop_contact_mismatch",
+                    "Prop contact ids must reference fixed SceneTwin props",
+                )
 
     def create_record(
         self, request: FormalRecordCreateRequest

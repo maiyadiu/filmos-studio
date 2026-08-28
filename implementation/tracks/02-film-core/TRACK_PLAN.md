@@ -38,7 +38,7 @@ REASONING: `XHigh`
 | `REUSE` | Host Project/Unit/Shot/Asset/Workflow/Task 和现有 Web/Agent 工具面；只保存它们的显式 ID 引用。 |
 | `EXTEND` | 以 `FilmProjectExtension`/`ContentUnitExtension`/`ShotExtension` 映射 Host；不对 Host 原表加列。 |
 | `BUILD` | FastAPI + Pydantic + SQLite WAL Sidecar、严格 loopback CORS、schema migration、六轴状态、Film revision、命令 preview/apply、Golden A 正式记录、双层内容哈希、Manual Import、Review/Approval、Continuity、ScriptStructureMap、ImpactEdge、精准 STALE、追加式审计、合同导出与不变量测试。 |
-| `DEFER` | Host 存在性/所有权在线校验、不可逆迁移、外部生成、BlockingVersion/SceneTwin、Remote/Hybrid 同步。 |
+| `DEFER` | Host 存在性/所有权在线校验、不可逆迁移、外部生成、Previs 正式化、Remote/Hybrid 同步。 |
 
 ## 5. 本次最小修改范围
 
@@ -58,7 +58,7 @@ REASONING: `XHigh`
 ## 7. 受影响文件与数据对象
 
 - 文件：仅限第 5 节路径。
-- Sidecar 表：`schema_migrations`、`film_entities`、`audit_events`、`formal_records`、`formal_audit_events`，以及阶段三的 `script_structure_maps`、`impact_edges`、`impact_propagations`、`impact_audit_events`。
+- Sidecar 表：`schema_migrations`、`film_entities`、`audit_events`、`formal_records`、`formal_audit_events`、`spatial_version_receipts`，以及 `script_structure_maps`、`impact_edges`、`impact_propagations`、`impact_audit_events`。
 - 兼容可写对象：FilmProjectExtension、ContentUnitExtension、ShotExtension 的映射、六轴状态与 Film revision。
 - Golden A 正式对象：ScriptVersion、ScriptDecision、DirectorUnit、CoverageLink、VisualLockSet、AssetBinding、PromptDraft/Provenance、GenerationPackage/AttemptEvidence、Candidate、Review、Approval、ContinuityCheckResult。
 - 每次正式写入在同一 SQLite 事务提交记录与追加式审计；组合产物（Prompt+Provenance、Evidence+Candidate）全成或全退。
@@ -81,4 +81,4 @@ REASONING: `XHigh`
 - Track 03/05/08：消费 Film Core OpenAPI 的 context/read/command 工具面。
 - Track 13：继续扩展 Contract/Golden/Recovery 测试；本轨先提供最小不变量测试。
 
-STATUS: `STAGE2_CORE_GOLDEN_A_IMPLEMENTED_LOCAL_VERIFIED`
+STATUS: `STAGE4_CORE_GOLDEN_C_IMPLEMENTED_LOCAL_VERIFIED`

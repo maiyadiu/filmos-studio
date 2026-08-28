@@ -278,12 +278,26 @@ class ImpactRepository:
                 seen_descendants: set[str] = set()
                 unresolved_changes: list[dict[str, Any]] = []
                 for change in changes:
+                    scope_kind = json.loads(change["scope_json"]).get("kind")
+                    spatial_previous_guard = (
+                        "AND dependency_content_hash = ? "
+                        if scope_kind == "spatial_version_component"
+                        else ""
+                    )
+                    parameters: tuple[Any, ...] = (
+                        owner_id,
+                        change["dependency_key"],
+                        change["scope_json"],
+                    )
+                    if spatial_previous_guard:
+                        parameters += (change["previous_dependency_hash"],)
                     rows = connection.execute(
                         f"SELECT {IMPACT_COLUMNS} FROM impact_edges "
                         "WHERE dependency_owner_id = ? AND dependency_key = ? "
-                        "AND scope_json = ? AND propagates_stale = 1 "
+                        f"AND scope_json = ? {spatial_previous_guard}"
+                        "AND propagates_stale = 1 "
                         "ORDER BY created_at, film_entity_id",
-                        (owner_id, change["dependency_key"], change["scope_json"]),
+                        parameters,
                     ).fetchall()
                     graph = [
                         (row["film_entity_id"], row["source_id"], row["target_id"])

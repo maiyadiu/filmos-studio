@@ -51,7 +51,7 @@ def test_loopback_preflight_allows_required_methods_and_headers(
         item.strip()
         for item in response.headers["access-control-allow-methods"].split(",")
     }
-    assert {"GET", "POST", "OPTIONS"} <= methods
+    assert {"GET", "POST", "PUT", "OPTIONS"} <= methods
     headers = {
         item.strip().lower()
         for item in response.headers["access-control-allow-headers"].split(",")

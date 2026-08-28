@@ -7,6 +7,8 @@ from typing import Any
 
 from film_production_core.database import SQLiteDatabase
 from film_production_core.errors import (
+    ContentHashConflict,
+    DomainRuleViolation,
     EntityNotFound,
     HostMappingConflict,
     VersionConflict,
@@ -60,6 +62,24 @@ class FilmRepository:
         if row is None:
             raise EntityNotFound(film_entity_id)
         return row
+
+    def spatial_version_receipt(
+        self, idempotency_key: str, request_hash: str
+    ) -> dict[str, Any] | None:
+        with self.database.connect() as connection:
+            row = connection.execute(
+                "SELECT request_hash, response_json FROM spatial_version_receipts "
+                "WHERE idempotency_key = ?",
+                (idempotency_key,),
+            ).fetchone()
+        if row is None:
+            return None
+        if row["request_hash"] != request_hash:
+            raise DomainRuleViolation(
+                "idempotency_conflict",
+                "Idempotency key is already bound to a different request",
+            )
+        return json.loads(row["response_json"])
 
     def entity_by_host(self, entity_type: EntityType | str, host_id: str) -> sqlite3.Row | None:
         entity_type_value = str(getattr(entity_type, "value", entity_type))
@@ -293,6 +313,146 @@ class FilmRepository:
                 ]
                 connection.execute("COMMIT")
                 return record_rows, audit_rows
+            except Exception:
+                connection.execute("ROLLBACK")
+                raise
+
+    def apply_spatial_version_with_receipt(
+        self,
+        *,
+        idempotency_key: str,
+        request_hash: str,
+        response_json: str,
+        record: Mapping[str, Any],
+        audit: Mapping[str, Any],
+        parent_guards: list[Mapping[str, Any]],
+        update_guard: Mapping[str, Any] | None,
+    ) -> tuple[dict[str, Any], bool]:
+        with self.database.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                receipt = connection.execute(
+                    "SELECT request_hash, response_json "
+                    "FROM spatial_version_receipts WHERE idempotency_key = ?",
+                    (idempotency_key,),
+                ).fetchone()
+                if receipt is not None:
+                    if receipt["request_hash"] != request_hash:
+                        raise DomainRuleViolation(
+                            "idempotency_conflict",
+                            "Idempotency key is already bound to a different request",
+                        )
+                    connection.execute("COMMIT")
+                    return json.loads(receipt["response_json"]), True
+
+                for guard in parent_guards:
+                    current = connection.execute(
+                        "SELECT version, content_hash FROM formal_records "
+                        "WHERE film_entity_id = ? UNION ALL "
+                        "SELECT version, content_hash FROM film_entities "
+                        "WHERE film_entity_id = ? LIMIT 1",
+                        (guard["film_entity_id"], guard["film_entity_id"]),
+                    ).fetchone()
+                    if current is None:
+                        raise EntityNotFound(guard["film_entity_id"])
+                    if int(current["version"]) != int(guard["expected_version"]):
+                        raise VersionConflict(
+                            guard["film_entity_id"],
+                            int(guard["expected_version"]),
+                            int(current["version"]),
+                        )
+                    if current["content_hash"] != guard["expected_content_hash"]:
+                        raise ContentHashConflict(
+                            guard["film_entity_id"],
+                            guard["expected_content_hash"],
+                            current["content_hash"],
+                        )
+
+                if update_guard is None:
+                    connection.execute(
+                        """
+                        INSERT INTO formal_records(
+                            film_entity_id, entity_type, version, content_hash,
+                            payload_json, created_at, updated_at
+                        ) VALUES (
+                            :film_entity_id, :entity_type, :version, :content_hash,
+                            :payload_json, :created_at, :updated_at
+                        )
+                        """,
+                        record,
+                    )
+                else:
+                    current = connection.execute(
+                        f"SELECT {FORMAL_COLUMNS} FROM formal_records "
+                        "WHERE film_entity_id = ?",
+                        (update_guard["film_entity_id"],),
+                    ).fetchone()
+                    if current is None:
+                        raise EntityNotFound(update_guard["film_entity_id"])
+                    if current["entity_type"] != record["entity_type"]:
+                        raise DomainRuleViolation(
+                            "spatial_entity_type_mismatch",
+                            "A spatial version cannot change entity_type",
+                        )
+                    if int(current["version"]) != int(
+                        update_guard["expected_version"]
+                    ):
+                        raise VersionConflict(
+                            update_guard["film_entity_id"],
+                            int(update_guard["expected_version"]),
+                            int(current["version"]),
+                        )
+                    if (
+                        current["content_hash"]
+                        != update_guard["expected_content_hash"]
+                    ):
+                        raise ContentHashConflict(
+                            update_guard["film_entity_id"],
+                            update_guard["expected_content_hash"],
+                            current["content_hash"],
+                        )
+                    result = connection.execute(
+                        """
+                        UPDATE formal_records SET
+                            version = :version,
+                            content_hash = :content_hash,
+                            payload_json = :payload_json,
+                            updated_at = :updated_at
+                        WHERE film_entity_id = :film_entity_id
+                          AND version = :expected_version
+                          AND content_hash = :expected_content_hash
+                        """,
+                        {
+                            **record,
+                            "expected_version": update_guard["expected_version"],
+                            "expected_content_hash": update_guard[
+                                "expected_content_hash"
+                            ],
+                        },
+                    )
+                    if result.rowcount != 1:  # pragma: no cover - BEGIN IMMEDIATE
+                        raise VersionConflict(
+                            update_guard["film_entity_id"],
+                            int(update_guard["expected_version"]),
+                            int(current["version"]),
+                        )
+
+                self._insert_formal_audit(connection, audit)
+                connection.execute(
+                    """
+                    INSERT INTO spatial_version_receipts(
+                        idempotency_key, request_hash, response_json, created_at
+                    ) VALUES (?, ?, ?, ?)
+                    """,
+                    (
+                        idempotency_key,
+                        request_hash,
+                        response_json,
+                        record["updated_at"],
+                    ),
+                )
+                connection.execute("COMMIT")
+                return json.loads(response_json), False
             except Exception:
                 connection.execute("ROLLBACK")
                 raise

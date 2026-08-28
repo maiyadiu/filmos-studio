@@ -10,7 +10,7 @@ from starlette.types import ASGIApp
 
 
 CORS_ORIGINS_ENV = "FILMOS_CORE_CORS_ORIGINS"
-CORS_METHODS = ("GET", "POST", "OPTIONS")
+CORS_METHODS = ("GET", "POST", "PUT", "OPTIONS")
 CORS_HEADERS = ("Accept", "Content-Type")
 
 

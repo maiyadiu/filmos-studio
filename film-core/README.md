@@ -1,4 +1,4 @@
-# Film Production Core V0.3
+# Film Production Core V0.4
 
 FilmOS Studio 的隔离 Film Core Sidecar。它只保存影视扩展语义、显式 Host ID 映射、Film 版本和审计，不读写 Yingce Host 数据库，不复制 Project、ProjectUnit、Shot、Asset 或 Task 正文。
 
@@ -30,7 +30,15 @@ FILMOS_CORE_DB_PATH="$PWD/.local/film-core.sqlite" .venv/bin/filmos-core
 - Manual Import 只接受安全的本地回执元数据，不包含 Provider 网络执行面；结果先成为 `Candidate`。
 - `Review` 不创建 `Approval`；只有声明为 human 的独立批准写入，且必须引用命中当前 Candidate hash 的 passed Review。Candidate 记录本身不改写。
 
-正式记录保存在 Sidecar `formal_records`，对应 `formal_audit_events` 由数据库 trigger 保证追加式。ScriptStructureMap、ImpactEdge、传播 receipt 与 Impact 审计分别使用隔离的 V3 表，均有不可变或追加式 trigger。`film-contracts/openapi.json` 使用 `x-implementation-state` 声明实际状态；V0.3 没有 planned operation。
+正式记录保存在 Sidecar `formal_records`，对应 `formal_audit_events` 由数据库 trigger 保证追加式。ScriptStructureMap、ImpactEdge、传播 receipt 与 Impact 审计分别使用隔离的 V3 表，均有不可变或追加式 trigger。V4 增加空间版本幂等 receipt。`film-contracts/openapi.json` 使用 `x-implementation-state` 声明实际状态；V0.4 没有 planned operation。
+
+## Golden C 空间版本
+
+- `POST /spatial-versions` 由 Core 生成 UUIDv4；`PUT /spatial-versions/{filmEntityId}` 保持身份并递增版本；`GET` 只读取四类空间版本。
+- 每次写入必须带幂等键、六轴状态、目标 version/hash 守卫和所有直接父引用的当前 version/hash。实体、追加审计与幂等 receipt 在同一 `BEGIN IMMEDIATE` 事务提交。
+- SceneTwin 覆盖坐标系、建筑/道具、Portal、Walkable/Camera Zone、Anchor、Approved View Family 和四类 render pass；Camera、Blocking 和 Composition 的锚点、轴线、交互链、遮挡与安全区均为结构化字段。
+- `spatial_version_component` Impact scope 对空间 Owner 同时匹配 component 和 `previous_dependency_hash`；未宣明变化只返回 unresolved，不扩大 STALE。
+- 投影写入不能直接声称 approved/locked；本 API 不调用 Provider、Blender、Flova，不上传媒体。
 
 ## Golden A API
 
@@ -65,7 +73,7 @@ POST /impacts/propagate-stale
 
 Film Core 默认只向带显式有效端口的 loopback HTTP Origin 返回 CORS 授权：`http://127.0.0.1:<port>`、`http://localhost:<port>`，以及解析后严格等于 IPv6 `::1` 的合法括号形式。远端、HTTPS、无端口、其他 `127/8` 地址和非 loopback IPv6 不获得授权；不使用 `*`，也不开放 credentials。
 
-预检只允许 `GET`、`POST`、`OPTIONS` 和 `Accept`、`Content-Type`。可用逗号分隔的 `FILMOS_CORE_CORS_ORIGINS` 将默认动态 loopback 范围收窄为精确 Origin；变量中的每一项仍必须是合法 loopback HTTP Origin，非法值会在数据库初始化前令启动失败。
+预检只允许 `GET`、`POST`、`PUT`、`OPTIONS` 和 `Accept`、`Content-Type`。可用逗号分隔的 `FILMOS_CORE_CORS_ORIGINS` 将默认动态 loopback 范围收窄为精确 Origin；变量中的每一项仍必须是合法 loopback HTTP Origin，非法值会在数据库初始化前令启动失败。
 
 ## 验证与合同导出
 

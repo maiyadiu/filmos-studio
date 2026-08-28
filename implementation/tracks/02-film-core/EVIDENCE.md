@@ -240,3 +240,44 @@ test_impacts.py      91ad3fba6f82385eb1089e1dbfcb184f17169af23cfa7a355c275d1b5ab
 - PromptTemplate/Provider capability 是输入快照，Core 当前只校验安全形状与哈希，不在线查询其他 Track 注册表；跨 Track 集成由阶段二集成分支验证。
 - 未生成 TypeScript Client；OpenAPI 已提供生成输入，由消费 Track 在集成分支生成或绑定。
 - 未运行 Yingce Host 全量 Go/Web/Canvas Agent 测试，因为本提交未修改这些路径；阶段二集成分支应运行全量与浏览器 Golden。
+
+## 阶段四 Golden C 空间版本证据
+
+### 正式合同与写入边界
+
+- Film Contracts/Core V0.4 新增 `SceneTwinVersion`、`CameraVersion`、`BlockingVersion`、`CompositionVersion`；四类记录使用独立 UUIDv4、六轴状态和聚合内容哈希。
+- `POST /spatial-versions` 创建，`PUT /spatial-versions/{filmEntityId}` 以同 UUID 和精确 expected version/hash 递增版本，`GET` 只读。路径 ID 与 write guard 不一致、父引用过期或类型错误均 409 且零写入。
+- SceneTwin 严格校验集合唯一性、Portal/Anchor、ViewFamily/CameraZone 引用；进入 review-ready 时 RGB/Depth/Normal/ObjectID 四 pass 必须齐全。
+- Camera 显式保存 position/target anchor、camera side、axis 和 screen direction；Blocking 保存 feet、torso、face、gaze、双手目标、action in/out、axis side in/out 和 prop contact in/out；Composition 保存遮挡约束与安全区。
+- 直接声称 approved/locked 被 `spatial_approval_action_required` 拒绝；Canvas/Three.js/Blender/Provider 不能经此 API 自动批准。本轨外部调用、上传、额度消耗和 Host 表修改均为 0。
+
+### V4 迁移、原子性和恢复
+
+- V4 在同一 SQLite 事务内重建 `formal_records` 类型约束、复制历史记录、恢复索引、创建 `spatial_version_receipts` 与追加式 trigger，并写入 schema marker；不存在 DDL 已提交但 marker 未写入的崩溃窗口。
+- 真实 V3 历史 formal record + audit 升级后原 ID/version/hash/audit 保留，`PRAGMA foreign_key_check` 为空，索引和旧/新 append-only trigger 存在；重启再迁移不重复数据。
+- 空间记录、审计与幂等 receipt 同一 `BEGIN IMMEDIATE` 提交。注入 receipt INSERT 失败后三者全部回滚，去除故障后原请求可重试。
+- 关闭 Sidecar 后以同 SQLite 重启可读取全链，幂等重放不增加审计/版本；经 SQLite backup API 复制到新路径后读取、receipt 重放与 FK 复核一致。
+
+### 精准 STALE
+
+- `spatial_version_component` scope 对四类空间 Owner 提供明确组件哈希。传播同时匹配 owner ID、dependency key、scope 和 `edge.dependency_content_hash == change.previous_dependency_hash`，避免当前版本新建 edge 被旧变化误命中。
+- 专项时序测试先用错误 previous hash 传播，只返回 unresolved 且 Camera 维持 fresh；正确 geometry previous/current hash 才只将声明后代 Camera 标为 STALE。
+- V3 Script/VisualLock/Asset owner 仍是不可变记录，不在本次迁移为同 UUID 版本；previous-hash 新时序守卫仅对 V4 spatial scope 生效。
+
+### 验证
+
+```bash
+cd film-core
+PYTHONPATH=src /private/tmp/filmos-core-venv-02/bin/python -m film_production_core.contracts
+PYTHONPATH=src /private/tmp/filmos-core-venv-02/bin/pytest -q
+PYTHONPATH=src /private/tmp/filmos-core-venv-02/bin/python -m compileall -q src tests
+git diff --check
+```
+
+结果：Film Core `50 passed`，其中 Golden C 空间/迁移/恢复专项 `6 passed`；OpenAPI 已从当前 FastAPI/Pydantic 导出，所有路由均为 implemented。唯一警告是测试环境中 Starlette TestClient 的依赖弃用提示。
+
+### 仍未实施
+
+- Previs 正式版本、Blender R4/Flova 执行、Provider 视频任务和外部媒体未实施；候选结果不提升为 Approved。
+- Sidecar 仍不通过 Host Bridge 在线校验当前用户所有权，`actor_kind=human` 必须由本地可信 Gateway 绑定身份。
+- 不扩展 V3 不可变 Impact owner 模型；若后续要全局 previous-hash 时序守卫，需要独立可回滚迁移。

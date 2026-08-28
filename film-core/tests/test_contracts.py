@@ -61,6 +61,8 @@ def test_committed_openapi_matches_export_and_marks_implementation_state() -> No
         "/entities/{filmEntityId}",
         "/formal-records/{filmEntityId}",
         "/formal-records",
+        "/spatial-versions/{filmEntityId}",
+        "/spatial-versions",
         "/script-structure-maps/{filmEntityId}",
         "/script-structure-maps",
         "/impacts",
@@ -92,3 +94,5 @@ def test_impact_contract_paths_are_registered_as_runtime_routes(tmp_path) -> Non
     assert "/reviews" in runtime_paths
     assert "/prompts/compile" in runtime_paths
     assert "/continuity/check" in runtime_paths
+    assert "/spatial-versions" in runtime_paths
+    assert "/spatial-versions/{filmEntityId}" in runtime_paths

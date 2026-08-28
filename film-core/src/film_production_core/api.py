@@ -36,6 +36,10 @@ from film_production_core.formal_models import (
     ReviewCreateRequest,
     ScriptVersionLockRequest,
     ScriptVersionLockResult,
+    SpatialVersionApplyResult,
+    SpatialVersionCreateRequest,
+    SpatialVersion,
+    SpatialVersionUpdateRequest,
 )
 from film_production_core.formal_service import FormalService
 from film_production_core.impact_models import (
@@ -82,7 +86,7 @@ def create_app(database_path: str | Path | None = None) -> FastAPI:
     impact_service = ImpactService(impact_repository, formal_service)
     app = FastAPI(
         title="FilmOS Studio Film Core API",
-        version="0.3.0",
+        version="0.4.0",
         description=(
             "Sidecar Film Core contract. Yingce remains authoritative for generic "
             "Host Project, ProjectUnit, Shot, Asset, Workflow and Task entities."
@@ -231,6 +235,37 @@ def create_app(database_path: str | Path | None = None) -> FastAPI:
         request: FormalRecordCreateRequest,
     ) -> FormalRecordApplyResult:
         return formal_service.create_record(request)
+
+    @app.get(
+        "/spatial-versions/{filmEntityId}",
+        response_model=SpatialVersion,
+        operation_id="filmSpatialVersionGet",
+        responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}},
+    )
+    def spatial_version_get(filmEntityId: UUID4) -> SpatialVersion:
+        return formal_service.spatial_version(str(filmEntityId))
+
+    @app.post(
+        "/spatial-versions",
+        response_model=SpatialVersionApplyResult,
+        operation_id="filmSpatialVersionCreate",
+        responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}},
+    )
+    def spatial_version_create(
+        request: SpatialVersionCreateRequest,
+    ) -> SpatialVersionApplyResult:
+        return formal_service.create_spatial_version(request)
+
+    @app.put(
+        "/spatial-versions/{filmEntityId}",
+        response_model=SpatialVersionApplyResult,
+        operation_id="filmSpatialVersionUpdate",
+        responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}},
+    )
+    def spatial_version_update(
+        filmEntityId: UUID4, request: SpatialVersionUpdateRequest
+    ) -> SpatialVersionApplyResult:
+        return formal_service.update_spatial_version(str(filmEntityId), request)
 
     @app.get(
         "/script-structure-maps/{filmEntityId}",

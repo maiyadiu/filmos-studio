@@ -37,6 +37,8 @@ EXPECTED_IMPLEMENTED_PATHS = {
     "/reviews",
     "/approvals",
     "/continuity/check",
+    "/spatial-versions",
+    "/spatial-versions/{filmEntityId}",
     "/commands/preview",
     "/commands/apply",
     "/audit-events",
@@ -60,6 +62,10 @@ REQUIRED_CHAIN_DEFS = {
     "Review",
     "Approval",
     "ContinuityCheckResult",
+    "SceneTwinVersion",
+    "CameraVersion",
+    "BlockingVersion",
+    "CompositionVersion",
     "ScriptStructureMap",
     "ImpactEdge",
     "ImpactQueryResult",
@@ -78,7 +84,7 @@ def main() -> None:
     openapi = load_json(OPENAPI_PATH)
     definitions = schema["$defs"]
 
-    assert schema["schema_version"] == "0.3.0"
+    assert schema["schema_version"] == "0.4.0"
     assert REQUIRED_CHAIN_DEFS <= set(definitions)
 
     axes = definitions["FormalStateAxes"]
@@ -144,6 +150,9 @@ def main() -> None:
         "ScriptStructureMapCreateRequest",
         "ImpactEdgeCreateRequest",
         "StalePropagationRequest",
+        "SpatialVersionCreateRequest",
+        "SpatialVersionUpdateRequest",
+        "SpatialVersionApplyResult",
     ):
         assert request_name in openapi["components"]["schemas"]
 

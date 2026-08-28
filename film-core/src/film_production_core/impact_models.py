@@ -105,11 +105,22 @@ class AssetBindingSourceImpactScope(StrictModel):
     asset_content_hash: str = Field(pattern=HASH_PATTERN)
 
 
+class SpatialVersionComponentImpactScope(StrictModel):
+    kind: Literal["spatial_version_component"]
+    component_key: str = Field(min_length=1, max_length=256)
+
+    @field_validator("component_key")
+    @classmethod
+    def validate_component_key(cls, value: str) -> str:
+        return require_opaque_id(value, "component_key")
+
+
 ImpactScope: TypeAlias = Annotated[
     ScriptCueImpactScope
     | ScriptSectionImpactScope
     | VisualLockComponentImpactScope
-    | AssetBindingSourceImpactScope,
+    | AssetBindingSourceImpactScope
+    | SpatialVersionComponentImpactScope,
     Field(discriminator="kind"),
 ]
 

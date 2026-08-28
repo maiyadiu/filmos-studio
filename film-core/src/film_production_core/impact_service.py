@@ -22,6 +22,7 @@ from film_production_core.impact_models import (
     ScriptStructureMapCreateRequest,
     StalePropagationRequest,
     StalePropagationResult,
+    SpatialVersionComponentImpactScope,
     VisualLockComponentImpactScope,
 )
 from film_production_core.impact_repository import ImpactRepository
@@ -34,7 +35,88 @@ IMPACT_OWNER_TYPES = {
     EntityType.SCRIPT_VERSION.value,
     EntityType.VISUAL_LOCK_SET.value,
     EntityType.ASSET_BINDING.value,
+    EntityType.SCENE_TWIN_VERSION.value,
+    EntityType.CAMERA_VERSION.value,
+    EntityType.BLOCKING_VERSION.value,
+    EntityType.COMPOSITION_VERSION.value,
 }
+
+
+def spatial_component_hashes(owner) -> dict[str, str]:
+    owner_type = enum_value(owner.ref.entity_type)
+
+    def dumped(value):
+        if hasattr(value, "model_dump"):
+            return value.model_dump(mode="json")
+        if isinstance(value, list):
+            return [dumped(item) for item in value]
+        return value
+
+    if owner_type == EntityType.SCENE_TWIN_VERSION.value:
+        return {
+            "coordinate_system": hash_json(dumped(owner.coordinate_system)),
+            "geometry": owner.geometry_content_hash,
+            "fixed_architecture": hash_json(dumped(owner.fixed_architecture)),
+            "fixed_props": hash_json(dumped(owner.fixed_props)),
+            "portals": hash_json(dumped(owner.portals)),
+            "walkable_zones": hash_json(dumped(owner.walkable_zones)),
+            "anchors": hash_json(dumped(owner.anchors)),
+            "camera_zones": hash_json(dumped(owner.camera_zones)),
+            "lighting_base": hash_json(owner.lighting_base),
+            "approved_view_families": hash_json(
+                dumped(owner.approved_view_families)
+            ),
+            "render_passes": hash_json(dumped(owner.render_passes)),
+        }
+    if owner_type == EntityType.CAMERA_VERSION.value:
+        return {
+            "scene_twin_ref": owner.scene_twin.content_hash,
+            "position_anchor": hash_json(owner.position_anchor_id),
+            "target_anchor": hash_json(owner.target_anchor_id),
+            "axis_contract": hash_json(
+                {
+                    "axis_id": owner.axis_id,
+                    "camera_side": owner.camera_side,
+                    "screen_direction": owner.screen_direction,
+                }
+            ),
+            "transform": hash_json(dumped(owner.transform)),
+            "lens": hash_json(dumped(owner.lens)),
+            "camera_zone": hash_json(owner.camera_zone_id),
+            "approved_view_family": hash_json(owner.approved_view_family_id),
+        }
+    if owner_type == EntityType.BLOCKING_VERSION.value:
+        result = {
+            "scene_twin_ref": owner.scene_twin.content_hash,
+            "beat": hash_json(owner.beat_id),
+            "actors": hash_json(dumped(owner.actors)),
+        }
+        result.update(
+            {
+                f"actor:{actor.actor_id}": hash_json(dumped(actor))
+                for actor in owner.actors
+            }
+        )
+        return result
+    if owner_type == EntityType.COMPOSITION_VERSION.value:
+        return {
+            "scene_twin_ref": owner.scene_twin.content_hash,
+            "camera_ref": owner.camera.content_hash,
+            "blocking_ref": owner.blocking.content_hash,
+            "layout": hash_json(
+                {
+                    "aspect_ratio": owner.aspect_ratio,
+                    "framing": owner.framing,
+                    "screen_direction": owner.screen_direction,
+                    "subjects": dumped(owner.subjects),
+                }
+            ),
+            "occlusion_constraints": hash_json(
+                dumped(owner.occlusion_constraints)
+            ),
+            "safe_area": hash_json(dumped(owner.safe_area)),
+        }
+    return {}
 
 
 class ImpactService:
@@ -417,6 +499,29 @@ class ImpactService:
                     "Impact scope must bind the current AssetBinding source hash",
                 )
             expected_hash = owner.asset_content_hash
+        elif owner_type in {
+            EntityType.SCENE_TWIN_VERSION.value,
+            EntityType.CAMERA_VERSION.value,
+            EntityType.BLOCKING_VERSION.value,
+            EntityType.COMPOSITION_VERSION.value,
+        }:
+            if not isinstance(scope, SpatialVersionComponentImpactScope):
+                raise DomainRuleViolation(
+                    "spatial_version_impact_scope_required",
+                    "Spatial version impacts require spatial_version_component scope",
+                )
+            if dependency_key != scope.component_key:
+                raise DomainRuleViolation(
+                    "dependency_key_scope_mismatch",
+                    "Spatial dependency_key must equal scope.component_key",
+                )
+            components = spatial_component_hashes(owner)
+            expected_hash = components.get(dependency_key, "")
+            if not expected_hash:
+                raise DomainRuleViolation(
+                    "spatial_component_missing",
+                    "Spatial version does not declare the requested exact component",
+                )
         else:  # pragma: no cover - owner type is checked before this method
             raise DomainRuleViolation(
                 "impact_owner_type_mismatch", "Unsupported impact dependency owner"

@@ -4,7 +4,7 @@ import sqlite3
 from pathlib import Path
 
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 MIGRATION_001 = """
 CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -400,7 +400,94 @@ BEGIN
 END;
 """
 
-MIGRATIONS = ((1, MIGRATION_001), (2, MIGRATION_002), (3, MIGRATION_003))
+MIGRATION_004 = """
+PRAGMA foreign_keys = OFF;
+BEGIN IMMEDIATE;
+
+CREATE TABLE formal_records_v4 (
+    film_entity_id TEXT PRIMARY KEY CHECK (
+        length(film_entity_id) = 36
+        AND film_entity_id = lower(film_entity_id)
+        AND substr(film_entity_id, 9, 1) = '-'
+        AND substr(film_entity_id, 14, 1) = '-'
+        AND substr(film_entity_id, 15, 1) = '4'
+        AND substr(film_entity_id, 19, 1) = '-'
+        AND substr(film_entity_id, 20, 1) IN ('8', '9', 'a', 'b')
+        AND substr(film_entity_id, 24, 1) = '-'
+    ),
+    entity_type TEXT NOT NULL CHECK (
+        entity_type IN (
+            'script_version', 'script_decision', 'director_unit', 'coverage_link',
+            'visual_lock_set', 'asset_binding',
+            'prompt_draft', 'prompt_draft_provenance',
+            'generation_package', 'generation_attempt_evidence',
+            'candidate', 'review', 'approval', 'continuity_check_result',
+            'scene_twin_version', 'camera_version', 'blocking_version',
+            'composition_version'
+        )
+    ),
+    version INTEGER NOT NULL CHECK (version >= 1),
+    content_hash TEXT NOT NULL CHECK (
+        length(content_hash) = 64
+        AND content_hash = lower(content_hash)
+        AND content_hash NOT GLOB '*[^0-9a-f]*'
+    ),
+    payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+INSERT INTO formal_records_v4(
+    film_entity_id, entity_type, version, content_hash,
+    payload_json, created_at, updated_at
+)
+SELECT
+    film_entity_id, entity_type, version, content_hash,
+    payload_json, created_at, updated_at
+FROM formal_records;
+
+DROP TABLE formal_records;
+ALTER TABLE formal_records_v4 RENAME TO formal_records;
+
+CREATE INDEX idx_formal_records_type_created
+ON formal_records(entity_type, created_at, film_entity_id);
+
+CREATE TABLE spatial_version_receipts (
+    idempotency_key TEXT PRIMARY KEY,
+    request_hash TEXT NOT NULL CHECK (
+        length(request_hash) = 64
+        AND request_hash = lower(request_hash)
+        AND request_hash NOT GLOB '*[^0-9a-f]*'
+    ),
+    response_json TEXT NOT NULL CHECK (json_valid(response_json)),
+    created_at TEXT NOT NULL
+);
+
+CREATE TRIGGER spatial_version_receipts_no_update
+BEFORE UPDATE ON spatial_version_receipts
+BEGIN
+    SELECT RAISE(ABORT, 'spatial_version_receipts are append-only');
+END;
+
+CREATE TRIGGER spatial_version_receipts_no_delete
+BEFORE DELETE ON spatial_version_receipts
+BEGIN
+    SELECT RAISE(ABORT, 'spatial_version_receipts are append-only');
+END;
+
+INSERT INTO schema_migrations(version, applied_at)
+VALUES (4, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
+
+COMMIT;
+PRAGMA foreign_keys = ON;
+"""
+
+MIGRATIONS = (
+    (1, MIGRATION_001),
+    (2, MIGRATION_002),
+    (3, MIGRATION_003),
+    (4, MIGRATION_004),
+)
 
 
 class SQLiteDatabase:
@@ -423,12 +510,34 @@ class SQLiteDatabase:
 
     def migrate(self) -> None:
         with self.connect() as connection:
-            for version, migration in MIGRATIONS:
+            connection.executescript(MIGRATION_001)
+            connection.execute(
+                "INSERT OR IGNORE INTO schema_migrations(version, applied_at) "
+                "VALUES (1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
+            )
+            applied = {
+                int(row["version"])
+                for row in connection.execute(
+                    "SELECT version FROM schema_migrations"
+                ).fetchall()
+            }
+            for version, migration in MIGRATIONS[1:]:
+                if version in applied:
+                    continue
                 connection.executescript(migration)
-                connection.execute(
-                    "INSERT OR IGNORE INTO schema_migrations(version, applied_at) "
-                    "VALUES (?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
-                    (version,),
+                marker = connection.execute(
+                    "SELECT 1 FROM schema_migrations WHERE version = ?", (version,)
+                ).fetchone()
+                if marker is None:
+                    connection.execute(
+                        "INSERT INTO schema_migrations(version, applied_at) "
+                        "VALUES (?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
+                        (version,),
+                    )
+            violations = connection.execute("PRAGMA foreign_key_check").fetchall()
+            if violations:
+                raise sqlite3.IntegrityError(
+                    f"foreign key violations after migration: {len(violations)}"
                 )
 
     def health(self) -> tuple[int, str]:

@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://filmos.local/contracts/v0.3/core.schema.json",
-  "title": "FilmOS Studio Core Contracts V0.3",
-  "schema_version": "0.3.0",
+  "$id": "https://filmos.local/contracts/v0.4/core.schema.json",
+  "title": "FilmOS Studio Core Contracts V0.4",
+  "schema_version": "0.4.0",
   "$defs": {
     "FilmEntityId": {
       "type": "string",
@@ -391,6 +391,911 @@
       },
       "additionalProperties": false
     },
+      "VersionSnapshot": {
+        "additionalProperties": false,
+        "properties": {
+          "film_entity_id": {
+            "format": "uuid4",
+            "title": "Film Entity Id",
+            "type": "string"
+          },
+          "version": {
+            "minimum": 1,
+            "title": "Version",
+            "type": "integer"
+          },
+          "content_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Content Hash",
+            "type": "string"
+          }
+        },
+        "required": [
+          "film_entity_id",
+          "version",
+          "content_hash"
+        ],
+        "title": "VersionSnapshot",
+        "type": "object"
+      },
+      "Vector3": {
+        "additionalProperties": false,
+        "properties": {
+          "x": {
+            "maximum": 1000000,
+            "minimum": -1000000,
+            "title": "X",
+            "type": "number"
+          },
+          "y": {
+            "maximum": 1000000,
+            "minimum": -1000000,
+            "title": "Y",
+            "type": "number"
+          },
+          "z": {
+            "maximum": 1000000,
+            "minimum": -1000000,
+            "title": "Z",
+            "type": "number"
+          }
+        },
+        "required": [
+          "x",
+          "y",
+          "z"
+        ],
+        "title": "Vector3",
+        "type": "object"
+      },
+      "EulerDegrees": {
+        "additionalProperties": false,
+        "properties": {
+          "x": {
+            "maximum": 360000,
+            "minimum": -360000,
+            "title": "X",
+            "type": "number"
+          },
+          "y": {
+            "maximum": 360000,
+            "minimum": -360000,
+            "title": "Y",
+            "type": "number"
+          },
+          "z": {
+            "maximum": 360000,
+            "minimum": -360000,
+            "title": "Z",
+            "type": "number"
+          }
+        },
+        "required": [
+          "x",
+          "y",
+          "z"
+        ],
+        "title": "EulerDegrees",
+        "type": "object"
+      },
+      "SpatialTransform": {
+        "additionalProperties": false,
+        "properties": {
+          "position": {
+            "$ref": "#/$defs/Vector3"
+          },
+          "rotation_degrees": {
+            "$ref": "#/$defs/EulerDegrees"
+          }
+        },
+        "required": [
+          "position",
+          "rotation_degrees"
+        ],
+        "title": "SpatialTransform",
+        "type": "object"
+      },
+      "CoordinateSystem": {
+        "additionalProperties": false,
+        "properties": {
+          "units": {
+            "const": "meters",
+            "default": "meters",
+            "title": "Units",
+            "type": "string"
+          },
+          "handedness": {
+            "enum": [
+              "right_handed",
+              "left_handed"
+            ],
+            "title": "Handedness",
+            "type": "string"
+          },
+          "up_axis": {
+            "enum": [
+              "y",
+              "z"
+            ],
+            "title": "Up Axis",
+            "type": "string"
+          },
+          "origin_anchor_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Origin Anchor Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "handedness",
+          "up_axis",
+          "origin_anchor_id"
+        ],
+        "title": "CoordinateSystem",
+        "type": "object"
+      },
+      "SpatialObject": {
+        "additionalProperties": false,
+        "properties": {
+          "object_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Object Id",
+            "type": "string"
+          },
+          "geometry_content_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Geometry Content Hash",
+            "type": "string"
+          },
+          "transform": {
+            "$ref": "#/$defs/SpatialTransform"
+          }
+        },
+        "required": [
+          "object_id",
+          "geometry_content_hash",
+          "transform"
+        ],
+        "title": "SpatialObject",
+        "type": "object"
+      },
+      "SpatialAnchor": {
+        "additionalProperties": false,
+        "properties": {
+          "anchor_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Anchor Id",
+            "type": "string"
+          },
+          "position": {
+            "$ref": "#/$defs/Vector3"
+          }
+        },
+        "required": [
+          "anchor_id",
+          "position"
+        ],
+        "title": "SpatialAnchor",
+        "type": "object"
+      },
+      "SpatialPortal": {
+        "additionalProperties": false,
+        "properties": {
+          "portal_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Portal Id",
+            "type": "string"
+          },
+          "from_anchor_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "From Anchor Id",
+            "type": "string"
+          },
+          "to_anchor_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "To Anchor Id",
+            "type": "string"
+          },
+          "passable": {
+            "title": "Passable",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "portal_id",
+          "from_anchor_id",
+          "to_anchor_id",
+          "passable"
+        ],
+        "title": "SpatialPortal",
+        "type": "object"
+      },
+      "SpatialZone": {
+        "additionalProperties": false,
+        "properties": {
+          "zone_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Zone Id",
+            "type": "string"
+          },
+          "polygon": {
+            "items": {
+              "$ref": "#/$defs/Vector3"
+            },
+            "minItems": 3,
+            "title": "Polygon",
+            "type": "array"
+          }
+        },
+        "required": [
+          "zone_id",
+          "polygon"
+        ],
+        "title": "SpatialZone",
+        "type": "object"
+      },
+      "ApprovedViewFamily": {
+        "additionalProperties": false,
+        "properties": {
+          "family_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Family Id",
+            "type": "string"
+          },
+          "camera_zone_ids": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Camera Zone Ids",
+            "type": "array"
+          },
+          "screen_direction": {
+            "enum": [
+              "left_to_right",
+              "right_to_left",
+              "neutral"
+            ],
+            "title": "Screen Direction",
+            "type": "string"
+          }
+        },
+        "required": [
+          "family_id",
+          "camera_zone_ids",
+          "screen_direction"
+        ],
+        "title": "ApprovedViewFamily",
+        "type": "object"
+      },
+      "SceneRenderPass": {
+        "additionalProperties": false,
+        "properties": {
+          "pass_kind": {
+            "enum": [
+              "rgb",
+              "depth",
+              "normal",
+              "object_id"
+            ],
+            "title": "Pass Kind",
+            "type": "string"
+          },
+          "host_resource_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Host Resource Id",
+            "type": "string"
+          },
+          "content_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Content Hash",
+            "type": "string"
+          }
+        },
+        "required": [
+          "pass_kind",
+          "host_resource_id",
+          "content_hash"
+        ],
+        "title": "SceneRenderPass",
+        "type": "object"
+      },
+      "SceneTwinVersion": {
+        "additionalProperties": false,
+        "properties": {
+          "ref": {
+            "$ref": "#/$defs/FilmEntityRef"
+          },
+          "project": {
+            "$ref": "#/$defs/VersionSnapshot"
+          },
+          "content_unit": {
+            "$ref": "#/$defs/VersionSnapshot"
+          },
+          "states": {
+            "$ref": "#/$defs/FormalStateAxes"
+          },
+          "coordinate_system": {
+            "$ref": "#/$defs/CoordinateSystem"
+          },
+          "geometry_content_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Geometry Content Hash",
+            "type": "string"
+          },
+          "fixed_architecture": {
+            "items": {
+              "$ref": "#/$defs/SpatialObject"
+            },
+            "title": "Fixed Architecture",
+            "type": "array"
+          },
+          "fixed_props": {
+            "items": {
+              "$ref": "#/$defs/SpatialObject"
+            },
+            "title": "Fixed Props",
+            "type": "array"
+          },
+          "portals": {
+            "items": {
+              "$ref": "#/$defs/SpatialPortal"
+            },
+            "title": "Portals",
+            "type": "array"
+          },
+          "walkable_zones": {
+            "items": {
+              "$ref": "#/$defs/SpatialZone"
+            },
+            "title": "Walkable Zones",
+            "type": "array"
+          },
+          "anchors": {
+            "items": {
+              "$ref": "#/$defs/SpatialAnchor"
+            },
+            "title": "Anchors",
+            "type": "array"
+          },
+          "camera_zones": {
+            "items": {
+              "$ref": "#/$defs/SpatialZone"
+            },
+            "title": "Camera Zones",
+            "type": "array"
+          },
+          "lighting_base": {
+            "additionalProperties": true,
+            "title": "Lighting Base",
+            "type": "object"
+          },
+          "approved_view_families": {
+            "items": {
+              "$ref": "#/$defs/ApprovedViewFamily"
+            },
+            "title": "Approved View Families",
+            "type": "array"
+          },
+          "render_passes": {
+            "items": {
+              "$ref": "#/$defs/SceneRenderPass"
+            },
+            "title": "Render Passes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "ref",
+          "project",
+          "content_unit",
+          "states",
+          "coordinate_system",
+          "geometry_content_hash",
+          "fixed_architecture",
+          "fixed_props",
+          "portals",
+          "walkable_zones",
+          "anchors",
+          "camera_zones",
+          "lighting_base",
+          "approved_view_families",
+          "render_passes"
+        ],
+        "title": "SceneTwinVersion",
+        "type": "object"
+      },
+      "CameraLens": {
+        "additionalProperties": false,
+        "properties": {
+          "focal_length_mm": {
+            "exclusiveMinimum": 0,
+            "maximum": 2000,
+            "title": "Focal Length Mm",
+            "type": "number"
+          },
+          "sensor_width_mm": {
+            "exclusiveMinimum": 0,
+            "maximum": 500,
+            "title": "Sensor Width Mm",
+            "type": "number"
+          },
+          "focus_distance_m": {
+            "exclusiveMinimum": 0,
+            "maximum": 1000000,
+            "title": "Focus Distance M",
+            "type": "number"
+          },
+          "aperture_f": {
+            "exclusiveMinimum": 0,
+            "maximum": 128,
+            "title": "Aperture F",
+            "type": "number"
+          }
+        },
+        "required": [
+          "focal_length_mm",
+          "sensor_width_mm",
+          "focus_distance_m",
+          "aperture_f"
+        ],
+        "title": "CameraLens",
+        "type": "object"
+      },
+      "CameraVersion": {
+        "additionalProperties": false,
+        "properties": {
+          "ref": {
+            "$ref": "#/$defs/FilmEntityRef"
+          },
+          "shot": {
+            "$ref": "#/$defs/VersionSnapshot"
+          },
+          "scene_twin": {
+            "$ref": "#/$defs/VersionSnapshot"
+          },
+          "states": {
+            "$ref": "#/$defs/FormalStateAxes"
+          },
+          "camera_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Camera Id",
+            "type": "string"
+          },
+          "position_anchor_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Position Anchor Id",
+            "type": "string"
+          },
+          "target_anchor_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Target Anchor Id",
+            "type": "string"
+          },
+          "camera_side": {
+            "enum": [
+              "left",
+              "right",
+              "on_axis"
+            ],
+            "title": "Camera Side",
+            "type": "string"
+          },
+          "axis_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Axis Id",
+            "type": "string"
+          },
+          "screen_direction": {
+            "enum": [
+              "left_to_right",
+              "right_to_left",
+              "neutral"
+            ],
+            "title": "Screen Direction",
+            "type": "string"
+          },
+          "transform": {
+            "$ref": "#/$defs/SpatialTransform"
+          },
+          "lens": {
+            "$ref": "#/$defs/CameraLens"
+          },
+          "camera_zone_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Camera Zone Id",
+            "type": "string"
+          },
+          "approved_view_family_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Approved View Family Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ref",
+          "shot",
+          "scene_twin",
+          "states",
+          "camera_id",
+          "position_anchor_id",
+          "target_anchor_id",
+          "camera_side",
+          "axis_id",
+          "screen_direction",
+          "transform",
+          "lens",
+          "camera_zone_id",
+          "approved_view_family_id"
+        ],
+        "title": "CameraVersion",
+        "type": "object"
+      },
+      "BlockingActorState": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Actor Id",
+            "type": "string"
+          },
+          "feet_anchor_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Feet Anchor Id",
+            "type": "string"
+          },
+          "position": {
+            "$ref": "#/$defs/Vector3"
+          },
+          "torso_rotation_degrees": {
+            "$ref": "#/$defs/EulerDegrees"
+          },
+          "face_target_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Face Target Id",
+            "type": "string"
+          },
+          "gaze_target_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Gaze Target Id",
+            "type": "string"
+          },
+          "left_hand_target_id": {
+            "anyOf": [
+              {
+                "maxLength": 256,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Left Hand Target Id"
+          },
+          "right_hand_target_id": {
+            "anyOf": [
+              {
+                "maxLength": 256,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Right Hand Target Id"
+          },
+          "action_in": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Action In",
+            "type": "string"
+          },
+          "action_out": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Action Out",
+            "type": "string"
+          },
+          "axis_side_in": {
+            "enum": [
+              "left",
+              "right",
+              "on_axis"
+            ],
+            "title": "Axis Side In",
+            "type": "string"
+          },
+          "axis_side_out": {
+            "enum": [
+              "left",
+              "right",
+              "on_axis"
+            ],
+            "title": "Axis Side Out",
+            "type": "string"
+          },
+          "prop_contact_in_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Prop Contact In Ids",
+            "type": "array"
+          },
+          "prop_contact_out_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Prop Contact Out Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "actor_id",
+          "feet_anchor_id",
+          "position",
+          "torso_rotation_degrees",
+          "face_target_id",
+          "gaze_target_id",
+          "action_in",
+          "action_out",
+          "axis_side_in",
+          "axis_side_out"
+        ],
+        "title": "BlockingActorState",
+        "type": "object"
+      },
+      "BlockingVersion": {
+        "additionalProperties": false,
+        "properties": {
+          "ref": {
+            "$ref": "#/$defs/FilmEntityRef"
+          },
+          "shot": {
+            "$ref": "#/$defs/VersionSnapshot"
+          },
+          "scene_twin": {
+            "$ref": "#/$defs/VersionSnapshot"
+          },
+          "states": {
+            "$ref": "#/$defs/FormalStateAxes"
+          },
+          "beat_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Beat Id",
+            "type": "string"
+          },
+          "actors": {
+            "items": {
+              "$ref": "#/$defs/BlockingActorState"
+            },
+            "minItems": 1,
+            "title": "Actors",
+            "type": "array"
+          }
+        },
+        "required": [
+          "ref",
+          "shot",
+          "scene_twin",
+          "states",
+          "beat_id",
+          "actors"
+        ],
+        "title": "BlockingVersion",
+        "type": "object"
+      },
+      "CompositionSubject": {
+        "additionalProperties": false,
+        "properties": {
+          "subject_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Subject Id",
+            "type": "string"
+          },
+          "frame_x": {
+            "maximum": 1,
+            "minimum": 0,
+            "title": "Frame X",
+            "type": "number"
+          },
+          "frame_y": {
+            "maximum": 1,
+            "minimum": 0,
+            "title": "Frame Y",
+            "type": "number"
+          },
+          "frame_width": {
+            "exclusiveMinimum": 0,
+            "maximum": 1,
+            "title": "Frame Width",
+            "type": "number"
+          },
+          "frame_height": {
+            "exclusiveMinimum": 0,
+            "maximum": 1,
+            "title": "Frame Height",
+            "type": "number"
+          }
+        },
+        "required": [
+          "subject_id",
+          "frame_x",
+          "frame_y",
+          "frame_width",
+          "frame_height"
+        ],
+        "title": "CompositionSubject",
+        "type": "object"
+      },
+      "OcclusionConstraint": {
+        "additionalProperties": false,
+        "properties": {
+          "occluder_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Occluder Id",
+            "type": "string"
+          },
+          "subject_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Subject Id",
+            "type": "string"
+          },
+          "max_occlusion_ratio": {
+            "maximum": 1,
+            "minimum": 0,
+            "title": "Max Occlusion Ratio",
+            "type": "number"
+          }
+        },
+        "required": [
+          "occluder_id",
+          "subject_id",
+          "max_occlusion_ratio"
+        ],
+        "title": "OcclusionConstraint",
+        "type": "object"
+      },
+      "FrameSafeArea": {
+        "additionalProperties": false,
+        "properties": {
+          "left": {
+            "exclusiveMaximum": 0.5,
+            "minimum": 0,
+            "title": "Left",
+            "type": "number"
+          },
+          "right": {
+            "exclusiveMaximum": 0.5,
+            "minimum": 0,
+            "title": "Right",
+            "type": "number"
+          },
+          "top": {
+            "exclusiveMaximum": 0.5,
+            "minimum": 0,
+            "title": "Top",
+            "type": "number"
+          },
+          "bottom": {
+            "exclusiveMaximum": 0.5,
+            "minimum": 0,
+            "title": "Bottom",
+            "type": "number"
+          }
+        },
+        "required": [
+          "left",
+          "right",
+          "top",
+          "bottom"
+        ],
+        "title": "FrameSafeArea",
+        "type": "object"
+      },
+      "CompositionVersion": {
+        "additionalProperties": false,
+        "properties": {
+          "ref": {
+            "$ref": "#/$defs/FilmEntityRef"
+          },
+          "shot": {
+            "$ref": "#/$defs/VersionSnapshot"
+          },
+          "scene_twin": {
+            "$ref": "#/$defs/VersionSnapshot"
+          },
+          "camera": {
+            "$ref": "#/$defs/VersionSnapshot"
+          },
+          "blocking": {
+            "$ref": "#/$defs/VersionSnapshot"
+          },
+          "states": {
+            "$ref": "#/$defs/FormalStateAxes"
+          },
+          "aspect_ratio": {
+            "pattern": "^[1-9][0-9]{0,3}:[1-9][0-9]{0,3}$",
+            "title": "Aspect Ratio",
+            "type": "string"
+          },
+          "framing": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Framing",
+            "type": "string"
+          },
+          "screen_direction": {
+            "enum": [
+              "left_to_right",
+              "right_to_left",
+              "neutral"
+            ],
+            "title": "Screen Direction",
+            "type": "string"
+          },
+          "subjects": {
+            "items": {
+              "$ref": "#/$defs/CompositionSubject"
+            },
+            "minItems": 1,
+            "title": "Subjects",
+            "type": "array"
+          },
+          "occlusion_constraints": {
+            "items": {
+              "$ref": "#/$defs/OcclusionConstraint"
+            },
+            "title": "Occlusion Constraints",
+            "type": "array"
+          },
+          "safe_area": {
+            "$ref": "#/$defs/FrameSafeArea"
+          }
+        },
+        "required": [
+          "ref",
+          "shot",
+          "scene_twin",
+          "camera",
+          "blocking",
+          "states",
+          "aspect_ratio",
+          "framing",
+          "screen_direction",
+          "subjects",
+          "occlusion_constraints",
+          "safe_area"
+        ],
+        "title": "CompositionVersion",
+        "type": "object"
+      },
     "AuditEvent": {
       "type": "object",
       "required": ["event_id", "actor_kind", "action", "target_id", "recorded_at"],
@@ -474,12 +1379,22 @@
       },
       "additionalProperties": false
     },
+    "SpatialVersionComponentImpactScope": {
+      "type": "object",
+      "required": ["kind", "component_key"],
+      "properties": {
+        "kind": { "const": "spatial_version_component" },
+        "component_key": { "type": "string", "minLength": 1, "maxLength": 256 }
+      },
+      "additionalProperties": false
+    },
     "ImpactScope": {
       "oneOf": [
         { "$ref": "#/$defs/ScriptCueImpactScope" },
         { "$ref": "#/$defs/ScriptSectionImpactScope" },
         { "$ref": "#/$defs/VisualLockComponentImpactScope" },
-        { "$ref": "#/$defs/AssetBindingSourceImpactScope" }
+        { "$ref": "#/$defs/AssetBindingSourceImpactScope" },
+        { "$ref": "#/$defs/SpatialVersionComponentImpactScope" }
       ]
     },
     "ImpactEdge": {

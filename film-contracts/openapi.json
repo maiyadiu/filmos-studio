@@ -88,6 +88,41 @@
         "title": "ApprovalCreateRequest",
         "type": "object"
       },
+      "ApprovedViewFamily": {
+        "additionalProperties": false,
+        "properties": {
+          "camera_zone_ids": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Camera Zone Ids",
+            "type": "array"
+          },
+          "family_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Family Id",
+            "type": "string"
+          },
+          "screen_direction": {
+            "enum": [
+              "left_to_right",
+              "right_to_left",
+              "neutral"
+            ],
+            "title": "Screen Direction",
+            "type": "string"
+          }
+        },
+        "required": [
+          "family_id",
+          "camera_zone_ids",
+          "screen_direction"
+        ],
+        "title": "ApprovedViewFamily",
+        "type": "object"
+      },
       "AssetBinding": {
         "additionalProperties": false,
         "properties": {
@@ -189,6 +224,166 @@
         "title": "AuditEvent",
         "type": "object"
       },
+      "BlockingActorState": {
+        "additionalProperties": false,
+        "properties": {
+          "action_in": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Action In",
+            "type": "string"
+          },
+          "action_out": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Action Out",
+            "type": "string"
+          },
+          "actor_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Actor Id",
+            "type": "string"
+          },
+          "axis_side_in": {
+            "enum": [
+              "left",
+              "right",
+              "on_axis"
+            ],
+            "title": "Axis Side In",
+            "type": "string"
+          },
+          "axis_side_out": {
+            "enum": [
+              "left",
+              "right",
+              "on_axis"
+            ],
+            "title": "Axis Side Out",
+            "type": "string"
+          },
+          "face_target_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Face Target Id",
+            "type": "string"
+          },
+          "feet_anchor_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Feet Anchor Id",
+            "type": "string"
+          },
+          "gaze_target_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Gaze Target Id",
+            "type": "string"
+          },
+          "left_hand_target_id": {
+            "anyOf": [
+              {
+                "maxLength": 256,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Left Hand Target Id"
+          },
+          "position": {
+            "$ref": "#/components/schemas/Vector3"
+          },
+          "prop_contact_in_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Prop Contact In Ids",
+            "type": "array"
+          },
+          "prop_contact_out_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Prop Contact Out Ids",
+            "type": "array"
+          },
+          "right_hand_target_id": {
+            "anyOf": [
+              {
+                "maxLength": 256,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Right Hand Target Id"
+          },
+          "torso_rotation_degrees": {
+            "$ref": "#/components/schemas/EulerDegrees"
+          }
+        },
+        "required": [
+          "actor_id",
+          "feet_anchor_id",
+          "position",
+          "torso_rotation_degrees",
+          "face_target_id",
+          "gaze_target_id",
+          "action_in",
+          "action_out",
+          "axis_side_in",
+          "axis_side_out"
+        ],
+        "title": "BlockingActorState",
+        "type": "object"
+      },
+      "BlockingVersion": {
+        "additionalProperties": false,
+        "properties": {
+          "actors": {
+            "items": {
+              "$ref": "#/components/schemas/BlockingActorState"
+            },
+            "minItems": 1,
+            "title": "Actors",
+            "type": "array"
+          },
+          "beat_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Beat Id",
+            "type": "string"
+          },
+          "ref": {
+            "$ref": "#/components/schemas/FilmEntityRef"
+          },
+          "scene_twin": {
+            "$ref": "#/components/schemas/VersionSnapshot"
+          },
+          "shot": {
+            "$ref": "#/components/schemas/VersionSnapshot"
+          },
+          "states": {
+            "$ref": "#/components/schemas/FormalStateAxes"
+          }
+        },
+        "required": [
+          "ref",
+          "shot",
+          "scene_twin",
+          "states",
+          "beat_id",
+          "actors"
+        ],
+        "title": "BlockingVersion",
+        "type": "object"
+      },
       "BoundEntityReference-Input": {
         "additionalProperties": false,
         "properties": {
@@ -263,6 +458,138 @@
           "host"
         ],
         "title": "BoundEntityReference",
+        "type": "object"
+      },
+      "CameraLens": {
+        "additionalProperties": false,
+        "properties": {
+          "aperture_f": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 128.0,
+            "title": "Aperture F",
+            "type": "number"
+          },
+          "focal_length_mm": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 2000.0,
+            "title": "Focal Length Mm",
+            "type": "number"
+          },
+          "focus_distance_m": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 1000000.0,
+            "title": "Focus Distance M",
+            "type": "number"
+          },
+          "sensor_width_mm": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 500.0,
+            "title": "Sensor Width Mm",
+            "type": "number"
+          }
+        },
+        "required": [
+          "focal_length_mm",
+          "sensor_width_mm",
+          "focus_distance_m",
+          "aperture_f"
+        ],
+        "title": "CameraLens",
+        "type": "object"
+      },
+      "CameraVersion": {
+        "additionalProperties": false,
+        "properties": {
+          "approved_view_family_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Approved View Family Id",
+            "type": "string"
+          },
+          "axis_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Axis Id",
+            "type": "string"
+          },
+          "camera_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Camera Id",
+            "type": "string"
+          },
+          "camera_side": {
+            "enum": [
+              "left",
+              "right",
+              "on_axis"
+            ],
+            "title": "Camera Side",
+            "type": "string"
+          },
+          "camera_zone_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Camera Zone Id",
+            "type": "string"
+          },
+          "lens": {
+            "$ref": "#/components/schemas/CameraLens"
+          },
+          "position_anchor_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Position Anchor Id",
+            "type": "string"
+          },
+          "ref": {
+            "$ref": "#/components/schemas/FilmEntityRef"
+          },
+          "scene_twin": {
+            "$ref": "#/components/schemas/VersionSnapshot"
+          },
+          "screen_direction": {
+            "enum": [
+              "left_to_right",
+              "right_to_left",
+              "neutral"
+            ],
+            "title": "Screen Direction",
+            "type": "string"
+          },
+          "shot": {
+            "$ref": "#/components/schemas/VersionSnapshot"
+          },
+          "states": {
+            "$ref": "#/components/schemas/FormalStateAxes"
+          },
+          "target_anchor_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Target Anchor Id",
+            "type": "string"
+          },
+          "transform": {
+            "$ref": "#/components/schemas/SpatialTransform"
+          }
+        },
+        "required": [
+          "ref",
+          "shot",
+          "scene_twin",
+          "states",
+          "camera_id",
+          "position_anchor_id",
+          "target_anchor_id",
+          "camera_side",
+          "axis_id",
+          "screen_direction",
+          "transform",
+          "lens",
+          "camera_zone_id",
+          "approved_view_family_id"
+        ],
+        "title": "CameraVersion",
         "type": "object"
       },
       "Candidate": {
@@ -393,6 +720,127 @@
           "changes"
         ],
         "title": "CommandPreviewResult",
+        "type": "object"
+      },
+      "CompositionSubject": {
+        "additionalProperties": false,
+        "properties": {
+          "frame_height": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 1.0,
+            "title": "Frame Height",
+            "type": "number"
+          },
+          "frame_width": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 1.0,
+            "title": "Frame Width",
+            "type": "number"
+          },
+          "frame_x": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Frame X",
+            "type": "number"
+          },
+          "frame_y": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Frame Y",
+            "type": "number"
+          },
+          "subject_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Subject Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "subject_id",
+          "frame_x",
+          "frame_y",
+          "frame_width",
+          "frame_height"
+        ],
+        "title": "CompositionSubject",
+        "type": "object"
+      },
+      "CompositionVersion": {
+        "additionalProperties": false,
+        "properties": {
+          "aspect_ratio": {
+            "pattern": "^[1-9][0-9]{0,3}:[1-9][0-9]{0,3}$",
+            "title": "Aspect Ratio",
+            "type": "string"
+          },
+          "blocking": {
+            "$ref": "#/components/schemas/VersionSnapshot"
+          },
+          "camera": {
+            "$ref": "#/components/schemas/VersionSnapshot"
+          },
+          "framing": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Framing",
+            "type": "string"
+          },
+          "occlusion_constraints": {
+            "items": {
+              "$ref": "#/components/schemas/OcclusionConstraint"
+            },
+            "title": "Occlusion Constraints",
+            "type": "array"
+          },
+          "ref": {
+            "$ref": "#/components/schemas/FilmEntityRef"
+          },
+          "safe_area": {
+            "$ref": "#/components/schemas/FrameSafeArea"
+          },
+          "scene_twin": {
+            "$ref": "#/components/schemas/VersionSnapshot"
+          },
+          "screen_direction": {
+            "enum": [
+              "left_to_right",
+              "right_to_left",
+              "neutral"
+            ],
+            "title": "Screen Direction",
+            "type": "string"
+          },
+          "shot": {
+            "$ref": "#/components/schemas/VersionSnapshot"
+          },
+          "states": {
+            "$ref": "#/components/schemas/FormalStateAxes"
+          },
+          "subjects": {
+            "items": {
+              "$ref": "#/components/schemas/CompositionSubject"
+            },
+            "minItems": 1,
+            "title": "Subjects",
+            "type": "array"
+          }
+        },
+        "required": [
+          "ref",
+          "shot",
+          "scene_twin",
+          "camera",
+          "blocking",
+          "states",
+          "aspect_ratio",
+          "framing",
+          "screen_direction",
+          "subjects",
+          "occlusion_constraints",
+          "safe_area"
+        ],
+        "title": "CompositionVersion",
         "type": "object"
       },
       "ContentUnitExtension": {
@@ -583,6 +1031,46 @@
         "title": "ContinuityDimension",
         "type": "string"
       },
+      "CoordinateSystem": {
+        "additionalProperties": false,
+        "properties": {
+          "handedness": {
+            "enum": [
+              "right_handed",
+              "left_handed"
+            ],
+            "title": "Handedness",
+            "type": "string"
+          },
+          "origin_anchor_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Origin Anchor Id",
+            "type": "string"
+          },
+          "units": {
+            "const": "meters",
+            "default": "meters",
+            "title": "Units",
+            "type": "string"
+          },
+          "up_axis": {
+            "enum": [
+              "y",
+              "z"
+            ],
+            "title": "Up Axis",
+            "type": "string"
+          }
+        },
+        "required": [
+          "handedness",
+          "up_axis",
+          "origin_anchor_id"
+        ],
+        "title": "CoordinateSystem",
+        "type": "object"
+      },
       "CoverageLink": {
         "additionalProperties": false,
         "properties": {
@@ -655,6 +1143,225 @@
           "asset_content_hash"
         ],
         "title": "CreateAssetBindingPayload",
+        "type": "object"
+      },
+      "CreateBlockingVersionPayload": {
+        "additionalProperties": false,
+        "properties": {
+          "actors": {
+            "items": {
+              "$ref": "#/components/schemas/BlockingActorState"
+            },
+            "minItems": 1,
+            "title": "Actors",
+            "type": "array"
+          },
+          "beat_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Beat Id",
+            "type": "string"
+          },
+          "entity_type": {
+            "const": "blocking_version",
+            "title": "Entity Type",
+            "type": "string"
+          },
+          "scene_twin": {
+            "$ref": "#/components/schemas/EntityVersionGuard"
+          },
+          "shot": {
+            "$ref": "#/components/schemas/EntityVersionGuard"
+          },
+          "states": {
+            "$ref": "#/components/schemas/FormalStateAxes"
+          }
+        },
+        "required": [
+          "entity_type",
+          "shot",
+          "scene_twin",
+          "states",
+          "beat_id",
+          "actors"
+        ],
+        "title": "CreateBlockingVersionPayload",
+        "type": "object"
+      },
+      "CreateCameraVersionPayload": {
+        "additionalProperties": false,
+        "properties": {
+          "approved_view_family_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Approved View Family Id",
+            "type": "string"
+          },
+          "axis_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Axis Id",
+            "type": "string"
+          },
+          "camera_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Camera Id",
+            "type": "string"
+          },
+          "camera_side": {
+            "enum": [
+              "left",
+              "right",
+              "on_axis"
+            ],
+            "title": "Camera Side",
+            "type": "string"
+          },
+          "camera_zone_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Camera Zone Id",
+            "type": "string"
+          },
+          "entity_type": {
+            "const": "camera_version",
+            "title": "Entity Type",
+            "type": "string"
+          },
+          "lens": {
+            "$ref": "#/components/schemas/CameraLens"
+          },
+          "position_anchor_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Position Anchor Id",
+            "type": "string"
+          },
+          "scene_twin": {
+            "$ref": "#/components/schemas/EntityVersionGuard"
+          },
+          "screen_direction": {
+            "enum": [
+              "left_to_right",
+              "right_to_left",
+              "neutral"
+            ],
+            "title": "Screen Direction",
+            "type": "string"
+          },
+          "shot": {
+            "$ref": "#/components/schemas/EntityVersionGuard"
+          },
+          "states": {
+            "$ref": "#/components/schemas/FormalStateAxes"
+          },
+          "target_anchor_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Target Anchor Id",
+            "type": "string"
+          },
+          "transform": {
+            "$ref": "#/components/schemas/SpatialTransform"
+          }
+        },
+        "required": [
+          "entity_type",
+          "shot",
+          "scene_twin",
+          "states",
+          "camera_id",
+          "position_anchor_id",
+          "target_anchor_id",
+          "camera_side",
+          "axis_id",
+          "screen_direction",
+          "transform",
+          "lens",
+          "camera_zone_id",
+          "approved_view_family_id"
+        ],
+        "title": "CreateCameraVersionPayload",
+        "type": "object"
+      },
+      "CreateCompositionVersionPayload": {
+        "additionalProperties": false,
+        "properties": {
+          "aspect_ratio": {
+            "pattern": "^[1-9][0-9]{0,3}:[1-9][0-9]{0,3}$",
+            "title": "Aspect Ratio",
+            "type": "string"
+          },
+          "blocking": {
+            "$ref": "#/components/schemas/EntityVersionGuard"
+          },
+          "camera": {
+            "$ref": "#/components/schemas/EntityVersionGuard"
+          },
+          "entity_type": {
+            "const": "composition_version",
+            "title": "Entity Type",
+            "type": "string"
+          },
+          "framing": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Framing",
+            "type": "string"
+          },
+          "occlusion_constraints": {
+            "items": {
+              "$ref": "#/components/schemas/OcclusionConstraint"
+            },
+            "title": "Occlusion Constraints",
+            "type": "array"
+          },
+          "safe_area": {
+            "$ref": "#/components/schemas/FrameSafeArea"
+          },
+          "scene_twin": {
+            "$ref": "#/components/schemas/EntityVersionGuard"
+          },
+          "screen_direction": {
+            "enum": [
+              "left_to_right",
+              "right_to_left",
+              "neutral"
+            ],
+            "title": "Screen Direction",
+            "type": "string"
+          },
+          "shot": {
+            "$ref": "#/components/schemas/EntityVersionGuard"
+          },
+          "states": {
+            "$ref": "#/components/schemas/FormalStateAxes"
+          },
+          "subjects": {
+            "items": {
+              "$ref": "#/components/schemas/CompositionSubject"
+            },
+            "minItems": 1,
+            "title": "Subjects",
+            "type": "array"
+          }
+        },
+        "required": [
+          "entity_type",
+          "shot",
+          "scene_twin",
+          "camera",
+          "blocking",
+          "states",
+          "aspect_ratio",
+          "framing",
+          "screen_direction",
+          "subjects",
+          "occlusion_constraints",
+          "safe_area"
+        ],
+        "title": "CreateCompositionVersionPayload",
         "type": "object"
       },
       "CreateContentUnitPayload": {
@@ -885,6 +1592,113 @@
         "title": "CreateGenerationPackagePayload",
         "type": "object"
       },
+      "CreateSceneTwinVersionPayload": {
+        "additionalProperties": false,
+        "properties": {
+          "anchors": {
+            "items": {
+              "$ref": "#/components/schemas/SpatialAnchor"
+            },
+            "title": "Anchors",
+            "type": "array"
+          },
+          "approved_view_families": {
+            "items": {
+              "$ref": "#/components/schemas/ApprovedViewFamily"
+            },
+            "title": "Approved View Families",
+            "type": "array"
+          },
+          "camera_zones": {
+            "items": {
+              "$ref": "#/components/schemas/SpatialZone"
+            },
+            "title": "Camera Zones",
+            "type": "array"
+          },
+          "content_unit": {
+            "$ref": "#/components/schemas/EntityVersionGuard"
+          },
+          "coordinate_system": {
+            "$ref": "#/components/schemas/CoordinateSystem"
+          },
+          "entity_type": {
+            "const": "scene_twin_version",
+            "title": "Entity Type",
+            "type": "string"
+          },
+          "fixed_architecture": {
+            "items": {
+              "$ref": "#/components/schemas/SpatialObject"
+            },
+            "title": "Fixed Architecture",
+            "type": "array"
+          },
+          "fixed_props": {
+            "items": {
+              "$ref": "#/components/schemas/SpatialObject"
+            },
+            "title": "Fixed Props",
+            "type": "array"
+          },
+          "geometry_content_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Geometry Content Hash",
+            "type": "string"
+          },
+          "lighting_base": {
+            "additionalProperties": true,
+            "title": "Lighting Base",
+            "type": "object"
+          },
+          "portals": {
+            "items": {
+              "$ref": "#/components/schemas/SpatialPortal"
+            },
+            "title": "Portals",
+            "type": "array"
+          },
+          "project": {
+            "$ref": "#/components/schemas/EntityVersionGuard"
+          },
+          "render_passes": {
+            "items": {
+              "$ref": "#/components/schemas/SceneRenderPass"
+            },
+            "title": "Render Passes",
+            "type": "array"
+          },
+          "states": {
+            "$ref": "#/components/schemas/FormalStateAxes"
+          },
+          "walkable_zones": {
+            "items": {
+              "$ref": "#/components/schemas/SpatialZone"
+            },
+            "title": "Walkable Zones",
+            "type": "array"
+          }
+        },
+        "required": [
+          "entity_type",
+          "project",
+          "content_unit",
+          "states",
+          "coordinate_system",
+          "geometry_content_hash",
+          "fixed_architecture",
+          "fixed_props",
+          "portals",
+          "walkable_zones",
+          "anchors",
+          "camera_zones",
+          "lighting_base",
+          "approved_view_families",
+          "render_passes"
+        ],
+        "title": "CreateSceneTwinVersionPayload",
+        "type": "object"
+      },
       "CreateScriptVersionPayload": {
         "additionalProperties": false,
         "properties": {
@@ -1061,6 +1875,7 @@
                 "asset_binding_source": "#/components/schemas/AssetBindingSourceImpactScope",
                 "script_cue": "#/components/schemas/ScriptCueImpactScope",
                 "script_section": "#/components/schemas/ScriptSectionImpactScope",
+                "spatial_version_component": "#/components/schemas/SpatialVersionComponentImpactScope",
                 "visual_lock_component": "#/components/schemas/VisualLockComponentImpactScope"
               },
               "propertyName": "kind"
@@ -1077,6 +1892,9 @@
               },
               {
                 "$ref": "#/components/schemas/AssetBindingSourceImpactScope"
+              },
+              {
+                "$ref": "#/components/schemas/SpatialVersionComponentImpactScope"
               }
             ],
             "title": "Scope"
@@ -1159,6 +1977,10 @@
           "review",
           "approval",
           "continuity_check_result",
+          "scene_twin_version",
+          "camera_version",
+          "blocking_version",
+          "composition_version",
           "impact_edge"
         ],
         "title": "EntityType",
@@ -1277,6 +2099,36 @@
           "detail"
         ],
         "title": "ErrorResponse",
+        "type": "object"
+      },
+      "EulerDegrees": {
+        "additionalProperties": false,
+        "properties": {
+          "x": {
+            "maximum": 360000.0,
+            "minimum": -360000.0,
+            "title": "X",
+            "type": "number"
+          },
+          "y": {
+            "maximum": 360000.0,
+            "minimum": -360000.0,
+            "title": "Y",
+            "type": "number"
+          },
+          "z": {
+            "maximum": 360000.0,
+            "minimum": -360000.0,
+            "title": "Z",
+            "type": "number"
+          }
+        },
+        "required": [
+          "x",
+          "y",
+          "z"
+        ],
+        "title": "EulerDegrees",
         "type": "object"
       },
       "ExecutionState": {
@@ -1455,6 +2307,18 @@
               },
               {
                 "$ref": "#/components/schemas/ContinuityCheckResult"
+              },
+              {
+                "$ref": "#/components/schemas/SceneTwinVersion"
+              },
+              {
+                "$ref": "#/components/schemas/CameraVersion"
+              },
+              {
+                "$ref": "#/components/schemas/BlockingVersion"
+              },
+              {
+                "$ref": "#/components/schemas/CompositionVersion"
               }
             ],
             "title": "Entity"
@@ -1550,6 +2414,43 @@
           "stale_state"
         ],
         "title": "FormalStateAxes",
+        "type": "object"
+      },
+      "FrameSafeArea": {
+        "additionalProperties": false,
+        "properties": {
+          "bottom": {
+            "exclusiveMaximum": 0.5,
+            "minimum": 0.0,
+            "title": "Bottom",
+            "type": "number"
+          },
+          "left": {
+            "exclusiveMaximum": 0.5,
+            "minimum": 0.0,
+            "title": "Left",
+            "type": "number"
+          },
+          "right": {
+            "exclusiveMaximum": 0.5,
+            "minimum": 0.0,
+            "title": "Right",
+            "type": "number"
+          },
+          "top": {
+            "exclusiveMaximum": 0.5,
+            "minimum": 0.0,
+            "title": "Top",
+            "type": "number"
+          }
+        },
+        "required": [
+          "left",
+          "right",
+          "top",
+          "bottom"
+        ],
+        "title": "FrameSafeArea",
         "type": "object"
       },
       "GenerationAttemptEvidence": {
@@ -1927,6 +2828,7 @@
                 "asset_binding_source": "#/components/schemas/AssetBindingSourceImpactScope",
                 "script_cue": "#/components/schemas/ScriptCueImpactScope",
                 "script_section": "#/components/schemas/ScriptSectionImpactScope",
+                "spatial_version_component": "#/components/schemas/SpatialVersionComponentImpactScope",
                 "visual_lock_component": "#/components/schemas/VisualLockComponentImpactScope"
               },
               "propertyName": "kind"
@@ -1943,6 +2845,9 @@
               },
               {
                 "$ref": "#/components/schemas/AssetBindingSourceImpactScope"
+              },
+              {
+                "$ref": "#/components/schemas/SpatialVersionComponentImpactScope"
               }
             ],
             "title": "Scope"
@@ -2030,6 +2935,7 @@
                 "asset_binding_source": "#/components/schemas/AssetBindingSourceImpactScope",
                 "script_cue": "#/components/schemas/ScriptCueImpactScope",
                 "script_section": "#/components/schemas/ScriptSectionImpactScope",
+                "spatial_version_component": "#/components/schemas/SpatialVersionComponentImpactScope",
                 "visual_lock_component": "#/components/schemas/VisualLockComponentImpactScope"
               },
               "propertyName": "kind"
@@ -2046,6 +2952,9 @@
               },
               {
                 "$ref": "#/components/schemas/AssetBindingSourceImpactScope"
+              },
+              {
+                "$ref": "#/components/schemas/SpatialVersionComponentImpactScope"
               }
             ],
             "title": "Scope"
@@ -2357,6 +3266,36 @@
         ],
         "title": "ManualSourceKind",
         "type": "string"
+      },
+      "OcclusionConstraint": {
+        "additionalProperties": false,
+        "properties": {
+          "max_occlusion_ratio": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Max Occlusion Ratio",
+            "type": "number"
+          },
+          "occluder_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Occluder Id",
+            "type": "string"
+          },
+          "subject_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Subject Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "occluder_id",
+          "subject_id",
+          "max_occlusion_ratio"
+        ],
+        "title": "OcclusionConstraint",
+        "type": "object"
       },
       "OutputKind": {
         "enum": [
@@ -2916,6 +3855,144 @@
         "title": "ReviewState",
         "type": "string"
       },
+      "SceneRenderPass": {
+        "additionalProperties": false,
+        "properties": {
+          "content_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Content Hash",
+            "type": "string"
+          },
+          "host_resource_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Host Resource Id",
+            "type": "string"
+          },
+          "pass_kind": {
+            "enum": [
+              "rgb",
+              "depth",
+              "normal",
+              "object_id"
+            ],
+            "title": "Pass Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "pass_kind",
+          "host_resource_id",
+          "content_hash"
+        ],
+        "title": "SceneRenderPass",
+        "type": "object"
+      },
+      "SceneTwinVersion": {
+        "additionalProperties": false,
+        "properties": {
+          "anchors": {
+            "items": {
+              "$ref": "#/components/schemas/SpatialAnchor"
+            },
+            "title": "Anchors",
+            "type": "array"
+          },
+          "approved_view_families": {
+            "items": {
+              "$ref": "#/components/schemas/ApprovedViewFamily"
+            },
+            "title": "Approved View Families",
+            "type": "array"
+          },
+          "camera_zones": {
+            "items": {
+              "$ref": "#/components/schemas/SpatialZone"
+            },
+            "title": "Camera Zones",
+            "type": "array"
+          },
+          "content_unit": {
+            "$ref": "#/components/schemas/VersionSnapshot"
+          },
+          "coordinate_system": {
+            "$ref": "#/components/schemas/CoordinateSystem"
+          },
+          "fixed_architecture": {
+            "items": {
+              "$ref": "#/components/schemas/SpatialObject"
+            },
+            "title": "Fixed Architecture",
+            "type": "array"
+          },
+          "fixed_props": {
+            "items": {
+              "$ref": "#/components/schemas/SpatialObject"
+            },
+            "title": "Fixed Props",
+            "type": "array"
+          },
+          "geometry_content_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Geometry Content Hash",
+            "type": "string"
+          },
+          "lighting_base": {
+            "additionalProperties": true,
+            "title": "Lighting Base",
+            "type": "object"
+          },
+          "portals": {
+            "items": {
+              "$ref": "#/components/schemas/SpatialPortal"
+            },
+            "title": "Portals",
+            "type": "array"
+          },
+          "project": {
+            "$ref": "#/components/schemas/VersionSnapshot"
+          },
+          "ref": {
+            "$ref": "#/components/schemas/FilmEntityRef"
+          },
+          "render_passes": {
+            "items": {
+              "$ref": "#/components/schemas/SceneRenderPass"
+            },
+            "title": "Render Passes",
+            "type": "array"
+          },
+          "states": {
+            "$ref": "#/components/schemas/FormalStateAxes"
+          },
+          "walkable_zones": {
+            "items": {
+              "$ref": "#/components/schemas/SpatialZone"
+            },
+            "title": "Walkable Zones",
+            "type": "array"
+          }
+        },
+        "required": [
+          "ref",
+          "project",
+          "content_unit",
+          "states",
+          "coordinate_system",
+          "geometry_content_hash",
+          "fixed_architecture",
+          "fixed_props",
+          "portals",
+          "walkable_zones",
+          "anchors",
+          "camera_zones",
+          "lighting_base",
+          "approved_view_families",
+          "render_passes"
+        ],
+        "title": "SceneTwinVersion",
+        "type": "object"
+      },
       "ScriptCueEntry": {
         "additionalProperties": false,
         "properties": {
@@ -3337,6 +4414,291 @@
         "title": "ShotExtension",
         "type": "object"
       },
+      "SpatialAnchor": {
+        "additionalProperties": false,
+        "properties": {
+          "anchor_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Anchor Id",
+            "type": "string"
+          },
+          "position": {
+            "$ref": "#/components/schemas/Vector3"
+          }
+        },
+        "required": [
+          "anchor_id",
+          "position"
+        ],
+        "title": "SpatialAnchor",
+        "type": "object"
+      },
+      "SpatialObject": {
+        "additionalProperties": false,
+        "properties": {
+          "geometry_content_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Geometry Content Hash",
+            "type": "string"
+          },
+          "object_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Object Id",
+            "type": "string"
+          },
+          "transform": {
+            "$ref": "#/components/schemas/SpatialTransform"
+          }
+        },
+        "required": [
+          "object_id",
+          "geometry_content_hash",
+          "transform"
+        ],
+        "title": "SpatialObject",
+        "type": "object"
+      },
+      "SpatialPortal": {
+        "additionalProperties": false,
+        "properties": {
+          "from_anchor_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "From Anchor Id",
+            "type": "string"
+          },
+          "passable": {
+            "title": "Passable",
+            "type": "boolean"
+          },
+          "portal_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Portal Id",
+            "type": "string"
+          },
+          "to_anchor_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "To Anchor Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "portal_id",
+          "from_anchor_id",
+          "to_anchor_id",
+          "passable"
+        ],
+        "title": "SpatialPortal",
+        "type": "object"
+      },
+      "SpatialTransform": {
+        "additionalProperties": false,
+        "properties": {
+          "position": {
+            "$ref": "#/components/schemas/Vector3"
+          },
+          "rotation_degrees": {
+            "$ref": "#/components/schemas/EulerDegrees"
+          }
+        },
+        "required": [
+          "position",
+          "rotation_degrees"
+        ],
+        "title": "SpatialTransform",
+        "type": "object"
+      },
+      "SpatialVersionApplyResult": {
+        "additionalProperties": false,
+        "properties": {
+          "audit_event_id": {
+            "format": "uuid4",
+            "title": "Audit Event Id",
+            "type": "string"
+          },
+          "entity": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SceneTwinVersion"
+              },
+              {
+                "$ref": "#/components/schemas/CameraVersion"
+              },
+              {
+                "$ref": "#/components/schemas/BlockingVersion"
+              },
+              {
+                "$ref": "#/components/schemas/CompositionVersion"
+              }
+            ],
+            "title": "Entity"
+          },
+          "replayed": {
+            "title": "Replayed",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "entity",
+          "audit_event_id",
+          "replayed"
+        ],
+        "title": "SpatialVersionApplyResult",
+        "type": "object"
+      },
+      "SpatialVersionComponentImpactScope": {
+        "additionalProperties": false,
+        "properties": {
+          "component_key": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Component Key",
+            "type": "string"
+          },
+          "kind": {
+            "const": "spatial_version_component",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "component_key"
+        ],
+        "title": "SpatialVersionComponentImpactScope",
+        "type": "object"
+      },
+      "SpatialVersionCreateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_kind": {
+            "$ref": "#/components/schemas/ActorKind"
+          },
+          "idempotency_key": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Idempotency Key",
+            "type": "string"
+          },
+          "payload": {
+            "discriminator": {
+              "mapping": {
+                "blocking_version": "#/components/schemas/CreateBlockingVersionPayload",
+                "camera_version": "#/components/schemas/CreateCameraVersionPayload",
+                "composition_version": "#/components/schemas/CreateCompositionVersionPayload",
+                "scene_twin_version": "#/components/schemas/CreateSceneTwinVersionPayload"
+              },
+              "propertyName": "entity_type"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/CreateSceneTwinVersionPayload"
+              },
+              {
+                "$ref": "#/components/schemas/CreateCameraVersionPayload"
+              },
+              {
+                "$ref": "#/components/schemas/CreateBlockingVersionPayload"
+              },
+              {
+                "$ref": "#/components/schemas/CreateCompositionVersionPayload"
+              }
+            ],
+            "title": "Payload"
+          },
+          "write": {
+            "$ref": "#/components/schemas/CreateTargetGuard"
+          }
+        },
+        "required": [
+          "idempotency_key",
+          "write",
+          "actor_kind",
+          "payload"
+        ],
+        "title": "SpatialVersionCreateRequest",
+        "type": "object"
+      },
+      "SpatialVersionUpdateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_kind": {
+            "$ref": "#/components/schemas/ActorKind"
+          },
+          "idempotency_key": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Idempotency Key",
+            "type": "string"
+          },
+          "payload": {
+            "discriminator": {
+              "mapping": {
+                "blocking_version": "#/components/schemas/CreateBlockingVersionPayload",
+                "camera_version": "#/components/schemas/CreateCameraVersionPayload",
+                "composition_version": "#/components/schemas/CreateCompositionVersionPayload",
+                "scene_twin_version": "#/components/schemas/CreateSceneTwinVersionPayload"
+              },
+              "propertyName": "entity_type"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/CreateSceneTwinVersionPayload"
+              },
+              {
+                "$ref": "#/components/schemas/CreateCameraVersionPayload"
+              },
+              {
+                "$ref": "#/components/schemas/CreateBlockingVersionPayload"
+              },
+              {
+                "$ref": "#/components/schemas/CreateCompositionVersionPayload"
+              }
+            ],
+            "title": "Payload"
+          },
+          "write": {
+            "$ref": "#/components/schemas/EntityVersionGuard"
+          }
+        },
+        "required": [
+          "idempotency_key",
+          "write",
+          "actor_kind",
+          "payload"
+        ],
+        "title": "SpatialVersionUpdateRequest",
+        "type": "object"
+      },
+      "SpatialZone": {
+        "additionalProperties": false,
+        "properties": {
+          "polygon": {
+            "items": {
+              "$ref": "#/components/schemas/Vector3"
+            },
+            "minItems": 3,
+            "title": "Polygon",
+            "type": "array"
+          },
+          "zone_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Zone Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "zone_id",
+          "polygon"
+        ],
+        "title": "SpatialZone",
+        "type": "object"
+      },
       "StalePropagationRequest": {
         "additionalProperties": false,
         "properties": {
@@ -3523,6 +4885,63 @@
         "title": "ValidationError",
         "type": "object"
       },
+      "Vector3": {
+        "additionalProperties": false,
+        "properties": {
+          "x": {
+            "maximum": 1000000.0,
+            "minimum": -1000000.0,
+            "title": "X",
+            "type": "number"
+          },
+          "y": {
+            "maximum": 1000000.0,
+            "minimum": -1000000.0,
+            "title": "Y",
+            "type": "number"
+          },
+          "z": {
+            "maximum": 1000000.0,
+            "minimum": -1000000.0,
+            "title": "Z",
+            "type": "number"
+          }
+        },
+        "required": [
+          "x",
+          "y",
+          "z"
+        ],
+        "title": "Vector3",
+        "type": "object"
+      },
+      "VersionSnapshot": {
+        "additionalProperties": false,
+        "properties": {
+          "content_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Content Hash",
+            "type": "string"
+          },
+          "film_entity_id": {
+            "format": "uuid4",
+            "title": "Film Entity Id",
+            "type": "string"
+          },
+          "version": {
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "film_entity_id",
+          "version",
+          "content_hash"
+        ],
+        "title": "VersionSnapshot",
+        "type": "object"
+      },
       "VisualLockComponentImpactScope": {
         "additionalProperties": false,
         "properties": {
@@ -3597,7 +5016,7 @@
   "info": {
     "description": "Sidecar Film Core contract. Yingce remains authoritative for generic Host Project, ProjectUnit, Shot, Asset, Workflow and Task entities.",
     "title": "FilmOS Studio Film Core API",
-    "version": "0.3.0"
+    "version": "0.4.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -4090,6 +5509,18 @@
                     },
                     {
                       "$ref": "#/components/schemas/ContinuityCheckResult"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SceneTwinVersion"
+                    },
+                    {
+                      "$ref": "#/components/schemas/CameraVersion"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BlockingVersion"
+                    },
+                    {
+                      "$ref": "#/components/schemas/CompositionVersion"
                     }
                   ],
                   "title": "Response Filmformalrecordget"
@@ -4744,6 +6175,209 @@
           }
         },
         "summary": "Shot Get",
+        "x-implementation-state": "implemented"
+      }
+    },
+    "/spatial-versions": {
+      "post": {
+        "operationId": "filmSpatialVersionCreate",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SpatialVersionCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpatialVersionApplyResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Spatial Version Create",
+        "x-implementation-state": "implemented"
+      }
+    },
+    "/spatial-versions/{filmEntityId}": {
+      "get": {
+        "operationId": "filmSpatialVersionGet",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "filmEntityId",
+            "required": true,
+            "schema": {
+              "format": "uuid4",
+              "title": "Filmentityid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/SceneTwinVersion"
+                    },
+                    {
+                      "$ref": "#/components/schemas/CameraVersion"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BlockingVersion"
+                    },
+                    {
+                      "$ref": "#/components/schemas/CompositionVersion"
+                    }
+                  ],
+                  "title": "Response Filmspatialversionget"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Spatial Version Get",
+        "x-implementation-state": "implemented"
+      },
+      "put": {
+        "operationId": "filmSpatialVersionUpdate",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "filmEntityId",
+            "required": true,
+            "schema": {
+              "format": "uuid4",
+              "title": "Filmentityid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SpatialVersionUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpatialVersionApplyResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Spatial Version Update",
         "x-implementation-state": "implemented"
       }
     },

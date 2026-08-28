@@ -39,6 +39,10 @@ class EntityType(str, Enum):
     REVIEW = "review"
     APPROVAL = "approval"
     CONTINUITY_CHECK_RESULT = "continuity_check_result"
+    SCENE_TWIN_VERSION = "scene_twin_version"
+    CAMERA_VERSION = "camera_version"
+    BLOCKING_VERSION = "blocking_version"
+    COMPOSITION_VERSION = "composition_version"
     IMPACT_EDGE = "impact_edge"
 
 

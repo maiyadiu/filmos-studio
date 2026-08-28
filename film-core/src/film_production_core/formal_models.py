@@ -365,6 +365,290 @@ class ContinuityCheckResult(StrictModel):
     blockers: list[ContinuityBlocker]
 
 
+class VersionSnapshot(StrictModel):
+    film_entity_id: UUID4
+    version: int = Field(ge=1)
+    content_hash: str = Field(pattern=HASH_PATTERN)
+
+
+class Vector3(StrictModel):
+    x: float = Field(ge=-1_000_000, le=1_000_000)
+    y: float = Field(ge=-1_000_000, le=1_000_000)
+    z: float = Field(ge=-1_000_000, le=1_000_000)
+
+
+class EulerDegrees(StrictModel):
+    x: float = Field(ge=-360_000, le=360_000)
+    y: float = Field(ge=-360_000, le=360_000)
+    z: float = Field(ge=-360_000, le=360_000)
+
+
+class SpatialTransform(StrictModel):
+    position: Vector3
+    rotation_degrees: EulerDegrees
+
+
+class CoordinateSystem(StrictModel):
+    units: Literal["meters"] = "meters"
+    handedness: Literal["right_handed", "left_handed"]
+    up_axis: Literal["y", "z"]
+    origin_anchor_id: str = Field(min_length=1, max_length=256)
+
+    @field_validator("origin_anchor_id")
+    @classmethod
+    def validate_origin_anchor_id(cls, value: str) -> str:
+        return require_opaque_id(value, "origin_anchor_id")
+
+
+class SpatialObject(StrictModel):
+    object_id: str = Field(min_length=1, max_length=256)
+    geometry_content_hash: str = Field(pattern=HASH_PATTERN)
+    transform: SpatialTransform
+
+    @field_validator("object_id")
+    @classmethod
+    def validate_object_id(cls, value: str) -> str:
+        return require_opaque_id(value, "object_id")
+
+
+class SpatialAnchor(StrictModel):
+    anchor_id: str = Field(min_length=1, max_length=256)
+    position: Vector3
+
+    @field_validator("anchor_id")
+    @classmethod
+    def validate_anchor_id(cls, value: str) -> str:
+        return require_opaque_id(value, "anchor_id")
+
+
+class SpatialPortal(StrictModel):
+    portal_id: str = Field(min_length=1, max_length=256)
+    from_anchor_id: str = Field(min_length=1, max_length=256)
+    to_anchor_id: str = Field(min_length=1, max_length=256)
+    passable: bool
+
+    @field_validator("portal_id", "from_anchor_id", "to_anchor_id")
+    @classmethod
+    def validate_portal_ids(cls, value: str, info) -> str:
+        return require_opaque_id(value, info.field_name)
+
+
+class SpatialZone(StrictModel):
+    zone_id: str = Field(min_length=1, max_length=256)
+    polygon: list[Vector3] = Field(min_length=3)
+
+    @field_validator("zone_id")
+    @classmethod
+    def validate_zone_id(cls, value: str) -> str:
+        return require_opaque_id(value, "zone_id")
+
+
+class ApprovedViewFamily(StrictModel):
+    family_id: str = Field(min_length=1, max_length=256)
+    camera_zone_ids: list[str] = Field(min_length=1)
+    screen_direction: Literal["left_to_right", "right_to_left", "neutral"]
+
+    @field_validator("family_id")
+    @classmethod
+    def validate_family_id(cls, value: str) -> str:
+        return require_opaque_id(value, "family_id")
+
+    @field_validator("camera_zone_ids")
+    @classmethod
+    def validate_camera_zone_ids(cls, value: list[str]) -> list[str]:
+        if len(set(value)) != len(value):
+            raise ValueError("camera_zone_ids must be unique")
+        return [require_opaque_id(item, "camera_zone_ids") for item in value]
+
+
+class SceneRenderPass(StrictModel):
+    pass_kind: Literal["rgb", "depth", "normal", "object_id"]
+    host_resource_id: str = Field(min_length=1, max_length=256)
+    content_hash: str = Field(pattern=HASH_PATTERN)
+
+    @field_validator("host_resource_id")
+    @classmethod
+    def validate_resource_id(cls, value: str) -> str:
+        return require_opaque_id(value, "host_resource_id")
+
+
+class SceneTwinVersion(StrictModel):
+    ref: FilmEntityRef
+    project: VersionSnapshot
+    content_unit: VersionSnapshot
+    states: FormalStateAxes
+    coordinate_system: CoordinateSystem
+    geometry_content_hash: str = Field(pattern=HASH_PATTERN)
+    fixed_architecture: list[SpatialObject]
+    fixed_props: list[SpatialObject]
+    portals: list[SpatialPortal]
+    walkable_zones: list[SpatialZone]
+    anchors: list[SpatialAnchor]
+    camera_zones: list[SpatialZone]
+    lighting_base: dict[str, Any]
+    approved_view_families: list[ApprovedViewFamily]
+    render_passes: list[SceneRenderPass]
+
+    @field_validator("lighting_base")
+    @classmethod
+    def validate_lighting_base(cls, value: dict[str, Any]) -> dict[str, Any]:
+        return validate_safe_json_object(value, "lighting_base")
+
+    @model_validator(mode="after")
+    def validate_scene_graph(self) -> SceneTwinVersion:
+        validate_scene_twin_graph(self)
+        return self
+
+
+class CameraLens(StrictModel):
+    focal_length_mm: float = Field(gt=0, le=2000)
+    sensor_width_mm: float = Field(gt=0, le=500)
+    focus_distance_m: float = Field(gt=0, le=1_000_000)
+    aperture_f: float = Field(gt=0, le=128)
+
+
+class CameraVersion(StrictModel):
+    ref: FilmEntityRef
+    shot: VersionSnapshot
+    scene_twin: VersionSnapshot
+    states: FormalStateAxes
+    camera_id: str = Field(min_length=1, max_length=256)
+    position_anchor_id: str = Field(min_length=1, max_length=256)
+    target_anchor_id: str = Field(min_length=1, max_length=256)
+    camera_side: Literal["left", "right", "on_axis"]
+    axis_id: str = Field(min_length=1, max_length=256)
+    screen_direction: Literal["left_to_right", "right_to_left", "neutral"]
+    transform: SpatialTransform
+    lens: CameraLens
+    camera_zone_id: str = Field(min_length=1, max_length=256)
+    approved_view_family_id: str = Field(min_length=1, max_length=256)
+
+    @field_validator(
+        "camera_id",
+        "position_anchor_id",
+        "target_anchor_id",
+        "axis_id",
+        "camera_zone_id",
+        "approved_view_family_id",
+    )
+    @classmethod
+    def validate_camera_ids(cls, value: str, info) -> str:
+        return require_opaque_id(value, info.field_name)
+
+
+class BlockingActorState(StrictModel):
+    actor_id: str = Field(min_length=1, max_length=256)
+    feet_anchor_id: str = Field(min_length=1, max_length=256)
+    position: Vector3
+    torso_rotation_degrees: EulerDegrees
+    face_target_id: str = Field(min_length=1, max_length=256)
+    gaze_target_id: str = Field(min_length=1, max_length=256)
+    left_hand_target_id: str | None = Field(default=None, min_length=1, max_length=256)
+    right_hand_target_id: str | None = Field(default=None, min_length=1, max_length=256)
+    action_in: str = Field(min_length=1, max_length=256)
+    action_out: str = Field(min_length=1, max_length=256)
+    axis_side_in: Literal["left", "right", "on_axis"]
+    axis_side_out: Literal["left", "right", "on_axis"]
+    prop_contact_in_ids: list[str] = Field(default_factory=list)
+    prop_contact_out_ids: list[str] = Field(default_factory=list)
+
+    @field_validator(
+        "actor_id",
+        "feet_anchor_id",
+        "face_target_id",
+        "gaze_target_id",
+        "left_hand_target_id",
+        "right_hand_target_id",
+    )
+    @classmethod
+    def validate_actor_ids(cls, value: str | None, info) -> str | None:
+        return None if value is None else require_opaque_id(value, info.field_name)
+
+    @field_validator("prop_contact_in_ids", "prop_contact_out_ids")
+    @classmethod
+    def validate_prop_ids(cls, value: list[str]) -> list[str]:
+        if len(set(value)) != len(value):
+            raise ValueError("prop contact ids must be unique")
+        return [require_opaque_id(item, "prop_contact_ids") for item in value]
+
+
+class BlockingVersion(StrictModel):
+    ref: FilmEntityRef
+    shot: VersionSnapshot
+    scene_twin: VersionSnapshot
+    states: FormalStateAxes
+    beat_id: str = Field(min_length=1, max_length=256)
+    actors: list[BlockingActorState] = Field(min_length=1)
+
+    @field_validator("beat_id")
+    @classmethod
+    def validate_beat_id(cls, value: str) -> str:
+        return require_opaque_id(value, "beat_id")
+
+
+class CompositionSubject(StrictModel):
+    subject_id: str = Field(min_length=1, max_length=256)
+    frame_x: float = Field(ge=0, le=1)
+    frame_y: float = Field(ge=0, le=1)
+    frame_width: float = Field(gt=0, le=1)
+    frame_height: float = Field(gt=0, le=1)
+
+    @field_validator("subject_id")
+    @classmethod
+    def validate_subject_id(cls, value: str) -> str:
+        return require_opaque_id(value, "subject_id")
+
+    @model_validator(mode="after")
+    def validate_inside_frame(self) -> CompositionSubject:
+        if self.frame_x + self.frame_width > 1 or self.frame_y + self.frame_height > 1:
+            raise ValueError("composition subject bounds must stay inside the frame")
+        return self
+
+
+class OcclusionConstraint(StrictModel):
+    occluder_id: str = Field(min_length=1, max_length=256)
+    subject_id: str = Field(min_length=1, max_length=256)
+    max_occlusion_ratio: float = Field(ge=0, le=1)
+
+    @field_validator("occluder_id", "subject_id")
+    @classmethod
+    def validate_occlusion_ids(cls, value: str, info) -> str:
+        return require_opaque_id(value, info.field_name)
+
+
+class FrameSafeArea(StrictModel):
+    left: float = Field(ge=0, lt=0.5)
+    right: float = Field(ge=0, lt=0.5)
+    top: float = Field(ge=0, lt=0.5)
+    bottom: float = Field(ge=0, lt=0.5)
+
+    @model_validator(mode="after")
+    def validate_non_empty_area(self) -> FrameSafeArea:
+        if self.left + self.right >= 1 or self.top + self.bottom >= 1:
+            raise ValueError("safe area margins must leave a visible frame")
+        return self
+
+
+class CompositionVersion(StrictModel):
+    ref: FilmEntityRef
+    shot: VersionSnapshot
+    scene_twin: VersionSnapshot
+    camera: VersionSnapshot
+    blocking: VersionSnapshot
+    states: FormalStateAxes
+    aspect_ratio: str = Field(pattern=r"^[1-9][0-9]{0,3}:[1-9][0-9]{0,3}$")
+    framing: str = Field(min_length=1, max_length=256)
+    screen_direction: Literal["left_to_right", "right_to_left", "neutral"]
+    subjects: list[CompositionSubject] = Field(min_length=1)
+    occlusion_constraints: list[OcclusionConstraint]
+    safe_area: FrameSafeArea
+
+
+SpatialVersion: TypeAlias = (
+    SceneTwinVersion | CameraVersion | BlockingVersion | CompositionVersion
+)
+
+
 FormalEntity: TypeAlias = (
     ScriptVersion
     | ScriptDecision
@@ -380,6 +664,10 @@ FormalEntity: TypeAlias = (
     | Review
     | Approval
     | ContinuityCheckResult
+    | SceneTwinVersion
+    | CameraVersion
+    | BlockingVersion
+    | CompositionVersion
 )
 
 
@@ -470,6 +758,131 @@ class CreateGenerationPackagePayload(StrictModel):
     @classmethod
     def validate_parameters(cls, value: dict[str, Any]) -> dict[str, Any]:
         return validate_safe_json_object(value, "parameters")
+
+
+class CreateSceneTwinVersionPayload(StrictModel):
+    entity_type: Literal[EntityType.SCENE_TWIN_VERSION]
+    project: EntityVersionGuard
+    content_unit: EntityVersionGuard
+    states: FormalStateAxes
+    coordinate_system: CoordinateSystem
+    geometry_content_hash: str = Field(pattern=HASH_PATTERN)
+    fixed_architecture: list[SpatialObject]
+    fixed_props: list[SpatialObject]
+    portals: list[SpatialPortal]
+    walkable_zones: list[SpatialZone]
+    anchors: list[SpatialAnchor]
+    camera_zones: list[SpatialZone]
+    lighting_base: dict[str, Any]
+    approved_view_families: list[ApprovedViewFamily]
+    render_passes: list[SceneRenderPass]
+
+    @field_validator("lighting_base")
+    @classmethod
+    def validate_lighting_base(cls, value: dict[str, Any]) -> dict[str, Any]:
+        return validate_safe_json_object(value, "lighting_base")
+
+    @model_validator(mode="after")
+    def validate_scene_graph(self) -> CreateSceneTwinVersionPayload:
+        validate_scene_twin_graph(self)
+        return self
+
+
+class CreateCameraVersionPayload(StrictModel):
+    entity_type: Literal[EntityType.CAMERA_VERSION]
+    shot: EntityVersionGuard
+    scene_twin: EntityVersionGuard
+    states: FormalStateAxes
+    camera_id: str = Field(min_length=1, max_length=256)
+    position_anchor_id: str = Field(min_length=1, max_length=256)
+    target_anchor_id: str = Field(min_length=1, max_length=256)
+    camera_side: Literal["left", "right", "on_axis"]
+    axis_id: str = Field(min_length=1, max_length=256)
+    screen_direction: Literal["left_to_right", "right_to_left", "neutral"]
+    transform: SpatialTransform
+    lens: CameraLens
+    camera_zone_id: str = Field(min_length=1, max_length=256)
+    approved_view_family_id: str = Field(min_length=1, max_length=256)
+
+    @field_validator(
+        "camera_id",
+        "position_anchor_id",
+        "target_anchor_id",
+        "axis_id",
+        "camera_zone_id",
+        "approved_view_family_id",
+    )
+    @classmethod
+    def validate_camera_ids(cls, value: str, info) -> str:
+        return require_opaque_id(value, info.field_name)
+
+
+class CreateBlockingVersionPayload(StrictModel):
+    entity_type: Literal[EntityType.BLOCKING_VERSION]
+    shot: EntityVersionGuard
+    scene_twin: EntityVersionGuard
+    states: FormalStateAxes
+    beat_id: str = Field(min_length=1, max_length=256)
+    actors: list[BlockingActorState] = Field(min_length=1)
+
+    @field_validator("beat_id")
+    @classmethod
+    def validate_beat_id(cls, value: str) -> str:
+        return require_opaque_id(value, "beat_id")
+
+
+class CreateCompositionVersionPayload(StrictModel):
+    entity_type: Literal[EntityType.COMPOSITION_VERSION]
+    shot: EntityVersionGuard
+    scene_twin: EntityVersionGuard
+    camera: EntityVersionGuard
+    blocking: EntityVersionGuard
+    states: FormalStateAxes
+    aspect_ratio: str = Field(pattern=r"^[1-9][0-9]{0,3}:[1-9][0-9]{0,3}$")
+    framing: str = Field(min_length=1, max_length=256)
+    screen_direction: Literal["left_to_right", "right_to_left", "neutral"]
+    subjects: list[CompositionSubject] = Field(min_length=1)
+    occlusion_constraints: list[OcclusionConstraint]
+    safe_area: FrameSafeArea
+
+
+SpatialVersionPayload: TypeAlias = Annotated[
+    CreateSceneTwinVersionPayload
+    | CreateCameraVersionPayload
+    | CreateBlockingVersionPayload
+    | CreateCompositionVersionPayload,
+    Field(discriminator="entity_type"),
+]
+
+
+class SpatialVersionCreateRequest(StrictModel):
+    idempotency_key: str = Field(min_length=1, max_length=128)
+    write: CreateTargetGuard
+    actor_kind: ActorKind
+    payload: SpatialVersionPayload
+
+    @field_validator("idempotency_key")
+    @classmethod
+    def validate_idempotency_key(cls, value: str) -> str:
+        return require_opaque_id(value, "idempotency_key")
+
+
+class SpatialVersionUpdateRequest(StrictModel):
+    idempotency_key: str = Field(min_length=1, max_length=128)
+    write: EntityVersionGuard
+    actor_kind: ActorKind
+    payload: SpatialVersionPayload
+
+    @field_validator("idempotency_key")
+    @classmethod
+    def validate_idempotency_key(cls, value: str) -> str:
+        return require_opaque_id(value, "idempotency_key")
+
+
+class SpatialVersionApplyResult(StrictModel):
+    entity: SpatialVersion
+    audit_event_id: UUID4
+    replayed: bool
 
 
 FormalRecordPayload: TypeAlias = Annotated[
@@ -622,6 +1035,59 @@ class ContinuityCheckRequest(StrictModel):
     previous_shot: EntityVersionGuard | None = None
     current_shot: EntityVersionGuard
     checks: list[ContinuityCheckInput] = Field(min_length=1)
+
+
+def validate_scene_twin_graph(value: Any) -> None:
+    def unique(items: list[str], field: str) -> set[str]:
+        if len(items) != len(set(items)):
+            raise ValueError(f"{field} ids must be unique")
+        return set(items)
+
+    anchor_ids = unique([item.anchor_id for item in value.anchors], "anchor")
+    object_ids = unique(
+        [item.object_id for item in value.fixed_architecture + value.fixed_props],
+        "fixed object",
+    )
+    del object_ids
+    unique([item.portal_id for item in value.portals], "portal")
+    walkable_zone_ids = unique(
+        [item.zone_id for item in value.walkable_zones], "walkable zone"
+    )
+    camera_zone_ids = unique(
+        [item.zone_id for item in value.camera_zones], "camera zone"
+    )
+    if walkable_zone_ids & camera_zone_ids:
+        raise ValueError("walkable zone and camera zone ids must not overlap")
+    family_ids = unique(
+        [item.family_id for item in value.approved_view_families],
+        "approved view family",
+    )
+    del family_ids
+    if value.coordinate_system.origin_anchor_id not in anchor_ids:
+        raise ValueError("coordinate system origin_anchor_id must reference an anchor")
+    for portal in value.portals:
+        if (
+            portal.from_anchor_id not in anchor_ids
+            or portal.to_anchor_id not in anchor_ids
+        ):
+            raise ValueError("portal endpoints must reference anchors")
+    for family in value.approved_view_families:
+        if not set(family.camera_zone_ids) <= camera_zone_ids:
+            raise ValueError("approved view family must reference camera zones")
+    pass_kinds = [item.pass_kind for item in value.render_passes]
+    unique(pass_kinds, "render pass")
+    review_ready = (
+        enum_string(value.states.review_state) != "not_reviewed"
+        or enum_string(value.states.creative_stage) in {"reviewed", "locked"}
+    )
+    if review_ready and set(pass_kinds) != {"rgb", "depth", "normal", "object_id"}:
+        raise ValueError(
+            "review-ready SceneTwin requires rgb/depth/normal/object_id render passes"
+        )
+
+
+def enum_string(value: Any) -> str:
+    return str(getattr(value, "value", value))
 
 
 def require_opaque_id(value: str, field: str) -> str:
