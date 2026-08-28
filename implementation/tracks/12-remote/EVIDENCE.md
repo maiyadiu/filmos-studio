@@ -2,10 +2,11 @@
 
 ## 交付状态
 
-`OFFLINE_PREVIEW_IMPLEMENTED_NOT_WIRED`
+`LOCAL_HOST_UI_AND_RECEIPT_WIRED_REMOTE_EXECUTION_DEFERRED`
 
-本轨已实现纯本地合同、Preview / Manifest 生成器、fixture 与专项测试。没有 UI/API/后端接线，
-没有执行网络请求、远端发布、资源上传、代理生成、远端任务或积分消费。
+本轨已将纯本地 Preview / Manifest 接入 Host 项目概览，增加 Human 二次确认、manifest version/hash guard、
+用户/项目隔离的 localforage 会话、幂等本地回执和恢复重算。仍无 Host HTTP/API 或后端接线，没有执行网络请求、
+远端发布、资源上传、代理生成、远端任务或积分消费。
 
 ## 现状核查
 
@@ -26,17 +27,21 @@
 
 - `web/src/film/sync/authority.ts`：三种 Authority Mode、默认关闭策略、网络/隐式上传硬拒绝。
 - `web/src/film/sync/publish-plan.ts`：正式引用校验、权威选择、冲突阻断、代理任务、Candidate-only 回收和 manifest hash。
+- `web/src/film/sync/local-session.ts`：Human 确认、expected manifest version/hash 重算、幂等本地回执、localforage 用户 scope 持久化和 STALE 恢复。
 - `web/src/film/sync/index.ts`：本轨公开导出。
+- `web/src/pages/projects/detail/remote-sync-entry.tsx`：默认不渲染的 Host 项目 UI，只接受用户选择的本地 JSON，二次 Human 确认仅写本地回执。
+- `web/src/pages/projects/detail/overview.tsx`：接入 Remote/Hybrid 本地入口；Flag off 时不产生 Film DOM。
 - `web/test/fixtures/film-remote-plan.json`：固定 UUID/version/hash/Host opaque ID 的离线 fixture。
-- `web/test/film-remote-sync.test.ts`：权威矩阵、安全边界、引用校验和确定性 hash 测试。
+- `web/test/film-remote-sync.test.ts`：权威矩阵、安全边界、引用校验、确定性 hash、零写入 guard、幂等回执和恢复测试。
+- `web/test/film-remote-entry.test.tsx`：Host UI 默认关闭、显式入口和零网络本地预演测试。
 
 ## 验证结果
 
 ### 专项测试
 
-命令：`cd web && bun test test/film-remote-sync.test.ts`
+命令：`cd web && bun test test/film-remote-sync.test.ts test/film-remote-entry.test.tsx`
 
-结果：`8 pass / 0 fail / 48 expect()`。
+结果：`15 pass / 0 fail / 84 expect()`。
 
 覆盖：
 
@@ -48,6 +53,9 @@
 - UUIDv4/version/SHA-256/无路径 Host opaque ID、Candidate 类型与资产 availability 绑定校验；
 - 运行时拒绝开启网络与隐式上传；
 - 相同输入生成相同 manifest hash。
+- Flag off 不读本地存储、不产生 Remote DOM；Host 项目 ID 不匹配零写入。
+- Human 未确认、version/hash 漂移、Preview blocker、持久化失败都不返回本地成功回执。
+- 同 `confirmationId` 幂等返回原回执；恢复时重算漂移只返回 `STALE_MANIFEST`。
 
 ### 类型检查
 
@@ -55,12 +63,19 @@
 
 结果：通过，`tsc --noEmit` 退出码 `0`。
 
+### 生产构建
+
+命令：`cd web && bun run build`
+
+结果：通过，`12706 modules transformed`、`built in 2.44s`；仅保留仓库既有的 chunk-size 警告。
+
 ### 固定清单抽样
 
 以 fixture 和仅用于离线测试的 `enabled=true / LOCAL_AUTHORITY` 策略生成 Preview：
 
 - `execution_state=PREVIEW_ONLY`
-- `manifest_hash=948c99b9d1cb033f216a3d10788dd00f6263cb1319be8aee5b30e258ea1ac724`
+- `manifest_version=1`
+- `manifest_hash=d36e09d9d6efa0b3916515b72dca164cf3e282cee778814893267fdff3e3948b`
 - `network.executed=false`
 - `network.actions=[]`
 - 远端结果为 `CANDIDATE_ONLY / REQUIRED / can_auto_promote=false`
@@ -69,6 +84,7 @@
 
 - `publishable_after_explicit_execution=true` 只表示本地清单在显式执行前没有 blocker，绝不表示已经发布。
 - `proxy_jobs.state=NOT_GENERATED` 只表示需要本地代理，不表示代理已生成。
-- 本切片没有共享 Film Contract、OpenAPI、Host 核心表或现有 User Data Sync 改动。
+- 本切片没有共享 Film Contract、OpenAPI、Host 核心表或现有 User Data Sync 改动；不导入 `installRemoteUserDataAutoSync` / `ensureRemoteResourceReferences`。
 - 后续接线必须先通过 CR，由对应 Owner 实施，并重新校验 manifest hash、用户授权、对象归属和 Film version/hash。
 - Program Integrator 已统一 Host opaque ID 为无路径/无 URL 形式，并补充 Remote Resource、Candidate 类型、重复选择和严格 UTC 时间门禁。
+- 真实 Remote 执行器、Host 权限二次校验、部分失败/重试、远端追加审计、上传授权和可核验 publication receipt 仍未实现，不得将本地 receipt 宣称为远端发布成功。

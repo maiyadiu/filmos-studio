@@ -1,6 +1,15 @@
 import { describe, expect, test } from "bun:test";
 
-import { buildRemotePublishPreview, createRemoteSyncPolicy, DEFAULT_REMOTE_SYNC_POLICY, type FormalFilmReference, type RemotePublishPlanInput } from "../src/film/sync";
+import {
+    buildRemotePublishPreview,
+    confirmRemoteSyncPreviewLocally,
+    createMemoryRemoteSyncSessionStore,
+    createRemoteSyncPolicy,
+    DEFAULT_REMOTE_SYNC_POLICY,
+    recoverLatestRemoteSyncSession,
+    type FormalFilmReference,
+    type RemotePublishPlanInput,
+} from "../src/film/sync";
 
 const fixture = JSON.parse(await Bun.file(new URL("./fixtures/film-remote-plan.json", import.meta.url)).text()) as RemotePublishPlanInput;
 
@@ -23,6 +32,7 @@ describe("Film remote authority and publish preview", () => {
         });
         const preview = await buildRemotePublishPreview(cloneFixture());
         expect(preview.execution_state).toBe("PREVIEW_ONLY");
+        expect(preview.manifest_version).toBe(1);
         expect(preview.publishable_after_explicit_execution).toBe(false);
         expect(preview.blockers.map((item) => item.code)).toContain("FEATURE_DISABLED");
         expect(preview.network).toEqual({ executed: false, actions: [], uploaded_asset_ids: [], publication_receipts: [] });
@@ -151,5 +161,124 @@ describe("Film remote authority and publish preview", () => {
         const first = await buildRemotePublishPreview(cloneFixture(), enabledPolicy());
         const second = await buildRemotePublishPreview(cloneFixture(), enabledPolicy());
         expect(first.manifest_hash).toBe(second.manifest_hash);
+    });
+});
+
+describe("Film remote local confirmation sessions", () => {
+    const now = () => "2026-08-28T12:00:00.000Z";
+    const createId = () => "receipt-local-001";
+
+    test("Human confirmation persists a recoverable local-only receipt and is idempotent by confirmation ID", async () => {
+        const plan = cloneFixture();
+        const preview = await buildRemotePublishPreview(plan, enabledPolicy());
+        const store = createMemoryRemoteSyncSessionStore();
+        const input = {
+            userScope: "user-remote-001",
+            hostProjectId: plan.host_project_id,
+            plan,
+            policy: enabledPolicy(),
+            humanConfirmed: true,
+            confirmationId: "confirm-local-001",
+            expectedManifestVersion: preview.manifest_version,
+            expectedManifestHash: preview.manifest_hash,
+        } as const;
+
+        const first = await confirmRemoteSyncPreviewLocally(input, { store, now, createId });
+        const repeated = await confirmRemoteSyncPreviewLocally(input, { store, now, createId: () => "must-not-be-used" });
+
+        expect(first).toEqual(repeated);
+        expect(store.writeCount).toBe(1);
+        expect(first.state).toBe("LOCALLY_CONFIRMED_NOT_EXECUTED");
+        expect(first.receipt).toMatchObject({
+            confirmation_id: "confirm-local-001",
+            execution_state: "NOT_EXECUTED",
+            network_executed: false,
+            inbound_result_policy: "CANDIDATE_ONLY",
+            uploaded_asset_ids: [],
+            publication_receipts: [],
+        });
+        expect(first.preview.inbound_results.every((result) => result.import_state === "CANDIDATE_ONLY" && result.local_approval === "REQUIRED" && !result.can_auto_promote)).toBe(true);
+
+        const recovered = await recoverLatestRemoteSyncSession("user-remote-001", plan.host_project_id, store);
+        expect(recovered.state).toBe("RECOVERED");
+        if (recovered.state === "RECOVERED") expect(recovered.session.receipt.receipt_id).toBe("receipt-local-001");
+    });
+
+    test("manifest version/hash drift, wrong project, missing Human confirmation, and blockers are zero-write failures", async () => {
+        const plan = cloneFixture();
+        const preview = await buildRemotePublishPreview(plan, enabledPolicy());
+        const base = {
+            userScope: "user-remote-001",
+            hostProjectId: plan.host_project_id,
+            plan,
+            policy: enabledPolicy(),
+            humanConfirmed: true,
+            confirmationId: "confirm-local-002",
+            expectedManifestVersion: preview.manifest_version,
+            expectedManifestHash: preview.manifest_hash,
+        };
+        const cases = [
+            { ...base, expectedManifestVersion: 2 },
+            { ...base, expectedManifestHash: "f".repeat(64) },
+            { ...base, hostProjectId: "another-host-project" },
+            { ...base, humanConfirmed: false },
+            { ...base, policy: enabledPolicy("REMOTE_AUTHORITY") },
+        ];
+        for (const input of cases) {
+            const store = createMemoryRemoteSyncSessionStore();
+            await expect(confirmRemoteSyncPreviewLocally(input, { store, now, createId })).rejects.toThrow();
+            expect(store.writeCount).toBe(0);
+            expect(await store.read(plan.host_project_id)).toEqual([]);
+        }
+    });
+
+    test("a recovered session is marked STALE when its stored plan no longer reproduces the receipt hash", async () => {
+        const plan = cloneFixture();
+        const preview = await buildRemotePublishPreview(plan, enabledPolicy());
+        const firstStore = createMemoryRemoteSyncSessionStore();
+        const session = await confirmRemoteSyncPreviewLocally(
+            {
+                userScope: "user-remote-001",
+                hostProjectId: plan.host_project_id,
+                plan,
+                policy: enabledPolicy(),
+                humanConfirmed: true,
+                confirmationId: "confirm-local-003",
+                expectedManifestVersion: preview.manifest_version,
+                expectedManifestHash: preview.manifest_hash,
+            },
+            { store: firstStore, now, createId },
+        );
+        session.plan.generated_at = "2026-08-28T12:30:00.000Z";
+        const driftedStore = createMemoryRemoteSyncSessionStore([session]);
+
+        const recovered = await recoverLatestRemoteSyncSession("user-remote-001", plan.host_project_id, driftedStore);
+        expect(recovered.state).toBe("STALE_MANIFEST");
+    });
+
+    test("a storage failure cannot be reported as a local receipt", async () => {
+        const plan = cloneFixture();
+        const preview = await buildRemotePublishPreview(plan, enabledPolicy());
+        const store = {
+            async read() {
+                return [];
+            },
+            async write() {},
+        };
+        await expect(
+            confirmRemoteSyncPreviewLocally(
+                {
+                    userScope: "user-remote-001",
+                    hostProjectId: plan.host_project_id,
+                    plan,
+                    policy: enabledPolicy(),
+                    humanConfirmed: true,
+                    confirmationId: "confirm-local-004",
+                    expectedManifestVersion: preview.manifest_version,
+                    expectedManifestHash: preview.manifest_hash,
+                },
+                { store, now, createId },
+            ),
+        ).rejects.toThrow("未能持久化");
     });
 });

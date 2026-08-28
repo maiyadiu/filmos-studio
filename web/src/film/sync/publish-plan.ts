@@ -70,6 +70,7 @@ type PlannedAsset = PlannedSelection & {
 
 export type RemotePublishPreview = {
     schema_version: "0.1.0";
+    manifest_version: 1;
     kind: "FILM_REMOTE_PUBLISH_PREVIEW";
     execution_state: "PREVIEW_ONLY";
     plan_id: string;
@@ -157,6 +158,7 @@ export async function buildRemotePublishPreview(rawInput: RemotePublishPlanInput
     ];
     const body = {
         schema_version: "0.1.0" as const,
+        manifest_version: 1 as const,
         kind: "FILM_REMOTE_PUBLISH_PREVIEW" as const,
         execution_state: "PREVIEW_ONLY" as const,
         plan_id: input.plan_id,

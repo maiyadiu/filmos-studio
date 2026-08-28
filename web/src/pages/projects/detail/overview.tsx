@@ -7,6 +7,7 @@ import { projectAttentionCount, projectContinueTarget, projectDetailStage, proje
 
 import { formatTime, type ProjectDetailViewProps } from "./shared";
 import { FilmProductionEntry } from "./production-entry";
+import { FilmRemoteSyncEntry } from "./remote-sync-entry";
 
 export default function ProjectOverviewView({ detail }: ProjectDetailViewProps) {
     const { project, units, canvases, shots } = detail;
@@ -72,6 +73,8 @@ export default function ProjectOverviewView({ detail }: ProjectDetailViewProps) 
             {filmOverview ? <DynamicContentUnitOverview overview={filmOverview} /> : null}
 
             <FilmProductionEntry detail={detail} />
+
+            <FilmRemoteSyncEntry detail={detail} />
 
             <section>
                 <div className="project-pipeline-head">
