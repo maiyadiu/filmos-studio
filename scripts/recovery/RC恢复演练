@@ -1,0 +1,40 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import json
+import tempfile
+from pathlib import Path
+
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+
+from rc_recovery import run_rc_recovery, write_receipt
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="FilmOS unified Stage 6 RC local recovery drill"
+    )
+    parser.add_argument(
+        "--synthetic",
+        action="store_true",
+        help="required acknowledgement that real user databases are forbidden",
+    )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        help="optional new path for the canonical combined receipt",
+    )
+    args = parser.parse_args()
+    if not args.synthetic:
+        parser.error("--synthetic is required; real user databases are not accepted")
+    with tempfile.TemporaryDirectory(prefix="filmos-rc-recovery-") as directory:
+        receipt = run_rc_recovery(directory)
+    if args.output:
+        write_receipt(args.output, receipt)
+    print(json.dumps(receipt, ensure_ascii=False, indent=2))
+
+
+if __name__ == "__main__":
+    main()
