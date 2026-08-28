@@ -26,6 +26,7 @@ EXPECTED_IMPLEMENTED_PATHS = {
     "/entities/{filmEntityId}",
     "/formal-records/{filmEntityId}",
     "/formal-records",
+    "/script-versions/lock",
     "/prompts/compile",
     "/manual-results/import",
     "/reviews",
@@ -42,6 +43,7 @@ EXPECTED_PATHS = EXPECTED_IMPLEMENTED_PATHS | EXPECTED_PLANNED_PATHS
 REQUIRED_CHAIN_DEFS = {
     "ContentUnitExtension",
     "ScriptVersion",
+    "ScriptDecision",
     "DirectorUnit",
     "CoverageLink",
     "VisualLockSet",
@@ -125,6 +127,7 @@ def main() -> None:
     } <= set(create_guard["required"])
     for request_name in (
         "FormalRecordCreateRequest",
+        "ScriptVersionLockRequest",
         "PromptCompileRequest",
         "ManualResultImportRequest",
         "ReviewCreateRequest",

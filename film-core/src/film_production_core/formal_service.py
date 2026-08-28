@@ -47,7 +47,10 @@ from film_production_core.formal_models import (
     Review,
     ReviewCreateRequest,
     ReviewOutcome,
+    ScriptDecision,
     ScriptVersion,
+    ScriptVersionLockRequest,
+    ScriptVersionLockResult,
     VisualLockSet,
 )
 from film_production_core.models import (
@@ -63,6 +66,7 @@ from film_production_core.service import utc_now
 
 FORMAL_MODEL_BY_TYPE: dict[str, type[FormalEntity]] = {
     EntityType.SCRIPT_VERSION.value: ScriptVersion,
+    EntityType.SCRIPT_DECISION.value: ScriptDecision,
     EntityType.DIRECTOR_UNIT.value: DirectorUnit,
     EntityType.COVERAGE_LINK.value: CoverageLink,
     EntityType.VISUAL_LOCK_SET.value: VisualLockSet,
@@ -98,16 +102,54 @@ class FormalService:
     ) -> FormalRecordApplyResult:
         payload = request.payload
         if isinstance(payload, CreateScriptVersionPayload):
+            if (
+                enum_value(payload.states.lock_state) != "unlocked"
+                or enum_value(payload.states.creative_stage) == "locked"
+            ):
+                raise DomainRuleViolation(
+                    "script_lock_action_required",
+                    "ScriptVersion creation cannot directly claim a locked state",
+                )
             body = {
                 "host": payload.host.model_dump(mode="json", exclude_none=True),
                 "states": payload.states.model_dump(mode="json"),
+                "source_script_version_id": None,
                 "script_text": payload.script_text,
+                "script_text_hash": hash_text(payload.script_text),
             }
             entity_type = EntityType.SCRIPT_VERSION
         elif isinstance(payload, CreateDirectorUnitPayload):
-            self._require_current(
-                payload.script_version, {EntityType.SCRIPT_VERSION.value}
+            script_version = cast(
+                ScriptVersion,
+                self._require_current(
+                    payload.script_version, {EntityType.SCRIPT_VERSION.value}
+                ),
             )
+            script_decision = cast(
+                ScriptDecision,
+                self._require_current(
+                    payload.script_decision, {EntityType.SCRIPT_DECISION.value}
+                ),
+            )
+            if (
+                enum_value(script_version.states.lock_state) != "locked"
+                or enum_value(script_version.states.creative_stage) != "locked"
+            ):
+                raise DomainRuleViolation(
+                    "locked_script_required",
+                    "DirectorUnit requires a locked ScriptVersion",
+                )
+            if (
+                script_decision.decision != "approve_for_lock"
+                or script_decision.locked_script_version_id
+                != script_version.ref.film_entity_id
+                or script_decision.locked_script_version_content_hash
+                != script_version.ref.content_hash
+            ):
+                raise DomainRuleViolation(
+                    "script_decision_mismatch",
+                    "ScriptDecision must approve the current locked ScriptVersion hash",
+                )
             if payload.director_ir_hash != hash_text(payload.director_ir_text):
                 raise DomainRuleViolation(
                     "director_ir_hash_mismatch",
@@ -206,6 +248,68 @@ class FormalService:
             command_payload=request.model_dump(mode="json"),
         )
         return FormalRecordApplyResult(entity=entities[0], audit_event_id=event_ids[0])
+
+    def lock_script_version(
+        self, request: ScriptVersionLockRequest
+    ) -> ScriptVersionLockResult:
+        if enum_value(request.actor_kind) != ActorKind.HUMAN.value:
+            raise DomainRuleViolation(
+                "human_script_lock_required",
+                "Only a human actor can approve and lock a ScriptVersion",
+            )
+        source = cast(
+            ScriptVersion,
+            self._require_current(
+                request.source_script_version, {EntityType.SCRIPT_VERSION.value}
+            ),
+        )
+        if (
+            enum_value(source.states.lock_state) != "unlocked"
+            or enum_value(source.states.creative_stage) == "locked"
+        ):
+            raise DomainRuleViolation(
+                "unlocked_script_source_required",
+                "Script lock requires an unlocked source ScriptVersion",
+            )
+        locked_id = str(uuid4())
+        decision_id = str(uuid4())
+        locked_states = source.states.model_dump(mode="json")
+        locked_states.update(
+            {
+                "creative_stage": "locked",
+                "review_state": "approved",
+                "lock_state": "locked",
+            }
+        )
+        locked_body = {
+            "host": source.host.model_dump(mode="json", exclude_none=True),
+            "states": locked_states,
+            "source_script_version_id": str(source.ref.film_entity_id),
+            "script_text": source.script_text,
+            "script_text_hash": source.script_text_hash,
+        }
+        locked_content_hash = hash_json(locked_body)
+        decision_body = {
+            "source_script_version_id": str(source.ref.film_entity_id),
+            "locked_script_version_id": locked_id,
+            "locked_script_version_content_hash": locked_content_hash,
+            "decision": "approve_for_lock",
+            "approved_by": request.approved_by,
+        }
+        entities, event_ids = self._persist(
+            [
+                (EntityType.SCRIPT_VERSION, locked_body, locked_id),
+                (EntityType.SCRIPT_DECISION, decision_body, decision_id),
+            ],
+            actor_kind=request.actor_kind,
+            command_type="script_version.lock",
+            command_payload=request.model_dump(mode="json"),
+        )
+        return ScriptVersionLockResult(
+            locked_script_version=cast(ScriptVersion, entities[0]),
+            decision=cast(ScriptDecision, entities[1]),
+            audit_event_ids=event_ids,
+        )
 
     def compile_prompt(self, request: PromptCompileRequest) -> PromptCompileResult:
         project = self._require_binding_current(

@@ -18,14 +18,14 @@
 | Web API | `web/src/services/api/projects.ts` | 前端已消费 Host Project/Unit/Shot/Asset/Workflow DTO；Film Core 应使用独立生成 client，不改这些 DTO。 |
 | Canvas Agent | `canvas-agent/src/schemas.ts` | `project_*` 工具复用 Host API；`canvas_apply_ops` 的 expectedRevision/stateHash 仅保护画布投影。 |
 
-## 合同 V0 缺口与裁决
+## 合同 V0 缺口与裁决（历史基线）
 
 1. 原 `openapi.json` 没有 health 路径，且成功/冲突响应都是无约束 `object`，无法做跨 Track 合同测试。本轨改为由 FastAPI/Pydantic 实际导出。
 2. 原 Command 强制客户端传 `target_id`，与“Film Core 生成 UUIDv4”冲突。V0 将创建命令限定为 `target_id=null` + `expected_version=0`，apply 时由 Core 生成 ID；更新命令必须传 UUIDv4 和当前版本。
-3. 原合同声明 impacts/reviews/prompt/continuity，但本轨 V0 没有对应生产实现。为保留 V6.1 目标工具面，这些 operation 在 OpenAPI 中标为可机读 `x-implementation-state: planned`；Sidecar 不注册这些路由，不用 501 占位冒充实现。
+3. 原合同声明 impacts/reviews/prompt/continuity，但本轨 V0 没有对应生产实现。V0 曾将这些 operation 标为 `planned`；阶段二已实际实现 reviews/prompt/continuity，仅 impacts 继续 planned，详见下方阶段二证据。
 4. V0 只写 `FilmProjectExtension`、`ContentUnitExtension`、`ShotExtension` 的 Film 扩展字段；Host 标题、正文、媒体、任务与归属仍由 Yingce Host 权威提供。
 
-## 实施证据
+## V0 实施证据（历史基线）
 
 ### 已实施
 
@@ -99,11 +99,80 @@ database.py   c8068bb991771fe017d4e60821336d2c3c597cb8c958bbb016c2040a9bff1c09
 service.py    85438fc5cca3b4871456def5830e1d9f13799be95501cc8ff1a6c800109cd937
 ```
 
+## 阶段二 Golden A Core 证据
+
+### 合同与持久化
+
+- Sidecar schema V2 新增通用 `formal_records` 与追加式 `formal_audit_events`；没有创建或修改 Host 核心表。
+- `/formal-records` 可创建 unlocked ScriptVersion、DirectorUnit、CoverageLink、VisualLockSet、AssetBinding、GenerationPackage；`/script-versions/lock` 原子创建新 locked ScriptVersion 与 ScriptDecision；PromptDraft/Provenance、GenerationAttemptEvidence/Candidate 分别由领域 API 原子成对写入。
+- 普通 ScriptVersion 不能直接声明 locked。Script Lock 只允许 human actor，以新的 Film UUIDv4 保存不可变 locked 版本并保留 source ID/text hash；DirectorUnit 同时校验 locked ScriptVersion guard 和指向其当前聚合 hash 的 ScriptDecision guard。Agent lock、过期 source guard、错配 decision 均 fail closed。
+- 所有创建目标使用 `target_id=null + expected_version=0 + expected_content_hash=<64 位零哈希>`；所有来源引用使用当前 Film UUIDv4、`expected_version>=1` 与记录聚合 `expected_content_hash`。来源 version 或 hash 不一致返回 409，事务不产生部分记录或审计。
+- DirectorUnit 同时保存 `director_ir_text` 与 `sha256(raw director_ir_text)`；VisualLockSet 同时保存 `visual_lock_text` 与 `sha256(raw visual_lock_text)`。`ref.content_hash` 始终是 canonical record body 聚合 hash，没有与裸内容 hash 混用。
+- AssetBinding 同时保存正式记录聚合 hash 与 Host 资产版本/来源 `asset_content_hash`；正文仅含 opaque Host ID、role、priority、hash，不包含媒体、路径、URL 或二进制。
+- `/prompts/compile` 实际查询 Project、Shot、DirectorUnit、VisualLockSet 和每个 AssetBinding，逐项校验聚合 guard、Host 映射及 raw/source hash；Provenance 同时固定这两层 hash。
+
+### 候选、审查与人工批准
+
+- GenerationPackage 固定 `submission_state=NOT_SUBMITTED`，Core 没有 Provider 网络提交、上传或积分调用代码。
+- `/manual-results/import` 记录 provider/task/receipt/parameter/prompt/input hash、人工来源、授权证据与 Core 生成的 representation UUIDv4；外部结果只创建 `Candidate`，状态为 pending 而非 approved。
+- 参数与人工导入元数据拒绝 secret/API key/token/Cookie/password/credential 字段，以及 data/blob/file URL、绝对路径和 HTTP(S) URL。
+- `/reviews` 只创建独立 Review；`/approvals` 只允许 `actor_kind=human`，要求 passed Review 的 target 与 target hash 同时命中当前 Candidate。Approval 是独立 UUIDv4 记录，Candidate ID、output hash 与状态不被改写。
+- `/continuity/check` 查询当前/前一 Shot 的 version+hash，持久化结构化 blocker；不把 UI gate 或 TODO 冒充检查结果。
+
+### 实际 API 状态
+
+```text
+IMPLEMENTED (16)
+GET  /health
+GET  /projects/{hostProjectId}/context
+GET  /units/{hostUnitId}
+GET  /shots/{hostShotId}
+GET  /entities/{filmEntityId}
+GET  /formal-records/{filmEntityId}
+POST /formal-records
+POST /script-versions/lock
+POST /prompts/compile
+POST /manual-results/import
+POST /reviews
+POST /approvals
+POST /continuity/check
+POST /commands/preview
+POST /commands/apply
+GET  /audit-events
+
+PLANNED (1)
+GET  /impacts/{entityId}
+```
+
+`/entities/{id}` 仍只服务既有三类扩展；所有新增正式记录通过 `/formal-records/{id}` 读取。共享 OpenAPI 对每个 operation 标明 `x-implementation-state`。
+
+### 阶段二验证
+
+```bash
+cd film-core
+PYTHONPATH=src /tmp/filmos-core-venv-02/bin/python -m film_production_core.contracts
+/tmp/filmos-core-venv-02/bin/pytest -q
+python3 ../tests/film-contract/validate_contracts.py
+/tmp/filmos-core-venv-02/bin/python -m compileall -q src tests
+git diff --check
+```
+
+结果：Film Core `21 passed`；合同验证 `schema=0.2.0 paths=17 implemented=16 planned=1 axes=6`；compileall 与 diff check 均通过。Golden 专项覆盖 14 种正式记录的共享 JSON Schema 实例校验、Script Lock/Decision、双层 hash、错误 hash 零部分写入、人工批准边界、Manual Import 敏感材料拒绝、Continuity blocker 和正式审计 trigger。
+
+```text
+openapi.json      194448a55419d012d1ae303f5820aedfaedb2f197bb739c5c4d972b791188036
+core.schema.json  508ce8a1b2a4a3c30b6b6214bfb19d877ffef5520a1bd0d08d7fcac67457eb66
+database.py       30a72ce247c130ce6d5b80b97dff1dccdd6d638b8b51b11f19ba9fe84c0731f7
+formal_service.py 064f4280151c25edea3493636e684d13deacdf588ab5cb97f1d6673f25bb63b6
+```
+
+阶段二实现提交稳定点：`dd9848ac`。
+
 ## Known gaps
 
-- `GET /impacts/{entityId}`、`POST /reviews`、`POST /prompts/compile`、`POST /continuity/check` 是 `planned` 目标合同，本次未实现且运行时不注册。
-- ImpactEdge 写入、精准 STALE 传播、Review/Approval、PromptDraft、ScriptVersion、DirectorUnit 等业务语义留给后续切片/所有 Track。
-- Sidecar 当前只验证 Host ID 形状和唯一映射，未通过 Host Bridge 在线确认 Host 对象存在、当前用户所有权或 Host 删除事件。
-- V0 未实现身份验证/授权；预期由本地桌面 Host/Agent Gateway 在接入时提供可信 actor 与权限边界。
-- 未生成 TypeScript Client；OpenAPI 已稳定提供生成输入，由消费 Track 在所有路径中生成。
-- 未运行 Yingce Host 全量 Go/Web/Canvas Agent 测试，因本提交未修改这些路径；集成分支应由 Track 13 运行全量套件。
+- `GET /impacts/{entityId}`、ImpactEdge 写入和精准 STALE 传播仍为 planned；本阶段未建空表或伪路由。
+- Sidecar 对已持久化 Film/Host 映射做 current version/hash 与 Host ID 一致性校验，但未通过 Host Bridge 在线确认 Host 对象仍存在、当前用户所有权或 Host 删除事件。
+- Sidecar 本身未实现身份认证；`actor_kind=human` 需要本地桌面 Host/Agent Gateway 提供可信身份边界，不能直接暴露为公网批准接口。
+- PromptTemplate/Provider capability 是输入快照，Core 当前只校验安全形状与哈希，不在线查询其他 Track 注册表；跨 Track 集成由阶段二集成分支验证。
+- 未生成 TypeScript Client；OpenAPI 已提供生成输入，由消费 Track 在集成分支生成或绑定。
+- 未运行 Yingce Host 全量 Go/Web/Canvas Agent 测试，因为本提交未修改这些路径；阶段二集成分支应运行全量与浏览器 Golden。

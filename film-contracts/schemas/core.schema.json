@@ -93,12 +93,27 @@
     },
     "ScriptVersion": {
       "type": "object",
-      "required": ["ref", "host", "states", "script_text"],
+      "required": ["ref", "host", "states", "source_script_version_id", "script_text", "script_text_hash"],
       "properties": {
         "ref": { "$ref": "#/$defs/FilmEntityRef" },
         "host": { "$ref": "#/$defs/HostReferences" },
         "states": { "$ref": "#/$defs/FormalStateAxes" },
-        "script_text": { "type": "string" }
+        "source_script_version_id": { "anyOf": [{ "$ref": "#/$defs/FilmEntityId" }, { "type": "null" }] },
+        "script_text": { "type": "string" },
+        "script_text_hash": { "$ref": "#/$defs/ContentHash" }
+      },
+      "additionalProperties": false
+    },
+    "ScriptDecision": {
+      "type": "object",
+      "required": ["ref", "source_script_version_id", "locked_script_version_id", "locked_script_version_content_hash", "decision", "approved_by"],
+      "properties": {
+        "ref": { "$ref": "#/$defs/FilmEntityRef" },
+        "source_script_version_id": { "$ref": "#/$defs/FilmEntityId" },
+        "locked_script_version_id": { "$ref": "#/$defs/FilmEntityId" },
+        "locked_script_version_content_hash": { "$ref": "#/$defs/ContentHash" },
+        "decision": { "const": "approve_for_lock" },
+        "approved_by": { "type": "string", "minLength": 1 }
       },
       "additionalProperties": false
     },

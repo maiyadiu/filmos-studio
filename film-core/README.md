@@ -1,4 +1,4 @@
-# Film Production Core V0
+# Film Production Core V0.2
 
 FilmOS Studio 的隔离 Film Core Sidecar。它只保存影视扩展语义、显式 Host ID 映射、Film 版本和审计，不读写 Yingce Host 数据库，不复制 Project、ProjectUnit、Shot、Asset 或 Task 正文。
 
@@ -13,20 +13,48 @@ FILMOS_CORE_DB_PATH="$PWD/.local/film-core.sqlite" .venv/bin/filmos-core
 
 默认监听 `127.0.0.1:8091`。应用挂载到 FilmOS Studio 时，OpenAPI 的 server base 是 `/film`；直接运行 Sidecar 时路由从 `/health` 开始。若不设 `FILMOS_CORE_DB_PATH`，数据写入当前目录的 `.local/film-core.sqlite`。
 
-## V0 写入合同
+## 写入合同
 
 - `entity.create`：`target_id` 必须为 `null`，`expected_version` 必须为 `0`；Film Core 生成 UUIDv4。
 - `entity.set_states`：必须提供已存在的 UUIDv4 和精确 `expected_version`；冲突返回 HTTP 409，不覆盖。
 - preview 只读；apply 在同一 `BEGIN IMMEDIATE` SQLite 事务中更新实体并追加 `AuditEvent`。
 - `audit_events` 有 SQLite trigger 阻止 UPDATE/DELETE。
 
-V0 可写扩展类型为 `film_project_extension`、`content_unit_extension`、`shot_extension`。`film-contracts/openapi.json` 使用 `x-implementation-state` 区分 `implemented` 与 `planned`；Review、Impact/STALE、Prompt compile 和 Continuity 仅是目标合同，当前 Sidecar 没有对应路由，不调用任何外部生成 Provider。
+兼容写入仍只服务 `film_project_extension`、`content_unit_extension`、`shot_extension`。Golden A 的新记录走 `POST /formal-records` 或明确的领域 API：
+
+- 新目标必须携带 `target_id=null`、`expected_version=0` 和 64 位零哈希；ID 始终由 Core 生成 UUIDv4。
+- 所有被引用的 Core/Host 映射记录必须携带当前 `expected_version` 与聚合 `expected_content_hash`；任一不一致即 409，且不产生部分记录或审计。
+- 普通 ScriptVersion 只能以 unlocked 创建；`POST /script-versions/lock` 仅接受 human actor，并原子创建新的 locked ScriptVersion UUIDv4 与 `approve_for_lock` ScriptDecision。DirectorUnit 必须同时守卫该 locked ScriptVersion 和绑定其当前聚合 hash 的 Decision。
+- `DirectorUnit.director_ir_hash` 与 `VisualLockSet.visual_lock_hash` 是裸文本 SHA-256；它们与记录聚合 hash 分开保存和校验。`AssetBinding.asset_content_hash` 保存 Host 资产版本/来源 hash。
+- `AssetBinding` 只保存 Film/Host opaque ID、role、priority 与来源 hash，不保存媒体、路径、URL 或二进制。
+- Manual Import 只接受安全的本地回执元数据，不包含 Provider 网络执行面；结果先成为 `Candidate`。
+- `Review` 不创建 `Approval`；只有声明为 human 的独立批准写入，且必须引用命中当前 Candidate hash 的 passed Review。Candidate 记录本身不改写。
+
+正式记录保存在 Sidecar `formal_records`，对应 `formal_audit_events` 由数据库 trigger 保证追加式。`film-contracts/openapi.json` 使用 `x-implementation-state` 区分实际与计划 API；当前只有 Impact/STALE 查询仍为 `planned`。
+
+## Golden A API
+
+```text
+GET  /formal-records/{filmEntityId}
+POST /formal-records
+POST /script-versions/lock
+POST /prompts/compile
+POST /manual-results/import
+POST /reviews
+POST /approvals
+POST /continuity/check
+```
+
+`/entities/{filmEntityId}` 继续只读取原有三类扩展，避免把兼容读面隐式扩成任意正式记录查询。
 
 ## 验证与合同导出
 
 ```bash
 cd film-core
 .venv/bin/pytest
-.venv/bin/filmos-core-export-contracts
+PYTHONPATH=src .venv/bin/python -m film_production_core.contracts
 git diff --exit-code ../film-contracts/openapi.json
+python3 ../tests/film-contract/validate_contracts.py
 ```
+
+必须从当前源码导出；若复用其他 checkout 安装的 console script，可能读取错误 worktree。

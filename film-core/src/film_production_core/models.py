@@ -25,6 +25,7 @@ class EntityType(str, Enum):
     CONTENT_UNIT_EXTENSION = "content_unit_extension"
     SHOT_EXTENSION = "shot_extension"
     SCRIPT_VERSION = "script_version"
+    SCRIPT_DECISION = "script_decision"
     DIRECTOR_UNIT = "director_unit"
     COVERAGE_LINK = "coverage_link"
     VISUAL_LOCK_SET = "visual_lock_set"

@@ -722,6 +722,9 @@
             "title": "Performance Beats",
             "type": "array"
           },
+          "script_decision": {
+            "$ref": "#/components/schemas/EntityVersionGuard"
+          },
           "script_version": {
             "$ref": "#/components/schemas/EntityVersionGuard"
           },
@@ -732,6 +735,7 @@
         "required": [
           "entity_type",
           "script_version",
+          "script_decision",
           "states",
           "director_ir_text",
           "director_ir_hash",
@@ -1065,6 +1069,7 @@
           "content_unit_extension",
           "shot_extension",
           "script_version",
+          "script_decision",
           "director_unit",
           "coverage_link",
           "visual_lock_set",
@@ -1333,6 +1338,9 @@
             "anyOf": [
               {
                 "$ref": "#/components/schemas/ScriptVersion"
+              },
+              {
+                "$ref": "#/components/schemas/ScriptDecision"
               },
               {
                 "$ref": "#/components/schemas/DirectorUnit"
@@ -2595,6 +2603,50 @@
         "title": "ReviewState",
         "type": "string"
       },
+      "ScriptDecision": {
+        "additionalProperties": false,
+        "properties": {
+          "approved_by": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Approved By",
+            "type": "string"
+          },
+          "decision": {
+            "const": "approve_for_lock",
+            "title": "Decision",
+            "type": "string"
+          },
+          "locked_script_version_content_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Locked Script Version Content Hash",
+            "type": "string"
+          },
+          "locked_script_version_id": {
+            "format": "uuid4",
+            "title": "Locked Script Version Id",
+            "type": "string"
+          },
+          "ref": {
+            "$ref": "#/components/schemas/FilmEntityRef"
+          },
+          "source_script_version_id": {
+            "format": "uuid4",
+            "title": "Source Script Version Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ref",
+          "source_script_version_id",
+          "locked_script_version_id",
+          "locked_script_version_content_hash",
+          "decision",
+          "approved_by"
+        ],
+        "title": "ScriptDecision",
+        "type": "object"
+      },
       "ScriptVersion": {
         "additionalProperties": false,
         "properties": {
@@ -2608,6 +2660,23 @@
             "title": "Script Text",
             "type": "string"
           },
+          "script_text_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Script Text Hash",
+            "type": "string"
+          },
+          "source_script_version_id": {
+            "anyOf": [
+              {
+                "format": "uuid4",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Script Version Id"
+          },
           "states": {
             "$ref": "#/components/schemas/FormalStateAxes"
           }
@@ -2616,9 +2685,69 @@
           "ref",
           "host",
           "states",
-          "script_text"
+          "source_script_version_id",
+          "script_text",
+          "script_text_hash"
         ],
         "title": "ScriptVersion",
+        "type": "object"
+      },
+      "ScriptVersionLockRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_kind": {
+            "$ref": "#/components/schemas/ActorKind"
+          },
+          "approved_by": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Approved By",
+            "type": "string"
+          },
+          "decision_write": {
+            "$ref": "#/components/schemas/CreateTargetGuard"
+          },
+          "locked_write": {
+            "$ref": "#/components/schemas/CreateTargetGuard"
+          },
+          "source_script_version": {
+            "$ref": "#/components/schemas/EntityVersionGuard"
+          }
+        },
+        "required": [
+          "locked_write",
+          "decision_write",
+          "actor_kind",
+          "source_script_version",
+          "approved_by"
+        ],
+        "title": "ScriptVersionLockRequest",
+        "type": "object"
+      },
+      "ScriptVersionLockResult": {
+        "additionalProperties": false,
+        "properties": {
+          "audit_event_ids": {
+            "items": {
+              "format": "uuid4",
+              "type": "string"
+            },
+            "title": "Audit Event Ids",
+            "type": "array"
+          },
+          "decision": {
+            "$ref": "#/components/schemas/ScriptDecision"
+          },
+          "locked_script_version": {
+            "$ref": "#/components/schemas/ScriptVersion"
+          }
+        },
+        "required": [
+          "locked_script_version",
+          "decision",
+          "audit_event_ids"
+        ],
+        "title": "ScriptVersionLockResult",
         "type": "object"
       },
       "SetStatesCommand": {
@@ -3270,6 +3399,9 @@
                       "$ref": "#/components/schemas/ScriptVersion"
                     },
                     {
+                      "$ref": "#/components/schemas/ScriptDecision"
+                    },
+                    {
                       "$ref": "#/components/schemas/DirectorUnit"
                     },
                     {
@@ -3591,6 +3723,65 @@
           }
         },
         "summary": "Review Submit",
+        "x-implementation-state": "implemented"
+      }
+    },
+    "/script-versions/lock": {
+      "post": {
+        "operationId": "filmScriptVersionLock",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScriptVersionLockRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScriptVersionLockResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Script Version Lock",
         "x-implementation-state": "implemented"
       }
     },

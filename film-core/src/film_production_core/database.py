@@ -155,7 +155,7 @@ CREATE TABLE IF NOT EXISTS formal_records (
     ),
     entity_type TEXT NOT NULL CHECK (
         entity_type IN (
-            'script_version', 'director_unit', 'coverage_link',
+            'script_version', 'script_decision', 'director_unit', 'coverage_link',
             'visual_lock_set', 'asset_binding',
             'prompt_draft', 'prompt_draft_provenance',
             'generation_package', 'generation_attempt_evidence',

@@ -6,7 +6,7 @@ REASONING: `XHigh`
 
 ## 1. 本轨目标
 
-在 `film-core/` 建立不修改 Yingce Host 核心表的 SQLite Sidecar，交付 Film Core V0 最小可运行切片：稳定 UUIDv4、六状态轴、显式 Host 映射、`expected_version` 乐观并发、追加式 `AuditEvent`、真实 preview/apply 命令与只读上下文。
+在 `film-core/` 建立不修改 Yingce Host 核心表的 SQLite Sidecar。V0 已交付稳定 UUIDv4、六状态轴、显式 Host 映射、`expected_version` 乐观并发、追加式 `AuditEvent`、真实 preview/apply 命令与只读上下文；阶段二继续交付 Golden A 所需正式记录、内容哈希守卫、Manual Import、Review 与 Human Approval 人工门。
 
 ## 2. 已核查的真实源码、数据库、测试与 UI 合同
 
@@ -37,12 +37,12 @@ REASONING: `XHigh`
 | --- | --- |
 | `REUSE` | Host Project/Unit/Shot/Asset/Workflow/Task 和现有 Web/Agent 工具面；只保存它们的显式 ID 引用。 |
 | `EXTEND` | 以 `FilmProjectExtension`/`ContentUnitExtension`/`ShotExtension` 映射 Host；不对 Host 原表加列。 |
-| `BUILD` | FastAPI + Pydantic + SQLite WAL Sidecar、schema migration、六轴状态、Film revision、命令 preview/apply、追加式审计、合同导出与不变量测试。 |
-| `DEFER` | Host 存在性/所有权在线校验、不可逆迁移、外部生成、Review/Prompt/Continuity 业务实现、Impact/STALE 写入与传播算法、Remote/Hybrid 同步。 |
+| `BUILD` | FastAPI + Pydantic + SQLite WAL Sidecar、schema migration、六轴状态、Film revision、命令 preview/apply、Golden A 正式记录、双层内容哈希、Manual Import、Review/Approval、Continuity、追加式审计、合同导出与不变量测试。 |
+| `DEFER` | Host 存在性/所有权在线校验、不可逆迁移、外部生成、Impact/STALE 写入与传播算法、Remote/Hybrid 同步。 |
 
 ## 5. 本次最小修改范围
 
-- `film-core/`：独立 Python 包、SQLite migration/repository/service/FastAPI、合同导出器、测试和运行文档。
+- `film-core/`：独立 Python 包、SQLite migration/repository/service/FastAPI、Golden A 正式记录与人工门、合同导出器、测试和运行文档。
 - `film-contracts/openapi.json`：从实际 FastAPI/Pydantic 导出，增加 health、实体读取、审计读取和精确 command schema。
 - `film-contracts/schemas/core.schema.json`：仅在实际响应无法通过时做最小修正，不删除其他 Track 已声明的领域对象。
 - `implementation/tracks/02-film-core/`：计划与证据。
@@ -52,21 +52,23 @@ REASONING: `XHigh`
 - 不修改 `backend/`、`web/`、`canvas-agent/` 或 Host DB/schema。
 - 不复制 Host Project/ProjectUnit/Shot/Asset/Task 正文或媒体。
 - 不调用 Provider，不创建生成 Task，不上传任何资产。
-- 不实现其他 Track 所有的 Story/Director/Prompt/Asset/Agent/Remote 模块。
+- 不实现其他 Track 所有的 UI、Agent、Provider 外部执行或 Remote 模块；Core 仅持久化它们提交的共享正式合同。
 - 不执行不可逆数据迁移，不修改稳定 ID 规则。
 
 ## 7. 受影响文件与数据对象
 
 - 文件：仅限第 5 节路径。
-- Sidecar 表：`schema_migrations`、`film_entities`、`audit_events`。Impact/STALE 按 V0 收口留作 planned contract，本切片不建空表冒充实现。
-- V0 可写对象：FilmProjectExtension、ContentUnitExtension、ShotExtension 的映射、六轴状态与 Film revision。
-- V0 审计对象：每次 apply 在同一 SQLite 事务追加 AuditEvent。
+- Sidecar 表：`schema_migrations`、`film_entities`、`audit_events`、`formal_records`、`formal_audit_events`。Impact/STALE 仍为 planned contract，不建空表冒充实现。
+- 兼容可写对象：FilmProjectExtension、ContentUnitExtension、ShotExtension 的映射、六轴状态与 Film revision。
+- Golden A 正式对象：ScriptVersion、ScriptDecision、DirectorUnit、CoverageLink、VisualLockSet、AssetBinding、PromptDraft/Provenance、GenerationPackage/AttemptEvidence、Candidate、Review、Approval、ContinuityCheckResult。
+- 每次正式写入在同一 SQLite 事务提交记录与追加式审计；组合产物（Prompt+Provenance、Evidence+Candidate）全成或全退。
 
 ## 8. 测试计划
 
-- Pydantic/JSON Schema：UUIDv4、六轴必填与枚举、Host 映射必填、响应符合 `core.schema.json`。
+- Pydantic/JSON Schema：UUIDv4、六轴必填与枚举、Host 映射必填、正式记录响应符合 `core.schema.json`。
 - Repository/Service：preview 零写入、Film ID 创建后不变、映射唯一、`expected_version` 冲突不覆盖、审计与实体原子提交、审计表禁止 update/delete。
-- API：health DB round-trip、context/read、preview/apply/409、audit read、OpenAPI 与已提交合同一致。
+- API：health DB round-trip、context/read、preview/apply/409、formal read/create、Prompt compile、Manual Import、Review/Human Approval、Continuity、audit read、OpenAPI 与已提交合同一致。
+- Golden 不变量：ScriptVersion 不能直接伪造 locked，human lock 生成新不可变版本与 Decision；DirectorUnit 必须引用已决策的当前 locked ScriptVersion；聚合记录 hash 与 raw/source hash 分层；所有 source guard 查询当前记录；Candidate/Review/Approval 身份分离；敏感字段、data URL、绝对路径与外部 URL 被拒绝；本地链外部调用为 0。
 
 ## 9. 回滚方式
 
@@ -78,4 +80,4 @@ REASONING: `XHigh`
 - Track 03/05/08：消费 Film Core OpenAPI 的 context/read/command 工具面。
 - Track 13：继续扩展 Contract/Golden/Recovery 测试；本轨先提供最小不变量测试。
 
-STATUS: `V0_IMPLEMENTED_LOCAL_VERIFIED`
+STATUS: `STAGE2_CORE_GOLDEN_A_IMPLEMENTED_LOCAL_VERIFIED`

@@ -30,6 +30,8 @@ from film_production_core.formal_models import (
     PromptCompileResult,
     Review,
     ReviewCreateRequest,
+    ScriptVersionLockRequest,
+    ScriptVersionLockResult,
 )
 from film_production_core.formal_service import FormalService
 from film_production_core.models import (
@@ -205,6 +207,17 @@ def create_app(database_path: str | Path | None = None) -> FastAPI:
         request: FormalRecordCreateRequest,
     ) -> FormalRecordApplyResult:
         return formal_service.create_record(request)
+
+    @app.post(
+        "/script-versions/lock",
+        response_model=ScriptVersionLockResult,
+        operation_id="filmScriptVersionLock",
+        responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}},
+    )
+    def script_version_lock(
+        request: ScriptVersionLockRequest,
+    ) -> ScriptVersionLockResult:
+        return formal_service.lock_script_version(request)
 
     @app.post(
         "/prompts/compile",

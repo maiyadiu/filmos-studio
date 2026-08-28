@@ -116,7 +116,18 @@ class ScriptVersion(StrictModel):
     ref: FilmEntityRef
     host: HostReferences
     states: FormalStateAxes
+    source_script_version_id: UUID4 | None
     script_text: str
+    script_text_hash: str = Field(pattern=HASH_PATTERN)
+
+
+class ScriptDecision(StrictModel):
+    ref: FilmEntityRef
+    source_script_version_id: UUID4
+    locked_script_version_id: UUID4
+    locked_script_version_content_hash: str = Field(pattern=HASH_PATTERN)
+    decision: Literal["approve_for_lock"]
+    approved_by: str = Field(min_length=1, max_length=256)
 
 
 class DirectorUnit(StrictModel):
@@ -356,6 +367,7 @@ class ContinuityCheckResult(StrictModel):
 
 FormalEntity: TypeAlias = (
     ScriptVersion
+    | ScriptDecision
     | DirectorUnit
     | CoverageLink
     | VisualLockSet
@@ -387,6 +399,7 @@ class CreateScriptVersionPayload(StrictModel):
 class CreateDirectorUnitPayload(StrictModel):
     entity_type: Literal[EntityType.DIRECTOR_UNIT]
     script_version: EntityVersionGuard
+    script_decision: EntityVersionGuard
     states: FormalStateAxes
     director_ir_text: str = Field(min_length=1)
     director_ir_hash: str = Field(pattern=HASH_PATTERN)
@@ -479,6 +492,20 @@ class FormalRecordCreateRequest(StrictModel):
 class FormalRecordApplyResult(StrictModel):
     entity: FormalEntity
     audit_event_id: UUID4
+
+
+class ScriptVersionLockRequest(StrictModel):
+    locked_write: CreateTargetGuard
+    decision_write: CreateTargetGuard
+    actor_kind: ActorKind
+    source_script_version: EntityVersionGuard
+    approved_by: str = Field(min_length=1, max_length=256)
+
+
+class ScriptVersionLockResult(StrictModel):
+    locked_script_version: ScriptVersion
+    decision: ScriptDecision
+    audit_event_ids: list[UUID4]
 
 
 class PromptCompileRequest(StrictModel):

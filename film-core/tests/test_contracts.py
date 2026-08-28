@@ -61,6 +61,7 @@ def test_committed_openapi_matches_export_and_marks_implementation_state() -> No
         "/entities/{filmEntityId}",
         "/formal-records/{filmEntityId}",
         "/formal-records",
+        "/script-versions/lock",
         "/prompts/compile",
         "/manual-results/import",
         "/reviews",
