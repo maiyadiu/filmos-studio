@@ -10,6 +10,7 @@ import { hmacSha256 } from "../src/canonical.js";
 import { MemoryFilmOSReadDataSource } from "../src/data-source.js";
 import { MemoryProjectGrantStore } from "../src/grants.js";
 import type { MediaProxyStore } from "../src/media.js";
+import { buildProposalPreviewChildEnvironment } from "../src/proposal-preview.js";
 import { createFilmOSChatGPTApp } from "../src/server.js";
 import { inspectSecureTunnel } from "../src/tunnel.js";
 import { projectA, projects } from "./fixture.js";
@@ -81,4 +82,18 @@ test("Secure MCP Tunnel disconnect or missing client remains fail closed with no
   assert.equal(receipt.tunnel_started, false);
   assert.equal(receipt.public_listener_created, false);
   assert.ok(receipt.blockers.includes("TUNNEL_CLIENT_NOT_FOUND"));
+});
+
+test("proposal preview child receives only the fixed importer environment", () => {
+  const environment = buildProposalPreviewChildEnvironment("/opt/filmos/core", "local-test-signing-secret-123456789");
+  assert.deepEqual(Object.keys(environment).sort(), [
+    "FILMOS_CHATGPT_PROPOSAL_SIGNING_SECRET",
+    "LANG",
+    "LC_ALL",
+    "PYTHONPATH",
+  ]);
+  assert.equal(environment.PYTHONPATH, "/opt/filmos/core");
+  assert.equal(environment.FILMOS_CHATGPT_PROPOSAL_SIGNING_SECRET, "local-test-signing-secret-123456789");
+  assert.equal(environment.PATH, undefined);
+  assert.equal(environment.HOME, undefined);
 });

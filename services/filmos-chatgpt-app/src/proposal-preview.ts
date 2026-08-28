@@ -16,6 +16,15 @@ export interface ProposalPreviewAdapter {
   preview(value: FilmOSProposalPackage, grant: ProjectGrant, context: ProposalPreviewContext): Promise<Record<string, unknown>>;
 }
 
+export function buildProposalPreviewChildEnvironment(moduleRoot: string, signingSecret: string): NodeJS.ProcessEnv {
+  return {
+    PYTHONPATH: moduleRoot,
+    FILMOS_CHATGPT_PROPOSAL_SIGNING_SECRET: signingSecret,
+    LANG: "en_US.UTF-8",
+    LC_ALL: "en_US.UTF-8",
+  };
+}
+
 export class PythonProposalPreviewAdapter implements ProposalPreviewAdapter {
   constructor(private readonly options: { pythonExecutable: string; moduleRoot: string; signingSecret: string; receiptDirectory: string }) {}
 
@@ -34,7 +43,7 @@ export class PythonProposalPreviewAdapter implements ProposalPreviewAdapter {
         "--receipt-file", receiptPath,
       ], {
         cwd: this.options.moduleRoot,
-        env: { ...process.env, PYTHONPATH: this.options.moduleRoot, FILMOS_CHATGPT_PROPOSAL_SIGNING_SECRET: this.options.signingSecret },
+        env: buildProposalPreviewChildEnvironment(this.options.moduleRoot, this.options.signingSecret),
         timeout: 15_000,
         maxBuffer: 1024 * 1024,
       });
