@@ -1,5 +1,9 @@
 # CR-08-001｜Film Agent 注册
 
+状态：`ACCEPTED_STAGE_2`
+
+裁定：`D-0005`；本阶段只注册已有 5 个 Film 工具，仍默认关闭，并以 OpenAPI 同步门阻断合同漂移。
+
 ## 原因
 
 Track 08 只拥有 `canvas-agent/src/film/**`。首切片已提供默认关闭的 `registerFilmAgentMcp`，但现有共享入口 `canvas-agent/src/mcp-server.ts` 尚未调用它，工具目前不可见。
