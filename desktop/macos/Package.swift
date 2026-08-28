@@ -12,7 +12,12 @@ let package = Package(
         .executable(name: "FilmOSStudioDesktop", targets: ["FilmOSStudioDesktop"]),
     ],
     targets: [
-        .target(name: "FilmOSDesktopCore"),
+        .target(
+            name: "FilmOSDesktopCore",
+            linkerSettings: [
+                .linkedFramework("Security"),
+            ]
+        ),
         .executableTarget(
             name: "FilmOSStudioDesktop",
             dependencies: ["FilmOSDesktopCore"]
