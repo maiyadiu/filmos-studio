@@ -1,6 +1,6 @@
 const SECRET_KEY = /(api[-_]?key|authorization|cookie|password|secret|token)/i;
 const SECRET_VALUE = /(sk-[A-Za-z0-9_-]{12,}|bearer\s+[A-Za-z0-9._~-]{12,})/i;
-const ABSOLUTE_PATH = /(?:^|\s)(?:\/[A-Za-z0-9_.-]+){2,}(?:\/[^\s]*)?|[A-Za-z]:\\[^\r\n]*/;
+const ABSOLUTE_PATH = /(?:^|\s)(?:\/(?!\/)[^\s]+|[A-Za-z]:[\\/][^\r\n]*)/;
 const INJECTION = /(ignore|disregard|override).{0,40}(instruction|policy|permission|system)|system\s*prompt|reveal.{0,30}(secret|token|key)/i;
 
 export class SecurityBoundaryError extends Error {

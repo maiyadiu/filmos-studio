@@ -13,5 +13,11 @@ flags:
   film.dreamina_provider: false
   film.flova_provider: false
   film.remote_sync: false
+  film.chatgpt_app: false
+  film.chatgpt_read_tools: false
+  film.chatgpt_widgets: false
+  film.chatgpt_secure_tunnel: false
+  film.chatgpt_proposal_handoff: false
+  film.chatgpt_write_tools: false
+  film.chatgpt_api_panel: false
 rollback_rule: disabling_any_flag_must_leave_original_yingce_flow_available
-

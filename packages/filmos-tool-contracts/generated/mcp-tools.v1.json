@@ -1,8 +1,475 @@
 {
   "schema_version": "1.0.0",
   "contract_id": "filmos-chatgpt-readonly-v1",
-  "contract_hash": "a9f868ea78f47156b1d9dc8a0d086cd84d5560adf3b2020ba5e85fc057d7776f",
+  "contract_hash": "70018bc1620d14c41d1e40c88fb67663083e01c351a3a6f7bddeea19a14b54bb",
   "resource_uri_version": "v1",
+  "schemas": {
+    "ExternalBrainConnection": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "connection_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "provider": {
+          "type": "string",
+          "const": "chatgpt"
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "secure_mcp_tunnel",
+            "loopback_test"
+          ]
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "disconnected",
+            "connecting",
+            "connected",
+            "degraded",
+            "revoked"
+          ]
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "last_seen_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "connection_id",
+        "provider",
+        "mode",
+        "status",
+        "created_at"
+      ]
+    },
+    "ChatGPTAppInstallation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "installation_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "connection_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tool_snapshot_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "LOCAL_CANDIDATE",
+            "INSTALLED",
+            "STALE",
+            "REMOVED"
+          ]
+        },
+        "installed_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "installation_id",
+        "connection_id",
+        "tool_snapshot_id",
+        "status"
+      ]
+    },
+    "ChatGPTBridgeSession": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "session_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "connection_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "grant_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "project_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "ACTIVE",
+            "EXPIRED",
+            "REVOKED",
+            "DISCONNECTED"
+          ]
+        },
+        "started_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "expires_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "session_id",
+        "connection_id",
+        "grant_id",
+        "project_id",
+        "state",
+        "started_at",
+        "expires_at"
+      ]
+    },
+    "ChatGPTContextGrant": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "grant_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "project_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "subject_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "project:read",
+              "proposal:export"
+            ]
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "token_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "issued_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "expires_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "revoked_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "grant_id",
+        "project_id",
+        "subject_id",
+        "scopes",
+        "token_hash",
+        "issued_at",
+        "expires_at"
+      ]
+    },
+    "ChatGPTToolSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "snapshot_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "contract_version": {
+          "type": "string",
+          "const": "1.0.0"
+        },
+        "contract_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "tool_names": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "widget_resource_uris": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "compatibility": {
+          "type": "string",
+          "enum": [
+            "CURRENT",
+            "BACKWARD_COMPATIBLE",
+            "MIGRATION_REQUIRED"
+          ]
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "snapshot_id",
+        "contract_version",
+        "contract_hash",
+        "tool_names",
+        "widget_resource_uris",
+        "compatibility",
+        "created_at"
+      ]
+    },
+    "FilmOSProposalItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "item_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "Proposal",
+            "Candidate",
+            "Review Draft"
+          ]
+        },
+        "target_uri": {
+          "type": "string",
+          "pattern": "^filmos://"
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        },
+        "payload": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      },
+      "required": [
+        "item_id",
+        "kind",
+        "target_uri",
+        "summary",
+        "payload"
+      ]
+    },
+    "FilmOSProposalPackage": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "type": "string",
+          "const": "1.0.0"
+        },
+        "proposal_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_brain": {
+          "type": "string",
+          "const": "chatgpt"
+        },
+        "host_project_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "base_state_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "base_versions": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "proposal_type": {
+          "type": "string",
+          "enum": [
+            "Proposal",
+            "Candidate",
+            "Review Draft"
+          ]
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/FilmOSProposalItem"
+          },
+          "minItems": 1
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "expires_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "content_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "signature": {
+          "type": "string",
+          "pattern": "^hmac-sha256:[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "schema_version",
+        "proposal_id",
+        "source_brain",
+        "host_project_id",
+        "base_state_hash",
+        "base_versions",
+        "proposal_type",
+        "summary",
+        "items",
+        "created_at",
+        "expires_at",
+        "content_hash",
+        "signature"
+      ]
+    },
+    "ExternalBrainAuditEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "event_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "correlation_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "connection_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "grant_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "project_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "action": {
+          "type": "string",
+          "minLength": 1
+        },
+        "outcome": {
+          "type": "string",
+          "enum": [
+            "ALLOW",
+            "DENY",
+            "ERROR"
+          ]
+        },
+        "output_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "result_size": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "recorded_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "event_id",
+        "correlation_id",
+        "action",
+        "outcome",
+        "result_size",
+        "recorded_at"
+      ]
+    },
+    "WidgetViewState": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "widget_uri": {
+          "type": "string",
+          "pattern": "^ui://filmos/"
+        },
+        "project_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "state_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "selected_uri": {
+          "type": "string",
+          "pattern": "^filmos://"
+        },
+        "filters": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "widget_uri",
+        "project_id",
+        "state_version",
+        "filters",
+        "updated_at"
+      ]
+    }
+  },
   "tools": [
     {
       "name": "search",

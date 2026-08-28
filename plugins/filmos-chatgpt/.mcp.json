@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "filmos-chatgpt-local": {
+      "type": "http",
+      "url": "http://127.0.0.1:17840/mcp",
+      "bearer_token_env_var": "FILMOS_CHATGPT_PROJECT_GRANT_TOKEN"
+    }
+  }
+}

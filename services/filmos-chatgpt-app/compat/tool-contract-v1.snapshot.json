@@ -1,0 +1,26 @@
+{
+  "schema_version": "1.0.0",
+  "resource_uri_version": "v1",
+  "tools": {
+    "search": { "required": ["query"], "properties": { "query": "string" } },
+    "fetch": { "required": ["id"], "properties": { "id": "string" } },
+    "filmos_get_project_context": { "required": [], "properties": {} },
+    "filmos_get_content_unit_context": { "required": ["host_unit_id"], "properties": { "host_unit_id": "string" } },
+    "filmos_get_shot_context": { "required": ["host_shot_id"], "properties": { "host_shot_id": "string" } },
+    "filmos_get_asset_version": { "required": ["film_entity_id"], "properties": { "film_entity_id": "string" } },
+    "filmos_get_scene_twin_summary": { "required": ["film_entity_id"], "properties": { "film_entity_id": "string" } },
+    "filmos_get_continuity_report": { "required": ["film_entity_id"], "properties": { "film_entity_id": "string" } },
+    "filmos_get_generation_attempts": { "required": [], "properties": { "limit": "integer" } },
+    "filmos_get_review_queue": { "required": [], "properties": { "limit": "integer" } },
+    "filmos_get_blockers": { "required": [], "properties": {} },
+    "filmos_get_recent_changes": { "required": [], "properties": { "limit": "integer" } },
+    "filmos_render_project_overview": { "required": [], "properties": {}, "widget": "ui://filmos/project-overview-v1.html" },
+    "filmos_render_content_unit_progress": { "required": ["host_unit_id"], "properties": { "host_unit_id": "string" }, "widget": "ui://filmos/content-unit-progress-v1.html" },
+    "filmos_render_shot_review": { "required": ["host_shot_id"], "properties": { "host_shot_id": "string" }, "widget": "ui://filmos/shot-review-v1.html" },
+    "filmos_render_asset_version": { "required": ["film_entity_id"], "properties": { "film_entity_id": "string" }, "widget": "ui://filmos/asset-version-v1.html" },
+    "filmos_render_scene_twin": { "required": ["film_entity_id"], "properties": { "film_entity_id": "string" }, "widget": "ui://filmos/scene-twin-v1.html" },
+    "filmos_render_review_queue": { "required": [], "properties": { "limit": "integer" }, "widget": "ui://filmos/review-queue-v1.html" },
+    "filmos_render_proposal_export": { "required": ["base_state_hash"], "properties": { "base_state_hash": "string" }, "widget": "ui://filmos/proposal-export-v1.html" },
+    "filmos_prepare_proposal_export": { "required": ["proposal_type", "summary", "items_json", "base_state_hash"], "properties": { "proposal_type": "string", "summary": "string", "items_json": "string", "base_state_hash": "string" } }
+  }
+}

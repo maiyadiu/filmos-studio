@@ -7,6 +7,7 @@ started_at: 2026-08-28T02:16:08+08:00
 source_directives:
   - AI影视工作台_影策主干_一次性并行实施总计划_V6.1.md
   - FilmOS_Studio_Codex_一次性并行开工总令_V6.2.md
+  - FilmOS_Studio_ChatGPT接入_立即并行开工令_V6.3.md
 baseline:
   upstream: ddcat-ai/open-ai-canvas
   release: v1.2.1
@@ -35,6 +36,15 @@ tracks:
   - { id: "11", name: migration, branch: track/migration, worktree: ../wt-migration, status: INTEGRATED_STAGE5_SYNTHETIC_RECOVERY_10_PASSED_REAL_PG_BLOCKED }
   - { id: "12", name: remote, branch: track/remote, worktree: ../wt-remote, status: INTEGRATED_STAGE5_LOCAL_RECEIPT_BROWSER_PASSED_REMOTE_EXECUTION_DEFERRED }
   - { id: "13", name: qa, branch: track/qa, worktree: ../wt-qa, status: INTEGRATED_STAGE5_BETA_LOCAL_PASSED_WEB_CHUNK_WARNING }
+  - { id: "14", name: chatgpt-app, branch: feature/chatgpt-app-v1, worktree: ../wt-chatgpt-app, status: LOCAL_DAY1_5_IMPLEMENTED_EXTERNAL_ACCOUNT_BLOCKED }
+track14_feature_flags:
+  film.chatgpt_app: false
+  film.chatgpt_read_tools: false
+  film.chatgpt_widgets: false
+  film.chatgpt_secure_tunnel: false
+  film.chatgpt_proposal_handoff: false
+  film.chatgpt_write_tools: false
+  film.chatgpt_api_panel: false
 first_vertical_slice:
   chain:
     - Project
@@ -86,4 +96,4 @@ fifth_stage_slice:
     - UnsignedMacOSApp
     - BrowserFlagRollback
   status: BETA_PASSED_LOCAL_WITH_KNOWN_BLOCKERS_EXTERNAL_ACTIONS_ZERO
-updated_at: 2026-08-28T14:12:54+08:00
+updated_at: 2026-08-28T15:33:11+08:00

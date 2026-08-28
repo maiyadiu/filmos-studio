@@ -1,0 +1,24 @@
+{
+  "name": "filmos-chatgpt",
+  "version": "0.1.0",
+  "description": "Read an explicitly granted FilmOS project through the local read-only MCP boundary.",
+  "author": {
+    "name": "FilmOS Studio"
+  },
+  "keywords": ["filmos", "film", "mcp", "read-only", "proposal"],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "FilmOS 本机只读桥",
+    "shortDescription": "Read one granted FilmOS project through local MCP.",
+    "longDescription": "Connects Codex to the loopback FilmOS MCP service with a short-lived Project Grant. It exposes project-scoped read tools and preview-only proposal handoff; approval, lock, apply, delete, paid tasks, upload, and publication remain unavailable.",
+    "developerName": "FilmOS Studio",
+    "category": "Productivity",
+    "capabilities": ["Film Production", "Read-only MCP", "Project Grant"],
+    "defaultPrompt": [
+      "读取当前授权的 FilmOS 项目上下文并概括阻塞项",
+      "列出当前 Candidate 与 Review Draft，不执行批准或写入",
+      "为当前项目准备一个只读预览的 Proposal 草案"
+    ]
+  },
+  "mcpServers": "./.mcp.json"
+}

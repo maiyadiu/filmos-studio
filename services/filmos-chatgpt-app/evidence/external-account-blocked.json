@@ -1,0 +1,15 @@
+{
+  "kind": "FILMOS_CHATGPT_DOCTOR",
+  "contract_id": "filmos-chatgpt-readonly-v1",
+  "contract_hash": "70018bc1620d14c41d1e40c88fb67663083e01c351a3a6f7bddeea19a14b54bb",
+  "public_tool_count": 20,
+  "reserved_write_tools_registered": 0,
+  "tunnel": {
+    "kind": "FILMOS_SECURE_TUNNEL_DOCTOR",
+    "status": "BLOCKED_EXTERNAL_ACCOUNT",
+    "tunnel_started": false,
+    "public_listener_created": false,
+    "checks": { "loopback_mcp": true, "tunnel_id": false, "runtime_key": false, "tunnel_client": false },
+    "blockers": ["MISSING_PLATFORM_TUNNEL_ID", "MISSING_TUNNEL_RUNTIME_KEY", "TUNNEL_CLIENT_NOT_CONFIGURED"]
+  }
+}

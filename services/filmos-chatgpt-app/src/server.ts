@@ -3,18 +3,21 @@ import { resolve } from "node:path";
 
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import express, { type Request, type Response } from "express";
+import express, { type NextFunction, type Request, type Response } from "express";
 
-import { JsonlAuditSink, type AuditSink } from "./audit.js";
+import { auditRecord, JsonlAuditSink, type AuditSink } from "./audit.js";
 import { FilmCoreReadClient, type FilmOSReadDataSource } from "./data-source.js";
 import { JsonProjectGrantStore, type ProjectGrant, type ProjectGrantStore } from "./grants.js";
 import { authorizeMediaProxy, EmptyMediaProxyStore, MediaProxyError, type MediaProxyStore } from "./media.js";
 import { createFilmOSMcpServer } from "./mcp.js";
+import { PythonProposalPreviewAdapter, ProposalPreviewError, type ProposalPreviewAdapter } from "./proposal-preview.js";
 
-type Session = { transport: StreamableHTTPServerTransport; grant: ProjectGrant; token: string };
+type Session = { transport: StreamableHTTPServerTransport; grant: ProjectGrant };
 
 export type FilmOSChatGPTAppOptions = {
   enabled: boolean;
+  readToolsEnabled?: boolean;
+  widgetsEnabled?: boolean;
   proposalHandoffEnabled: boolean;
   proposalSigningSecret?: string;
   grants: ProjectGrantStore;
@@ -22,13 +25,15 @@ export type FilmOSChatGPTAppOptions = {
   audit: AuditSink;
   media?: MediaProxyStore;
   allowedOrigins?: string[];
+  proposalPreview?: ProposalPreviewAdapter;
 };
 
 export function createFilmOSChatGPTApp(options: FilmOSChatGPTAppOptions) {
   const app = express();
   const sessions = new Map<string, Session>();
+  const observations = new Map<string, { last_read_at: string; last_context_snapshot: { uri: string | null; version: number | null; state_hash: string | null } }>();
   app.disable("x-powered-by");
-  app.use(express.json({ limit: "256kb" }));
+  app.use(express.json({ limit: "1mb" }));
   app.use((req, res, next) => {
     res.setHeader("Cache-Control", "no-store");
     res.setHeader("X-Content-Type-Options", "nosniff");
@@ -48,11 +53,11 @@ export function createFilmOSChatGPTApp(options: FilmOSChatGPTAppOptions) {
     external_account_connected: false,
   }));
 
-  const authenticate = async (req: Request, res: Response): Promise<{ token: string; grant: ProjectGrant } | null> => {
+  const authenticate = async (req: Request, res: Response): Promise<{ grant: ProjectGrant } | null> => {
     const authorization = req.header("authorization") ?? "";
     const match = /^Bearer\s+(.+)$/i.exec(authorization);
     if (!match) { res.status(401).json({ code: "PROJECT_GRANT_REQUIRED" }); return null; }
-    try { return { token: match[1], grant: await options.grants.authorize(match[1]) }; }
+    try { return { grant: await options.grants.authorize(match[1]) }; }
     catch (error) { res.status(401).json({ code: (error as { code?: string }).code ?? "UNAUTHORIZED" }); return null; }
   };
 
@@ -71,7 +76,7 @@ export function createFilmOSChatGPTApp(options: FilmOSChatGPTAppOptions) {
     let transport: StreamableHTTPServerTransport;
     transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: randomUUID,
-      onsessioninitialized: (id: string) => { sessions.set(id, { transport, grant: authorization.grant, token: authorization.token }); },
+      onsessioninitialized: (id: string) => { sessions.set(id, { transport, grant: authorization.grant }); },
     });
     const server = createFilmOSMcpServer({
       grant: authorization.grant,
@@ -79,6 +84,12 @@ export function createFilmOSChatGPTApp(options: FilmOSChatGPTAppOptions) {
       audit: options.audit,
       proposalHandoffEnabled: options.proposalHandoffEnabled,
       proposalSigningSecret: options.proposalSigningSecret,
+      readToolsEnabled: options.readToolsEnabled,
+      widgetsEnabled: options.widgetsEnabled,
+      onRead: (snapshot) => observations.set(authorization.grant.grant_id, {
+        last_read_at: snapshot.read_at,
+        last_context_snapshot: { uri: snapshot.uri, version: snapshot.version, state_hash: snapshot.state_hash },
+      }),
     });
     transport.onclose = () => { if (transport.sessionId) sessions.delete(transport.sessionId); };
     await server.connect(transport);
@@ -88,23 +99,111 @@ export function createFilmOSChatGPTApp(options: FilmOSChatGPTAppOptions) {
   app.post("/mcp", sessionRequest);
   app.get("/mcp", sessionRequest);
   app.delete("/mcp", sessionRequest);
+  app.get("/handoff/status", async (req, res) => {
+    if (!options.enabled) return res.status(404).json({ code: "FILM_CHATGPT_APP_DISABLED" });
+    const authorization = await authenticate(req, res);
+    if (!authorization) return;
+    const requestedProjectId = req.query.project_id;
+    if (requestedProjectId !== undefined && (typeof requestedProjectId !== "string" || requestedProjectId !== authorization.grant.project_id)) {
+      const body = { code: "PROJECT_SCOPE_DENIED" };
+      await options.audit.write(auditRecord({ correlation_id: randomUUID(), action: "handoff.status", grant_id: authorization.grant.grant_id, project_id: authorization.grant.project_id, outcome: "DENY", result_size: byteSize(body), code: body.code }));
+      return res.status(403).json(body);
+    }
+    const observation = observations.get(authorization.grant.grant_id);
+    const body = {
+      connection: "disconnected",
+      local_mcp_ready: true,
+      external_account_connected: false,
+      authorized_project: {
+        project_id: authorization.grant.project_id,
+        grant_id: authorization.grant.grant_id,
+        expires_at: authorization.grant.expires_at,
+      },
+      last_read_at: observation?.last_read_at ?? null,
+      last_context_snapshot: observation?.last_context_snapshot ?? null,
+      proposal_handoff_enabled: options.proposalHandoffEnabled,
+      status_code: "BLOCKED_EXTERNAL_ACCOUNT",
+    };
+    await options.audit.write(auditRecord({ correlation_id: randomUUID(), action: "handoff.status", grant_id: authorization.grant.grant_id, project_id: authorization.grant.project_id, outcome: "ALLOW", result_size: byteSize(body) }));
+    return res.json(body);
+  });
+  app.post("/handoff/grants/revoke", async (req, res) => {
+    if (!options.enabled) return res.status(404).json({ code: "FILM_CHATGPT_APP_DISABLED" });
+    const authorization = await authenticate(req, res);
+    if (!authorization) return;
+    if (req.body?.grant_id && req.body.grant_id !== authorization.grant.grant_id) {
+      const body = { code: "GRANT_SCOPE_DENIED" };
+      await options.audit.write(auditRecord({ correlation_id: randomUUID(), action: "handoff.grant.revoke", grant_id: authorization.grant.grant_id, project_id: authorization.grant.project_id, outcome: "DENY", result_size: byteSize(body), code: body.code }));
+      return res.status(403).json(body);
+    }
+    const revokedAt = new Date();
+    await options.grants.revoke(authorization.grant.grant_id, revokedAt);
+    const body = { revoked: true, grant_id: authorization.grant.grant_id, revoked_at: revokedAt.toISOString() };
+    await options.audit.write(auditRecord({ correlation_id: randomUUID(), action: "handoff.grant.revoke", grant_id: authorization.grant.grant_id, project_id: authorization.grant.project_id, outcome: "ALLOW", result_size: byteSize(body) }));
+    return res.json(body);
+  });
+  app.post("/handoff/proposals/preview", async (req, res) => {
+    if (!options.enabled) return res.status(404).json({ code: "FILM_CHATGPT_APP_DISABLED" });
+    const authorization = await authenticate(req, res);
+    if (!authorization) return;
+    if (!options.proposalHandoffEnabled) {
+      const body = { code: "FILM_CHATGPT_PROPOSAL_HANDOFF_DISABLED" };
+      await options.audit.write(auditRecord({ correlation_id: randomUUID(), action: "handoff.proposal.preview", grant_id: authorization.grant.grant_id, project_id: authorization.grant.project_id, outcome: "DENY", result_size: byteSize(body), code: body.code }));
+      return res.status(404).json(body);
+    }
+    if (!options.proposalPreview) {
+      const body = { code: "PROPOSAL_IMPORT_NOT_CONFIGURED", status: "BLOCKED_LOCAL_CONFIG" };
+      await options.audit.write(auditRecord({ correlation_id: randomUUID(), action: "handoff.proposal.preview", grant_id: authorization.grant.grant_id, project_id: authorization.grant.project_id, outcome: "DENY", result_size: byteSize(body), code: body.code }));
+      return res.status(503).json(body);
+    }
+    if (!req.body || typeof req.body !== "object" || Array.isArray(req.body) || Object.keys(req.body).length !== 1 || !("package" in req.body) || !req.body.package || typeof req.body.package !== "object" || Array.isArray(req.body.package)) {
+      const body = { code: "INVALID_PROPOSAL_PACKAGE", status: "REJECTED" };
+      await options.audit.write(auditRecord({ correlation_id: randomUUID(), action: "handoff.proposal.preview", grant_id: authorization.grant.grant_id, project_id: authorization.grant.project_id, outcome: "DENY", result_size: byteSize(body), code: body.code }));
+      return res.status(400).json(body);
+    }
+    try {
+      const context = await options.dataSource.read("filmos_get_project_context", {}, authorization.grant);
+      const result = await options.proposalPreview.preview(req.body.package, authorization.grant, { state_hash: context.state_hash, versions: { [context.uri]: context.version } });
+      if (result.ok !== true || result.kind !== "FILMOS_PROPOSAL_IMPORT_PREVIEW" || !result.preview) throw new ProposalPreviewError("INVALID_IMPORTER_RESPONSE", "Film Core proposal importer returned an invalid response");
+      await options.audit.write(auditRecord({ correlation_id: randomUUID(), action: "handoff.proposal.preview", grant_id: authorization.grant.grant_id, project_id: authorization.grant.project_id, outcome: "ALLOW", output_hash: context.state_hash, result_size: byteSize(result) }));
+      return res.json(result);
+    } catch (error) {
+      const code = error instanceof ProposalPreviewError ? error.code : "PROPOSAL_IMPORT_FAILED";
+      const body = { code, status: "REJECTED" };
+      await options.audit.write(auditRecord({ correlation_id: randomUUID(), action: "handoff.proposal.preview", grant_id: authorization.grant.grant_id, project_id: authorization.grant.project_id, outcome: "DENY", result_size: byteSize(body), code }));
+      return res.status(409).json(body);
+    }
+  });
   app.get("/media/:id", async (req, res) => {
     if (!options.enabled) return res.status(404).json({ code: "FILM_CHATGPT_APP_DISABLED" });
     const authorization = await authenticate(req, res);
     if (!authorization) return;
     try {
       const object = await authorizeMediaProxy(options.media ?? new EmptyMediaProxyStore(), authorization.grant, req.params.id);
+      await options.audit.write(auditRecord({ correlation_id: randomUUID(), action: "media.proxy", grant_id: authorization.grant.grant_id, project_id: authorization.grant.project_id, outcome: "ALLOW", result_size: object.bytes.byteLength }));
       res.type(object.content_type).set("Content-Length", String(object.bytes.byteLength)).send(Buffer.from(object.bytes));
     } catch (error) {
-      if (error instanceof MediaProxyError) return res.status(error.status).json({ code: error.code });
-      return res.status(500).json({ code: "MEDIA_PROXY_FAILED" });
+      const code = error instanceof MediaProxyError ? error.code : "MEDIA_PROXY_FAILED";
+      const status = error instanceof MediaProxyError ? error.status : 500;
+      const body = { code };
+      await options.audit.write(auditRecord({ correlation_id: randomUUID(), action: "media.proxy", grant_id: authorization.grant.grant_id, project_id: authorization.grant.project_id, outcome: error instanceof MediaProxyError ? "DENY" : "ERROR", result_size: byteSize(body), code }));
+      return res.status(status).json(body);
     }
+  });
+  app.use((error: unknown, _req: Request, res: Response, next: NextFunction) => {
+    const status = Number((error as { status?: unknown }).status ?? 0);
+    const type = String((error as { type?: unknown }).type ?? "");
+    if (status === 413 || type === "entity.too.large") return res.status(413).json({ code: "REQUEST_TOO_LARGE" });
+    if (status === 400 || error instanceof SyntaxError) return res.status(400).json({ code: "INVALID_JSON" });
+    return next(error);
   });
   return { app, sessions };
 }
 
 export async function startFromEnvironment(env: NodeJS.ProcessEnv = process.env) {
   const enabled = env.FILMOS_CHATGPT_APP_ENABLED === "true";
+  const readToolsEnabled = env.FILMOS_CHATGPT_READ_TOOLS_ENABLED === "true";
+  const widgetsEnabled = env.FILMOS_CHATGPT_WIDGETS_ENABLED === "true";
   const proposalHandoffEnabled = env.FILMOS_CHATGPT_PROPOSAL_HANDOFF_ENABLED === "true";
   const host = env.FILMOS_CHATGPT_HOST ?? "127.0.0.1";
   if (!["127.0.0.1", "::1", "localhost"].includes(host)) throw new Error("FilmOS ChatGPT MCP must bind to loopback");
@@ -113,20 +212,30 @@ export async function startFromEnvironment(env: NodeJS.ProcessEnv = process.env)
   const grants = await JsonProjectGrantStore.open(resolve(localDir, "grants.json"));
   const instance = createFilmOSChatGPTApp({
     enabled,
+    readToolsEnabled,
+    widgetsEnabled,
     proposalHandoffEnabled,
     proposalSigningSecret: env.FILMOS_CHATGPT_PROPOSAL_SIGNING_SECRET,
     grants,
     dataSource: new FilmCoreReadClient(env.FILMOS_CORE_BASE_URL ?? "http://127.0.0.1:17650/film"),
     audit: new JsonlAuditSink(resolve(localDir, "audit.jsonl")),
     allowedOrigins: (env.FILMOS_CHATGPT_ALLOWED_ORIGINS ?? "").split(",").map((item) => item.trim()).filter(Boolean),
+    proposalPreview: env.FILMOS_CHATGPT_IMPORT_PYTHON && env.FILMOS_CHATGPT_IMPORT_MODULE_ROOT && env.FILMOS_CHATGPT_PROPOSAL_SIGNING_SECRET ? new PythonProposalPreviewAdapter({
+      pythonExecutable: env.FILMOS_CHATGPT_IMPORT_PYTHON,
+      moduleRoot: env.FILMOS_CHATGPT_IMPORT_MODULE_ROOT,
+      signingSecret: env.FILMOS_CHATGPT_PROPOSAL_SIGNING_SECRET,
+      receiptDirectory: resolve(localDir, "proposal-receipts"),
+    }) : undefined,
   });
   const httpServer = instance.app.listen(port, host);
   return { ...instance, httpServer, host, port };
 }
 
+function byteSize(value: unknown): number { return Buffer.byteLength(JSON.stringify(value)); }
+
 function isLoopbackHost(value: string | undefined): boolean {
   if (!value) return false;
-  const host = value.replace(/^\[/, "").split("]")[0].split(":")[0];
+  const host = value.startsWith("[") ? value.slice(1, value.indexOf("]")) : value.split(":")[0];
   return host === "127.0.0.1" || host === "localhost" || host === "::1";
 }
 

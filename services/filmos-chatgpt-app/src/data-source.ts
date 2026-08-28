@@ -68,14 +68,17 @@ export class FilmCoreReadClient implements FilmOSReadDataSource {
       case "filmos_get_scene_twin_summary":
       case "filmos_get_continuity_report": {
         const id = assertSafeIdentifier(input.film_entity_id, "film_entity_id");
-        if (!contextEntityIds(context).has(id)) throw new SecurityBoundaryError("project_scope_denied", "Entity is not linked to the authorized project context");
         const path = name.includes("scene_twin") ? `/spatial-versions/${encodeURIComponent(id)}` : `/formal-records/${encodeURIComponent(id)}`;
-        return this.getJson(path, signal);
+        const value = await this.getJson(path, signal);
+        assertEntityProject(value, context, grant.project_id);
+        return value;
       }
       case "filmos_get_generation_attempts":
-        return { items: [], completeness: "PARTIAL", reason: "Film Core v0.4 has no project-scoped generation-attempt list endpoint" };
-      case "filmos_get_review_queue":
-        return { items: [], completeness: "PARTIAL", allowed_states: ["Candidate", "Review Draft"], reason: "Film Core v0.4 has no project-scoped review queue list endpoint" };
+        return { items: await this.formalRecordsFromAudit(["generation_attempt_evidence.created", "candidate.created"], context, grant.project_id, signal), completeness: "FILM_CORE_AUDIT_INDEX" };
+      case "filmos_get_review_queue": {
+        const records = await this.formalRecordsFromAudit(["candidate.created", "review.created"], context, grant.project_id, signal);
+        return { items: records.map(reviewQueueItem), completeness: "FILM_CORE_AUDIT_INDEX", allowed_states: ["Candidate", "Review Draft"] };
+      }
       case "filmos_get_blockers":
         return { items: deriveBlockers(context), completeness: "DERIVED_FROM_PROJECT_CONTEXT" };
       case "filmos_get_recent_changes": {
@@ -94,6 +97,30 @@ export class FilmCoreReadClient implements FilmOSReadDataSource {
     const response = await fetch(url, { headers: { accept: "application/json" }, signal });
     if (!response.ok) throw new Error(`Film Core read failed: ${response.status}`);
     return response.json();
+  }
+
+  private async formalRecordsFromAudit(actions: string[], context: unknown, projectId: string, signal?: AbortSignal): Promise<unknown[]> {
+    const events = await this.getJson("/audit-events?limit=500", signal) as Array<{ action?: unknown; target_id?: unknown }>;
+    const targetIds = [...new Set(events.filter((event) => actions.includes(String(event.action))).map((event) => String(event.target_id ?? "")).filter(Boolean))];
+    const records: unknown[] = [];
+    for (const targetId of targetIds) {
+      try {
+        const record = await this.getJson(`/formal-records/${encodeURIComponent(assertSafeIdentifier(targetId, "target_id"))}`, signal);
+        if (record?.ref?.entity_type === "review" && record?.target_id) {
+          const candidate = await this.getJson(`/formal-records/${encodeURIComponent(assertSafeIdentifier(record.target_id, "candidate_id"))}`, signal);
+          assertEntityProject(candidate, context, projectId);
+        } else if (record?.ref?.entity_type === "generation_attempt_evidence" && record?.generation_package_id) {
+          const generationPackage = await this.getJson(`/formal-records/${encodeURIComponent(assertSafeIdentifier(record.generation_package_id, "generation_package_id"))}`, signal);
+          assertEntityProject(generationPackage, context, projectId);
+        } else {
+          assertEntityProject(record, context, projectId);
+        }
+        records.push(record);
+      } catch (error) {
+        if (!(error instanceof SecurityBoundaryError)) continue;
+      }
+    }
+    return records;
   }
 }
 
@@ -170,6 +197,31 @@ function assertHostProject(value: any, projectId: string): void {
   if (value?.host?.host_project_id !== projectId) throw new SecurityBoundaryError("project_scope_denied", "Entity is outside the Project Grant");
 }
 
+function assertEntityProject(value: any, context: any, projectId: string): void {
+  if (value?.host?.host_project_id === projectId || value?.host_project_id === projectId) return;
+  const allowedIds = contextEntityIds(context);
+  const projectEntityId = context?.film_project?.ref?.film_entity_id;
+  if (projectEntityId) allowedIds.add(String(projectEntityId));
+  const references = collectFilmEntityIds(value);
+  if ([...references].some((id) => allowedIds.has(id))) return;
+  throw new SecurityBoundaryError("project_scope_denied", "Entity is outside the Project Grant");
+}
+
+function collectFilmEntityIds(value: unknown, seen = new Set<unknown>()): Set<string> {
+  const ids = new Set<string>();
+  if (!value || typeof value !== "object" || seen.has(value)) return ids;
+  seen.add(value);
+  if (Array.isArray(value)) {
+    for (const item of value) for (const id of collectFilmEntityIds(item, seen)) ids.add(id);
+    return ids;
+  }
+  for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+    if (key === "film_entity_id" && typeof item === "string") ids.add(item);
+    else for (const id of collectFilmEntityIds(item, seen)) ids.add(id);
+  }
+  return ids;
+}
+
 function searchableDocuments(context: Record<string, unknown>, projectId: string) {
   const candidates: Array<{ kind: string; key: string; value: unknown; title: string }> = [
     { kind: "context", key: "project", value: context, title: `FilmOS project ${projectId}` },
@@ -196,6 +248,11 @@ function deriveBlockers(context: any): unknown[] {
 
 function boundedLimit(value: unknown): number {
   return typeof value === "number" && Number.isInteger(value) ? Math.min(100, Math.max(1, value)) : 20;
+}
+
+function reviewQueueItem(value: any): unknown {
+  const entityType = value?.ref?.entity_type;
+  return { ...value, kind: entityType === "candidate" ? "Candidate" : entityType === "review" ? "Review" : "Unknown" };
 }
 
 function findHost(value: unknown, field: string, id: string): unknown {

@@ -20,6 +20,7 @@ test("security boundary redacts secret keys, token values, and absolute paths wh
   const sanitized = sanitizeForMcp(source) as any;
   assert.equal(sanitized.api_key, "[REDACTED]");
   assert.equal(sanitized.nested.local_path, "[LOCAL_PATH_REDACTED]");
+  assert.equal(sanitizeForMcp("filmos://project/project-a/shot/shot-a"), "filmos://project/project-a/shot/shot-a");
   assert.deepEqual(detectUntrustedInstructions(source), ["PROMPT_INJECTION_TEXT_IGNORED"]);
 });
 

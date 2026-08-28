@@ -46,3 +46,15 @@ test("OpenAPI, TypeScript source snapshot, and MCP snapshot keep identical tool 
     assert.equal(operation["x-filmos-widget"], tool.widget ?? null);
   }
 });
+
+test("shared external-brain objects generate identical TypeScript and OpenAPI components", async () => {
+  const openapi = JSON.parse(await readFile(new URL("../generated/openapi.v1.json", import.meta.url), "utf8"));
+  const typescript = await readFile(new URL("../src/generated.ts", import.meta.url), "utf8");
+  const required = ["ExternalBrainConnection", "ChatGPTAppInstallation", "ChatGPTBridgeSession", "ChatGPTContextGrant", "ChatGPTToolSnapshot", "FilmOSProposalPackage", "FilmOSProposalItem", "ExternalBrainAuditEvent", "WidgetViewState"];
+  for (const name of required) {
+    assert.deepEqual(openapi.components.schemas[name], contract.schemas[name]);
+    assert.ok(typescript.includes(`export type ${name} =`));
+  }
+  assert.match(typescript, /export type ChatGPTContextGrant = \{ "grant_id": string;/);
+  assert.match(typescript, /export type FilmOSProposalPackage = \{ "schema_version": "1\.0\.0";/);
+});

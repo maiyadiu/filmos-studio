@@ -1,0 +1,26 @@
+{
+  "kind": "TRACK14_REAL_GOLDEN_RECEIPT",
+  "status": "PASSED_LOCAL",
+  "command": "FILMOS_TEST_PYTHON=<film-core-venv-python> npm run test:golden-real",
+  "golden_a": {
+    "real_film_core_sqlite": true,
+    "real_film_core_http": true,
+    "candidate_id": "854dca53-75b0-4c33-9a35-e07ff80e8212",
+    "asset_id": "554565c0-1f20-4c76-97c1-cff16f96ea52",
+    "scene_twin_id": "75448b8b-ce1e-4b8f-9c79-f54376d405a8",
+    "review_id": "609f115f-c526-4c1c-9ac2-258f01f9d37b",
+    "mcp_tools_exercised": ["search", "fetch", "project", "content_unit", "shot", "asset", "scene_twin", "generation_attempts", "review_queue", "blockers", "recent_changes", "render_project"],
+    "fallback_mock_used": false,
+    "external_calls": 0
+  },
+  "golden_b": {
+    "real_export_file": true,
+    "python_importer_cli": true,
+    "preview_status": "PREVIEW_REQUIRES_HUMAN_APPROVAL",
+    "idempotent_replay": true,
+    "formal_write_executed": false,
+    "provider_task_created": false,
+    "deletion_executed": false,
+    "external_calls": 0
+  }
+}

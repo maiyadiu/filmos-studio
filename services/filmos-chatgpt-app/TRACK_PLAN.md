@@ -4,7 +4,7 @@
 
 - Primary archetype: `interactive-decoupled`.
 - FilmOS data tools and explicit render tools are separate. Widgets use the MCP Apps bridge first; `window.openai` is additive fallback only.
-- `film.chatgpt_app=false` and `film.chatgpt_proposal_handoff=false` are the formal defaults requested from Program Integration.
+- The seven `film.chatgpt_*` defaults are all `false`: app, read tools, widgets, secure tunnel, proposal handoff, write tools, and API panel. Read tools/widgets are independently gated; write/API surfaces are not registered.
 - The server binds loopback only. No public listener, tunnel, ChatGPT account, API key, upload, publication, provider generation, Approval, Lock, Apply, paid task, or deletion is created by this Track.
 - ChatGPT text and project text are untrusted inputs. Film Core remains the formal fact source; imported packages stop at Proposal, Candidate, or Review Draft preview.
 
@@ -12,6 +12,11 @@
 
 | Surface | Status | Local decision |
 | --- | --- | --- |
+| Film Core OpenAPI / Stable ID / state hash / expected version | REUSE | Read the v0.4 HTTP contract; never mint or rewrite Core identities; proposal Preview binds current state/version |
+| Canvas Agent MCP | REUSE | Keep its existing local canvas responsibility separate; do not duplicate or alter its write tools |
+| Codex app-server/sidebar | DEFER | Track 14 exposes a local Codex plugin boundary only; no sidebar integration is claimed as ChatGPT Apps proof |
+| Remote/Hybrid sync and resource proxy | EXTEND | Reuse project-scoping principles; implement a separate bounded proxy-media store and no-original fallback |
+| Desktop local service / Keychain | EXTEND | Stable Handoff REST and Python importer contracts are supplied; real macOS bundle wiring remains Program Integrator-owned |
 | MCP server / streamable HTTP `/mcp` | BUILD | TypeScript SDK, stable tool contract, short Project Grant sessions |
 | MCP Apps UI | BUILD | Seven versioned widget resources, exact empty CSP domain lists |
 | Standard `search` / `fetch` | BUILD | Exact one-text-item JSON shape |
@@ -46,4 +51,4 @@ The closest maintained starting pattern is the official single-resource TypeScri
 
 ## Evidence language
 
-Local MCP and synthetic Candidate tests may be reported as `PASSED_LOCAL`. Secure Tunnel and actual ChatGPT host connection must remain `BLOCKED_EXTERNAL_ACCOUNT`; local MCP runtime tests are not ChatGPT connection evidence.
+Local MCP unit tests plus the real temporary Film Core SQLite/HTTP Candidate chain may be reported as `PASSED_LOCAL`. Secure Tunnel and actual ChatGPT host connection remain `BLOCKED_EXTERNAL_ACCOUNT`; local MCP runtime tests are not ChatGPT connection evidence.

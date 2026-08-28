@@ -6,15 +6,18 @@
   "main": "./dist/server.js",
   "scripts": {
     "build:contracts": "npm --prefix ../../packages/filmos-tool-contracts run build",
-    "build": "npm run build:contracts && tsc -p tsconfig.json",
+    "build:widget": "node scripts/build-widget.mjs",
+    "build": "npm run build:contracts && npm run build:widget && tsc -p tsconfig.json",
     "check": "npm run build:contracts && tsc -p tsconfig.json --noEmit",
-    "test": "npm run build:contracts && tsx --test --test-concurrency=1 test/*.test.ts",
+    "test": "npm run build:contracts && npm run build:widget && tsx --test --test-concurrency=1 test/*.test.ts",
+    "test:golden-real": "npm run build:contracts && npm run build:widget && tsx --test --test-concurrency=1 test/real-film-core-golden.integration.ts",
     "start": "node dist/server.js",
     "doctor": "node dist/doctor.js",
     "grant": "node dist/grant-cli.js"
   },
   "dependencies": {
     "@filmos/tool-contracts": "file:../../packages/filmos-tool-contracts",
+    "@modelcontextprotocol/ext-apps": "^1.7.5",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "express": "^5.2.1",
     "zod": "^3.25.76"
@@ -22,6 +25,7 @@
   "devDependencies": {
     "@types/express": "^5.0.6",
     "@types/node": "^22.20.1",
+    "esbuild": "^0.25.10",
     "tsx": "^4.23.1",
     "typescript": "^7.0.2"
   },
