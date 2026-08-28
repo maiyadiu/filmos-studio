@@ -1,11 +1,11 @@
-updated_at: 2026-08-28T09:58:18+08:00
+updated_at: 2026-08-28T10:49:30+08:00
 main:
   state: BASELINE_PUSHED
   upstream_release: v1.2.1
   upstream_commit: 61b332583c4fcbf71890ae67e3f0f104d67706b9
   pushed: true
 integration:
-  state: STAGE2_GOLDEN_A_PASSED
+  state: STAGE3_GOLDEN_B_PASSED_LOCAL
   base: 73f3ae5381fd7c48cd9ad262164c05c435dd6385
   branch: integration
   integrated_tracks:
@@ -65,6 +65,16 @@ integration:
     - { subject: core-script-lock, source_commit: e2c6dd7e, integration_commit: 58ea0ce7 }
     - { subject: real-http-golden, source_commit: bf511010, integration_commit: e6cc69ec }
     - { subject: loopback-cors, source_commit: 2e88378d, integration_commit: 9cc6b92b }
+  stage3_commits:
+    - { subject: scope-and-spec, integration_commits: [ed8c96e9, bffc914c] }
+    - { subject: dreamina-readonly-lineage, integration_commit: c5286e38 }
+    - { subject: director-jcut-boundary, integration_commit: f47f0169 }
+    - { subject: local-dialogue-gates, integration_commit: fe929f45 }
+    - { subject: host-asset-readonly, source_commit: 7a3835, integration_commit: 4a17237a }
+    - { subject: story-review-preview, source_commit: d1503bf, integration_commit: 6d77ee70 }
+    - { subject: approved-character-costume-locks, integration_commit: 23d2349b }
+    - { subject: real-golden-b, integration_commit: 656568c6 }
+    - { subject: core-impact-stale, source_commit: 3e203dfe, integration_commit: bac96e10 }
 worktrees:
   state: CREATED_AND_TRACKING_REMOTE
   count: 14
@@ -74,29 +84,29 @@ candidate:
   base: 73f3ae5381fd7c48cd9ad262164c05c435dd6385
   branch: candidate
 native_tests:
-  state: PASSED_AFTER_STAGE2_INTEGRATION
+  state: PASSED_AFTER_STAGE3_INTEGRATION
   after_current_integration_head: FULL_RELEVANT_GATES_PASSED
   backend: PASSED
-  web: "471 passed, 0 failed; build passed with existing chunk warning"
-  canvas_agent: "338 passed, 0 failed, 5 Windows-specific skipped; build and OpenAPI sync check passed"
+  web: "602 passed, 0 failed, 2545 assertions; typecheck and build passed with existing chunk warning"
+  canvas_agent: "343 passed, 0 failed, 5 Windows-specific skipped; build and OpenAPI sync check passed"
 film_contract_tests:
-  state: PASSED
+  state: PASSED_STAGE3_ZERO_PLANNED
   command: python3 tests/film-contract/validate_contracts.py
-  result: FILM_CONTRACTS_OK schema=0.2.0 paths=17 implemented=16 planned=1 axes=6
+  result: FILM_CONTRACTS_OK schema=0.3.0 paths=21 implemented=21 planned=0 axes=6
 film_core_tests:
-  state: PASSED_AFTER_STAGE2_INTEGRATION
+  state: PASSED_AFTER_STAGE3_INTEGRATION
   command: cd film-core && PYTHONPATH=src /tmp/filmos-core-venv-02/bin/pytest -q
-  result: "37 passed; compileall and OpenAPI zero-drift passed; 1 Starlette TestClient deprecation warning"
+  result: "44 passed; compileall and OpenAPI zero-drift passed; 1 Starlette TestClient deprecation warning"
 film_web_tests:
-  state: PASSED_AFTER_STAGE2_INTEGRATION
+  state: PASSED_AFTER_STAGE3_INTEGRATION
   command: bun test Film targets; bun run typecheck; bun run build
-  result: "78 passed; 0 failed; 228 assertions; full native 471/0; typecheck and production build passed with existing large chunk warning"
+  result: "97 passed; 0 failed; 261 assertions; full native 602/0 and 2545 assertions; typecheck and production build passed with existing large chunk warning"
 desktop_tests:
   state: PASSED_AFTER_CURRENT_INTEGRATION_HEAD
   result: "Swift debug/release build passed; 14 tests in 3 suites passed; symlink escape cases executed"
 mcp_tests:
   state: REGISTERED_DEFAULT_OFF_REAL_SIDECAR_PASSED
-  result: "Default and canvasOnly add zero Film tools; explicit enable adds exactly 5; real MCP SDK and loopback Sidecar Read-Preview-Apply passed; native 338/0 with 5 Windows-specific skipped"
+  result: "Default and canvasOnly add zero Film tools; explicit enable adds exactly 5; real MCP SDK and loopback Sidecar Read-Preview-Apply passed; Dreamina lineage is projection-only; native 343/0 with 5 Windows-specific skipped"
 migration_tests:
   state: SANDBOX_PREVIEW_PASSED_REAL_DATA_NOT_READ
   result: "8 passed; compileall passed; no database or user data opened; no formal apply or deletion path"
@@ -105,12 +115,14 @@ golden_a:
   command: python3 tests/film-golden/golden_a_real.py; Playwright CLI browser entry and rollback
   result: "Real HTTP 2/0; Mock regression 4/0; prepared/persisted/reviewed/approved distinct; fallback_mock_used=false; external_provider_calls=0; browser entry/CORS/preview/flag rollback passed"
 golden_b:
-  state: NOT_RUN
+  state: REAL_HTTP_AND_BROWSER_PASSED_LOCAL
+  command: python3 tests/film-golden/test_golden_b_real.py; Playwright CLI Story and Asset flag matrix
+  result: "Real Sidecar precise STALE chain passed; fallback_mock_used=false; external_provider_calls=0; Story and Host Asset enabled/default-off browser states passed"
 golden_c:
   state: NOT_RUN
 recovery_tests:
-  state: STAGE2_SCOPED_PASSED
-  result: "Stale version/hash/canvas revision/stateHash fail closed; current guard replay succeeds; closing a Film flag removes Film DOM and leaves Host overview usable. Full disaster recovery not run."
+  state: STAGE3_SCOPED_PASSED
+  result: "Stage2 guards retained; precise STALE rejects stale guards with zero partial writes; idempotent replay preserves audit ids; Story/Asset flag rollback leaves Host flows usable. Full disaster recovery not run."
 upstream_compatibility:
   static_state: C_MIGRATION_REQUIRED
   candidate_native_state: D_BLOCKED

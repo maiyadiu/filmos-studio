@@ -56,3 +56,13 @@
 - 浏览器：Playwright 真实操作 Host 临时项目，发现并修复 Film Core CORS 缺口；`/health` 200 且回显精确本机 Origin，启用态显示安全预演，关闭态 Film DOM 不存在。
 - 回滚/恢复：stale version/hash/revision/stateHash 全部 fail closed；当前守卫可重放；关 Flag 恢复纯 Host 概览。完整灾难恢复、唯一 production canvas 正式创建和 Impact API 尚未完成。
 - 安全边界：未执行外部生成、上传、远程发布、真实数据迁移或积分消费；所有 Film Flag 仍默认关闭。
+
+## 2026-08-28 开工批次 07｜第三阶段
+
+- 裁定：Golden B 采用三人长对白、DirectorUnit/Shot 多对多、五维连续性、受限 J-cut、Character/Costume Lock 与精准 STALE；独立 SceneTwin/Camera/Blocking/Composition 留到 Golden C。
+- Core：Schema 升至 `0.3.0`，21 paths 全部 implemented；正式 `ScriptStructureMap`、`ImpactEdge`、Impact 查询、原子 STALE、审计和幂等回执落地，44 tests passed。
+- Golden B：真实临时 Sidecar/SQLite/HTTP 跑通 Cue 与 Costume 精确传播、未映射变化、stale guard 零部分写入和幂等重放；无 Mock 回退，外部调用 0。
+- Web：Story Review 差异/影响预览与 Host Asset 只读投影均默认关闭；本地媒体拒绝 containment/symlink 逃逸；Film 专项 `97/0`、261 assertions，全量 `602/0`、2545 assertions，类型检查与构建通过。
+- Agent/Provider：Dreamina 影视血缘只读投影默认关闭，不提交、不批准；Canvas Agent `343/0`、5 个 Windows 专项 skip，OpenAPI 同步与构建通过。
+- 浏览器：真实临时 Host 项目完成 Story/Asset 开启态与关闭态复核；关闭后新增 Film DOM 消失且 Host 原页面可用。登录后只剩既有 Ant Design 弃用告警，无业务错误。
+- 总结：第三阶段状态为 `PASSED_LOCAL_INTEGRATION`，不是生产批准。外部生成、上传、积分消费、远程发布和真实迁移继续关闭。

@@ -72,4 +72,13 @@ FILMOS_CORE_PYTHON="$PWD/film-core/.venv/bin/python" \
 python3 tests/film-golden/test_golden_b_spec.py
 ```
 
-真实 Golden B runner 会在第三阶段 Core Impact/STALE operation 合入后接入临时 Sidecar；operation 缺失时只能返回 `BLOCKED_MISSING_CORE_OPERATION`。
+真实 Golden B runner 已接入临时 Sidecar/SQLite/HTTP；检查 `ScriptStructureMap`、ImpactEdge、Cue/Costume 精准 STALE、未映射变化、零部分写入与幂等回执。缺少正式 operation 时仍只能返回 `BLOCKED_MISSING_CORE_OPERATION`，不得回退 Mock。
+
+```bash
+FILMOS_CORE_PYTHON=/path/to/film-core-python \
+  python3 tests/film-golden/test_golden_b_real.py
+bun test tests/film-golden/test_golden_b_local.test.ts \
+  tests/film-golden/test_golden_b_assets_local.test.ts
+```
+
+签入的 `golden-b.json` 继续保持 `NOT_RUN`，因为它是不可被某次本地运行污染的验收规格；本次真实运行结论记录在 `证据.md` 与 `implementation/阶段三验收.md`。

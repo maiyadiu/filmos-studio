@@ -41,7 +41,7 @@
 
 ## D-0006｜第三阶段 Golden B 与精准 STALE
 
-- 状态：已裁定，实施中，尚无生产数据。
+- 状态：已裁定，第三阶段本地验收通过，尚无生产数据或外部执行。
 - Golden B：验证多人长对白、DirectorUnit 与 Shot 多对多、Blocking/轴线/视线连续性、受审计的 J-cut 声音先入例外、Character/Costume Lock，以及上游变化后的精准 STALE。
 - 剧本结构：接受 `CR-04-001` 的剩余范围；使用绑定当前 ScriptVersion version/hash 的 companion `ScriptStructureMap` 保存稳定 Section/Cue 映射，不给既有 ScriptVersion 静默补字段，也不复制正文。
 - 影响图：Film Core 正式持有 `ImpactEdge`、Impact 查询和 STALE 写入；只有声明的 cue/section/VisualLock component/AssetBinding dependency 命中才传播，未映射变化只报告 unresolved，不得整图自动污染。
@@ -50,3 +50,4 @@
 - UI 边界：Story Review 与 Asset 面板各自默认关闭；Web 只产生 preview/recommendation，Human 显式命令才可进入 Core 正式 lock/STALE。
 - Provider 边界：本阶段可完善 Dreamina/Comfy 本地血缘与统一回执，但不执行外部生成、上传、额度消耗或远程发布。
 - 回滚：保持 `film.production_core`、`film.story_studio`、`film.asset_lock` 默认关闭；撤销第三阶段 API/面板不改 Host 核心表、Stable ID 或用户媒体。
+- 验收：Core `44/0`，真实 Golden B 与冲突/幂等链通过，Story/Asset 开关双态浏览器通过；详见 `阶段三验收.md` 与 `test-reports/浏览器GoldenB.md`。
