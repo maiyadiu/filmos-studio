@@ -18,6 +18,7 @@ sys.path.insert(0, str(ROOT / "scripts" / "migration"))
 sys.path.insert(0, str(ROOT / "scripts" / "upstream"))
 sys.path.insert(0, str(ROOT / "film-core" / "src"))
 
+from frozen_upstream import prepare_frozen_upstream  # noqa: E402
 from rc_schema_adapter import run_candidate_demo  # noqa: E402
 from synthetic_migration import run_demo as run_synthetic_migration  # noqa: E402
 from film_production_core.database import SQLiteDatabase  # noqa: E402
@@ -302,7 +303,9 @@ def run_rc_recovery(root: str | Path, repo_root: str | Path = ROOT) -> dict[str,
     surface = run_surface(repo)
     beta_migration = run_synthetic_migration(sandbox / "beta-migration")
     film_core = run_film_core_recovery(sandbox / "film-core")
-    candidate = run_candidate_demo(sandbox / "candidate-adapter", repo)
+    upstream_repo = sandbox / "yingce-upstream.git"
+    upstream_bootstrap = prepare_frozen_upstream(upstream_repo)
+    candidate = run_candidate_demo(sandbox / "candidate-adapter", upstream_repo)
 
     checks = {
         "remote_receipt_recovered": (
@@ -334,7 +337,7 @@ def run_rc_recovery(root: str | Path, repo_root: str | Path = ROOT) -> dict[str,
         and candidate["receipt"]["stable_ids_preserved"],
         "no_partial_facts": film_core["no_partial_facts"]
         and candidate["receipt"]["no_partial_facts"],
-        "no_network_or_external_apply": surface["network_calls"] == 0
+        "no_provider_network_or_external_apply": surface["network_calls"] == 0
         and surface["external_provider_calls"] == 0
         and surface["formal_apply_calls"] == 0,
     }
@@ -345,12 +348,13 @@ def run_rc_recovery(root: str | Path, repo_root: str | Path = ROOT) -> dict[str,
         "status": (
             "PASSED_LOCAL_RC_RECOVERY" if not failures else "FAILED_LOCAL_RC_RECOVERY"
         ),
-        "scope": "synthetic_and_local_only",
+        "scope": "synthetic_execution_with_read_only_frozen_upstream_fetch",
         "source_of_truth": "unchanged",
         "surface": surface,
         "beta_migration": beta_migration,
         "film_core": film_core,
         "candidate_adapter": candidate,
+        "upstream_bootstrap": upstream_bootstrap,
         "checks": checks,
         "failures": failures,
         "authority_boundaries": {
@@ -359,6 +363,7 @@ def run_rc_recovery(root: str | Path, repo_root: str | Path = ROOT) -> dict[str,
             "network_publish": "NOT_EXECUTED",
             "external_provider": "NOT_EXECUTED",
             "formal_apply": "NOT_EXECUTED",
+            "upstream_fetch": "READ_ONLY_EXACT_FROZEN_OBJECTS",
             "upstream_merge": "NOT_EXECUTED",
         },
         "upstream_classification": "C_MIGRATION_REQUIRED",
@@ -374,6 +379,8 @@ def run_rc_recovery(root: str | Path, repo_root: str | Path = ROOT) -> dict[str,
         "film_core_receipt_id": film_core["receipt_id"],
         "candidate_plan_sha256": candidate["receipt"]["plan_sha256"],
         "candidate_receipt_id": candidate["receipt"]["receipt_id"],
+        "upstream_stable_commit": upstream_bootstrap["stable"]["commit"],
+        "upstream_candidate_commit": upstream_bootstrap["candidate"]["commit"],
         "checks": checks,
         "authority_boundaries": body["authority_boundaries"],
         "upstream_classification": body["upstream_classification"],

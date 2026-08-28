@@ -90,7 +90,7 @@
 ## 2026-08-28 开工批次 10｜第六阶段与 Track 14 Day 1–5
 
 - RC Web：9 个交互弹层改为 lazy load；Project chunk 从 1,294,180 降至 873,602 bytes（-32.50%），最大 chunk 仍为 1,821,047 bytes，>500 KB warning 仍为 10，未提高告警阈值。`bun run test` 已恢复完整发现，617/0、2617 assertions、85 files；typecheck/build/audit 通过。
-- RC 恢复：统一 runner 串联 Core、Remote receipt、合成迁移、Agent/session、20 个 Feature Flag 和上游 Candidate schema adapter；11/11 checks，来源与 Stable ID 不变，network/provider/Formal Apply 为 0。
+- RC 恢复：统一 runner 串联 Core、Remote receipt、合成迁移、Agent/session、20 个 Feature Flag 和上游 Candidate schema adapter；从声明的公开 Yingce 仓库只读拉取两个精确 Commit 并核验 Tree，不依赖本机 remote/ref；11/11 checks，来源与 Stable ID 不变，Provider 网络/Formal Apply/发布为 0。
 - 上游 C 适配：锁定 Candidate `19ebfbb3...` 的 3 新表、`ChannelModel.Icon` 与 14 项 migration 增量，合成 apply/replay/fault rollback/exact restore 通过；真实用户库与 PostgreSQL 未打开，裁定仍为 `C_MIGRATION_REQUIRED`，未合并。
 - Track 14：Day 1–5 全部本地实现。Tool Contract 生成 TS/MCP/OpenAPI；公开 20 个工具，预留写工具注册 0；7 个 Widget 使用官方 `ext-apps` bridge；Grant/审计、媒体代理、Proposal Preview、Web Handoff、macOS Keychain/文件打开、插件和恢复文档到位，7 个开关全 false。
 - ChatGPT Golden：真实 Film Core SQLite/HTTP → MCP → Widget 与真实 `.filmosproposal` → Python CLI Preview/幂等通过；Contract 5、MCP 22、Importer 21、real Golden 1，`fallback_mock_used=false`、`external_calls=0`、`formal_write_executed=false`。

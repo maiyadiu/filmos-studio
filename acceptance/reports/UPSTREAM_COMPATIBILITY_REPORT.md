@@ -15,6 +15,6 @@
 
 ## Scope and boundary
 
-Pinned upstream compatibility and rollback tests are reproducible. The current candidate classification remains `C_MIGRATION_REQUIRED`; this report does not authorize merge, rebase, push or data migration.
+Pinned upstream compatibility and rollback tests bootstrap the exact frozen commits from the declared public Yingce repository into isolated refs; no pre-existing workstation remote or tracking ref is used. The current candidate classification remains `C_MIGRATION_REQUIRED`; this report does not authorize merge, rebase, push or data migration.
 
 This report is an evidence view, not an independent pass declaration. The raw receipt and logs above are authoritative.

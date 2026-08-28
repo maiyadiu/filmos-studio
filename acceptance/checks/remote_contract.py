@@ -67,6 +67,7 @@ def validate_declared_paths(manifest: dict[str, object]) -> None:
         manifest.get("acceptance_spec"),
         manifest.get("evidence_index"),
         manifest.get("golden_project"),
+        manifest.get("yingce_upstream", {}).get("contract"),
         manifest.get("schema_versions", {}).get("film_core"),
         manifest.get("schema_versions", {}).get("mcp"),
     )

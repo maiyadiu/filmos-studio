@@ -1,68 +1,36 @@
 {
-  "schema_version": "1.0.0",
-  "release_target": "filmos-v1.0.0-rc1",
-  "freeze_policy": {
-    "frozen": false,
-    "frozen_commit": null,
-    "rule": "After rc-final passes, create filmos-v1.0.0-rc1 at the exact accepted commit. Never move or amend that commit or tag; all fixes require the next RC."
-  },
-  "current_commit": "40b5c0d7e0aee902767dc23cc51538c9ce8538db",
-  "index_status": "DEVELOPMENT_LOCAL_EVIDENCE_PASSED_DIRTY",
-  "privacy_policy": {
-    "forbid_secrets": true,
-    "forbid_cookies": true,
-    "forbid_cli_credentials": true,
-    "forbid_private_absolute_paths": true,
-    "logs_must_be_redacted_before_hashing": true
-  },
+  "schema_version": "1.1.0",
+  "contract_kind": "FILMOS_STABLE_TRACK_EVIDENCE_CONTRACT",
   "tracks": [
     {
       "track_id": "00-upstream",
-      "delivery_status": "IMPLEMENTED_NOT_EXTERNALLY_ACCEPTED",
       "source_paths": [
         "scripts/upstream",
         "implementation/tracks/00-upstream"
       ],
       "automated_tests": [
         "python3 -m unittest discover -s scripts/upstream/tests -v",
-        "python3 acceptance/checks/reports.py"
-      ],
-      "required_local_check_ids": [
-        "upstream-compatibility",
-        "acceptance-reports"
-      ],
-      "required_final_check_ids": [
-        "upstream-compatibility",
-        "acceptance-reports",
-        "upstream-rollback-real"
-      ],
-      "runtime_logs": [
-        {
-          "check_id": "upstream-compatibility",
-          "path": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/upstream-compatibility.log",
-          "sha256": "74826c6aaaedc898caa35f329b5ed1ebe180ca0a8da11088b0a9ff7ed5e9eca2",
-          "exit_code": 0
-        },
-        {
-          "check_id": "acceptance-reports",
-          "path": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/acceptance-reports.log",
-          "sha256": "b35082f0ef8f9046f569473a8fab9b6caf05b3b53d42f68a33e5a988bb50d625",
-          "exit_code": 0
-        }
+        "python3 acceptance/checks/reports.py",
+        "scripts/recovery/RC恢复演练 --synthetic"
       ],
       "golden_case_ids": [
         "UPSTREAM-COMPAT-001",
         "UPSTREAM-ROLLBACK-001",
         "ACCEPTANCE-REPORT-BUNDLE-001"
       ],
-      "current_commit": "40b5c0d7e0aee902767dc23cc51538c9ce8538db",
-      "last_receipt": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/receipt.json",
-      "evidence_source_snapshot_sha256": "25b617719005c8f0ccbfb4110c3dea6c85f280c66557a749ca549f061453a028",
-      "acceptance_status": "DEVELOPMENT_EVIDENCE_DIRTY"
+      "required_local_check_ids": [
+        "acceptance-reports",
+        "rc-recovery",
+        "upstream-compatibility"
+      ],
+      "required_final_check_ids": [
+        "upstream-compatibility",
+        "acceptance-reports",
+        "upstream-rollback-real"
+      ]
     },
     {
       "track_id": "01-desktop",
-      "delivery_status": "IMPLEMENTED_NOT_EXTERNALLY_ACCEPTED",
       "source_paths": [
         "desktop/macos",
         "backend/cmd/desktop-web",
@@ -73,11 +41,19 @@
         "web/src/lib/desktop-backup-bridge.ts"
       ],
       "automated_tests": [
-        "swift build --package-path desktop/macos -c release",
+        "python3 acceptance/checks/desktop_release.py",
         "go test ./internal/service ./internal/handler ./cmd/server ./cmd/desktop-web",
         "python3 acceptance/checks/desktop_brand.py",
         "python3 acceptance/checks/desktop_runtime.py",
         "python3 acceptance/checks/desktop_backup_restore.py"
+      ],
+      "golden_case_ids": [
+        "DESKTOP-LAUNCH-001",
+        "DESKTOP-LOCAL-AUTH-001",
+        "DESKTOP-BRAND-001",
+        "DESKTOP-NO-PROTECTED-PATH-001",
+        "DESKTOP-DATA-DIR-001",
+        "DESKTOP-BACKUP-RESTORE-001"
       ],
       "required_local_check_ids": [
         "desktop-brand",
@@ -93,55 +69,10 @@
         "desktop-runtime",
         "desktop-backup-restore",
         "restart-recovery"
-      ],
-      "runtime_logs": [
-        {
-          "check_id": "desktop-brand",
-          "path": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/desktop-brand.log",
-          "sha256": "332c79720172c31179237fd2ae188a171410b345b5c6e6ecee4a575b48212137",
-          "exit_code": 0
-        },
-        {
-          "check_id": "desktop-local-auth",
-          "path": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/desktop-local-auth.log",
-          "sha256": "137fcdeb49b0fb797238e08683c3229a0c3be3f87bbb1a8e6eb9be0298827fbf",
-          "exit_code": 0
-        },
-        {
-          "check_id": "desktop-release-build",
-          "path": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/desktop-release-build.log",
-          "sha256": "f7988f8f9007f3beda9bc246235bdca2bbdc1cd1b53fe732380b632be8a7b218",
-          "exit_code": 0
-        },
-        {
-          "check_id": "desktop-runtime",
-          "path": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/desktop-runtime.log",
-          "sha256": "3997e679563d4dc33ecb30cfabbe031ad9288cf38f6378ae0d0c87a527d4d08c",
-          "exit_code": 0
-        },
-        {
-          "check_id": "desktop-backup-restore",
-          "path": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/desktop-backup-restore.log",
-          "sha256": "b2d2f16782af6cd4d468c620a14620eea74efbb151ec815420aa0a0840695fb5",
-          "exit_code": 0
-        }
-      ],
-      "golden_case_ids": [
-        "DESKTOP-LAUNCH-001",
-        "DESKTOP-LOCAL-AUTH-001",
-        "DESKTOP-BRAND-001",
-        "DESKTOP-NO-PROTECTED-PATH-001",
-        "DESKTOP-DATA-DIR-001",
-        "DESKTOP-BACKUP-RESTORE-001"
-      ],
-      "current_commit": "40b5c0d7e0aee902767dc23cc51538c9ce8538db",
-      "last_receipt": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/receipt.json",
-      "acceptance_status": "DEVELOPMENT_EVIDENCE_DIRTY",
-      "evidence_source_snapshot_sha256": "25b617719005c8f0ccbfb4110c3dea6c85f280c66557a749ca549f061453a028"
+      ]
     },
     {
       "track_id": "02-film-core",
-      "delivery_status": "IMPLEMENTED_NOT_EXTERNALLY_ACCEPTED",
       "source_paths": [
         "film-core",
         "film-contracts",
@@ -157,6 +88,16 @@
         "python3 acceptance/checks/full_chain.py",
         "python3 acceptance/checks/performance.py"
       ],
+      "golden_case_ids": [
+        "GOLDEN-A-REAL",
+        "GOLDEN-B-REAL",
+        "GOLDEN-C-REAL",
+        "ACCEPTANCE-FULL-CHAIN-001",
+        "PERFORMANCE-LOCAL-001",
+        "ACCEPTANCE-REPORT-BUNDLE-001",
+        "RESTART-RECOVERY-001",
+        "DESKTOP-BACKUP-RESTORE-001"
+      ],
       "required_local_check_ids": [
         "film-core-environment",
         "desktop-local-auth",
@@ -178,81 +119,10 @@
         "acceptance-full-chain",
         "performance-local",
         "acceptance-reports"
-      ],
-      "runtime_logs": [
-        {
-          "check_id": "desktop-local-auth",
-          "path": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/desktop-local-auth.log",
-          "sha256": "137fcdeb49b0fb797238e08683c3229a0c3be3f87bbb1a8e6eb9be0298827fbf",
-          "exit_code": 0
-        },
-        {
-          "check_id": "film-core-environment",
-          "path": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/film-core-environment.log",
-          "sha256": "36a2d865e2356c71b941920a35b37c7a34bd98bec0b3ca4fd0ae7464873567ea",
-          "exit_code": 0
-        },
-        {
-          "check_id": "desktop-backup-restore",
-          "path": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/desktop-backup-restore.log",
-          "sha256": "b2d2f16782af6cd4d468c620a14620eea74efbb151ec815420aa0a0840695fb5",
-          "exit_code": 0
-        },
-        {
-          "check_id": "film-contracts",
-          "path": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/film-contracts.log",
-          "sha256": "2b6d47cf7ec89b96d2b7d4c8d0dcb2ffb4b3f6e3e79d2cb83e229b8a073f82c1",
-          "exit_code": 0
-        },
-        {
-          "check_id": "golden-abc-real-http",
-          "path": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/golden-abc-real-http.log",
-          "sha256": "87021467ae0b5e1fb319a6890e1775757d5657016370fe4dd00367ad762a6f10",
-          "exit_code": 0
-        },
-        {
-          "check_id": "acceptance-full-chain",
-          "path": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/acceptance-full-chain.log",
-          "sha256": "b1b499387790184d890cbb07e227df8ace5e2df147cbea2524a0510c536cf71f",
-          "exit_code": 0
-        },
-        {
-          "check_id": "performance-local",
-          "path": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/performance-local.log",
-          "sha256": "b2881194cf2a40d1f184cea6f84261ac6be0f8f8f25b66fbf3602fb54ceae68b",
-          "exit_code": 0
-        },
-        {
-          "check_id": "rc-recovery",
-          "path": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/rc-recovery.log",
-          "sha256": "a3a547ab5f1932e184418357f13502bc66a0d9d271613a56807394edc074ef64",
-          "exit_code": 0
-        },
-        {
-          "check_id": "acceptance-reports",
-          "path": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/acceptance-reports.log",
-          "sha256": "b35082f0ef8f9046f569473a8fab9b6caf05b3b53d42f68a33e5a988bb50d625",
-          "exit_code": 0
-        }
-      ],
-      "golden_case_ids": [
-        "GOLDEN-A-REAL",
-        "GOLDEN-B-REAL",
-        "GOLDEN-C-REAL",
-        "ACCEPTANCE-FULL-CHAIN-001",
-        "PERFORMANCE-LOCAL-001",
-        "ACCEPTANCE-REPORT-BUNDLE-001",
-        "RESTART-RECOVERY-001",
-        "DESKTOP-BACKUP-RESTORE-001"
-      ],
-      "current_commit": "40b5c0d7e0aee902767dc23cc51538c9ce8538db",
-      "last_receipt": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/receipt.json",
-      "acceptance_status": "DEVELOPMENT_EVIDENCE_DIRTY",
-      "evidence_source_snapshot_sha256": "25b617719005c8f0ccbfb4110c3dea6c85f280c66557a749ca549f061453a028"
+      ]
     },
     {
       "track_id": "03-project-ui",
-      "delivery_status": "IMPLEMENTED_NOT_EXTERNALLY_ACCEPTED",
       "source_paths": [
         "web/src/film/project",
         "web/src/pages",
@@ -265,6 +135,11 @@
         "bun run build",
         "python3 acceptance/checks/performance.py"
       ],
+      "golden_case_ids": [
+        "LOCAL-FIRST-UI-001",
+        "DESKTOP-BRAND-001",
+        "PERFORMANCE-LOCAL-001"
+      ],
       "required_local_check_ids": [
         "desktop-brand",
         "web-typecheck",
@@ -279,52 +154,10 @@
         "desktop-runtime",
         "acceptance-full-chain",
         "performance-local"
-      ],
-      "runtime_logs": [
-        {
-          "check_id": "desktop-brand",
-          "path": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/desktop-brand.log",
-          "sha256": "332c79720172c31179237fd2ae188a171410b345b5c6e6ecee4a575b48212137",
-          "exit_code": 0
-        },
-        {
-          "check_id": "web-typecheck",
-          "path": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/web-typecheck.log",
-          "sha256": "8366207267355d3e3d5bf3bf6e8c94c5f93f6078c34f08973fa2b38cdda6cc92",
-          "exit_code": 0
-        },
-        {
-          "check_id": "web-production-build",
-          "path": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/web-production-build.log",
-          "sha256": "5e406d8b1ff4a00a890b575fcabd69e59d7f1b43df734656b58b44ac35ad59d3",
-          "exit_code": 0
-        },
-        {
-          "check_id": "desktop-runtime",
-          "path": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/desktop-runtime.log",
-          "sha256": "3997e679563d4dc33ecb30cfabbe031ad9288cf38f6378ae0d0c87a527d4d08c",
-          "exit_code": 0
-        },
-        {
-          "check_id": "performance-local",
-          "path": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/performance-local.log",
-          "sha256": "b2881194cf2a40d1f184cea6f84261ac6be0f8f8f25b66fbf3602fb54ceae68b",
-          "exit_code": 0
-        }
-      ],
-      "golden_case_ids": [
-        "LOCAL-FIRST-UI-001",
-        "DESKTOP-BRAND-001",
-        "PERFORMANCE-LOCAL-001"
-      ],
-      "current_commit": "40b5c0d7e0aee902767dc23cc51538c9ce8538db",
-      "last_receipt": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/receipt.json",
-      "acceptance_status": "DEVELOPMENT_EVIDENCE_DIRTY",
-      "evidence_source_snapshot_sha256": "25b617719005c8f0ccbfb4110c3dea6c85f280c66557a749ca549f061453a028"
+      ]
     },
     {
       "track_id": "04-story",
-      "delivery_status": "IMPLEMENTED_NOT_EXTERNALLY_ACCEPTED",
       "source_paths": [
         "web/src/film/story",
         "film-core/src/film_production_core"
@@ -333,6 +166,12 @@
         "python3 -m pytest -q tests/film-golden/test_golden_a_real.py tests/film-golden/test_golden_b_real.py",
         "python3 acceptance/checks/full_chain.py"
       ],
+      "golden_case_ids": [
+        "SCRIPT-LOCK-001",
+        "GOLDEN-A-REAL",
+        "STALE-CUE-001",
+        "ACCEPTANCE-FULL-CHAIN-001"
+      ],
       "required_local_check_ids": [
         "golden-abc-real-http",
         "acceptance-full-chain"
@@ -340,35 +179,10 @@
       "required_final_check_ids": [
         "golden-abc-real-http",
         "acceptance-full-chain"
-      ],
-      "runtime_logs": [
-        {
-          "check_id": "golden-abc-real-http",
-          "path": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/golden-abc-real-http.log",
-          "sha256": "87021467ae0b5e1fb319a6890e1775757d5657016370fe4dd00367ad762a6f10",
-          "exit_code": 0
-        },
-        {
-          "check_id": "acceptance-full-chain",
-          "path": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/acceptance-full-chain.log",
-          "sha256": "b1b499387790184d890cbb07e227df8ace5e2df147cbea2524a0510c536cf71f",
-          "exit_code": 0
-        }
-      ],
-      "golden_case_ids": [
-        "SCRIPT-LOCK-001",
-        "GOLDEN-A-REAL",
-        "STALE-CUE-001",
-        "ACCEPTANCE-FULL-CHAIN-001"
-      ],
-      "current_commit": "40b5c0d7e0aee902767dc23cc51538c9ce8538db",
-      "last_receipt": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/receipt.json",
-      "evidence_source_snapshot_sha256": "25b617719005c8f0ccbfb4110c3dea6c85f280c66557a749ca549f061453a028",
-      "acceptance_status": "DEVELOPMENT_EVIDENCE_DIRTY"
+      ]
     },
     {
       "track_id": "05-production-canvas",
-      "delivery_status": "IMPLEMENTED_NOT_EXTERNALLY_ACCEPTED",
       "source_paths": [
         "web/src/film/canvas",
         "film-core/src/film_production_core"
@@ -376,6 +190,11 @@
       "automated_tests": [
         "python3 -m pytest -q tests/film-golden/test_golden_c_real.py",
         "python3 acceptance/checks/full_chain.py"
+      ],
+      "golden_case_ids": [
+        "PRODUCTION-CANVAS-CREATE-001",
+        "GOLDEN-C-REAL",
+        "ACCEPTANCE-FULL-CHAIN-001"
       ],
       "required_local_check_ids": [
         "golden-abc-real-http",
@@ -385,34 +204,10 @@
         "golden-abc-real-http",
         "acceptance-full-chain",
         "restart-recovery"
-      ],
-      "runtime_logs": [
-        {
-          "check_id": "golden-abc-real-http",
-          "path": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/golden-abc-real-http.log",
-          "sha256": "87021467ae0b5e1fb319a6890e1775757d5657016370fe4dd00367ad762a6f10",
-          "exit_code": 0
-        },
-        {
-          "check_id": "acceptance-full-chain",
-          "path": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/acceptance-full-chain.log",
-          "sha256": "b1b499387790184d890cbb07e227df8ace5e2df147cbea2524a0510c536cf71f",
-          "exit_code": 0
-        }
-      ],
-      "golden_case_ids": [
-        "PRODUCTION-CANVAS-CREATE-001",
-        "GOLDEN-C-REAL",
-        "ACCEPTANCE-FULL-CHAIN-001"
-      ],
-      "current_commit": "40b5c0d7e0aee902767dc23cc51538c9ce8538db",
-      "last_receipt": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/receipt.json",
-      "evidence_source_snapshot_sha256": "25b617719005c8f0ccbfb4110c3dea6c85f280c66557a749ca549f061453a028",
-      "acceptance_status": "DEVELOPMENT_EVIDENCE_DIRTY"
+      ]
     },
     {
       "track_id": "06-assets",
-      "delivery_status": "IMPLEMENTED_NOT_EXTERNALLY_ACCEPTED",
       "source_paths": [
         "web/src/film/assets",
         "film-core/src/film_production_core"
@@ -421,6 +216,11 @@
         "python3 -m pytest -q tests/film-golden/test_golden_a_real.py tests/film-golden/test_golden_b_real.py tests/film-golden/test_golden_c_real.py",
         "python3 acceptance/checks/full_chain.py"
       ],
+      "golden_case_ids": [
+        "ASSET-LINEAGE-001",
+        "STALE-COSTUME-001",
+        "ACCEPTANCE-FULL-CHAIN-001"
+      ],
       "required_local_check_ids": [
         "golden-abc-real-http",
         "acceptance-full-chain"
@@ -429,34 +229,10 @@
         "golden-abc-real-http",
         "acceptance-full-chain",
         "real-cli-generation"
-      ],
-      "runtime_logs": [
-        {
-          "check_id": "golden-abc-real-http",
-          "path": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/golden-abc-real-http.log",
-          "sha256": "87021467ae0b5e1fb319a6890e1775757d5657016370fe4dd00367ad762a6f10",
-          "exit_code": 0
-        },
-        {
-          "check_id": "acceptance-full-chain",
-          "path": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/acceptance-full-chain.log",
-          "sha256": "b1b499387790184d890cbb07e227df8ace5e2df147cbea2524a0510c536cf71f",
-          "exit_code": 0
-        }
-      ],
-      "golden_case_ids": [
-        "ASSET-LINEAGE-001",
-        "STALE-COSTUME-001",
-        "ACCEPTANCE-FULL-CHAIN-001"
-      ],
-      "current_commit": "40b5c0d7e0aee902767dc23cc51538c9ce8538db",
-      "last_receipt": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/receipt.json",
-      "evidence_source_snapshot_sha256": "25b617719005c8f0ccbfb4110c3dea6c85f280c66557a749ca549f061453a028",
-      "acceptance_status": "DEVELOPMENT_EVIDENCE_DIRTY"
+      ]
     },
     {
       "track_id": "07-prompt",
-      "delivery_status": "IMPLEMENTED_NOT_EXTERNALLY_ACCEPTED",
       "source_paths": [
         "web/src/film/prompt",
         "film-core/src/film_production_core"
@@ -465,6 +241,11 @@
         "python3 -m pytest -q tests/film-golden/test_golden_a_real.py tests/film-golden/test_golden_c_real.py",
         "python3 acceptance/checks/full_chain.py"
       ],
+      "golden_case_ids": [
+        "PROMPT-PROVENANCE-001",
+        "STALE-SPATIAL-001",
+        "ACCEPTANCE-FULL-CHAIN-001"
+      ],
       "required_local_check_ids": [
         "golden-abc-real-http",
         "acceptance-full-chain"
@@ -473,34 +254,10 @@
         "golden-abc-real-http",
         "acceptance-full-chain",
         "real-cli-generation"
-      ],
-      "runtime_logs": [
-        {
-          "check_id": "golden-abc-real-http",
-          "path": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/golden-abc-real-http.log",
-          "sha256": "87021467ae0b5e1fb319a6890e1775757d5657016370fe4dd00367ad762a6f10",
-          "exit_code": 0
-        },
-        {
-          "check_id": "acceptance-full-chain",
-          "path": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/acceptance-full-chain.log",
-          "sha256": "b1b499387790184d890cbb07e227df8ace5e2df147cbea2524a0510c536cf71f",
-          "exit_code": 0
-        }
-      ],
-      "golden_case_ids": [
-        "PROMPT-PROVENANCE-001",
-        "STALE-SPATIAL-001",
-        "ACCEPTANCE-FULL-CHAIN-001"
-      ],
-      "current_commit": "40b5c0d7e0aee902767dc23cc51538c9ce8538db",
-      "last_receipt": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/receipt.json",
-      "evidence_source_snapshot_sha256": "25b617719005c8f0ccbfb4110c3dea6c85f280c66557a749ca549f061453a028",
-      "acceptance_status": "DEVELOPMENT_EVIDENCE_DIRTY"
+      ]
     },
     {
       "track_id": "08-agent",
-      "delivery_status": "IMPLEMENTED_NOT_EXTERNALLY_ACCEPTED",
       "source_paths": [
         "canvas-agent",
         "web/src/film/sync",
@@ -511,6 +268,11 @@
         "npm test",
         "scripts/recovery/RC恢复演练 --synthetic",
         "python3 acceptance/checks/performance.py"
+      ],
+      "golden_case_ids": [
+        "CODEX-AGENT-001",
+        "AGENT-SESSION-RECOVERY-001",
+        "PERFORMANCE-LOCAL-001"
       ],
       "required_local_check_ids": [
         "film-core-environment",
@@ -525,46 +287,10 @@
         "codex-agent-runtime",
         "acceptance-full-chain",
         "performance-local"
-      ],
-      "runtime_logs": [
-        {
-          "check_id": "film-core-environment",
-          "path": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/film-core-environment.log",
-          "sha256": "36a2d865e2356c71b941920a35b37c7a34bd98bec0b3ca4fd0ae7464873567ea",
-          "exit_code": 0
-        },
-        {
-          "check_id": "performance-local",
-          "path": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/performance-local.log",
-          "sha256": "b2881194cf2a40d1f184cea6f84261ac6be0f8f8f25b66fbf3602fb54ceae68b",
-          "exit_code": 0
-        },
-        {
-          "check_id": "rc-recovery",
-          "path": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/rc-recovery.log",
-          "sha256": "a3a547ab5f1932e184418357f13502bc66a0d9d271613a56807394edc074ef64",
-          "exit_code": 0
-        },
-        {
-          "check_id": "canvas-agent",
-          "path": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/canvas-agent.log",
-          "sha256": "f5c1b13d8d0dd500a49bb216eba89000079561d3fd36d010895445c639554ccc",
-          "exit_code": 0
-        }
-      ],
-      "golden_case_ids": [
-        "CODEX-AGENT-001",
-        "AGENT-SESSION-RECOVERY-001",
-        "PERFORMANCE-LOCAL-001"
-      ],
-      "current_commit": "40b5c0d7e0aee902767dc23cc51538c9ce8538db",
-      "last_receipt": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/receipt.json",
-      "evidence_source_snapshot_sha256": "25b617719005c8f0ccbfb4110c3dea6c85f280c66557a749ca549f061453a028",
-      "acceptance_status": "DEVELOPMENT_EVIDENCE_DIRTY"
+      ]
     },
     {
       "track_id": "09-director",
-      "delivery_status": "IMPLEMENTED_NOT_EXTERNALLY_ACCEPTED",
       "source_paths": [
         "web/src/film/director",
         "film-core/src/film_production_core"
@@ -573,6 +299,12 @@
         "python3 -m pytest -q tests/film-golden/test_golden_b_real.py tests/film-golden/test_golden_c_real.py",
         "python3 acceptance/checks/full_chain.py"
       ],
+      "golden_case_ids": [
+        "DIRECTOR-COVERAGE-001",
+        "SCENE-TWIN-001",
+        "GOLDEN-C-REAL",
+        "ACCEPTANCE-FULL-CHAIN-001"
+      ],
       "required_local_check_ids": [
         "golden-abc-real-http",
         "acceptance-full-chain"
@@ -580,35 +312,10 @@
       "required_final_check_ids": [
         "golden-abc-real-http",
         "acceptance-full-chain"
-      ],
-      "runtime_logs": [
-        {
-          "check_id": "golden-abc-real-http",
-          "path": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/golden-abc-real-http.log",
-          "sha256": "87021467ae0b5e1fb319a6890e1775757d5657016370fe4dd00367ad762a6f10",
-          "exit_code": 0
-        },
-        {
-          "check_id": "acceptance-full-chain",
-          "path": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/acceptance-full-chain.log",
-          "sha256": "b1b499387790184d890cbb07e227df8ace5e2df147cbea2524a0510c536cf71f",
-          "exit_code": 0
-        }
-      ],
-      "golden_case_ids": [
-        "DIRECTOR-COVERAGE-001",
-        "SCENE-TWIN-001",
-        "GOLDEN-C-REAL",
-        "ACCEPTANCE-FULL-CHAIN-001"
-      ],
-      "current_commit": "40b5c0d7e0aee902767dc23cc51538c9ce8538db",
-      "last_receipt": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/receipt.json",
-      "evidence_source_snapshot_sha256": "25b617719005c8f0ccbfb4110c3dea6c85f280c66557a749ca549f061453a028",
-      "acceptance_status": "DEVELOPMENT_EVIDENCE_DIRTY"
+      ]
     },
     {
       "track_id": "10-providers",
-      "delivery_status": "IMPLEMENTED_NOT_EXTERNALLY_ACCEPTED",
       "source_paths": [
         "web/src/film/providers",
         "film-adapters"
@@ -616,6 +323,11 @@
       "automated_tests": [
         "python3 -m pytest -q tests/film-golden/test_golden_a_real.py tests/film-golden/test_golden_c_real.py",
         "python3 acceptance/checks/full_chain.py"
+      ],
+      "golden_case_ids": [
+        "PROVIDER-CANDIDATE-001",
+        "REAL-CLI-GENERATION-001",
+        "ACCEPTANCE-FULL-CHAIN-001"
       ],
       "required_local_check_ids": [
         "golden-abc-real-http",
@@ -625,34 +337,10 @@
         "golden-abc-real-http",
         "real-cli-generation",
         "acceptance-full-chain"
-      ],
-      "runtime_logs": [
-        {
-          "check_id": "golden-abc-real-http",
-          "path": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/golden-abc-real-http.log",
-          "sha256": "87021467ae0b5e1fb319a6890e1775757d5657016370fe4dd00367ad762a6f10",
-          "exit_code": 0
-        },
-        {
-          "check_id": "acceptance-full-chain",
-          "path": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/acceptance-full-chain.log",
-          "sha256": "b1b499387790184d890cbb07e227df8ace5e2df147cbea2524a0510c536cf71f",
-          "exit_code": 0
-        }
-      ],
-      "golden_case_ids": [
-        "PROVIDER-CANDIDATE-001",
-        "REAL-CLI-GENERATION-001",
-        "ACCEPTANCE-FULL-CHAIN-001"
-      ],
-      "current_commit": "40b5c0d7e0aee902767dc23cc51538c9ce8538db",
-      "last_receipt": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/receipt.json",
-      "evidence_source_snapshot_sha256": "25b617719005c8f0ccbfb4110c3dea6c85f280c66557a749ca549f061453a028",
-      "acceptance_status": "DEVELOPMENT_EVIDENCE_DIRTY"
+      ]
     },
     {
       "track_id": "11-migration",
-      "delivery_status": "IMPLEMENTED_NOT_EXTERNALLY_ACCEPTED",
       "source_paths": [
         "scripts/migration",
         "scripts/upstream/rc_schema_adapter.py"
@@ -661,6 +349,11 @@
         "scripts/recovery/RC恢复演练 --synthetic",
         "python3 -m unittest discover -s scripts/upstream/tests -v",
         "python3 acceptance/checks/reports.py"
+      ],
+      "golden_case_ids": [
+        "MIGRATION-REPLAY-001",
+        "MIGRATION-ROLLBACK-001",
+        "ACCEPTANCE-REPORT-BUNDLE-001"
       ],
       "required_local_check_ids": [
         "rc-recovery",
@@ -673,40 +366,10 @@
         "acceptance-reports",
         "migration-real",
         "rollback-real"
-      ],
-      "runtime_logs": [
-        {
-          "check_id": "rc-recovery",
-          "path": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/rc-recovery.log",
-          "sha256": "a3a547ab5f1932e184418357f13502bc66a0d9d271613a56807394edc074ef64",
-          "exit_code": 0
-        },
-        {
-          "check_id": "upstream-compatibility",
-          "path": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/upstream-compatibility.log",
-          "sha256": "74826c6aaaedc898caa35f329b5ed1ebe180ca0a8da11088b0a9ff7ed5e9eca2",
-          "exit_code": 0
-        },
-        {
-          "check_id": "acceptance-reports",
-          "path": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/acceptance-reports.log",
-          "sha256": "b35082f0ef8f9046f569473a8fab9b6caf05b3b53d42f68a33e5a988bb50d625",
-          "exit_code": 0
-        }
-      ],
-      "golden_case_ids": [
-        "MIGRATION-REPLAY-001",
-        "MIGRATION-ROLLBACK-001",
-        "ACCEPTANCE-REPORT-BUNDLE-001"
-      ],
-      "current_commit": "40b5c0d7e0aee902767dc23cc51538c9ce8538db",
-      "last_receipt": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/receipt.json",
-      "evidence_source_snapshot_sha256": "25b617719005c8f0ccbfb4110c3dea6c85f280c66557a749ca549f061453a028",
-      "acceptance_status": "DEVELOPMENT_EVIDENCE_DIRTY"
+      ]
     },
     {
       "track_id": "12-remote",
-      "delivery_status": "IMPLEMENTED_NOT_EXTERNALLY_ACCEPTED",
       "source_paths": [
         "web/src/film/sync",
         "tests/film-beta",
@@ -719,6 +382,13 @@
         "python3 acceptance/checks/remote_contract.py",
         "python3 acceptance/checks/performance.py",
         "python3 acceptance/checks/reports.py"
+      ],
+      "golden_case_ids": [
+        "REMOTE-RECEIPT-001",
+        "REMOTE-ROLLBACK-001",
+        "REMOTE-ACCEPTANCE-CONTRACT-001",
+        "PERFORMANCE-LOCAL-001",
+        "ACCEPTANCE-REPORT-BUNDLE-001"
       ],
       "required_local_check_ids": [
         "rc-recovery",
@@ -733,78 +403,53 @@
         "acceptance-reports",
         "chatgpt-handoff-external",
         "rollback-real"
-      ],
-      "runtime_logs": [
-        {
-          "check_id": "performance-local",
-          "path": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/performance-local.log",
-          "sha256": "b2881194cf2a40d1f184cea6f84261ac6be0f8f8f25b66fbf3602fb54ceae68b",
-          "exit_code": 0
-        },
-        {
-          "check_id": "rc-recovery",
-          "path": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/rc-recovery.log",
-          "sha256": "a3a547ab5f1932e184418357f13502bc66a0d9d271613a56807394edc074ef64",
-          "exit_code": 0
-        },
-        {
-          "check_id": "remote-acceptance-contract",
-          "path": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/remote-acceptance-contract.log",
-          "sha256": "5043258895aa9a6ded6bbc33ab9114df25aa4dbc4fbbaed186ee211584933a54",
-          "exit_code": 0
-        },
-        {
-          "check_id": "acceptance-reports",
-          "path": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/acceptance-reports.log",
-          "sha256": "b35082f0ef8f9046f569473a8fab9b6caf05b3b53d42f68a33e5a988bb50d625",
-          "exit_code": 0
-        }
-      ],
-      "golden_case_ids": [
-        "REMOTE-RECEIPT-001",
-        "REMOTE-ROLLBACK-001",
-        "REMOTE-ACCEPTANCE-CONTRACT-001",
-        "PERFORMANCE-LOCAL-001",
-        "ACCEPTANCE-REPORT-BUNDLE-001"
-      ],
-      "current_commit": "40b5c0d7e0aee902767dc23cc51538c9ce8538db",
-      "last_receipt": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/receipt.json",
-      "evidence_source_snapshot_sha256": "25b617719005c8f0ccbfb4110c3dea6c85f280c66557a749ca549f061453a028",
-      "acceptance_status": "DEVELOPMENT_EVIDENCE_DIRTY"
+      ]
     },
     {
       "track_id": "13-qa",
-      "delivery_status": "IMPLEMENTED_NOT_EXTERNALLY_ACCEPTED",
       "source_paths": [
         "tests/film-golden",
         "tests/film-rc",
         "acceptance"
       ],
       "automated_tests": [
-        "python3 acceptance/run.py --suite rc-local",
-        "python3 acceptance/verify.py <receipt>",
-        "python3 acceptance/checks/film_core_environment.py",
         "python3 acceptance/checks/desktop_backup_restore.py",
+        "python3 acceptance/checks/evidence_index.py",
+        "python3 acceptance/checks/film_core_environment.py",
         "python3 acceptance/checks/full_chain.py",
-        "python3 acceptance/checks/remote_contract.py",
         "python3 acceptance/checks/performance.py",
-        "python3 acceptance/checks/reports.py"
+        "python3 acceptance/checks/remote_contract.py",
+        "python3 acceptance/checks/reports.py",
+        "python3 acceptance/run.py --suite rc-local",
+        "python3 acceptance/verify.py <receipt>"
+      ],
+      "golden_case_ids": [
+        "GOLDEN-A-REAL",
+        "GOLDEN-B-REAL",
+        "GOLDEN-C-REAL",
+        "ACCEPTANCE-FULL-CHAIN-001",
+        "REMOTE-ACCEPTANCE-CONTRACT-001",
+        "PERFORMANCE-LOCAL-001",
+        "ACCEPTANCE-REPORT-BUNDLE-001",
+        "RC-RECOVERY-001",
+        "DESKTOP-BACKUP-RESTORE-001"
       ],
       "required_local_check_ids": [
-        "film-core-environment",
-        "film-contracts",
-        "desktop-backup-restore",
-        "golden-abc-real-http",
         "acceptance-full-chain",
+        "acceptance-privacy",
+        "acceptance-reports",
+        "canvas-agent",
+        "chatgpt-golden-real",
+        "chatgpt-handoff-local",
+        "desktop-backup-restore",
+        "evidence-index-contract",
+        "film-contracts",
+        "film-core-environment",
+        "golden-abc-real-http",
         "performance-local",
         "rc-recovery",
-        "canvas-agent",
-        "chatgpt-handoff-local",
-        "chatgpt-golden-real",
-        "upstream-compatibility",
         "remote-acceptance-contract",
-        "acceptance-reports",
-        "acceptance-privacy"
+        "upstream-compatibility"
       ],
       "required_final_check_ids": [
         "film-core-environment",
@@ -819,112 +464,10 @@
         "performance-local",
         "acceptance-reports",
         "rollback-real"
-      ],
-      "runtime_logs": [
-        {
-          "check_id": "film-core-environment",
-          "path": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/film-core-environment.log",
-          "sha256": "36a2d865e2356c71b941920a35b37c7a34bd98bec0b3ca4fd0ae7464873567ea",
-          "exit_code": 0
-        },
-        {
-          "check_id": "desktop-backup-restore",
-          "path": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/desktop-backup-restore.log",
-          "sha256": "b2d2f16782af6cd4d468c620a14620eea74efbb151ec815420aa0a0840695fb5",
-          "exit_code": 0
-        },
-        {
-          "check_id": "film-contracts",
-          "path": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/film-contracts.log",
-          "sha256": "2b6d47cf7ec89b96d2b7d4c8d0dcb2ffb4b3f6e3e79d2cb83e229b8a073f82c1",
-          "exit_code": 0
-        },
-        {
-          "check_id": "golden-abc-real-http",
-          "path": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/golden-abc-real-http.log",
-          "sha256": "87021467ae0b5e1fb319a6890e1775757d5657016370fe4dd00367ad762a6f10",
-          "exit_code": 0
-        },
-        {
-          "check_id": "acceptance-full-chain",
-          "path": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/acceptance-full-chain.log",
-          "sha256": "b1b499387790184d890cbb07e227df8ace5e2df147cbea2524a0510c536cf71f",
-          "exit_code": 0
-        },
-        {
-          "check_id": "performance-local",
-          "path": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/performance-local.log",
-          "sha256": "b2881194cf2a40d1f184cea6f84261ac6be0f8f8f25b66fbf3602fb54ceae68b",
-          "exit_code": 0
-        },
-        {
-          "check_id": "rc-recovery",
-          "path": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/rc-recovery.log",
-          "sha256": "a3a547ab5f1932e184418357f13502bc66a0d9d271613a56807394edc074ef64",
-          "exit_code": 0
-        },
-        {
-          "check_id": "canvas-agent",
-          "path": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/canvas-agent.log",
-          "sha256": "f5c1b13d8d0dd500a49bb216eba89000079561d3fd36d010895445c639554ccc",
-          "exit_code": 0
-        },
-        {
-          "check_id": "chatgpt-handoff-local",
-          "path": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/chatgpt-handoff-local.log",
-          "sha256": "b4ecdf76da853ad9fdf21b6739468eaedfcc3b7b6823cd432dfe4dc7589277dd",
-          "exit_code": 0
-        },
-        {
-          "check_id": "chatgpt-golden-real",
-          "path": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/chatgpt-golden-real.log",
-          "sha256": "c486acfb1ed9d652c3c60630a2d69e1d081df073551e79e5fc267adcae65d0d6",
-          "exit_code": 0
-        },
-        {
-          "check_id": "upstream-compatibility",
-          "path": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/upstream-compatibility.log",
-          "sha256": "74826c6aaaedc898caa35f329b5ed1ebe180ca0a8da11088b0a9ff7ed5e9eca2",
-          "exit_code": 0
-        },
-        {
-          "check_id": "remote-acceptance-contract",
-          "path": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/remote-acceptance-contract.log",
-          "sha256": "5043258895aa9a6ded6bbc33ab9114df25aa4dbc4fbbaed186ee211584933a54",
-          "exit_code": 0
-        },
-        {
-          "check_id": "acceptance-reports",
-          "path": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/acceptance-reports.log",
-          "sha256": "b35082f0ef8f9046f569473a8fab9b6caf05b3b53d42f68a33e5a988bb50d625",
-          "exit_code": 0
-        },
-        {
-          "check_id": "acceptance-privacy",
-          "path": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/acceptance-privacy.log",
-          "sha256": "1995add1795a61e4422f1a294339345118e8b0ab4da8aa2b7d8a9b73d422c7d5",
-          "exit_code": 0
-        }
-      ],
-      "golden_case_ids": [
-        "GOLDEN-A-REAL",
-        "GOLDEN-B-REAL",
-        "GOLDEN-C-REAL",
-        "ACCEPTANCE-FULL-CHAIN-001",
-        "REMOTE-ACCEPTANCE-CONTRACT-001",
-        "PERFORMANCE-LOCAL-001",
-        "ACCEPTANCE-REPORT-BUNDLE-001",
-        "RC-RECOVERY-001",
-        "DESKTOP-BACKUP-RESTORE-001"
-      ],
-      "current_commit": "40b5c0d7e0aee902767dc23cc51538c9ce8538db",
-      "last_receipt": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/receipt.json",
-      "evidence_source_snapshot_sha256": "25b617719005c8f0ccbfb4110c3dea6c85f280c66557a749ca549f061453a028",
-      "acceptance_status": "DEVELOPMENT_EVIDENCE_DIRTY"
+      ]
     },
     {
       "track_id": "14-chatgpt-app",
-      "delivery_status": "IMPLEMENTED_NOT_EXTERNALLY_ACCEPTED",
       "source_paths": [
         "packages/filmos-tool-contracts",
         "services/filmos-chatgpt-app",
@@ -935,6 +478,11 @@
         "python3 acceptance/checks/film_core_environment.py",
         "npm test",
         "npm run test:golden-real"
+      ],
+      "golden_case_ids": [
+        "CHATGPT-MCP-001",
+        "CHATGPT-HANDOFF-LOCAL-001",
+        "CHATGPT-HANDOFF-EXTERNAL-001"
       ],
       "required_local_check_ids": [
         "film-core-environment",
@@ -949,48 +497,7 @@
         "chatgpt-golden-real",
         "chatgpt-handoff-external",
         "acceptance-full-chain"
-      ],
-      "runtime_logs": [
-        {
-          "check_id": "web-typecheck",
-          "path": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/web-typecheck.log",
-          "sha256": "8366207267355d3e3d5bf3bf6e8c94c5f93f6078c34f08973fa2b38cdda6cc92",
-          "exit_code": 0
-        },
-        {
-          "check_id": "web-production-build",
-          "path": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/web-production-build.log",
-          "sha256": "5e406d8b1ff4a00a890b575fcabd69e59d7f1b43df734656b58b44ac35ad59d3",
-          "exit_code": 0
-        },
-        {
-          "check_id": "film-core-environment",
-          "path": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/film-core-environment.log",
-          "sha256": "36a2d865e2356c71b941920a35b37c7a34bd98bec0b3ca4fd0ae7464873567ea",
-          "exit_code": 0
-        },
-        {
-          "check_id": "chatgpt-handoff-local",
-          "path": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/chatgpt-handoff-local.log",
-          "sha256": "b4ecdf76da853ad9fdf21b6739468eaedfcc3b7b6823cd432dfe4dc7589277dd",
-          "exit_code": 0
-        },
-        {
-          "check_id": "chatgpt-golden-real",
-          "path": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/chatgpt-golden-real.log",
-          "sha256": "c486acfb1ed9d652c3c60630a2d69e1d081df073551e79e5fc267adcae65d0d6",
-          "exit_code": 0
-        }
-      ],
-      "golden_case_ids": [
-        "CHATGPT-MCP-001",
-        "CHATGPT-HANDOFF-LOCAL-001",
-        "CHATGPT-HANDOFF-EXTERNAL-001"
-      ],
-      "current_commit": "40b5c0d7e0aee902767dc23cc51538c9ce8538db",
-      "last_receipt": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/receipt.json",
-      "acceptance_status": "DEVELOPMENT_EVIDENCE_DIRTY",
-      "evidence_source_snapshot_sha256": "25b617719005c8f0ccbfb4110c3dea6c85f280c66557a749ca549f061453a028"
+      ]
     }
   ]
 }

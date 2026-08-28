@@ -12,6 +12,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 ROOT = SCRIPT_DIR.parents[1]
 sys.path.insert(0, str(SCRIPT_DIR))
 
+from frozen_upstream import prepare_frozen_upstream  # noqa: E402
 from rc_schema_adapter import run_candidate_demo  # noqa: E402
 
 
@@ -28,9 +29,19 @@ def main() -> None:
     if not args.synthetic:
         parser.error("--synthetic is required; real databases are not accepted")
     with tempfile.TemporaryDirectory(prefix="filmos-rc-candidate-") as directory:
+        sandbox = Path(directory)
+        upstream = sandbox / "yingce-upstream.git"
+        bootstrap = prepare_frozen_upstream(upstream)
+        result = run_candidate_demo(
+            sandbox / "candidate-adapter",
+            upstream,
+        )
         print(
             json.dumps(
-                run_candidate_demo(directory, ROOT),
+                {
+                    **result,
+                    "upstream_bootstrap": bootstrap,
+                },
                 ensure_ascii=False,
                 indent=2,
             )

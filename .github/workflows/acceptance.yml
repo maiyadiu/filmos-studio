@@ -30,6 +30,8 @@ jobs:
     name: Reproducible Local Acceptance
     runs-on: macos-14
     timeout-minutes: 90
+    env:
+      FILMOS_DESKTOP_SWIFT_VERSION: "6.0.3"
     steps:
       - uses: actions/checkout@v4
         with:
@@ -47,6 +49,15 @@ jobs:
           cache-dependency-path: |
             packages/filmos-tool-contracts/package-lock.json
             services/filmos-chatgpt-app/package-lock.json
+
+      # Package.swift and the Desktop test target use the Swift 6 toolchain and
+      # Swift Testing. Pin the same compiler used by the formal unsigned app build.
+      - uses: swift-actions/setup-swift@7ca6abe6b3b0e8b5421b88be48feee39cbf52c6a
+        with:
+          swift-version: ${{ env.FILMOS_DESKTOP_SWIFT_VERSION }}
+
+      - name: Verify formal Desktop Swift toolchain
+        run: swift --version
 
       - uses: actions/setup-python@v5
         with:

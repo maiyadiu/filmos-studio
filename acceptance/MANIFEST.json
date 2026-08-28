@@ -1,5 +1,5 @@
 {
-  "schema_version": "1.1.0",
+  "schema_version": "1.2.0",
   "acceptance_spec": {
     "path": "acceptance/合同.json",
     "version": "1.0.0",
@@ -7,7 +7,7 @@
   },
   "evidence_index": {
     "path": "acceptance/EVIDENCE_INDEX.json",
-    "sha256": "9dcf479ae9bb342220016fd3916be87deb927c18402c884ef49db1838c689fad"
+    "sha256": "1e8f3054205bf73897113632bef586e89e0a8c0fadd6ff62137b85d43959bc7f"
   },
   "golden_project": {
     "path": "acceptance/FilmOS_Acceptance_Project/项目.json",
@@ -17,9 +17,22 @@
   },
   "yingce_upstream": {
     "repository": "ddcat-ai/open-ai-canvas",
-    "ref": "refs/tags/v1.2.1",
-    "commit": "61b332583c4fcbf71890ae67e3f0f104d67706b9",
-    "tree": "87c68a9da95ef4f5914b7fc5d662dc0aac452264"
+    "repository_url": "https://github.com/ddcat-ai/open-ai-canvas.git",
+    "contract": {
+      "path": "scripts/upstream/baseline.json",
+      "sha256": "3d4f975f8b5866b0fbd3518d834404d7cbbe3e9a487c34bccfaa3eeb42bc0253"
+    },
+    "stable": {
+      "ref": "refs/tags/v1.2.1",
+      "commit": "61b332583c4fcbf71890ae67e3f0f104d67706b9",
+      "tree": "87c68a9da95ef4f5914b7fc5d662dc0aac452264"
+    },
+    "candidate": {
+      "ref": "refs/heads/main",
+      "commit": "19ebfbb3c1dd0227d6a194cd6067d5e06e27e521",
+      "tree": "7a3fe10d7860f83fca824e220e6e6606f5b72f90"
+    },
+    "bootstrap": "exact_commit_shallow"
   },
   "schema_versions": {
     "film_core": {

@@ -2,14 +2,14 @@
   "evidence_status": "DEVELOPMENT_EVIDENCE_DIRTY",
   "raw_sources": [
     {
-      "bytes": 24016,
+      "bytes": 24616,
       "path": "CHANGELOG.md",
-      "sha256": "e0db6943ced7dbace59ba8e058d60f8db1a2bed1aecb96e68a99dec05562af26"
+      "sha256": "e7af727d2df14167308308351263762af6d458e4e3bf684706f69bc55f69bf9e"
     },
     {
-      "bytes": 2885,
+      "bytes": 3357,
       "path": "acceptance/MANIFEST.json",
-      "sha256": "db2ab95615e2ad1c107b5f4aca612beeeaf858468799a59556a14c3794bf6719"
+      "sha256": "f350e81c9c2fbedde412c5ee1b9e57e7666e1eafd4468c5f7bae88fc1488061c"
     },
     {
       "bytes": 2187,
@@ -32,9 +32,9 @@
       "sha256": "5975d3d71fac361cbfbce2e29c2b3e00d831f601db4977bccf73a29917f691fa"
     },
     {
-      "bytes": 7342,
+      "bytes": 8075,
       "path": "tests/film-rc/rc-recovery-receipt.json",
-      "sha256": "08db8c15bb8853a3ed105f47c653330f6726c6e4adab7be290448eafe803991a"
+      "sha256": "b7f4cbfdeafe32fbde8445f005b3c905aea9a23d7af2112c9a6d6d0c37a5d0b3"
     },
     {
       "bytes": 1029,
@@ -61,23 +61,23 @@
       "sha256": "3e928625570e00fbeff26c8231e59e1cba13248f8cf9f262e9bcdca608e58507"
     },
     {
-      "bytes": 1462,
+      "bytes": 1625,
       "check_ids": [
         "rc-recovery",
         "upstream-compatibility",
         "desktop-backup-restore"
       ],
       "path": "acceptance/reports/MIGRATION_REPORT.md",
-      "sha256": "871393a461e3f53b0b03bffbaddc3840e4d5afe78cc1a2dddd86c19ef2f23f54"
+      "sha256": "a14fe0fd7d5df217a91c24de549eff26db192719a08f7ebaa13bcd39a7c62964"
     },
     {
-      "bytes": 1241,
+      "bytes": 1381,
       "check_ids": [
         "upstream-compatibility",
         "rc-recovery"
       ],
       "path": "acceptance/reports/UPSTREAM_COMPATIBILITY_REPORT.md",
-      "sha256": "8d59de1995adbcf54368202781257cd7a7c4f1a44f3e78d82d157c9405e4f37c"
+      "sha256": "95bf1868e63c92abc7dc0c14d5d53fe081a3e3491c3d3e48db7510b2ce2a9f00"
     },
     {
       "bytes": 2080,

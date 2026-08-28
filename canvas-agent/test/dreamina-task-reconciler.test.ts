@@ -126,12 +126,10 @@ test("dispose aborts a poll-heartbeat state-lock waiter before it can renew", as
         },
     });
 
-    let renewEntered!: () => void;
-    const renewing = new Promise<void>((resolve) => { renewEntered = resolve; });
+    let renewStarted = false;
     let renewSettled!: () => void;
     const renewed = new Promise<void>((resolve) => { renewSettled = resolve; });
-    let syncCommitEntered!: () => void;
-    const committingSyncError = new Promise<void>((resolve) => { syncCommitEntered = resolve; });
+    let syncCommitStarted = false;
     let completedRenewals = 0;
     let heartbeatSignal: AbortSignal | undefined;
     let heartbeatError: unknown;
@@ -142,7 +140,7 @@ test("dispose aborts a poll-heartbeat state-lock waiter before it can renew", as
     const renewLease = heartbeat.renewLease.bind(reconciler);
     heartbeat.renewLease = async (idempotencyKey, lease, signal) => {
         heartbeatSignal = signal;
-        renewEntered();
+        renewStarted = true;
         try {
             await renewLease(idempotencyKey, lease, signal);
             completedRenewals += 1;
@@ -155,7 +153,7 @@ test("dispose aborts a poll-heartbeat state-lock waiter before it can renew", as
     };
     const commitSyncError = heartbeat.commitSyncError.bind(reconciler);
     heartbeat.commitSyncError = async (idempotencyKey, lease, code, signal) => {
-        syncCommitEntered();
+        syncCommitStarted = true;
         return commitSyncError(idempotencyKey, lease, code, signal);
     };
 
@@ -166,9 +164,12 @@ test("dispose aborts a poll-heartbeat state-lock waiter before it can renew", as
         await reconciler.start();
         await observing;
         releaseExternalLock = await acquireStateLock(box.stateFile);
-        await renewing;
+        // The production heartbeat timer is intentionally unref'ed. Poll with a
+        // bounded, ref'ed test timer so Node 22 cannot end the fixture before the
+        // waiter is created.
+        await waitFor(() => renewStarted);
         releaseObserve();
-        await committingSyncError;
+        await waitFor(() => syncCommitStarted);
 
         disposePromise = reconciler.dispose();
         const heartbeatOutcome = await Promise.race([

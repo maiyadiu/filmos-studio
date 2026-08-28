@@ -201,12 +201,16 @@ def report_notes(
         ),
         "MIGRATION_REPORT.md": (
             "Synthetic migration, exact recovery and backup restoration are automated. "
+            "The recovery runner creates an isolated bare repository by fetching the exact "
+            "frozen Yingce Stable and Candidate objects and verifies both trees before the drill. "
             "No real user database is opened by this report. Upstream remains "
             "`C_MIGRATION_REQUIRED` until a separately authorized real migration and rollback "
             "receipt exists."
         ),
         "UPSTREAM_COMPATIBILITY_REPORT.md": (
-            "Pinned upstream compatibility and rollback tests are reproducible. The current "
+            "Pinned upstream compatibility and rollback tests bootstrap the exact frozen "
+            "commits from the declared public Yingce repository into isolated refs; no pre-existing "
+            "workstation remote or tracking ref is used. The current "
             "candidate classification remains `C_MIGRATION_REQUIRED`; this report does not "
             "authorize merge, rebase, push or data migration."
         ),

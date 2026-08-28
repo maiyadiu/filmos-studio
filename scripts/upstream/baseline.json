@@ -1,11 +1,18 @@
 {
   "repository": "ddcat-ai/open-ai-canvas",
+  "repository_url": "https://github.com/ddcat-ai/open-ai-canvas.git",
   "release_api": "https://api.github.com/repos/ddcat-ai/open-ai-canvas/releases/latest",
   "stable": {
     "tag": "v1.2.1",
+    "source_ref": "refs/tags/v1.2.1",
     "alias_tag": "filmos-upstream-v1.2.1",
     "commit": "61b332583c4fcbf71890ae67e3f0f104d67706b9",
     "tree": "87c68a9da95ef4f5914b7fc5d662dc0aac452264"
+  },
+  "candidate": {
+    "source_ref": "refs/heads/main",
+    "commit": "19ebfbb3c1dd0227d6a194cd6067d5e06e27e521",
+    "tree": "7a3fe10d7860f83fca824e220e6e6606f5b72f90"
   },
   "candidate_ref": "upstream-yingce/main",
   "dev_ref": "HEAD",

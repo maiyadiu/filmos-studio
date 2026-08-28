@@ -12,11 +12,18 @@ from pathlib import Path
 from typing import Any
 from uuid import NAMESPACE_URL, uuid5
 
+from frozen_upstream import (  # type: ignore
+    LOCAL_CANDIDATE_REF,
+    LOCAL_STABLE_REF,
+    load_frozen_contract,
+)
 
-STABLE_REF = "v1.2.1"
-STABLE_COMMIT = "61b332583c4fcbf71890ae67e3f0f104d67706b9"
-CANDIDATE_REF = "upstream-yingce/main"
-CANDIDATE_COMMIT = "19ebfbb3c1dd0227d6a194cd6067d5e06e27e521"
+
+FROZEN_UPSTREAM = load_frozen_contract()
+STABLE_REF = FROZEN_UPSTREAM["stable"]["source_ref"]
+STABLE_COMMIT = FROZEN_UPSTREAM["stable"]["commit"]
+CANDIDATE_REF = FROZEN_UPSTREAM["candidate"]["source_ref"]
+CANDIDATE_COMMIT = FROZEN_UPSTREAM["candidate"]["commit"]
 SANDBOX_MARKER = ".filmos-rc-candidate-sandbox"
 FIXTURE_MARKER = "filmos-rc-candidate-schema-fixture"
 APPLICATION_ID = 0x46524336
@@ -116,16 +123,21 @@ def _git(repo_root: Path, *arguments: str) -> str:
 
 def inspect_pinned_diff(repo_root: str | Path) -> dict[str, Any]:
     root = Path(repo_root).resolve(strict=True)
-    stable = _git(root, "rev-parse", f"{STABLE_REF}^{{commit}}").strip()
-    candidate = _git(root, "rev-parse", f"{CANDIDATE_REF}^{{commit}}").strip()
+    stable = _git(root, "rev-parse", f"{LOCAL_STABLE_REF}^{{commit}}").strip()
+    candidate = _git(root, "rev-parse", f"{LOCAL_CANDIDATE_REF}^{{commit}}").strip()
     if stable != STABLE_COMMIT:
         raise CandidateAdapterError(f"Stable ref drifted: {stable}")
     if candidate != CANDIDATE_COMMIT:
         raise CandidateAdapterError(f"Candidate ref drifted: {candidate}")
+    if _git(root, "rev-parse", f"{LOCAL_STABLE_REF}^{{tree}}").strip() != FROZEN_UPSTREAM["stable"]["tree"]:
+        raise CandidateAdapterError("Stable tree drifted")
+    if _git(root, "rev-parse", f"{LOCAL_CANDIDATE_REF}^{{tree}}").strip() != FROZEN_UPSTREAM["candidate"]["tree"]:
+        raise CandidateAdapterError("Candidate tree drifted")
 
     model_diff = _git(
         root,
         "diff",
+        "--full-index",
         f"{STABLE_COMMIT}..{CANDIDATE_COMMIT}",
         "--",
         *MODEL_PATHS,
@@ -133,6 +145,7 @@ def inspect_pinned_diff(repo_root: str | Path) -> dict[str, Any]:
     migration_diff = _git(
         root,
         "diff",
+        "--full-index",
         f"{STABLE_COMMIT}..{CANDIDATE_COMMIT}",
         "--",
         *MIGRATION_PATHS,

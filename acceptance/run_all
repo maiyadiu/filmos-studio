@@ -23,10 +23,6 @@ mkdir -p "$EVIDENCE_ROOT"
 RECEIPT=$(sed -n '1p' "$PATH_FILE")
 "$ROOT/.local/acceptance-venv/bin/python" "$ROOT/acceptance/verify.py" "$RECEIPT"
 
-if [ "${FILMOS_ACCEPTANCE_UPDATE_INDEX:-0}" = "1" ]; then
-    "$ROOT/.local/acceptance-venv/bin/python" "$ROOT/acceptance/update_index.py" "$RECEIPT"
-fi
-
 CLEAN=$(
     "$ROOT/.local/acceptance-venv/bin/python" -c \
         'import json,sys; print("1" if json.load(open(sys.argv[1], encoding="utf-8"))["clean_worktree"] else "0")' \

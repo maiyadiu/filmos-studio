@@ -16,6 +16,6 @@
 
 ## Scope and boundary
 
-Synthetic migration, exact recovery and backup restoration are automated. No real user database is opened by this report. Upstream remains `C_MIGRATION_REQUIRED` until a separately authorized real migration and rollback receipt exists.
+Synthetic migration, exact recovery and backup restoration are automated. The recovery runner creates an isolated bare repository by fetching the exact frozen Yingce Stable and Candidate objects and verifies both trees before the drill. No real user database is opened by this report. Upstream remains `C_MIGRATION_REQUIRED` until a separately authorized real migration and rollback receipt exists.
 
 This report is an evidence view, not an independent pass declaration. The raw receipt and logs above are authoritative.

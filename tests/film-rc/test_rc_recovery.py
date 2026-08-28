@@ -50,6 +50,18 @@ class RCRecoveryTest(unittest.TestCase):
         self.assertTrue(all(result["checks"].values()))
         self.assertEqual(result["upstream_classification"], "C_MIGRATION_REQUIRED")
         self.assertEqual(
+            result["upstream_bootstrap"]["status"],
+            "PASSED_EXACT_OBJECT_BOOTSTRAP",
+        )
+        self.assertEqual(
+            result["upstream_bootstrap"]["fetch_strategy"],
+            "exact_commit_shallow",
+        )
+        self.assertEqual(
+            result["upstream_bootstrap"]["candidate"]["commit"],
+            "19ebfbb3c1dd0227d6a194cd6067d5e06e27e521",
+        )
+        self.assertEqual(
             result["authority_boundaries"],
             {
                 "real_user_database": "NOT_OPENED",
@@ -57,6 +69,7 @@ class RCRecoveryTest(unittest.TestCase):
                 "network_publish": "NOT_EXECUTED",
                 "external_provider": "NOT_EXECUTED",
                 "formal_apply": "NOT_EXECUTED",
+                "upstream_fetch": "READ_ONLY_EXACT_FROZEN_OBJECTS",
                 "upstream_merge": "NOT_EXECUTED",
             },
         )

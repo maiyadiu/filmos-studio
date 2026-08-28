@@ -24,21 +24,36 @@ from rc_schema_adapter import (  # noqa: E402
     run_candidate_demo,
     sha256_file,
 )
+from frozen_upstream import prepare_frozen_upstream  # noqa: E402
 
 
 class CandidateSchemaAdapterTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.upstream_temporary = tempfile.TemporaryDirectory(
+            prefix="filmos-rc-adapter-upstream-"
+        )
+        cls.upstream_repo = Path(cls.upstream_temporary.name) / "upstream.git"
+        prepare_frozen_upstream(cls.upstream_repo)
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.upstream_temporary.cleanup()
+
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory(prefix="filmos-rc-adapter-test-")
         self.root = Path(self.temporary.name)
         (self.root / SANDBOX_MARKER).write_text("synthetic only\n", encoding="utf-8")
         self.source = create_stable_fixture(self.root / "source" / "stable.sqlite")
-        self.engine = CandidateSchemaAdapter(self.root, ROOT, enabled=True)
+        self.engine = CandidateSchemaAdapter(
+            self.root, self.upstream_repo, enabled=True
+        )
 
     def tearDown(self) -> None:
         self.temporary.cleanup()
 
     def test_pinned_real_diff_matches_adapter_contract(self) -> None:
-        result = inspect_pinned_diff(ROOT)
+        result = inspect_pinned_diff(self.upstream_repo)
         self.assertEqual(result["candidate_commit"], CANDIDATE_COMMIT)
         self.assertEqual(
             result["changed_models"],
@@ -55,7 +70,7 @@ class CandidateSchemaAdapterTest(unittest.TestCase):
         self.assertEqual(result["classification_before"], "C_MIGRATION_REQUIRED")
 
     def test_default_off_and_fixture_identity_reject_non_synthetic_source(self) -> None:
-        disabled = CandidateSchemaAdapter(self.root, ROOT)
+        disabled = CandidateSchemaAdapter(self.root, self.upstream_repo)
         with self.assertRaisesRegex(CandidateAdapterError, "disabled by default"):
             disabled.dry_run(self.source)
         with tempfile.TemporaryDirectory(prefix="filmos-rc-outside-") as outside:
@@ -132,7 +147,7 @@ class CandidateSchemaAdapterTest(unittest.TestCase):
 
     def test_full_demo_retains_c_classification(self) -> None:
         with tempfile.TemporaryDirectory(prefix="filmos-rc-adapter-demo-") as directory:
-            result = run_candidate_demo(directory, ROOT)
+            result = run_candidate_demo(directory, self.upstream_repo)
         self.assertEqual(result["status"], "PASSED_SYNTHETIC_REVERSIBLE_DRY_RUN")
         self.assertTrue(result["fault_rollback"])
         self.assertTrue(result["source_unchanged"])

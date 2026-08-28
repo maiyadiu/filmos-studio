@@ -61,8 +61,8 @@ CURRENT_CHECKS = (
     ),
     Check(
         "desktop-release-build",
-        "Unsigned internal macOS release build",
-        ("swift", "build", "--package-path", "desktop/macos", "-c", "release"),
+        "Pinned Swift 6 formal Desktop release build contract",
+        (sys.executable, "acceptance/checks/desktop_release.py"),
         ROOT,
         ("01-desktop",),
     ),
@@ -175,6 +175,13 @@ RC_LOCAL_CHECKS = CURRENT_CHECKS + (
         (sys.executable, "acceptance/checks/reports.py"),
         ROOT,
         ("00-upstream", "02-film-core", "11-migration", "12-remote", "13-qa"),
+    ),
+    Check(
+        "evidence-index-contract",
+        "Stable Track evidence contract without runtime or release identity",
+        (sys.executable, "acceptance/checks/evidence_index.py"),
+        ROOT,
+        ("13-qa",),
     ),
     Check(
         "acceptance-privacy",
