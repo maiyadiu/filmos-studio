@@ -1,0 +1,57 @@
+{
+  "golden_id": "GOLDEN-B",
+  "title": "多人长对白与精准STALE",
+  "execution": {
+    "test_status": "NOT_RUN",
+    "allowed_test_statuses": ["NOT_RUN", "PASSED", "FAILED", "BLOCKED_MISSING_CORE_OPERATION"],
+    "external_provider_calls": false,
+    "fallback_mock_allowed": false
+  },
+  "cast": ["A", "B", "C"],
+  "minimums": {
+    "dialogue_cues": 6,
+    "director_units": 2,
+    "shots": 3,
+    "coverage_links": 4,
+    "approved_character_bindings": 3,
+    "approved_costume_bindings": 2
+  },
+  "continuity_dimensions": ["axis", "eyeline", "blocking", "action", "prop_contact"],
+  "j_cut_policy": {
+    "allowed_exception": "audio_lead_only",
+    "must_not_exempt": ["axis", "eyeline", "blocking", "action", "prop_contact"]
+  },
+  "impact_cases": [
+    "one_cue_change_marks_only_declared_dependents_stale",
+    "one_costume_change_marks_only_matching_character_costume_dependents_stale",
+    "unrelated_shot_prompt_and_candidate_remain_fresh",
+    "unmapped_change_is_reported_unresolved_without_automatic_stale",
+    "stale_guard_failure_has_zero_partial_writes",
+    "same_propagation_replay_is_idempotent"
+  ],
+  "invariants": [
+    "ScriptStructureMap binds the current ScriptVersion version and content hash",
+    "ScriptStructureMap stores cue hashes and structure but not a duplicate script body",
+    "DirectorUnit and Shot coverage is many-to-many",
+    "Character and Costume locks use approved AssetBinding references",
+    "J-cut can exempt audio lead timing only",
+    "stale_state changes independently from review_state and lock_state",
+    "Film Core is the only formal Impact and STALE writer",
+    "external generation upload publication and credit spend remain zero"
+  ],
+  "required_observability": [
+    "trace_id",
+    "project_id",
+    "unit_id",
+    "script_version_id",
+    "script_structure_map_id",
+    "director_unit_ids",
+    "shot_ids",
+    "coverage_link_ids",
+    "visual_lock_ids",
+    "impact_edge_ids",
+    "stale_target_ids",
+    "fresh_target_ids",
+    "audit_event_ids"
+  ]
+}

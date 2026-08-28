@@ -63,3 +63,13 @@ FILMOS_CORE_PYTHON="$PWD/film-core/.venv/bin/python" \
 FILMOS_CORE_PYTHON="$PWD/film-core/.venv/bin/python" \
   python3 tests/film-golden/run_golden_a_real.py
 ```
+
+## Golden B 已锁定规格
+
+`golden-b.json` 固定多人长对白、DirectorUnit/Shot 多对多、五维连续性、仅声音先入可用的 J-cut 例外、Character/Costume Lock 和精准 STALE 验收范围。签入状态保持 `NOT_RUN`，不保存某次运行的成功状态；真实执行不得回退 Mock，也不得调用外部 Provider。
+
+```bash
+python3 tests/film-golden/test_golden_b_spec.py
+```
+
+真实 Golden B runner 会在第三阶段 Core Impact/STALE operation 合入后接入临时 Sidecar；operation 缺失时只能返回 `BLOCKED_MISSING_CORE_OPERATION`。
