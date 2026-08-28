@@ -2,6 +2,7 @@ import { ArrowRight, CheckCircle2, CircleAlert, Clock3 } from "lucide-react";
 import { Link } from "react-router";
 
 import { WorkspaceState } from "@/components/layout/workspace-state";
+import { FilmChatGPTHandoffEntry } from "@/film/chatgpt";
 import { isFilmDynamicContentUnitsEnabled, projectFilmOverview, type FilmProjectOverviewProjection } from "@/film/project";
 import { projectAttentionCount, projectContinueTarget, projectDetailStage, projectNextActions, projectUnitStages, type ProjectStageCell, type ProjectWorkbenchAction } from "@/lib/project-workbench";
 
@@ -75,6 +76,8 @@ export default function ProjectOverviewView({ detail }: ProjectDetailViewProps) 
             <FilmProductionEntry detail={detail} />
 
             <FilmRemoteSyncEntry detail={detail} />
+
+            <FilmChatGPTHandoffEntry detail={detail} />
 
             <section>
                 <div className="project-pipeline-head">
