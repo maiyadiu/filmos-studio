@@ -86,3 +86,14 @@
 - 上游：Candidate `19ebfbb3...` 原生 Backend/Agent/Web gate 通过；API/Canvas 为 B，Models/Migrations 为 C，总体仍 `C_MIGRATION_REQUIRED`，未合并；rollback dry-run 通过。
 - 桌面：Swift 14/14；unsigned `.app` 可复现构建、结构和受控 smoke 通过，bundle hash `ea400550...`。未签名、公证、制作 DMG/PKG 或发布。
 - 总门禁：Contracts 23 implemented；Core 50；Golden Python 26；Golden TS 6/37；Backend 通过；Web 610/0、2583 assertions、typecheck/build 通过。第五阶段状态为 `PASSED_LOCAL_WITH_KNOWN_BLOCKERS`，外部动作和生产开关仍为 0。
+
+## 2026-08-28 开工批次 10｜第六阶段与 Track 14 Day 1–5
+
+- RC Web：9 个交互弹层改为 lazy load；Project chunk 从 1,294,180 降至 873,602 bytes（-32.50%），最大 chunk 仍为 1,821,047 bytes，>500 KB warning 仍为 10，未提高告警阈值。`bun run test` 已恢复完整发现，617/0、2617 assertions、85 files；typecheck/build/audit 通过。
+- RC 恢复：统一 runner 串联 Core、Remote receipt、合成迁移、Agent/session、20 个 Feature Flag 和上游 Candidate schema adapter；11/11 checks，来源与 Stable ID 不变，network/provider/Formal Apply 为 0。
+- 上游 C 适配：锁定 Candidate `19ebfbb3...` 的 3 新表、`ChannelModel.Icon` 与 14 项 migration 增量，合成 apply/replay/fault rollback/exact restore 通过；真实用户库与 PostgreSQL 未打开，裁定仍为 `C_MIGRATION_REQUIRED`，未合并。
+- Track 14：Day 1–5 全部本地实现。Tool Contract 生成 TS/MCP/OpenAPI；公开 20 个工具，预留写工具注册 0；7 个 Widget 使用官方 `ext-apps` bridge；Grant/审计、媒体代理、Proposal Preview、Web Handoff、macOS Keychain/文件打开、插件和恢复文档到位，7 个开关全 false。
+- ChatGPT Golden：真实 Film Core SQLite/HTTP → MCP → Widget 与真实 `.filmosproposal` → Python CLI Preview/幂等通过；Contract 5、MCP 22、Importer 21、real Golden 1，`fallback_mock_used=false`、`external_calls=0`、`formal_write_executed=false`。
+- 桌面与回归：Swift 27/27、release 和 unsigned app verify 通过；Backend 全过；Film Core 50；Golden Python 26；Golden TS 6/37；Canvas Agent 349 pass、5 Windows skip；Plugin validator 通过。
+- 安全修正：Node 的 Python Preview 子进程改为只接收 4 个白名单环境值，不再继承父进程环境；本地 health 不携带 Keychain bearer，本地服务就绪与外部账号连接严格分离。
+- 准确边界：第六阶段状态为 `PASSED_LOCAL_RC_WITH_EXTERNAL_BLOCKERS`。ChatGPT Developer Mode/Tool Scan、Secure MCP Tunnel、公共 HTTPS/OAuth、真实迁移、上游合并、Provider、上传、额度、签名、公证和发布均未执行。

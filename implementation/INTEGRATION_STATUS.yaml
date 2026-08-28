@@ -1,11 +1,11 @@
-updated_at: 2026-08-28T14:12:54+08:00
+updated_at: 2026-08-28T15:43:38+08:00
 main:
   state: BASELINE_PUSHED
   upstream_release: v1.2.1
   upstream_commit: 61b332583c4fcbf71890ae67e3f0f104d67706b9
   pushed: true
 integration:
-  state: STAGE5_BETA_PASSED_LOCAL_WITH_KNOWN_BLOCKERS
+  state: STAGE6_PASSED_LOCAL_RC_WITH_EXTERNAL_BLOCKERS
   base: 73f3ae5381fd7c48cd9ad262164c05c435dd6385
   branch: integration
   integrated_tracks:
@@ -55,6 +55,9 @@ integration:
     - track: 12-remote
       source_tip: df07883e
       integration_commits: ["dafc539f", "01f27364"]
+    - track: 14-chatgpt-app
+      source_commits: ["85989d8d", "8a00742e", "e0bc49fa", "77c1b845"]
+      integration_commits: ["35d5f88b", "8f0ac3fe", "40345d6e", "23f4bbeb", "c0a59d84"]
   stage2_commits:
     - { subject: scope, integration_commit: 22b05b32 }
     - { subject: shared-contracts, integration_commit: 54c0d694 }
@@ -89,6 +92,17 @@ integration:
     - { subject: synthetic-migration-and-recovery, integration_commit: 8d799a56 }
     - { subject: provider-neutral-agent-adapter, integration_commit: c154fd04 }
     - { subject: upstream-candidate-gate-fix, integration_commit: d1c52663 }
+  stage6_commits:
+    - { subject: scope-and-external-boundaries, integration_commit: 34fb529a }
+    - { subject: track14-program-entry, integration_commit: 10b96fd8 }
+    - { subject: web-code-splitting-and-budget, integration_commit: 8fdae3b5 }
+    - { subject: proposal-file-registration, integration_commit: 7a76c041 }
+    - { subject: unified-recovery-and-upstream-adapter, integration_commit: b353056a }
+    - { subject: chatgpt-contract-and-readonly-mcp, integration_commit: 35d5f88b }
+    - { subject: chatgpt-web-handoff, integration_commit: 8f0ac3fe }
+    - { subject: chatgpt-desktop-connector, integration_commit: 40345d6e }
+    - { subject: track14-day1-5-local-candidate, integration_commit: 23f4bbeb }
+    - { subject: preview-env-and-full-gates, integration_commit: c0a59d84 }
 worktrees:
   state: CREATED_AND_TRACKING_REMOTE
   count: 14
@@ -98,10 +112,10 @@ candidate:
   base: 73f3ae5381fd7c48cd9ad262164c05c435dd6385
   branch: candidate
 native_tests:
-  state: STAGE5_FULL_LOCAL_GATES_PASSED_WITH_WEB_CHUNK_WARNING
-  after_current_integration_head: STAGE5_GATES_PASSED
+  state: STAGE6_FULL_LOCAL_RC_GATES_PASSED_WITH_EXTERNAL_BLOCKERS
+  after_current_integration_head: STAGE6_GATES_PASSED
   backend: PASSED
-  web: "610 passed, 0 failed, 2583 assertions; typecheck and build passed; 10 JavaScript files exceed 500 KB warning, largest 1821047 bytes"
+  web: "617 passed, 0 failed, 2617 assertions across 85 files; typecheck, build and bundle audit passed; 10 JavaScript files exceed 500 KB warning, largest 1821047 bytes; project chunk 873602 bytes"
   canvas_agent: "354 tests; 349 passed, 0 failed, 5 Windows-specific skipped; OpenAPI sync and build passed; prior suspected Dreamina order case passed in full suite"
 film_contract_tests:
   state: PASSED_STAGE4_ZERO_PLANNED
@@ -112,12 +126,12 @@ film_core_tests:
   command: cd film-core && PYTHONPATH=src /tmp/filmos-core-venv-02/bin/pytest -q
   result: "50 passed; 1 Starlette TestClient deprecation warning"
 film_web_tests:
-  state: PASSED_AFTER_STAGE5_INTEGRATION
+  state: PASSED_AFTER_STAGE6_INTEGRATION
   command: bun run test; bun run typecheck; bun run build
-  result: "610 passed; 0 failed; 2583 assertions across 84 files; typecheck and production build passed with explicit large chunk warning"
+  result: "617 passed; 0 failed; 2617 assertions across 85 files; typecheck and production build passed; bundle audit passed with 10 explicit warning chunks; project chunk 873602 bytes"
 desktop_tests:
-  state: PASSED_STAGE5_UNSIGNED_APP_LOCAL
-  result: "Swift 14 tests in 3 suites passed; unsigned release app structure and smoke verified; reproducible bundle hash ea4005508f9d014d39ce4bbfb50bffaa786ce78dedb11926568f962b8140852a; no signing or publication"
+  state: PASSED_STAGE6_UNSIGNED_CHATGPT_CONNECTOR_LOCAL
+  result: "Swift 27 tests in 6 suites passed; Keychain, loopback health and fixed Film Core Preview CLI verified; unsigned release app structure and smoke passed with services_started=false; no signing or publication"
 mcp_tests:
   state: REGISTERED_DEFAULT_OFF_PROVIDER_NEUTRAL_AGENT_FULL_REGRESSION_PASSED
   result: "Same five tools for Codex, DeepSeek-compatible, Claude-compatible, Local and Human Only profiles; Agent Apply and Approval remain denied; 349 passed, 0 failed, 5 skipped; OpenAPI sync and build passed."
@@ -137,14 +151,14 @@ golden_c:
   command: python Golden A/B/C suite; Bun Golden local suite; Playwright Production Canvas create and rollback
   result: "SceneTwin V1->V2, three Camera/Blocking/Composition chains, precise spatial STALE, restart, backup restore, transaction fault, Human atomic Canvas create, unique replay and flag rollback passed; fallback_mock_used=false; external_provider_calls=0"
 recovery_tests:
-  state: STAGE5_LOCAL_RECOVERY_AND_ROLLBACK_PASSED
-  result: "Core/SQLite/Production Canvas recovery remains passed; Remote receipt reload and STALE manifest fail closed; synthetic migration transaction, backup restore and rollback passed; Feature Flag and upstream rollback dry-run passed. Real production recovery remains unauthorized."
+  state: STAGE6_UNIFIED_LOCAL_RC_RECOVERY_PASSED
+  result: "11/11 combined checks passed across Core, Remote receipt, Migration, Agent/session, 20 Feature Flags and Candidate schema adapter; source and Stable IDs unchanged; real user database, PostgreSQL, network and Formal Apply not executed."
 remote_beta:
   state: LOCAL_PREVIEW_RECEIPT_BROWSER_PASSED_REMOTE_EXECUTION_NOT_AUTHORIZED
   result: "15 tests/84 assertions; Browser import, Preview, Human local receipt, reload recovery and flag-off passed; confirmation added no request; network/upload/provider actions zero"
 performance_beta:
-  state: PASSED_WITH_WEB_CHUNK_WARNING
-  result: "Core, Remote, Agent and Browser p95 passed fixed local budgets with zero errors; Web has 10 JavaScript files over 500 KB warning, largest 1821047 bytes, below 2.5 MB local blocking budget"
+  state: PASSED_RC_WITH_REDUCED_PROJECT_CHUNK_AND_KNOWN_VENDOR_WARNINGS
+  result: "Core p95 app 19.585 ms, context 3.367 ms, entity 0.666 ms, preview 0.835 ms; Remote 4.775 ms; Agent deny 0.327 ms; zero errors/actions. Project chunk reduced 32.50% to 873602 bytes; 10 vendor/language warning chunks remain, largest 1821047 bytes."
 browser_beta:
   state: PASSED_LOCAL_WITH_BOUNDARIES
   result: "40 Host project reads p95 8.9 ms; local receipt recovered; flag off removed Film DOM; final console 0 error/0 warning; no remote request or Host Film write"
@@ -153,3 +167,15 @@ upstream_compatibility:
   candidate_native_state: PASSED
   candidate_commit: 19ebfbb3c1dd0227d6a194cd6067d5e06e27e521
   blocker: persistent Models and Migrations require an approved reversible migration; Candidate not merged
+track14_chatgpt_app:
+  state: PASSED_LOCAL_DAY1_5_EXTERNAL_ACCOUNT_BLOCKED
+  contract_hash: 70018bc1620d14c41d1e40c88fb67663083e01c351a3a6f7bddeea19a14b54bb
+  public_tools: 20
+  reserved_write_tools_registered: 0
+  feature_flags: 7
+  feature_flags_default_false: true
+  tests: "contract 5; service 22; importer 21; real Golden 1; Web 617; Desktop 27; plugin validator passed"
+  golden: "real Film Core SQLite/HTTP/MCP/Widget/file/CLI; fallback_mock_used=false; external_calls=0; formal_write_executed=false"
+  external_status: BLOCKED_EXTERNAL_ACCOUNT
+  tunnel_started: false
+  public_listener_created: false

@@ -15,12 +15,12 @@
 | Gate | 结果 | 证据 |
 | --- | --- | --- |
 | Handoff 专项 | PASS | `bun test test/film-chatgpt-handoff.test.tsx` → 7 pass / 34 assertions |
-| Web package 测试 | PASS | `bun run test` → 当前 worktree 基线清单 477 pass，跨 Runtime 1 pass；无 fail |
+| Web package 测试 | PASS | 合入后 `bun run test` 使用完整发现清单：617 pass / 0 fail / 2617 assertions / 85 files |
 | TypeScript | PASS | `bun run typecheck` |
 | Production build | PASS | `bun run build`；12,711 modules transformed，最大 project chunk 873.60 kB，现有 chunk warning 1 |
 | Flag rollback | PASS | 专项测试使用 Proxy ProjectDetail 与抛错 client，确认 flag-off 为 0 DOM / 0 读取 / 0 请求 |
 
-`bun run test` 计数是分支创建时 `integration@35d5f88b` 的 `web/package.json` 显式清单；与后续 integration 中新增测试数不同时，应以合入后的最终全量 Gate 为准。
+合入时已移除容易漏收新增文件的显式测试文件清单，`bun run test` 直接执行完整 `bun test` 发现；后续新增测试无需再手工回填脚本。
 
 ## 真实浏览器复核
 

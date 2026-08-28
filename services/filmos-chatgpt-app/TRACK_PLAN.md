@@ -16,7 +16,7 @@
 | Canvas Agent MCP | REUSE | Keep its existing local canvas responsibility separate; do not duplicate or alter its write tools |
 | Codex app-server/sidebar | DEFER | Track 14 exposes a local Codex plugin boundary only; no sidebar integration is claimed as ChatGPT Apps proof |
 | Remote/Hybrid sync and resource proxy | EXTEND | Reuse project-scoping principles; implement a separate bounded proxy-media store and no-original fallback |
-| Desktop local service / Keychain | EXTEND | Stable Handoff REST and Python importer contracts are supplied; real macOS bundle wiring remains Program Integrator-owned |
+| Desktop local service / Keychain | EXTEND | Stable Handoff REST、Keychain、App 文件打开事件和固定 Python Preview CLI 已接入真实 macOS bundle；签名/公证仍未授权 |
 | MCP server / streamable HTTP `/mcp` | BUILD | TypeScript SDK, stable tool contract, short Project Grant sessions |
 | MCP Apps UI | BUILD | Seven versioned widget resources, exact empty CSP domain lists |
 | Standard `search` / `fetch` | BUILD | Exact one-text-item JSON shape |
@@ -33,7 +33,7 @@ Official sources checked before implementation:
 - https://developers.openai.com/plugins/build/examples
 - https://developers.openai.com/plugins/plan/tools
 - https://developers.openai.com/plugins/reference
-- https://developers.openai.com/plugins/build/app-quickstart
+- https://developers.openai.com/plugins/quickstart
 - https://developers.openai.com/plugins/build/auth
 - https://developers.openai.com/plugins/deploy/connect-chatgpt
 - https://developers.openai.com/plugins/guides/security-privacy
@@ -47,7 +47,7 @@ The closest maintained starting pattern is the official single-resource TypeScri
 2. Day 2: loopback MCP, Project Grant, short sessions, audit, desktop Keychain adapter, tunnel fail-closed doctor, Golden A.
 3. Day 3: seven widgets, media proxy boundary, no-media fallback, synthetic Candidate fixture plus real Film Core read client.
 4. Day 4: signed `.filmosproposal`, desktop document contract, FilmOS adapter Preview, conflict and idempotency, Golden B.
-5. Day 5: prompt injection, scope isolation, tunnel disconnect, snapshot compatibility, recovery, plugin validation, candidate and recovery docs.
+5. Day 5: prompt injection, scope isolation, tunnel disconnect, snapshot compatibility, recovery, plugin validation, candidate and recovery docs。五日项目均已在 `integration` 实施并复验；外部条件仍按下节阻断。
 
 ## Evidence language
 

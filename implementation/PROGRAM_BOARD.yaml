@@ -22,8 +22,8 @@ integration_windows:
   - "12:00 Asia/Shanghai"
   - "22:00 Asia/Shanghai"
 tracks:
-  - { id: "00", name: upstream, branch: track/upstream, worktree: ../wt-upstream, status: INTEGRATED_STAGE5_NATIVE_PASSED_STATIC_C_MIGRATION_REQUIRED }
-  - { id: "01", name: desktop, branch: track/desktop, worktree: ../wt-desktop, status: INTEGRATED_STAGE5_UNSIGNED_APP_VERIFIED_NOT_SIGNED }
+  - { id: "00", name: upstream, branch: track/upstream, worktree: ../wt-upstream, status: INTEGRATED_STAGE6_REVERSIBLE_ADAPTER_PASSED_STILL_C_MIGRATION_REQUIRED }
+  - { id: "01", name: desktop, branch: track/desktop, worktree: ../wt-desktop, status: INTEGRATED_STAGE6_CHATGPT_CONNECTOR_UNSIGNED_VERIFIED_NOT_SIGNED }
   - { id: "02", name: film-core, branch: track/film-core, worktree: ../wt-film-core, status: INTEGRATED_STAGE4_SPATIAL_VERSIONS_CORE_50_PASSED }
   - { id: "03", name: project-ui, branch: track/project-ui, worktree: ../wt-project-ui, status: INTEGRATED_STAGE2_BROWSER_ENTRY_PASSED_DEFAULT_OFF }
   - { id: "04", name: story, branch: track/story, worktree: ../wt-story, status: INTEGRATED_STAGE3_REVIEW_PREVIEW_DEFAULT_OFF }
@@ -33,10 +33,10 @@ tracks:
   - { id: "08", name: agent, branch: track/agent, worktree: ../wt-agent, status: INTEGRATED_STAGE5_PROVIDER_NEUTRAL_AGENT_349_PASSED }
   - { id: "09", name: director, branch: track/director, worktree: ../wt-director, status: INTEGRATED_STAGE3_GOLDEN_B_JCUT_BOUNDARY }
   - { id: "10", name: providers, branch: track/providers, worktree: ../wt-providers, status: INTEGRATED_STAGE3_DREAMINA_READONLY_LINEAGE }
-  - { id: "11", name: migration, branch: track/migration, worktree: ../wt-migration, status: INTEGRATED_STAGE5_SYNTHETIC_RECOVERY_10_PASSED_REAL_PG_BLOCKED }
+  - { id: "11", name: migration, branch: track/migration, worktree: ../wt-migration, status: INTEGRATED_STAGE6_UNIFIED_RECOVERY_AND_C_ADAPTER_REAL_PG_BLOCKED }
   - { id: "12", name: remote, branch: track/remote, worktree: ../wt-remote, status: INTEGRATED_STAGE5_LOCAL_RECEIPT_BROWSER_PASSED_REMOTE_EXECUTION_DEFERRED }
-  - { id: "13", name: qa, branch: track/qa, worktree: ../wt-qa, status: INTEGRATED_STAGE5_BETA_LOCAL_PASSED_WEB_CHUNK_WARNING }
-  - { id: "14", name: chatgpt-app, branch: feature/chatgpt-app-v1, worktree: ../wt-chatgpt-app, status: LOCAL_DAY1_5_IMPLEMENTED_EXTERNAL_ACCOUNT_BLOCKED }
+  - { id: "13", name: qa, branch: track/qa, worktree: ../wt-qa, status: INTEGRATED_STAGE6_RC_LOCAL_PASSED_KNOWN_VENDOR_CHUNK_WARNINGS }
+  - { id: "14", name: chatgpt-app, branch: feature/chatgpt-app-v1, worktree: ../wt-chatgpt-app, status: INTEGRATED_DAY1_5_PASSED_LOCAL_EXTERNAL_ACCOUNT_BLOCKED }
 track14_feature_flags:
   film.chatgpt_app: false
   film.chatgpt_read_tools: false
@@ -96,4 +96,18 @@ fifth_stage_slice:
     - UnsignedMacOSApp
     - BrowserFlagRollback
   status: BETA_PASSED_LOCAL_WITH_KNOWN_BLOCKERS_EXTERNAL_ACTIONS_ZERO
-updated_at: 2026-08-28T15:33:11+08:00
+sixth_stage_slice:
+  chain:
+    - ToolContractV1
+    - ProjectGrant
+    - ReadOnlyMCP
+    - MCPAppsWidget
+    - ProposalExport
+    - FilmCorePreviewImport
+    - DesktopFileOpen
+    - WebHandoff
+    - UnifiedRCRecovery
+    - CandidateSchemaAdapter
+    - BundleBudget
+  status: PASSED_LOCAL_RC_WITH_EXTERNAL_ACCOUNT_AND_REAL_MIGRATION_BLOCKED
+updated_at: 2026-08-28T15:43:38+08:00
