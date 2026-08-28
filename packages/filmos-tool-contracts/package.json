@@ -1,0 +1,21 @@
+{
+  "name": "@filmos/tool-contracts",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "./dist/generated.js",
+  "types": "./dist/generated.d.ts",
+  "files": ["dist", "generated", "contract.v1.json"],
+  "scripts": {
+    "generate": "node scripts/generate.mjs",
+    "check": "node scripts/generate.mjs --check",
+    "build": "npm run generate && tsc -p tsconfig.json",
+    "test": "node --test test/*.test.mjs"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT"
+}

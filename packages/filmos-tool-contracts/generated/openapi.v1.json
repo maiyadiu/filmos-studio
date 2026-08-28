@@ -1,0 +1,936 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "FilmOS ChatGPT Tool Contract",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/tools/search": {
+      "post": {
+        "operationId": "search",
+        "summary": "Search authorized FilmOS project",
+        "description": "Use this when the user wants to find FilmOS project objects by text inside the currently authorized project.",
+        "x-filmos-annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "openWorldHint": false,
+          "idempotentHint": true
+        },
+        "x-filmos-widget": null,
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "query": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  }
+                },
+                "required": [
+                  "query"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Read-only FilmOS tool result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tools/fetch": {
+      "post": {
+        "operationId": "fetch",
+        "summary": "Fetch an authorized FilmOS object",
+        "description": "Use this when the user selected a stable FilmOS search result and needs its current read-only content.",
+        "x-filmos-annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "openWorldHint": false,
+          "idempotentHint": true
+        },
+        "x-filmos-widget": null,
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 512
+                  }
+                },
+                "required": [
+                  "id"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Read-only FilmOS tool result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tools/filmos_get_project_context": {
+      "post": {
+        "operationId": "filmos_get_project_context",
+        "summary": "Read FilmOS project context",
+        "description": "Use this when the user needs the authorized project's current units, shots, versions, state hash, blockers, or progress.",
+        "x-filmos-annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "openWorldHint": false,
+          "idempotentHint": true
+        },
+        "x-filmos-widget": null,
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {},
+                "required": []
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Read-only FilmOS tool result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tools/filmos_get_content_unit_context": {
+      "post": {
+        "operationId": "filmos_get_content_unit_context",
+        "summary": "Read FilmOS content unit",
+        "description": "Use this when the user needs one authorized ContentUnit and its formal state axes.",
+        "x-filmos-annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "openWorldHint": false,
+          "idempotentHint": true
+        },
+        "x-filmos-widget": null,
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "host_unit_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  }
+                },
+                "required": [
+                  "host_unit_id"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Read-only FilmOS tool result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tools/filmos_get_shot_context": {
+      "post": {
+        "operationId": "filmos_get_shot_context",
+        "summary": "Read FilmOS shot",
+        "description": "Use this when the user needs one authorized Shot, director-unit bindings, review state, and stable version.",
+        "x-filmos-annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "openWorldHint": false,
+          "idempotentHint": true
+        },
+        "x-filmos-widget": null,
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "host_shot_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  }
+                },
+                "required": [
+                  "host_shot_id"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Read-only FilmOS tool result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tools/filmos_get_asset_version": {
+      "post": {
+        "operationId": "filmos_get_asset_version",
+        "summary": "Read FilmOS asset version",
+        "description": "Use this when the user needs metadata for an authorized asset version without receiving a local path or original 4K media.",
+        "x-filmos-annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "openWorldHint": false,
+          "idempotentHint": true
+        },
+        "x-filmos-widget": null,
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "film_entity_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  }
+                },
+                "required": [
+                  "film_entity_id"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Read-only FilmOS tool result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tools/filmos_get_scene_twin_summary": {
+      "post": {
+        "operationId": "filmos_get_scene_twin_summary",
+        "summary": "Read SceneTwin summary",
+        "description": "Use this when the user needs authorized scene anchors, camera zones, fixed props, and current SceneTwin version.",
+        "x-filmos-annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "openWorldHint": false,
+          "idempotentHint": true
+        },
+        "x-filmos-widget": null,
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "film_entity_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  }
+                },
+                "required": [
+                  "film_entity_id"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Read-only FilmOS tool result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tools/filmos_get_continuity_report": {
+      "post": {
+        "operationId": "filmos_get_continuity_report",
+        "summary": "Read continuity report",
+        "description": "Use this when the user needs an already recorded FilmOS continuity result; never run a new external generation.",
+        "x-filmos-annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "openWorldHint": false,
+          "idempotentHint": true
+        },
+        "x-filmos-widget": null,
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "film_entity_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  }
+                },
+                "required": [
+                  "film_entity_id"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Read-only FilmOS tool result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tools/filmos_get_generation_attempts": {
+      "post": {
+        "operationId": "filmos_get_generation_attempts",
+        "summary": "Read generation attempts",
+        "description": "Use this when the user needs recorded generation evidence and statuses; do not create or retry provider work.",
+        "x-filmos-annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "openWorldHint": false,
+          "idempotentHint": true
+        },
+        "x-filmos-widget": null,
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100
+                  }
+                },
+                "required": []
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Read-only FilmOS tool result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tools/filmos_get_review_queue": {
+      "post": {
+        "operationId": "filmos_get_review_queue",
+        "summary": "Read review queue",
+        "description": "Use this when the user needs Candidate and Review Draft items awaiting human review.",
+        "x-filmos-annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "openWorldHint": false,
+          "idempotentHint": true
+        },
+        "x-filmos-widget": null,
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100
+                  }
+                },
+                "required": []
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Read-only FilmOS tool result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tools/filmos_get_blockers": {
+      "post": {
+        "operationId": "filmos_get_blockers",
+        "summary": "Read project blockers",
+        "description": "Use this when the user needs current STALE, BLOCKED, missing evidence, or authorization blockers.",
+        "x-filmos-annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "openWorldHint": false,
+          "idempotentHint": true
+        },
+        "x-filmos-widget": null,
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {},
+                "required": []
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Read-only FilmOS tool result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tools/filmos_get_recent_changes": {
+      "post": {
+        "operationId": "filmos_get_recent_changes",
+        "summary": "Read recent FilmOS changes",
+        "description": "Use this when the user needs append-only audit changes from the authorized project.",
+        "x-filmos-annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "openWorldHint": false,
+          "idempotentHint": true
+        },
+        "x-filmos-widget": null,
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100
+                  }
+                },
+                "required": []
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Read-only FilmOS tool result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tools/filmos_render_project_overview": {
+      "post": {
+        "operationId": "filmos_render_project_overview",
+        "summary": "Render FilmOS project overview",
+        "description": "Use this after reading project context when the user benefits from a visual project summary.",
+        "x-filmos-annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "openWorldHint": false,
+          "idempotentHint": true
+        },
+        "x-filmos-widget": "ui://filmos/project-overview-v1.html",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {},
+                "required": []
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Read-only FilmOS tool result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tools/filmos_render_content_unit_progress": {
+      "post": {
+        "operationId": "filmos_render_content_unit_progress",
+        "summary": "Render FilmOS content unit progress",
+        "description": "Use this after reading a ContentUnit when the user benefits from a visual formal-state summary.",
+        "x-filmos-annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "openWorldHint": false,
+          "idempotentHint": true
+        },
+        "x-filmos-widget": "ui://filmos/content-unit-progress-v1.html",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "host_unit_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  }
+                },
+                "required": [
+                  "host_unit_id"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Read-only FilmOS tool result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tools/filmos_render_shot_review": {
+      "post": {
+        "operationId": "filmos_render_shot_review",
+        "summary": "Render FilmOS shot review",
+        "description": "Use this after reading a Shot when the user benefits from a visual read-only review card.",
+        "x-filmos-annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "openWorldHint": false,
+          "idempotentHint": true
+        },
+        "x-filmos-widget": "ui://filmos/shot-review-v1.html",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "host_shot_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  }
+                },
+                "required": [
+                  "host_shot_id"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Read-only FilmOS tool result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tools/filmos_render_asset_version": {
+      "post": {
+        "operationId": "filmos_render_asset_version",
+        "summary": "Render FilmOS asset version",
+        "description": "Use this after reading asset metadata when the user benefits from a safe proxy-oriented version card.",
+        "x-filmos-annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "openWorldHint": false,
+          "idempotentHint": true
+        },
+        "x-filmos-widget": "ui://filmos/asset-version-v1.html",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "film_entity_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  }
+                },
+                "required": [
+                  "film_entity_id"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Read-only FilmOS tool result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tools/filmos_render_scene_twin": {
+      "post": {
+        "operationId": "filmos_render_scene_twin",
+        "summary": "Render FilmOS SceneTwin",
+        "description": "Use this after reading SceneTwin context when the user benefits from a spatial summary.",
+        "x-filmos-annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "openWorldHint": false,
+          "idempotentHint": true
+        },
+        "x-filmos-widget": "ui://filmos/scene-twin-v1.html",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "film_entity_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  }
+                },
+                "required": [
+                  "film_entity_id"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Read-only FilmOS tool result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tools/filmos_render_review_queue": {
+      "post": {
+        "operationId": "filmos_render_review_queue",
+        "summary": "Render FilmOS review queue",
+        "description": "Use this after reading the review queue when the user benefits from a visual Candidate and Review Draft list.",
+        "x-filmos-annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "openWorldHint": false,
+          "idempotentHint": true
+        },
+        "x-filmos-widget": "ui://filmos/review-queue-v1.html",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100
+                  }
+                },
+                "required": []
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Read-only FilmOS tool result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tools/filmos_render_proposal_export": {
+      "post": {
+        "operationId": "filmos_render_proposal_export",
+        "summary": "Render FilmOS proposal export",
+        "description": "Use this when the user wants a visual handoff form before preparing a signed proposal package.",
+        "x-filmos-annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "openWorldHint": false,
+          "idempotentHint": true
+        },
+        "x-filmos-widget": "ui://filmos/proposal-export-v1.html",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "base_state_hash": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  }
+                },
+                "required": [
+                  "base_state_hash"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Read-only FilmOS tool result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tools/filmos_prepare_proposal_export": {
+      "post": {
+        "operationId": "filmos_prepare_proposal_export",
+        "summary": "Prepare FilmOS proposal export",
+        "description": "Use this only after the user asks to export a proposal package; it creates no FilmOS write and never approves or applies anything.",
+        "x-filmos-annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "openWorldHint": false,
+          "idempotentHint": false
+        },
+        "x-filmos-widget": null,
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "proposal_type": {
+                    "type": "string",
+                    "enum": [
+                      "Proposal",
+                      "Candidate",
+                      "Review Draft"
+                    ]
+                  },
+                  "summary": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2000
+                  },
+                  "items_json": {
+                    "type": "string",
+                    "minLength": 2,
+                    "maxLength": 65536
+                  },
+                  "base_state_hash": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  }
+                },
+                "required": [
+                  "proposal_type",
+                  "summary",
+                  "items_json",
+                  "base_state_hash"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Read-only FilmOS tool result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
