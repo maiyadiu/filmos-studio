@@ -11,13 +11,14 @@ REASONING: `XHigh`
    - `REUSE`：MCP SDK、Canvas Agent 本机 Broker、Canvas revision/stateHash、Film Core Command/Audit。
    - `EXTEND`：独立 Film MCP 工具合同、先读后写收据、Preview/Apply 收据、Film/Canvas 双并发守卫。
    - `BUILD`：Agent 权限策略、Agent 审计字段、受限本机 HTTP Adapter、默认关闭的注册函数。
-   - `DEFER`：Production/Director/Prompt/Provider 全工具面、外部生成、Agent 直接 Approved/Script Lock、共享 MCP 启动入口接线。
+   - `DEFER`：新增 Core operation 的 MCP 投影、Production/Director/Prompt/Provider 全工具面、外部生成、Agent 直接 Approved/Script Lock。
 5. 已实现首切片：`canvas-agent/src/film/`；只读项目/实体/审计，Command Preview/Apply，正式写入前强制读取、Preview、`expected_version/content_hash`、Canvas revision/stateHash，Apply 前重新读取 Film 事实。
 6. 权限：非人类 Agent 在传输前拒绝 Approved、Locked、Script Lock；Provider/Generation Command 不进入本轨；Human Only 的批准/锁定需显式人工确认。
 7. 审计：读、Preview、Apply 派发、Apply 成功、拒绝/失败均有完整 AgentAudit；默认实现为仅追加 JSONL，正式 Apply 同时校验 Film Core 返回的持久 AuditEvent。
-8. 当前接入状态：`registerFilmAgentMcp` 默认关闭，且尚未由现有 `src/mcp-server.ts` 调用；因此能力处于离线可测、未暴露状态。共享接线见 `CR-08-001-Agent注册.md`。
-9. 验证：`bun test test/film-agent-gateway.test.ts` 10/10；`npm test` 326/326（另有 5 个 Windows 专项跳过）；`bun run build` 通过；无 dev server、Provider、上传或积分调用。
-10. 回滚：不接入注册函数，或保持 `film.agent_gateway=false` / `FILMOS_AGENT_GATEWAY_ENABLED!=true`；影策原 MCP 不受影响。
-11. 依赖：Track 02 的含 `actor_kind` Command 合同必须先合入 integration；Track 13 在接线后补原生 MCP/Golden。
+8. 第二阶段接入：共享 `src/mcp-server.ts` 已调用默认关闭的 Film 注册函数；默认和 `canvasOnly` 工具集合不变，外部 MCP 仅在 `FILMOS_AGENT_GATEWAY_ENABLED=true` 时新增既定 5 个 Film 工具。
+9. 合同门：`scripts/sync-film-openapi.mjs` 只抽取既有 5 个映射并生成 `src/film/generated/openapi-contract.ts`；严格校验 operationId、路径/方法、参数、两个 Command type 与 ActorKind，允许其他 Core operation 存在但不自动暴露。
+10. 验证：真实 MCP SDK `listTools/callTool`；生产 FastAPI + 临时 SQLite 的真实 HTTP Read → Preview → Apply；过期 version/hash/Canvas revision/stateHash、Agent Approved/Locked 均 fail closed。Canvas Agent 全量为 `343 tests / 338 pass / 0 fail / 5 Windows skip`，构建通过。
+11. 回滚：保持 `film.agent_gateway=false` / `FILMOS_AGENT_GATEWAY_ENABLED!=true`，或移除共享入口注册调用；影策原 MCP 不受影响。
+12. 依赖：真实 HTTP 测试需要 `film-core[test]` Python 环境，可通过 `FILMOS_CORE_PYTHON` 指定；当前只兼容已实现 `entity.create` / `entity.set_states`。
 
-STATUS: `OFFLINE_SLICE_IMPLEMENTED_NOT_REGISTERED`
+STATUS: `STAGE2_REGISTERED_DEFAULT_OFF_REAL_HTTP_VERIFIED`

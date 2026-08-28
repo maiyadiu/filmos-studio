@@ -1,6 +1,6 @@
 # CR-08-001｜Film Agent 注册
 
-状态：`ACCEPTED_STAGE_2`
+状态：`IMPLEMENTED_STAGE_2_PENDING_INTEGRATION_VALIDATION`
 
 裁定：`D-0005`；本阶段只注册已有 5 个 Film 工具，仍默认关闭，并以 OpenAPI 同步门阻断合同漂移。
 

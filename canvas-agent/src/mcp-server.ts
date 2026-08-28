@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 
 import { AGENT_PROMPT, loadConfig, type CanvasAgentConfig, VERSION } from "./config.js";
+import { registerFilmAgentMcp, type FilmAgentMcpOptions } from "./film/mcp.js";
 import { registerDreaminaMcp } from "./modules/dreamina-mcp.js";
 import { toolDescriptions, toolInputSchemas, toolNames, type ToolName } from "./schemas.js";
 
@@ -16,9 +17,17 @@ export async function startMcpServer(options: { canvasOnly?: boolean } = {}) {
     await server.connect(new StdioServerTransport());
 }
 
-export function registerMcpTools(server: McpServer, config: CanvasAgentConfig, options: { canvasOnly?: boolean } = {}) {
+export type RegisterMcpToolsOptions = {
+    canvasOnly?: boolean;
+    film?: FilmAgentMcpOptions;
+};
+
+export function registerMcpTools(server: McpServer, config: CanvasAgentConfig, options: RegisterMcpToolsOptions = {}) {
     toolNames.forEach((name) => registerCanvasTool(server, config, name));
-    if (!options.canvasOnly) registerDreaminaMcp(server, config);
+    if (!options.canvasOnly) {
+        registerDreaminaMcp(server, config);
+        registerFilmAgentMcp(server, config, options.film);
+    }
 }
 
 function registerCanvasTool(server: McpServer, config: CanvasAgentConfig, name: ToolName) {

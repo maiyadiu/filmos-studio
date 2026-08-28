@@ -1,5 +1,11 @@
 import { z } from "zod";
 
+import {
+  filmActorKindsFromOpenApi,
+  filmCommandTypesFromOpenApi,
+  filmToolNamesFromOpenApi,
+} from "./generated/openapi-contract.js";
+
 const uuid4Schema = z
   .string()
   .regex(
@@ -23,20 +29,16 @@ const opaqueHostIdSchema = z
     "must be an opaque Host id, not a path or public URL",
   );
 
-export const filmActorKindSchema = z.enum([
-  "human",
-  "codex",
-  "deepseek",
-  "claude",
-  "local_model",
-  "system",
-]);
+export const filmActorKindSchema = z.enum(filmActorKindsFromOpenApi);
 export type FilmActorKind = z.infer<typeof filmActorKindSchema>;
+
+const [createEntityCommandType, setStatesCommandType] =
+  filmCommandTypesFromOpenApi;
 
 export const filmCommandSchema = z.discriminatedUnion("command_type", [
   z
     .object({
-      command_type: z.literal("entity.create"),
+      command_type: z.literal(createEntityCommandType),
       target_id: z.null(),
       expected_version: z.literal(0),
       actor_kind: filmActorKindSchema.optional(),
@@ -45,7 +47,7 @@ export const filmCommandSchema = z.discriminatedUnion("command_type", [
     .strict(),
   z
     .object({
-      command_type: z.literal("entity.set_states"),
+      command_type: z.literal(setStatesCommandType),
       target_id: uuid4Schema,
       expected_version: z.number().int().min(1),
       actor_kind: filmActorKindSchema.optional(),
@@ -73,13 +75,7 @@ const humanConfirmationSchema = z
   })
   .strict();
 
-export const filmToolNames = [
-  "film_project_get_context",
-  "film_entity_get",
-  "film_audit_events_get",
-  "film_command_preview",
-  "film_command_apply",
-] as const;
+export const filmToolNames = filmToolNamesFromOpenApi;
 export type FilmToolName = (typeof filmToolNames)[number];
 
 export const filmToolInputSchemas = {
