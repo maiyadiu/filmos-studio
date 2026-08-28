@@ -1,37 +1,36 @@
 # Track 04 证据
 
-## 已核查事实
+## Fit-Gap
 
-| 能力            | 证据                                                                                                                                             | 结论                                                                                                                                                             |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 章节编辑        | `web/src/pages/projects/detail/chapters.tsx`                                                                                                     | Tiptap 编辑器按单章加载；正文保存前保留本地 dirty 状态，AI 分析要求先保存。`REUSE`。                                                                             |
-| 小说导入        | `chapters.tsx`、`web/src/lib/canvas/canvas-document.ts`、`backend/internal/handler/project.go`、`service/project.go`、`repository/repository.go` | 支持 UTF-8/UTF-16/GB18030、章节标题拆分、最多 2500 章、32 MiB 请求、同一事务分批写入。`REUSE`。                                                                  |
-| 用户与项目归属  | `backend/internal/service/project.go`                                                                                                            | Unit 读取、创建、导入、更新、删除前均以 `ProjectForUser(userID, projectID)` 校验项目归属。`REUSE`。                                                              |
-| AI 角色提取     | `web/src/pages/projects/detail/project-chapter-ai.ts`、`chapters.tsx`、`backend/internal/service/provider.go`                                    | 保存后的正文通过通用后端文本任务，`promptTemplateOperation=character_extract`；结构校验后仅创建 `pending_confirmation` 资产候选，不直接确认为正式角色。`REUSE`。 |
-| PromptTemplate  | `backend/internal/model/models_project.go`、`service/prompt_template.go`、`prompt_template_defaults.go`                                          | 运营模板按 operation/version 管理；用户定制仅保存策略层；动态上下文和受保护输出契约由服务端重新注入。未来 Story 审查操作可扩展，首切片不改后端。`EXTEND`。       |
-| 插件 skills     | `plugins/yingce/README.md`、`.codex-plugin/plugin.json`、`plugins/yingce/skills/*/SKILL.md`                                                      | 当前仅有打开画布、上下文、编辑、资源感知生成等画布 skills；无 Story/Script skill。`BUILD`，本切片 `DEFER`。                                                      |
-| Script 正式语义 | 全仓 `rg`；`film-contracts/schemas/core.schema.json`                                                                                             | V0 合同只有基础 `ScriptVersion`；Web/后端无版本、决策、锁定、对白映射和脚本影响实现。纯领域首切片 `BUILD`；正式持久化依赖 Track 02。                             |
-| 系统 A/B        | 仓库目录与文本检索                                                                                                                               | 计划提及系统 A Story Skills、系统 B 剧本打磨方法，但当前仓库没有可验证正式入口或资料路径。`UNVERIFIED / DEFER`，不从记忆或外部项目补事实。                       |
+| 能力              | 证据                                                                                                | 结论                                                                                                                                                                                                      |
+| ----------------- | --------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 章节编辑与导入    | `web/src/pages/projects/detail/chapters.tsx`、`web/src/pages/projects/detail/project-chapter-ai.ts` | 继续复用单一 Tiptap 正文和原保存/导入/AI 角色提取链；Story 面板只读当前 saved/draft 文本，不创建第二正文。`REUSE`。                                                                                       |
+| Story 领域合同    | `web/src/film/story/script-version.ts`、`dialogue-fidelity.ts`、`impact-analysis.ts`                | 已有 ScriptVersion、ScriptDecision、精确 hash、人审锁定门禁和只读影响建议。`REUSE / EXTEND`。                                                                                                             |
+| Core Script Lock  | `film-core/src/film_production_core/api.py`、`formal_models.py`、`formal_service.py`                | `POST /script-versions/lock` / `filmScriptVersionLock` 已实现；human-only，要求 create guards 和 source ID/version/hash，原子创建 locked ScriptVersion、ScriptDecision、审计事件。`REUSE PORT CONTRACT`。 |
+| Core 正式版本读取 | `film-core/src/film_production_core/models.py#FilmProjectContext`、`service.py#project_context`     | Context 只含 film project、content units、shots、audit count；没有 ScriptVersion/ScriptDecision 列表，且没有按 Host Unit 查询正式版本 API。`GAP / DEFER`。                                                |
+| Host Shot 影响    | `chapters.tsx` 的 `detail.shots`、`review-preview.ts`                                               | 仅把 Shot 描述中对源对白/Section 标题的逐字命中视为可证依赖；模糊推断不写正式状态。`PREVIEW ONLY`。                                                                                                       |
+| 系统 A/B          | 仓库目录与文本检索                                                                                  | 无可验证正式来源。`UNVERIFIED / DEFER`。                                                                                                                                                                  |
 
-## 首切片证据
+## 第三阶段首切片准确位置
 
-- `web/src/film/story/script-version.ts`：Feature Flag 显式门禁、SHA-256 内容哈希、版本创建、哈希绑定决策、人审批准后显式 Script Lock、下游资格只读判断。
-- 集成复核补强：Web 只接受 Film Core 已签发的 UUIDv4，决策和锁定均同时校验 `expectedVersion + expectedContentHash`；Web 不生成正式 Film ID。
-- `web/src/film/story/dialogue-fidelity.ts`：稳定 Cue ID 下的说话人、逐字文本、增删与顺序差异；长对白不截断、不归一化。
-- `web/src/film/story/impact-analysis.ts`：仅对绑定到变化 Cue/Section 且源哈希一致的依赖返回 `mark_stale` 建议；不写正式状态，未映射变化显式返回 unresolved。
-- `web/src/film/story/integration.ts`：页面/持久化可依赖的端口，不依赖未合入 Film Core runtime。
-- `web/test/film-story-domain.test.ts`：本轨专项测试。
+- `web/src/film/story/feature-flag.ts`：独立环境开关 `VITE_FILM_STORY_STUDIO`，只有显式字符串 `true` 才启用，默认关闭。
+- `web/src/film/story/review-preview.ts`：从现有 saved/draft 正文构造内存预览；输出完整 SHA-256、稳定 Cue/Section、逐字对白 diff 与 Shot 影响建议，不创建正式 Film ID。
+- `web/src/film/story/review-panel.tsx`：展示版本 hash、review/lock 状态、逐字对白变化、Cue/Section 影响和 `建议 STALE`；明确标注本地预览与无正式写入。
+- `web/src/film/story/review-entry.tsx`：只在挂载后计算本地模型，无 fetch、无持久化。
+- `web/src/film/story/core-command.ts`：对齐 Core lock 必填 create guards、actor kind、源 ID/version/hash 的类型化端口；Agent 或未确认的人类不会触发端口。
+- `web/src/pages/projects/detail/chapters.tsx`：只做 Flag 条件布局和 Shot 投影；复用同一个 `editorSurface`，Flag 关闭时 Story DOM 不创建。
+- `web/test/film-story-review.test.tsx`：Flag、稳定 ID、diff/impact/面板输出和 Core 命令人审门禁专项测试。
 
-## 尚未验证/尚未实现
+## 状态真实性
 
-- 未启动浏览器，未验证右侧面板；本轨未修改 Track 03 页面。
-- 未实现 Film Core Sidecar/API、正式审计或 STALE 写入。
-- 未实现 Story Bible、Character Arc、Season Arc、Episode Outline、RewriteTask、ScriptReview UI。
-- 未实现 Story 插件 skill；系统 A/B 来源仍为 `UNVERIFIED`。
+- 当前 UI 模式为 `host_preview`：source 是 Host 已保存正文，target 是当前正文或未保存草稿；二者均标记非正式、`not_reviewed`、`unlocked`。
+- 面板不提供 lock 按钮；`StoryCoreCommandPort` 是待正式版本读取能力就绪后的合同边界，当前页面没有实现或调用网络适配器。
+- `automaticWrites` 固定为 `false`；页面没有 STALE apply 端口，所有影响都是 recommendation。
+- 未改 backend、Host 核心表、Film Core、插件或外部项目；未调用外部网络。
 
 ## 验证结果
 
-- `cd web && bun test test/film-story-domain.test.ts`：`9 pass / 0 fail`；新增非 Film ID 与过期版本冲突门禁。
+- `cd web && bun test test/film-story-domain.test.ts test/film-story-review.test.tsx`：`15 pass / 0 fail`。
 - `cd web && bun run typecheck`：通过，`tsc --noEmit` 无错误。
-- `cd web && bunx prettier --check ...`：本轨 TS、测试、计划、证据与 RFC 通过格式检查。
-- 未运行浏览器或全站构建；本切片无页面接线、样式或运行时副作用，专项测试与全量 TypeScript 类型检查构成最小充分验证。
+- `cd web && bun run build`：通过，Vite `12697 modules transformed`、`built in 2.11s`；只有仓库既有的大 chunk 警告。
+- 未启动浏览器；组件输出以 React SSR 专项测试验证，交互浏览器验收仍可后续补充，但不影响本切片默认关闭与零写入边界。

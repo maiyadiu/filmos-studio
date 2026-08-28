@@ -49,6 +49,7 @@ import { useNavigate, useParams } from "react-router";
 
 import { WorkspaceErrorState, WorkspaceState } from "@/components/layout/workspace-state";
 import { resolveProjectCanvasStyle } from "@/components/canvas/canvas-style-picker-modal";
+import { isFilmStoryStudioEnabled, StoryStudioReviewEntry } from "@/film/story";
 import { normalizeCharacterName } from "@/lib/canvas/canvas-character-reference";
 import { decodeNovelText, splitTextIntoChapters } from "@/lib/canvas/canvas-document";
 import { upsertProjectChapterStoryboard } from "@/lib/canvas/project-chapter-storyboard";
@@ -96,6 +97,7 @@ export default function ProjectChaptersView({ detail, refreshProject, onCreateCa
     const effectiveConfig = useEffectiveConfig();
     const isAiConfigReady = useConfigStore((state) => state.isAiConfigReady);
     const localCanvases = useCanvasStore((state) => state.projects);
+    const storyStudioEnabled = isFilmStoryStudioEnabled();
     const listRef = useRef<HTMLDivElement>(null);
     const deferredSearchQuery = useDeferredValue(searchQuery.trim().toLocaleLowerCase("zh-CN"));
     const orderedUnits = useMemo(() => {
@@ -109,6 +111,7 @@ export default function ProjectChaptersView({ detail, refreshProject, onCreateCa
         enabled: Boolean(selectedId),
     });
     const selectedUnit = selectedUnitQuery.data?.unit || selectedUnitSummary;
+    const selectedUnitShots = useMemo(() => detail.shots.filter((shot) => shot.unitId === selectedUnit?.id), [detail.shots, selectedUnit?.id]);
     const chapterNumberById = useMemo(() => new Map(orderedUnits.map((unit, index) => [unit.id, index + 1])), [orderedUnits]);
     const canvasCountByUnitId = useMemo(() => detail.canvasUnitLinks.reduce<Map<string, number>>((result, link) => result.set(link.unitId, (result.get(link.unitId) || 0) + 1), new Map()), [detail.canvasUnitLinks]);
     const projectCanvasTargets = useMemo(() => {
@@ -361,6 +364,11 @@ export default function ProjectChaptersView({ detail, refreshProject, onCreateCa
         if (event.clientY < bounds.top + edge) event.currentTarget.scrollBy({ top: -24 });
         else if (event.clientY > bounds.bottom - edge) event.currentTarget.scrollBy({ top: 24 });
     };
+    const editorSurface = (
+        <div className={`project-chapter-editor-scroll thin-scrollbar min-h-0 overflow-y-auto bg-foreground/[.012] ${storyStudioEnabled ? "" : "flex-1"}`}>
+            {selectedUnitQuery.isLoading ? <WorkspaceState icon="loading" compact className="h-full" title="正在读取章节正文" description="正文准备完成后会自动显示。" /> : selectedUnitQuery.isError ? <WorkspaceErrorState compact title="章节正文读取失败" description={selectedUnitQuery.error instanceof Error ? selectedUnitQuery.error.message : "请检查网络连接后重试。"} onRetry={() => void selectedUnitQuery.refetch()} /> : <div className="project-chapter-editor-wrap min-h-full"><EditorContent editor={editor} /></div>}
+        </div>
+    );
 
     return (
         <div className="grid h-full min-h-0 min-w-0 w-full grid-rows-[minmax(180px,34vh)_minmax(0,1fr)] overflow-hidden lg:grid-cols-[232px_minmax(0,1fr)] lg:grid-rows-1">
@@ -427,9 +435,12 @@ export default function ProjectChaptersView({ detail, refreshProject, onCreateCa
                             </div>
                         </header>
                         <EditorToolbar editor={editor} />
-                        <div className="project-chapter-editor-scroll thin-scrollbar min-h-0 flex-1 overflow-y-auto bg-foreground/[.012]">
-                            {selectedUnitQuery.isLoading ? <WorkspaceState icon="loading" compact className="h-full" title="正在读取章节正文" description="正文准备完成后会自动显示。" /> : selectedUnitQuery.isError ? <WorkspaceErrorState compact title="章节正文读取失败" description={selectedUnitQuery.error instanceof Error ? selectedUnitQuery.error.message : "请检查网络连接后重试。"} onRetry={() => void selectedUnitQuery.refetch()} /> : <div className="project-chapter-editor-wrap min-h-full"><EditorContent editor={editor} /></div>}
-                        </div>
+                        {storyStudioEnabled ? (
+                            <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)_minmax(220px,42%)] lg:grid-cols-[minmax(0,1fr)_340px] lg:grid-rows-1">
+                                {editorSurface}
+                                <StoryStudioReviewEntry hostUnitId={selectedUnit.id} sourceHtml={selectedUnitQuery.data?.unit.sourceText || ""} draftHtml={draftHtml} dirty={dirty} shots={selectedUnitShots} />
+                            </div>
+                        ) : editorSurface}
                     </div>
                 ) : <WorkspaceState icon="projects" compact className="h-full" title="请选择章节" description="从左侧章节列表选择一章开始编辑。" />}
             </section>

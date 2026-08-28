@@ -51,7 +51,11 @@ export function compareDialogueFidelity(source: readonly DialogueCue[], target: 
     });
 }
 
-export function compareScriptVersions(source: ScriptVersion, target: ScriptVersion, dialogue: Readonly<{ source: readonly DialogueCue[]; target: readonly DialogueCue[]; changedSectionIds?: readonly string[] }>): ScriptVersionDiff {
+export function compareScriptVersions(
+    source: Pick<ScriptVersion, "id" | "contentHash">,
+    target: Pick<ScriptVersion, "id" | "contentHash">,
+    dialogue: Readonly<{ source: readonly DialogueCue[]; target: readonly DialogueCue[]; changedSectionIds?: readonly string[] }>,
+): ScriptVersionDiff {
     const changedSectionIds = uniqueNonEmpty(dialogue.changedSectionIds || []);
     const dialogueReport = compareDialogueFidelity(dialogue.source, dialogue.target);
     const contentChanged = source.contentHash !== target.contentHash;
