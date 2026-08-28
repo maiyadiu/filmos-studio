@@ -51,3 +51,14 @@
 - Provider 边界：本阶段可完善 Dreamina/Comfy 本地血缘与统一回执，但不执行外部生成、上传、额度消耗或远程发布。
 - 回滚：保持 `film.production_core`、`film.story_studio`、`film.asset_lock` 默认关闭；撤销第三阶段 API/面板不改 Host 核心表、Stable ID 或用户媒体。
 - 验收：Core `44/0`，真实 Golden B 与冲突/幂等链通过，Story/Asset 开关双态浏览器通过；详见 `阶段三验收.md` 与 `test-reports/浏览器GoldenB.md`。
+
+## D-0007｜第四阶段 Golden C 与空间版本
+
+- 状态：已裁定，实施中，尚无生产数据或外部执行。
+- 空间真值：Film Core 正式持有 `SceneTwinVersion`；Host/Canvas/Three.js/Blender 只保存交互或投影，不成为正式空间事实源。
+- 独立版本：`CameraVersion`、`BlockingVersion`、`CompositionVersion` 必须独立生成 UUIDv4、绑定父级当前 version/hash，并参与 Impact/STALE；不得把三类状态塞回 Shot 或 Canvas JSON。
+- Production Canvas：接受 `CR-05-001`；复用 Host Canvas/CanvasUnitLink，正式取得或创建需要 Human 确认、expected project revision、Unit/Script content hash 与幂等键；重复历史关联必须报告精确 Canvas ID，禁止自动删除。
+- 候选边界：Previs、视频 fixture、Three.js、Blender 和 Provider 结果只产生投影/Candidate；Approval 仍由 Human 且绑定当前内容 hash。
+- 恢复：Stage 4 必须覆盖 Core 重启、SQLite 备份恢复、Host/Sidecar 事务中途失败、并发与幂等重放；健康检查不替代恢复证据。
+- 外部边界：本阶段不执行 Dreamina/Comfy/Flova/Blender 外部任务，不上传、不消费额度、不发布、不迁移用户真实数据。
+- 回滚：保持 `film.scene_twin`、`film.production_canvas` 与 `film.production_core` 默认关闭；撤销空间 API/UI 不改 Host 核心表、Stable ID、Canvas JSON 或用户媒体。
