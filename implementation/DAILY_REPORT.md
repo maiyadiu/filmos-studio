@@ -76,3 +76,13 @@
 - 浏览器：真实临时 Host 项目从创建预演进入 Human 二次确认，成功返回 created/revision/audit；刷新复用同一 Canvas，关闭 `VITE_FILM_PRODUCTION_CANVAS` 后 Film DOM 消失且 Host 项目、章节和已持久化画布仍可用。
 - 门禁：Contracts `0.4.0/23/0 planned`；Core `50/0`；Golden Python `26/0`，本地 TypeScript `6/0`、37 assertions；Backend、Web 471/0、类型检查和构建通过。Canvas Agent OpenAPI 同步与构建通过；全量有一个既有 Dreamina 长驻 CLI 顺序依赖测试失败，单独 3/3 通过且本阶段未改该路径，按已知非本阶段门禁记录。
 - 边界：第四阶段状态为 `PASSED_LOCAL_INTEGRATION`，不是外部生成、正式 Approval、用户数据库迁移或生产开关批准；Provider、上传、额度、发布和真实迁移写入仍为 0。
+
+## 2026-08-28 开工批次 09｜第五阶段
+
+- Remote/Hybrid：默认关闭的 Host 本地入口已接入 manifest version/hash、Human 二次确认、用户/项目隔离 receipt、幂等和 STALE 恢复；专项 `15/0`、84 assertions。真实浏览器完成导入→Preview→本地回执→刷新恢复→Flag off，确认链无新增请求，network/upload/provider 均为 0。
+- Agent：Codex、DeepSeek-compatible、Claude-compatible、Local、System 与 Human Only 使用同一 5-tool 合同；Agent Read→Preview 后 Apply/Approval/Lock 失败关闭。Canvas Agent 全量 354 tests 为 349 pass、0 fail、5 Windows skip，OpenAPI 同步与构建通过；原 Dreamina 顺序疑点未在正确 Python 环境下复现。
+- 迁移/恢复：合成 6 表/14 行迁移包通过 manifest/hash/row/FK/Stable ID、幂等 receipt、事务故障、备份恢复和回滚，10/0；真实 PostgreSQL 为 `BLOCKED_REAL_PG`，未读取用户数据库。
+- 性能：固定 80 单元/资产/结果数据下，Core、Remote、Agent 和 40 次浏览器 Host 读取 p95 均通过预算且错误为 0；Web 最大 JS 为 1,821,047 bytes，共 10 个超过 500 KB warning，风险未隐藏。
+- 上游：Candidate `19ebfbb3...` 原生 Backend/Agent/Web gate 通过；API/Canvas 为 B，Models/Migrations 为 C，总体仍 `C_MIGRATION_REQUIRED`，未合并；rollback dry-run 通过。
+- 桌面：Swift 14/14；unsigned `.app` 可复现构建、结构和受控 smoke 通过，bundle hash `ea400550...`。未签名、公证、制作 DMG/PKG 或发布。
+- 总门禁：Contracts 23 implemented；Core 50；Golden Python 26；Golden TS 6/37；Backend 通过；Web 610/0、2583 assertions、typecheck/build 通过。第五阶段状态为 `PASSED_LOCAL_WITH_KNOWN_BLOCKERS`，外部动作和生产开关仍为 0。

@@ -1,11 +1,11 @@
-updated_at: 2026-08-28T11:54:00+08:00
+updated_at: 2026-08-28T14:12:54+08:00
 main:
   state: BASELINE_PUSHED
   upstream_release: v1.2.1
   upstream_commit: 61b332583c4fcbf71890ae67e3f0f104d67706b9
   pushed: true
 integration:
-  state: STAGE4_GOLDEN_C_PASSED_LOCAL
+  state: STAGE5_BETA_PASSED_LOCAL_WITH_KNOWN_BLOCKERS
   base: 73f3ae5381fd7c48cd9ad262164c05c435dd6385
   branch: integration
   integrated_tracks:
@@ -80,6 +80,15 @@ integration:
     - { subject: spatial-versions-and-precise-stale, integration_commit: deaa72c9 }
     - { subject: production-canvas-formal-create, integration_commit: 1174d6e9 }
     - { subject: real-golden-c-and-recovery, integration_commit: dfa0440f }
+  stage5_commits:
+    - { subject: scope-and-acceptance, integration_commit: 89506d84 }
+    - { subject: unsigned-macos-app, integration_commit: 343be144 }
+    - { subject: performance-baseline, integration_commit: d9124797 }
+    - { subject: remote-agent-browser-performance-gates, integration_commit: f7d3070a }
+    - { subject: remote-local-preview-and-recovery, integration_commit: 5bf77376 }
+    - { subject: synthetic-migration-and-recovery, integration_commit: 8d799a56 }
+    - { subject: provider-neutral-agent-adapter, integration_commit: c154fd04 }
+    - { subject: upstream-candidate-gate-fix, integration_commit: d1c52663 }
 worktrees:
   state: CREATED_AND_TRACKING_REMOTE
   count: 14
@@ -89,11 +98,11 @@ candidate:
   base: 73f3ae5381fd7c48cd9ad262164c05c435dd6385
   branch: candidate
 native_tests:
-  state: STAGE4_RELEVANT_GATES_PASSED_ONE_UNRELATED_AGENT_ORDER_GATE
-  after_current_integration_head: STAGE4_GATES_PASSED
+  state: STAGE5_FULL_LOCAL_GATES_PASSED_WITH_WEB_CHUNK_WARNING
+  after_current_integration_head: STAGE5_GATES_PASSED
   backend: PASSED
-  web: "471 passed, 0 failed; typecheck and build passed with existing chunk warning"
-  canvas_agent: "OpenAPI sync and build passed; full regression 342 passed, 1 order-dependent Dreamina test failed, 5 Windows-specific skipped; isolated failing test passed 3/3"
+  web: "610 passed, 0 failed, 2583 assertions; typecheck and build passed; 10 JavaScript files exceed 500 KB warning, largest 1821047 bytes"
+  canvas_agent: "354 tests; 349 passed, 0 failed, 5 Windows-specific skipped; OpenAPI sync and build passed; prior suspected Dreamina order case passed in full suite"
 film_contract_tests:
   state: PASSED_STAGE4_ZERO_PLANNED
   command: python3 tests/film-contract/validate_contracts.py
@@ -103,18 +112,18 @@ film_core_tests:
   command: cd film-core && PYTHONPATH=src /tmp/filmos-core-venv-02/bin/pytest -q
   result: "50 passed; 1 Starlette TestClient deprecation warning"
 film_web_tests:
-  state: PASSED_AFTER_STAGE4_INTEGRATION
+  state: PASSED_AFTER_STAGE5_INTEGRATION
   command: bun run test; bun run typecheck; bun run build
-  result: "471 passed; 0 failed; typecheck and production build passed with existing large chunk warning"
+  result: "610 passed; 0 failed; 2583 assertions across 84 files; typecheck and production build passed with explicit large chunk warning"
 desktop_tests:
-  state: PASSED_AFTER_CURRENT_INTEGRATION_HEAD
-  result: "Swift debug/release build passed; 14 tests in 3 suites passed; symlink escape cases executed"
+  state: PASSED_STAGE5_UNSIGNED_APP_LOCAL
+  result: "Swift 14 tests in 3 suites passed; unsigned release app structure and smoke verified; reproducible bundle hash ea4005508f9d014d39ce4bbfb50bffaa786ce78dedb11926568f962b8140852a; no signing or publication"
 mcp_tests:
-  state: REGISTERED_DEFAULT_OFF_REAL_SIDECAR_PASSED_AGENT_FULL_REGRESSION_ORDER_GATE
-  result: "Film registration and OpenAPI sync remain passed; build passed. Full Agent regression has one unrelated order-dependent Dreamina runtime failure; the same test passed isolated 3/3 and Stage4 changed no Agent runtime file."
+  state: REGISTERED_DEFAULT_OFF_PROVIDER_NEUTRAL_AGENT_FULL_REGRESSION_PASSED
+  result: "Same five tools for Codex, DeepSeek-compatible, Claude-compatible, Local and Human Only profiles; Agent Apply and Approval remain denied; 349 passed, 0 failed, 5 skipped; OpenAPI sync and build passed."
 migration_tests:
-  state: SANDBOX_PREVIEW_PASSED_REAL_DATA_NOT_READ
-  result: "8 passed; compileall passed; no database or user data opened; no formal apply or deletion path"
+  state: PASSED_LOCAL_EQUIVALENT_BLOCKED_REAL_PG
+  result: "10 passed; synthetic 6-table/14-row package, row/FK/hash/Stable ID, idempotent receipt, fault rollback, backup restore and rollback passed; no user database read; real PostgreSQL not run or authorized"
 golden_a:
   state: REAL_HTTP_AND_BROWSER_ENTRY_PASSED
   command: python3 tests/film-golden/golden_a_real.py; Playwright CLI browser entry and rollback
@@ -128,9 +137,19 @@ golden_c:
   command: python Golden A/B/C suite; Bun Golden local suite; Playwright Production Canvas create and rollback
   result: "SceneTwin V1->V2, three Camera/Blocking/Composition chains, precise spatial STALE, restart, backup restore, transaction fault, Human atomic Canvas create, unique replay and flag rollback passed; fallback_mock_used=false; external_provider_calls=0"
 recovery_tests:
-  state: STAGE4_SQLITE_AND_TRANSACTION_RECOVERY_PASSED_LOCAL
-  result: "Core restart and SQLite online backup restore preserve full fingerprints, IDs and receipts; injected audit failure and stale hash create zero partial writes; Production Canvas concurrent replay remains 1/1/1/1; default-off browser rollback preserves Host data. Real production backup migration remains unauthorized."
+  state: STAGE5_LOCAL_RECOVERY_AND_ROLLBACK_PASSED
+  result: "Core/SQLite/Production Canvas recovery remains passed; Remote receipt reload and STALE manifest fail closed; synthetic migration transaction, backup restore and rollback passed; Feature Flag and upstream rollback dry-run passed. Real production recovery remains unauthorized."
+remote_beta:
+  state: LOCAL_PREVIEW_RECEIPT_BROWSER_PASSED_REMOTE_EXECUTION_NOT_AUTHORIZED
+  result: "15 tests/84 assertions; Browser import, Preview, Human local receipt, reload recovery and flag-off passed; confirmation added no request; network/upload/provider actions zero"
+performance_beta:
+  state: PASSED_WITH_WEB_CHUNK_WARNING
+  result: "Core, Remote, Agent and Browser p95 passed fixed local budgets with zero errors; Web has 10 JavaScript files over 500 KB warning, largest 1821047 bytes, below 2.5 MB local blocking budget"
+browser_beta:
+  state: PASSED_LOCAL_WITH_BOUNDARIES
+  result: "40 Host project reads p95 8.9 ms; local receipt recovered; flag off removed Film DOM; final console 0 error/0 warning; no remote request or Host Film write"
 upstream_compatibility:
   static_state: C_MIGRATION_REQUIRED
-  candidate_native_state: D_BLOCKED
-  blocker: upstream S3 test external DNS resolution
+  candidate_native_state: PASSED
+  candidate_commit: 19ebfbb3c1dd0227d6a194cd6067d5e06e27e521
+  blocker: persistent Models and Migrations require an approved reversible migration; Candidate not merged
