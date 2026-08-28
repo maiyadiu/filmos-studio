@@ -8,13 +8,21 @@
   "dataset": {
     "content_units": 80,
     "shots": 80,
-    "samples": 60
+    "samples": 60,
+    "remote_content_units": 80,
+    "remote_assets": 80,
+    "remote_results": 80,
+    "agent_samples": 60,
+    "browser_samples": 40
   },
   "budgets_ms": {
     "app_init_p95": 2000,
     "project_context_p95": 250,
     "entity_read_p95": 100,
-    "command_preview_p95": 100
+    "command_preview_p95": 100,
+    "remote_preview_p95": 100,
+    "agent_read_preview_deny_p95": 100,
+    "browser_project_read_p95": 100
   },
   "web_bundle": {
     "javascript_warning_bytes": 512000,
