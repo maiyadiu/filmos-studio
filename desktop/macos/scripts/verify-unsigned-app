@@ -9,15 +9,53 @@ fi
 
 plist="$bundle/Contents/Info.plist"
 binary="$bundle/Contents/MacOS/FilmOSStudioDesktop"
+backend="$bundle/Contents/Helpers/FilmOSBackend"
+web_server="$bundle/Contents/Helpers/FilmOSWeb"
+icon="$bundle/Contents/Resources/FilmOSStudio.icns"
+runtime="$bundle/Contents/Resources/InternalRuntime.json"
+web_root="$bundle/Contents/Resources/Web"
 plutil -lint "$plist" >/dev/null
+/usr/bin/jq -e '
+    .schema_version == 2 and
+    .application_support_directory_name == "FilmOS Studio" and
+    .backend_data_directory_name == "WorkbenchData" and
+    (has("workspace_root") | not) and
+    (has("bun_executable") | not) and
+    (has("backend_data_directory") | not)
+' "$runtime" >/dev/null
 
 test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist")" = "com.filmos.studio.localbeta"
 test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$plist")" = "FilmOSStudioDesktop"
+test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconFile' "$plist")" = "FilmOSStudio"
+test "$(/usr/libexec/PlistBuddy -c 'Print :NSAppTransportSecurity:NSAllowsLocalNetworking' "$plist")" = "true"
 test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleDocumentTypes:0:LSItemContentTypes:0' "$plist")" = "com.filmos.proposal"
 test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleDocumentTypes:0:CFBundleTypeExtensions:0' "$plist")" = "filmosproposal"
 test "$(/usr/libexec/PlistBuddy -c 'Print :UTExportedTypeDeclarations:0:UTTypeIdentifier' "$plist")" = "com.filmos.proposal"
+test "$(/usr/libexec/PlistBuddy -c 'Print :UTExportedTypeDeclarations:1:UTTypeIdentifier' "$plist")" = "com.filmos.backup"
+test "$(/usr/libexec/PlistBuddy -c 'Print :UTExportedTypeDeclarations:1:UTTypeTagSpecification:public.filename-extension:0' "$plist")" = "filmosbackup"
 test -x "$binary"
+test -x "$backend"
+test -x "$web_server"
+test -f "$icon"
+test -f "$runtime"
+test -f "$web_root/index.html"
 file "$binary" | grep -q 'Mach-O'
+file "$backend" | grep -q 'Mach-O'
+file "$web_server" | grep -q 'Mach-O'
+
+test "$(/usr/bin/jq -r '.schema_version' "$runtime")" = "2"
+start_url=$(/usr/bin/jq -r '.start_url' "$runtime")
+web_health_url=$(/usr/bin/jq -r '.web_health_url' "$runtime")
+backend_health_url=$(/usr/bin/jq -r '.backend_health_url' "$runtime")
+grep -q 'name="filmos-workbench" content="v1"' "$web_root/index.html"
+grep -q '<title>FilmOS Studio</title>' "$web_root/index.html"
+case "$start_url" in http://127.0.0.1:43100/*) ;; *) exit 1 ;; esac
+test "$web_health_url" = "http://127.0.0.1:43100/"
+test "$backend_health_url" = "http://127.0.0.1:43101/api/health"
+if /usr/bin/grep -E -q '(/Users/|/Downloads/|workspace_root|bun_executable|backend_data_directory")' "$runtime"; then
+    echo "runtime configuration must not reference source or protected user directories" >&2
+    exit 1
+fi
 
 if [ -e "$bundle/Contents/_CodeSignature/CodeResources" ]; then
     echo "distribution signature material must not be present in local Beta bundle" >&2
@@ -27,5 +65,11 @@ fi
 smoke=$(FILMOS_DESKTOP_SMOKE_CHECK=1 "$binary")
 test "$smoke" = '{"application":"FilmOS Studio","services_started":false,"smoke_check":true}'
 
-bundle_hash=$(shasum -a 256 "$plist" "$binary" | awk '{print $1}' | shasum -a 256 | awk '{print $1}')
+bundle_hash=$(
+    cd "$bundle"
+    find Contents/Info.plist Contents/MacOS Contents/Helpers Contents/Resources -type f -exec shasum -a 256 {} + \
+        | sort \
+        | shasum -a 256 \
+        | awk '{print $1}'
+)
 printf 'UNSIGNED_APP_VERIFIED bundle_hash=%s services_started=false\n' "$bundle_hash"

@@ -1,0 +1,119 @@
+{
+  "evidence_status": "DEVELOPMENT_EVIDENCE_DIRTY",
+  "raw_sources": [
+    {
+      "bytes": 24016,
+      "path": "CHANGELOG.md",
+      "sha256": "e0db6943ced7dbace59ba8e058d60f8db1a2bed1aecb96e68a99dec05562af26"
+    },
+    {
+      "bytes": 2885,
+      "path": "acceptance/MANIFEST.json",
+      "sha256": "db2ab95615e2ad1c107b5f4aca612beeeaf858468799a59556a14c3794bf6719"
+    },
+    {
+      "bytes": 2187,
+      "path": "acceptance/FilmOS_Acceptance_Project/项目.json",
+      "sha256": "d97ff77f2bd923f1824d35b5824faa73af2c2f5defdf117359160cc74295ce2e"
+    },
+    {
+      "bytes": 250,
+      "path": "implementation/MIGRATION_MAP.md",
+      "sha256": "0560308065447ccd4840fdecdc1a039a9d3c7fa6d812e0c31e910f2f1bc4bbec"
+    },
+    {
+      "bytes": 5633,
+      "path": "implementation/UPSTREAM_COMPATIBILITY.md",
+      "sha256": "b4a97842177f473a63893aaa9401f5c610b51086cb7ff572289999a1e7dda287"
+    },
+    {
+      "bytes": 704,
+      "path": "tests/film-beta/beta-performance.json",
+      "sha256": "5975d3d71fac361cbfbce2e29c2b3e00d831f601db4977bccf73a29917f691fa"
+    },
+    {
+      "bytes": 7342,
+      "path": "tests/film-rc/rc-recovery-receipt.json",
+      "sha256": "08db8c15bb8853a3ed105f47c653330f6726c6e4adab7be290448eafe803991a"
+    },
+    {
+      "bytes": 1029,
+      "path": "services/filmos-chatgpt-app/evidence/real-golden-receipt.json",
+      "sha256": "46febf54657c43adfd234d58c14ebd025ebf6c10289c48da55f53667979858aa"
+    },
+    {
+      "bytes": 625,
+      "path": "services/filmos-chatgpt-app/evidence/external-account-blocked.json",
+      "sha256": "953163a579f8f2ada4c2d778cca31171530bfbd43e14415a7ddcbc2b30a3c685"
+    }
+  ],
+  "receipt": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/receipt.json",
+  "receipt_sha256": "d3c787598a832a0ba5d0363daae1433ceb8ddb067e76e038c14f46b02c0e575c",
+  "reports": [
+    {
+      "bytes": 1863,
+      "check_ids": [
+        "desktop-release-build",
+        "performance-local",
+        "remote-acceptance-contract"
+      ],
+      "path": "acceptance/reports/KNOWN_LIMITATIONS.md",
+      "sha256": "3e928625570e00fbeff26c8231e59e1cba13248f8cf9f262e9bcdca608e58507"
+    },
+    {
+      "bytes": 1462,
+      "check_ids": [
+        "rc-recovery",
+        "upstream-compatibility",
+        "desktop-backup-restore"
+      ],
+      "path": "acceptance/reports/MIGRATION_REPORT.md",
+      "sha256": "871393a461e3f53b0b03bffbaddc3840e4d5afe78cc1a2dddd86c19ef2f23f54"
+    },
+    {
+      "bytes": 1241,
+      "check_ids": [
+        "upstream-compatibility",
+        "rc-recovery"
+      ],
+      "path": "acceptance/reports/UPSTREAM_COMPATIBILITY_REPORT.md",
+      "sha256": "8d59de1995adbcf54368202781257cd7a7c4f1a44f3e78d82d157c9405e4f37c"
+    },
+    {
+      "bytes": 2080,
+      "check_ids": [
+        "desktop-local-auth",
+        "desktop-backup-restore",
+        "canvas-agent",
+        "chatgpt-handoff-local",
+        "chatgpt-golden-real",
+        "acceptance-privacy"
+      ],
+      "path": "acceptance/reports/SECURITY_REPORT.md",
+      "sha256": "bd97346bc69b7e5b0af9fc03741709340a159455a220727caaf076e613b8a7be"
+    },
+    {
+      "bytes": 1519,
+      "check_ids": [
+        "web-production-build",
+        "performance-local"
+      ],
+      "path": "acceptance/reports/PERFORMANCE_REPORT.md",
+      "sha256": "4f4f06ab9cbfb4faa0b12779383049900e7cd8e9e7a4aaa0254254d02776f188"
+    },
+    {
+      "bytes": 1647,
+      "check_ids": [
+        "desktop-backup-restore",
+        "golden-abc-real-http",
+        "acceptance-full-chain",
+        "chatgpt-golden-real"
+      ],
+      "path": "acceptance/reports/GOLDEN_TEST_REPORT.md",
+      "sha256": "e07cf051ea1618ab6deaaedac3ab0ae02bda5eb1b345959f4619e73ef4b441e3"
+    }
+  ],
+  "schema_version": "1.0.0",
+  "source_snapshot_sha256": "25b617719005c8f0ccbfb4110c3dea6c85f280c66557a749ca549f061453a028",
+  "started_from_commit": "40b5c0d7e0aee902767dc23cc51538c9ce8538db"
+}

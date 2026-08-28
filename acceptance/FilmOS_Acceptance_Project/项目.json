@@ -1,0 +1,40 @@
+{
+  "schema_version": "1.0.0",
+  "project_id": "filmos-acceptance-project-v1",
+  "project_name": "FilmOS_Acceptance_Project",
+  "mode": "LOCAL_FIRST",
+  "fixture_state": "LOCAL_CHAIN_AUTOMATED_EXTERNAL_DRILLS_PENDING",
+  "approval_policy": "HUMAN_ONLY",
+  "objects": [
+    { "kind": "Project", "stable_id": "accept-project-001" },
+    { "kind": "ContentUnit", "stable_id": "accept-unit-001", "parent": "accept-project-001" },
+    { "kind": "Script", "stable_id": "accept-script-001", "parent": "accept-unit-001" },
+    { "kind": "Scene", "stable_id": "accept-scene-001", "parent": "accept-unit-001" },
+    { "kind": "DirectorUnit", "stable_id": "accept-director-001", "parent": "accept-scene-001" },
+    { "kind": "Shot", "stable_id": "accept-shot-001", "parent": "accept-director-001" },
+    { "kind": "Asset", "stable_id": "accept-asset-001", "parent": "accept-project-001" },
+    { "kind": "SceneTwin", "stable_id": "accept-scene-twin-001", "parent": "accept-scene-001" },
+    { "kind": "Prompt", "stable_id": "accept-prompt-001", "parent": "accept-shot-001" },
+    { "kind": "Provider", "stable_id": "accept-provider-local-001", "parent": "accept-prompt-001" },
+    { "kind": "Candidate", "stable_id": "accept-candidate-001", "parent": "accept-provider-local-001" },
+    { "kind": "QC", "stable_id": "accept-qc-001", "parent": "accept-candidate-001" },
+    { "kind": "Approved", "stable_id": "accept-approval-001", "parent": "accept-qc-001" }
+  ],
+  "provider_semantics": {
+    "local_chain_provider": "manual_web",
+    "local_chain_boundary": "LOCAL_MANUAL_CANDIDATE_IMPORT",
+    "real_cli_generation": "SEPARATE_EXTERNAL_DRILL_REQUIRED",
+    "rule": "A local Candidate import proves the formal Provider boundary but never proves a real CLI generation."
+  },
+  "required_drills": [
+    "restart_recovery",
+    "precise_stale_propagation",
+    "codex_agent_read_preview_apply_boundary",
+    "chatgpt_handoff_preview",
+    "real_cli_generation",
+    "upstream_candidate_adapter",
+    "exact_backup_restore",
+    "feature_flag_rollback"
+  ],
+  "promotion_rule": "The fixture becomes ACCEPTED only when one rc-final receipt proves every object and drill with hashes and no fallback."
+}

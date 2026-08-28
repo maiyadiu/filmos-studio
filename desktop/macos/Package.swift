@@ -20,7 +20,10 @@ let package = Package(
         ),
         .executableTarget(
             name: "FilmOSStudioDesktop",
-            dependencies: ["FilmOSDesktopCore"]
+            dependencies: ["FilmOSDesktopCore"],
+            linkerSettings: [
+                .linkedFramework("WebKit"),
+            ]
         ),
         .testTarget(
             name: "FilmOSDesktopCoreTests",

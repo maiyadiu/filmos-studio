@@ -18,6 +18,8 @@ export type LocalUser = {
     updatedAt?: string;
 };
 
+export type AuthMode = "account" | "desktop_local";
+
 export type RuntimeLimits = {
     activeTaskLimit: number;
     resourceUploadMB: number;
@@ -52,10 +54,12 @@ export const defaultFeatureAvailability: FeatureAvailability = {
 type UserStore = {
     hydrated: boolean;
     user: LocalUser | null;
+    authMode: AuthMode;
     runtimeLimits: RuntimeLimits;
     drawingEngine: CanvasDrawingEngineSetting;
     features: FeatureAvailability;
     setUser: (user: LocalUser | null) => void;
+    setAuthMode: (authMode?: AuthMode) => void;
     setRuntimeLimits: (limits?: RuntimeLimits) => void;
     setDrawingEngine: (setting?: CanvasDrawingEngineSetting) => void;
     setFeatures: (features?: FeatureAvailability) => void;
@@ -66,13 +70,15 @@ type UserStore = {
 export const useUserStore = create<UserStore>()((set) => ({
     hydrated: false,
     user: null,
+    authMode: "account",
     runtimeLimits: { activeTaskLimit: 5, resourceUploadMB: 50, sessionUploadMB: 32 },
     drawingEngine: { defaultEngine: DEFAULT_DRAWING_ENGINE },
     features: defaultFeatureAvailability,
     setUser: (user) => set({ user }),
+    setAuthMode: (authMode) => set({ authMode: authMode || "account" }),
     setRuntimeLimits: (runtimeLimits) => set({ runtimeLimits: runtimeLimits || { activeTaskLimit: 5, resourceUploadMB: 50, sessionUploadMB: 32 } }),
     setDrawingEngine: (drawingEngine) => set({ drawingEngine: drawingEngine || { defaultEngine: DEFAULT_DRAWING_ENGINE } }),
     setFeatures: (features) => set({ features: features ? { ...defaultFeatureAvailability, ...features } : defaultFeatureAvailability }),
     setHydrated: (hydrated) => set({ hydrated }),
-    clearSession: () => set({ user: null, runtimeLimits: { activeTaskLimit: 5, resourceUploadMB: 50, sessionUploadMB: 32 }, drawingEngine: { defaultEngine: DEFAULT_DRAWING_ENGINE }, features: defaultFeatureAvailability }),
+    clearSession: () => set({ user: null, authMode: "account", runtimeLimits: { activeTaskLimit: 5, resourceUploadMB: 50, sessionUploadMB: 32 }, drawingEngine: { defaultEngine: DEFAULT_DRAWING_ENGINE }, features: defaultFeatureAvailability }),
 }));

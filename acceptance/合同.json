@@ -1,0 +1,73 @@
+{
+  "schema_version": "1.0.0",
+  "release_target": "filmos-v1.0.0-rc1",
+  "canonical_remote": "maiyadiu/filmos-studio",
+  "acceptance_project": "FilmOS_Acceptance_Project",
+  "completion_rule": "ALL_REQUIRED_GATES_PASSED_WITH_REPRODUCIBLE_EVIDENCE",
+  "evidence_types": [
+    "source_commit",
+    "automated_test_log",
+    "runtime_log",
+    "golden_receipt",
+    "artifact_sha256",
+    "restart_receipt",
+    "rollback_receipt"
+  ],
+  "required_chain": [
+    "Project",
+    "ContentUnit",
+    "Script",
+    "Scene",
+    "DirectorUnit",
+    "Shot",
+    "Asset",
+    "SceneTwin",
+    "Prompt",
+    "Provider",
+    "Candidate",
+    "QC",
+    "Approved"
+  ],
+  "required_gates": [
+    "local_first_full_chain",
+    "restart_recovery",
+    "precise_stale_propagation",
+    "codex_agent",
+    "chatgpt_handoff",
+    "real_cli_generation",
+    "upstream_compatibility",
+    "migration",
+    "security",
+    "performance",
+    "rollback"
+  ],
+  "tracks": [
+    "00-upstream",
+    "01-desktop",
+    "02-film-core",
+    "03-project-ui",
+    "04-story",
+    "05-production-canvas",
+    "06-assets",
+    "07-prompt",
+    "08-agent",
+    "09-director",
+    "10-providers",
+    "11-migration",
+    "12-remote",
+    "13-qa",
+    "14-chatgpt-app"
+  ],
+  "forbidden_shortcuts": [
+    "README_ONLY",
+    "SELF_DECLARED_PASS",
+    "MOCK_AS_REAL",
+    "CODE_COMPLETE_AS_ACCEPTED",
+    "CANDIDATE_AS_APPROVED",
+    "UNHASHED_ARTIFACT",
+    "UNRECORDED_EXTERNAL_CALL",
+    "UNPUSHED_ACCEPTANCE_EVIDENCE",
+    "MUTATED_RC_TAG",
+    "REMOTE_OTHER_THAN_MAIYADIU_FILMOS_STUDIO"
+  ]
+}

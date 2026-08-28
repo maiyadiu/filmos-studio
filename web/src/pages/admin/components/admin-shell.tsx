@@ -99,12 +99,12 @@ export function AdminShell() {
                 <aside className={cn("app-workspace-sidebar admin-sidebar hidden shrink-0 flex-col overflow-hidden lg:flex", collapsed && "is-collapsed")}>
                     <div className={cn("admin-sidebar-header flex shrink-0 items-center", collapsed ? "justify-center" : "gap-2 px-3")}>
                         {!collapsed ? (
-                            <Link to="/" className="app-workspace-brand-link flex min-w-0 flex-1 items-center gap-2" title="影策">
+                            <Link to="/" className="app-workspace-brand-link flex min-w-0 flex-1 items-center gap-2" title="FilmOS Studio">
                                 <span className="admin-sidebar-brand-mark grid shrink-0 place-items-center bg-foreground text-background">
                                     <InfinityIcon className="size-4" />
                                 </span>
                                 <span className="admin-sidebar-brand-copy min-w-0">
-                                    <span className="block truncate font-semibold">影策</span>
+                                    <span className="block truncate font-semibold">FilmOS Studio</span>
                                     <span className="block truncate">管理后台</span>
                                 </span>
                             </Link>

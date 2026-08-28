@@ -47,6 +47,30 @@ func TestRuntimeCapabilitiesRequireExplicitDesktopFlagAndLoopbackBind(t *testing
 	}
 }
 
+func TestDesktopLocalAuthRequiresExplicitFlagAndLoopbackBind(t *testing.T) {
+	tests := []struct {
+		name    string
+		bind    string
+		setting string
+		want    bool
+	}{
+		{name: "default disabled", bind: "127.0.0.1:43101", setting: "", want: false},
+		{name: "explicit loopback desktop", bind: "127.0.0.1:43101", setting: "true", want: true},
+		{name: "wildcard bind stays closed", bind: ":43101", setting: "true", want: false},
+		{name: "all interfaces stays closed", bind: "0.0.0.0:43101", setting: "true", want: false},
+		{name: "lan bind stays closed", bind: "192.168.1.5:43101", setting: "true", want: false},
+		{name: "hostname bind stays closed", bind: "localhost:43101", setting: "true", want: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			capabilities := RuntimeCapabilitiesForDeployment(test.bind, "false", test.setting)
+			if capabilities.desktopLocalAuth != test.want {
+				t.Fatalf("desktopLocalAuth = %v, want %v", capabilities.desktopLocalAuth, test.want)
+			}
+		})
+	}
+}
+
 func TestModelChannelLocalFlagHasFalseMigrationDefault(t *testing.T) {
 	parsed, err := schema.Parse(&model.ModelChannel{}, &sync.Map{}, schema.NamingStrategy{})
 	if err != nil {

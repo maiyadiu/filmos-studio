@@ -14,7 +14,10 @@ data/
 coverage/
 dist/
 *.log
+!acceptance/evidence/runs/**/*.log
 *.tsbuildinfo
+__pycache__/
+*.pyc
 /web/public/OpenAICanvas-ComfyBridge.exe
 /web/public/OpenAICanvas-ComfyBridge-linux-amd64
 /web/public/OpenAICanvas-ComfyBridge-linux-arm64

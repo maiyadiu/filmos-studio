@@ -14,13 +14,14 @@ struct LocalDataLayoutTests {
         let layout = try LocalDataLayout(applicationSupportRoot: sandbox)
 
         #expect(layout.rootURL.path == sandbox.appendingPathComponent("FilmOS Studio").path)
+        #expect(layout.workbenchDataURL.lastPathComponent == "WorkbenchData")
         #expect(layout.runtimeStateURL.lastPathComponent == "Runtime")
         #expect(layout.processLogsURL.lastPathComponent == "Logs")
         #expect(layout.migrationStagingURL.lastPathComponent == "MigrationStaging")
         #expect(layout.bookmarkStateURL.lastPathComponent == "Bookmarks")
 
         try layout.prepareDirectories()
-        for directory in [layout.rootURL, layout.runtimeStateURL, layout.processLogsURL, layout.migrationStagingURL, layout.bookmarkStateURL] {
+        for directory in [layout.rootURL, layout.workbenchDataURL, layout.runtimeStateURL, layout.processLogsURL, layout.migrationStagingURL, layout.bookmarkStateURL] {
             var isDirectory: ObjCBool = false
             #expect(FileManager.default.fileExists(atPath: directory.path, isDirectory: &isDirectory))
             #expect(isDirectory.boolValue)

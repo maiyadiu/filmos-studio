@@ -5,6 +5,15 @@ description: 影策已实现功能的手工验证清单与未确认边界
 
 # 待测试
 
+## FilmOS macOS 本地数据与备份
+
+- [x] 自包含 App 不依赖源码目录、Downloads 访问权限或 Bun，内置后端和 Web 服务只监听 `127.0.0.1`。
+- [x] 本地数据固定保存到 `~/Library/Application Support/FilmOS Studio/WorkbenchData`，并提供“打开 FilmOS 数据目录”菜单。
+- [x] `.filmosbackup` 使用 SQLite 一致性快照，保留资源及逐文件 SHA-256 manifest，排除凭据密钥、Cookie、CLI 登录凭据和 WebKit 缓存。
+- [x] `DESKTOP-BACKUP-RESTORE-001` 已在两个干净临时数据目录间完成 HTTP 导出、manifest/hash 校验、恢复、后端重启和 Golden 项目读回。
+- [ ] 用户在已安装 App 中手工确认两个菜单、保存面板、覆盖提示和 Finder 定位。
+- [ ] 正式恢复 UI 尚未开放；当前恢复演练使用验收工具，恢复后 Provider 密钥与 CLI 登录凭据需重新录入。
+
 ## FilmOS Golden C 与 Production Canvas
 
 - [x] Film Core 空间版本、精准 STALE、重启、SQLite 备份恢复、事务故障和幂等重放已通过本地自动化。

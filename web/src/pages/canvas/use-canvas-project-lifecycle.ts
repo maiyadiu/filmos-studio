@@ -218,6 +218,15 @@ export function useCanvasProjectLifecycle({
         return true;
     }, [activeChatId, backgroundMode, chatSessions, connectionsRef, currentProject?.directorScenes, message, nodesRef, projectId, showImageInfo, updateProject, viewportRef]);
 
+    useEffect(() => {
+        window.filmOSSaveCurrentCanvas = saveCanvasProject;
+        return () => {
+            if (window.filmOSSaveCurrentCanvas === saveCanvasProject) {
+                delete window.filmOSSaveCurrentCanvas;
+            }
+        };
+    }, [saveCanvasProject]);
+
     const clearCanvasFiles = useCallback(() => {
         cleanupCanvasFiles({ projectId, nodes: [], chatSessions: [] });
     }, [cleanupCanvasFiles, projectId]);

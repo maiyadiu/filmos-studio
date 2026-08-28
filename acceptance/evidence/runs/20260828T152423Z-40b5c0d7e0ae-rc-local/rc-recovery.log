@@ -1,0 +1,215 @@
+{
+  "schema_version": 1,
+  "kind": "FILMOS_RC_UNIFIED_LOCAL_RECOVERY_RECEIPT",
+  "status": "PASSED_LOCAL_RC_RECOVERY",
+  "scope": "synthetic_and_local_only",
+  "source_of_truth": "unchanged",
+  "surface": {
+    "status": "PASSED_LOCAL_RC_SURFACE_RECOVERY",
+    "remote": {
+      "source_sha256": "14dc46cc848e474c50f595e8904894755051a575484c2bc8bed51d01829c42a5",
+      "source_unchanged": true,
+      "manifest_version": 1,
+      "manifest_sha256": "d36e09d9d6efa0b3916515b72dca164cf3e282cee778814893267fdff3e3948b",
+      "receipt_id": "rc-remote-receipt-0001",
+      "recovered_receipt_id": "rc-remote-receipt-0001",
+      "replayed_same_receipt": true,
+      "execution_state": "NOT_EXECUTED",
+      "inbound_result_policy": "CANDIDATE_ONLY",
+      "network_executed": false,
+      "uploaded_asset_ids": [],
+      "publication_receipts": []
+    },
+    "feature_flag_rollback": {
+      "declared_flags": 20,
+      "all_default_false": true,
+      "remote_disabled_blocker": true,
+      "rollback_rule_present": true
+    },
+    "agent": {
+      "deepseek_apply_error": "human_apply_required",
+      "session_loss_error": "read_required",
+      "preview_calls": 2,
+      "apply_calls": 0,
+      "agent_denial_audited": true,
+      "session_denial_audited": true
+    },
+    "network_calls": 0,
+    "external_provider_calls": 0,
+    "formal_apply_calls": 0
+  },
+  "beta_migration": {
+    "status": "PASSED_LOCAL_EQUIVALENT",
+    "real_postgresql_status": "BLOCKED_REAL_PG",
+    "package_verified": true,
+    "fault_rollback": true,
+    "apply": {
+      "status": "PASSED_LOCAL_EQUIVALENT",
+      "receipt_id": "2d689d53-2acc-589a-8c7e-6fad0783ecc4",
+      "migration_key": "synthetic_beta_001",
+      "manifest_sha256": "48d17e4cde4b1749ce91e1e7e6eb325bedc14ef29dc34a88d23a6b73ba92dc9d",
+      "target_data_sha256": "b29bb2ef606d4161b623de76891771e47ae5ae348743ada9bd82bcc49dacaefc",
+      "source_sha256": "f6e5e6e8d99c57a763750ecf80371ee62f057bb19005e1bb2c96308feeacf58d",
+      "table_count": 6,
+      "row_count": 14,
+      "foreign_keys_valid": true,
+      "stable_primary_keys_preserved": true,
+      "backup_path": "backups/synthetic_beta_001-before.sqlite",
+      "backup_sha256": "4dcfe2b8d820bb4107502aa377bf3f384e8e610e0e789998ee9bc6c08e180658",
+      "real_postgresql_status": "BLOCKED_REAL_PG",
+      "replayed": false
+    },
+    "replay_same_receipt": true,
+    "restore": {
+      "status": "PASSED_LOCAL_RESTORE",
+      "backup_sha256": "d44c920ff884fe8f28792451211cc86ca3d08fd9391ff1d0786cdb0fc6252813",
+      "target_data_sha256": "b29bb2ef606d4161b623de76891771e47ae5ae348743ada9bd82bcc49dacaefc",
+      "receipt_preserved": true
+    },
+    "rollback": {
+      "status": "PASSED_LOCAL_ROLLBACK",
+      "migration_receipt_id": "2d689d53-2acc-589a-8c7e-6fad0783ecc4",
+      "backup_sha256": "4dcfe2b8d820bb4107502aa377bf3f384e8e610e0e789998ee9bc6c08e180658",
+      "restored_file_sha256": "4dcfe2b8d820bb4107502aa377bf3f384e8e610e0e789998ee9bc6c08e180658",
+      "source_deleted": false
+    }
+  },
+  "film_core": {
+    "status": "PASSED_LOCAL_FILM_CORE_RECOVERY",
+    "schema_version": 4,
+    "journal_mode": "wal",
+    "source_sha256": "a2a37be8a488b5d9f101a22630bfd797788916553dee105bafdea8e92b443fd1",
+    "source_unchanged": true,
+    "backup_sha256": "b0750798f99850e3c70c947e99cc39ef4c9f078aa3865af5ec6f06af6f839bd7",
+    "logical_state_sha256": "7de7c8355c610d571ff5e4ad4f311e148615d5d1e9af65e1426d3a8822b1e73c",
+    "restored_logical_state_sha256": "7de7c8355c610d571ff5e4ad4f311e148615d5d1e9af65e1426d3a8822b1e73c",
+    "stable_ids": [
+      "10000000-0000-4000-8000-000000000061",
+      "10000000-0000-4000-8000-000000000062"
+    ],
+    "receipt_id": "rc-film-core-receipt-001",
+    "receipt_preserved": true,
+    "foreign_keys_valid": true,
+    "fault_rollback": true,
+    "no_partial_facts": true
+  },
+  "candidate_adapter": {
+    "status": "PASSED_SYNTHETIC_REVERSIBLE_DRY_RUN",
+    "source_unchanged": true,
+    "fault_rollback": true,
+    "plan": {
+      "schema_version": 1,
+      "kind": "FILMOS_RC_CANDIDATE_SCHEMA_ADAPTER_PLAN",
+      "formal_apply": false,
+      "fixture_only": true,
+      "diff": {
+        "stable_ref": "v1.2.1",
+        "stable_commit": "61b332583c4fcbf71890ae67e3f0f104d67706b9",
+        "candidate_ref": "upstream-yingce/main",
+        "candidate_commit": "19ebfbb3c1dd0227d6a194cd6067d5e06e27e521",
+        "model_diff_sha256": "170d973619b711c4ecac5e01fb572841fc66165acc44f83ffa2dc0692856686d",
+        "migration_diff_sha256": "f851083e3b5646b944297ce7dddeea11536cde205fabe7edc6090e7d869cdf63",
+        "changed_models": [
+          "ChannelModel.Icon",
+          "PluginPlatformState",
+          "StorageLocation",
+          "UserPluginState"
+        ],
+        "migration_list_additions": [
+          "channel_model_price_tiers",
+          "id_sequences",
+          "logical_models",
+          "logical_model_revisions",
+          "logical_model_routes",
+          "route_attempts",
+          "plugin_platform_states",
+          "user_plugin_states",
+          "ark_private_asset_bindings",
+          "storage_locations",
+          "resource_deletion_jobs",
+          "project_asset_folders",
+          "comfy_bridges",
+          "comfy_bridge_requests"
+        ],
+        "classification_before": "C_MIGRATION_REQUIRED"
+      },
+      "steps": [
+        "copy immutable synthetic Stable fixture to an isolated work target",
+        "add nullable ChannelModel.icon compatible with the Candidate string field",
+        "create plugin_platform_states, user_plugin_states, storage_locations",
+        "rebuild Candidate indexes from the exact GORM tags",
+        "verify old rows and stable IDs, then probe only synthetic Candidate rows",
+        "restore the pre-migration backup and verify its exact file hash"
+      ],
+      "rollback": "replace isolated work target with receipt-bound pre-migration backup",
+      "real_database": "NOT_OPENED",
+      "real_postgresql": "NOT_EXECUTED",
+      "candidate_merge": "NOT_EXECUTED"
+    },
+    "receipt": {
+      "schema_version": 1,
+      "kind": "FILMOS_RC_CANDIDATE_SCHEMA_DRY_RUN_RECEIPT",
+      "status": "PASSED_SYNTHETIC_REVERSIBLE_DRY_RUN",
+      "receipt_id": "eba6bfa4-9e15-5688-90e0-d64c36f8b331",
+      "plan_sha256": "525856e156789600c79ff4734241fbdd86f7b21769da3bdae88615b47d49412a",
+      "source_sha256": "d114e90e3a8dccef72965b3345cb89885dff2e397e1fa02f1f3b082fcd45ce5e",
+      "source_unchanged": true,
+      "backup_sha256": "85175d7caaa753160126e3bea5fd799de6236ded58cb388b88a3b5316c087f00",
+      "stable_ids_preserved": true,
+      "source_channel_model_row_sha256": "64dcdf6b9845a92c08bb18cd287d351a6a38c4b9ffc1bd8d77398fe8464bac1b",
+      "candidate_channel_model_row_sha256": "7c3ade68b20799ef1981acda904f49fc4e76d31c125dca38782bf3840fe6976d",
+      "candidate_probe_ids": [
+        "plugin.synthetic.rc",
+        "10000000-0000-4000-8000-000000000014",
+        "10000000-0000-4000-8000-000000000015"
+      ],
+      "candidate_tables": [
+        "plugin_platform_states",
+        "storage_locations",
+        "user_plugin_states"
+      ],
+      "no_partial_facts": true,
+      "classification_after": "C_MIGRATION_REQUIRED",
+      "classification_reason": "Synthetic reversible proof does not authorize or execute a real SQLite/PostgreSQL migration and the Candidate has not been merged.",
+      "real_database": "NOT_OPENED",
+      "real_postgresql": "NOT_EXECUTED",
+      "candidate_merge": "NOT_EXECUTED",
+      "receipt_sha256": "4e877cf587a4990971726d3fdb2025fdfc012e23672dad8c1d3b6c1b68aa03ce",
+      "replayed_same_receipt": true
+    },
+    "rollback": {
+      "status": "PASSED_EXACT_STABLE_ROLLBACK",
+      "restored_sha256": "85175d7caaa753160126e3bea5fd799de6236ded58cb388b88a3b5316c087f00",
+      "matches_pre_migration_backup": true,
+      "stable_ids_preserved": true,
+      "candidate_tables_absent": true
+    },
+    "classification": "C_MIGRATION_REQUIRED"
+  },
+  "checks": {
+    "remote_receipt_recovered": true,
+    "remote_not_executed": true,
+    "feature_flags_rolled_back": true,
+    "agent_and_session_fail_closed": true,
+    "beta_migration_restored": true,
+    "film_core_restored": true,
+    "candidate_reversible": true,
+    "all_sources_unchanged": true,
+    "stable_ids_preserved": true,
+    "no_partial_facts": true,
+    "no_network_or_external_apply": true
+  },
+  "failures": [],
+  "authority_boundaries": {
+    "real_user_database": "NOT_OPENED",
+    "real_postgresql": "NOT_EXECUTED",
+    "network_publish": "NOT_EXECUTED",
+    "external_provider": "NOT_EXECUTED",
+    "formal_apply": "NOT_EXECUTED",
+    "upstream_merge": "NOT_EXECUTED"
+  },
+  "upstream_classification": "C_MIGRATION_REQUIRED",
+  "receipt_id": "6407b984-9c80-509e-8dcc-1efde5156a78",
+  "replay_key_sha256": "22b187f89926f3872c8a84ad1bf98d08b1b1ac76653fce924ca2169c51f3c4c5",
+  "receipt_sha256": "ac4b4c6a764d99fac7edd293672eb8d9957e3b7a3395f8ef29aaece1826502a9"
+}

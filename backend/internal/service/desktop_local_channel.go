@@ -17,13 +17,18 @@ const LocalChannelBaseURLHeader = "X-Canvas-Upstream-Base-URL"
 // RuntimeCapabilities 只来自后端启动配置，HTTP 请求不得修改这些能力。
 type RuntimeCapabilities struct {
 	desktopLocalChannels bool
+	desktopLocalAuth     bool
 }
 
-func RuntimeCapabilitiesForDeployment(bindAddr string, desktopLocalChannelsSetting string) RuntimeCapabilities {
-	if !truthyRuntimeCapability(desktopLocalChannelsSetting) || !isExplicitDesktopLoopbackBind(bindAddr) {
+func RuntimeCapabilitiesForDeployment(bindAddr string, desktopLocalChannelsSetting string, desktopLocalAuthSetting ...string) RuntimeCapabilities {
+	if !isExplicitDesktopLoopbackBind(bindAddr) {
 		return RuntimeCapabilities{}
 	}
-	return RuntimeCapabilities{desktopLocalChannels: true}
+	capabilities := RuntimeCapabilities{desktopLocalChannels: truthyRuntimeCapability(desktopLocalChannelsSetting)}
+	if len(desktopLocalAuthSetting) > 0 {
+		capabilities.desktopLocalAuth = truthyRuntimeCapability(desktopLocalAuthSetting[0])
+	}
+	return capabilities
 }
 
 func truthyRuntimeCapability(value string) bool {
@@ -46,6 +51,10 @@ func isExplicitDesktopLoopbackBind(bindAddr string) bool {
 
 func (s *Service) DesktopLocalChannelsEnabled() bool {
 	return s != nil && s.runtimeCapabilities.desktopLocalChannels
+}
+
+func (s *Service) DesktopLocalAuthEnabled() bool {
+	return s != nil && s.runtimeCapabilities.desktopLocalAuth
 }
 
 func (s *Service) effectiveAllowLocalChannel(requested bool) bool {

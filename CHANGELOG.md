@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- 新增 FilmOS Studio 内部 macOS 桌面工作台：支持双击或程序坞启动、`127.0.0.1` 限定的本地免登录、自有品牌图标、数据目录定位与 `.filmosbackup` 导出。
+- 建立 SQLite 一致性备份与恢复合同，逐文件记录 SHA-256，并排除 API Key、Cookie、CLI 登录凭据、`.settings-key` 和可重建缓存。
+- 新增 `acceptance/` 独立验收体系：固定 `FilmOS_Acceptance_Project` 全链、Golden A/B/C、重启/备份恢复、精准 STALE、Agent/ChatGPT、上游兼容、性能、隐私、报告哈希与可重放 CI；外部验收仓库锁定为 `maiyadiu/filmos-studio`。
+- 验收冻结合同改为无 Git 自引用设计：仓库内 Manifest 只哈希稳定规范与 Schema，固定 Commit 后由 Runner/CI 生成 artifact-only `RELEASE_MANIFEST.json`绑定 Commit、Tree、Receipt 和 Build。
 - 新增用户诊断包导出：设置页和失败任务详情支持导出最近 15 分钟、30 分钟、1 小时或 24 小时内的脱敏 ZIP，并通过 `traceId`、`requestId`、`taskId` 和 `providerRequestId` 关联前端、任务日志与模型上游调用。
 - 建立诊断数据安全边界：前端内存事件缓冲区最多保留 500 条，后端按当前用户校验任务和项目归属，导出时排除提示词、任务输入、请求/响应体、密钥、Cookie 和 URL 查询参数，并补充脱敏与越权测试。
 - 修复 Eagle 素材库在素材缺少文件夹或标签时的空集合兼容问题，避免前端读取 `folderIds` 或 `tags` 时出现异常。

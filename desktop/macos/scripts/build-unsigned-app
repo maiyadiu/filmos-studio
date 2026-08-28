@@ -3,7 +3,11 @@ set -eu
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 package_dir=$(CDPATH= cd -- "$script_dir/.." && pwd)
+workspace_root=$(CDPATH= cd -- "$package_dir/../.." && pwd)
 destination=${1:-"$package_dir/.local/FilmOS Studio.app"}
+icon_source="$package_dir/App/FilmOS图标.png"
+bun_executable=$(command -v bun || true)
+go_executable=$(command -v go || true)
 
 case "$destination" in
     *.app) ;;
@@ -16,6 +20,23 @@ esac
 if [ -e "$destination" ]; then
     echo "refusing to overwrite existing bundle: $destination" >&2
     exit 2
+fi
+
+if [ -z "$bun_executable" ] || [ ! -x "$bun_executable" ]; then
+    echo "bun is required to build the bundled web workbench" >&2
+    exit 1
+fi
+if [ -z "$go_executable" ] || [ ! -x "$go_executable" ]; then
+    echo "go is required to bundle the internal backend" >&2
+    exit 1
+fi
+if [ ! -f "$workspace_root/web/node_modules/vite/bin/vite.js" ]; then
+    echo "web dependencies are missing; install them before building the app" >&2
+    exit 1
+fi
+if [ ! -f "$icon_source" ]; then
+    echo "app icon master is missing: $icon_source" >&2
+    exit 1
 fi
 
 swift build --package-path "$package_dir" -c release
@@ -36,10 +57,58 @@ cleanup() {
 trap cleanup EXIT HUP INT TERM
 
 bundle="$staging/FilmOS Studio.app"
-mkdir -p "$bundle/Contents/MacOS" "$bundle/Contents/Resources"
+mkdir -p "$bundle/Contents/MacOS" "$bundle/Contents/Helpers" "$bundle/Contents/Resources"
+
+(
+    cd "$workspace_root/web"
+    "$bun_executable" run build
+)
+if [ ! -f "$workspace_root/web/dist/index.html" ]; then
+    echo "web production build is missing index.html" >&2
+    exit 1
+fi
+grep -q 'name="filmos-workbench" content="v1"' "$workspace_root/web/dist/index.html"
+
+(
+    cd "$workspace_root/backend"
+    "$go_executable" build -trimpath -o "$staging/FilmOSBackend" ./cmd/server
+    "$go_executable" build -trimpath -o "$staging/FilmOSWeb" ./cmd/desktop-web
+)
+
+iconset="$staging/FilmOSStudio.iconset"
+mkdir -p "$iconset"
+sips -z 16 16 "$icon_source" --out "$iconset/icon_16x16.png" >/dev/null
+sips -z 32 32 "$icon_source" --out "$iconset/icon_16x16@2x.png" >/dev/null
+sips -z 32 32 "$icon_source" --out "$iconset/icon_32x32.png" >/dev/null
+sips -z 64 64 "$icon_source" --out "$iconset/icon_32x32@2x.png" >/dev/null
+sips -z 128 128 "$icon_source" --out "$iconset/icon_128x128.png" >/dev/null
+sips -z 256 256 "$icon_source" --out "$iconset/icon_128x128@2x.png" >/dev/null
+sips -z 256 256 "$icon_source" --out "$iconset/icon_256x256.png" >/dev/null
+sips -z 512 512 "$icon_source" --out "$iconset/icon_256x256@2x.png" >/dev/null
+sips -z 512 512 "$icon_source" --out "$iconset/icon_512x512.png" >/dev/null
+sips -z 1024 1024 "$icon_source" --out "$iconset/icon_512x512@2x.png" >/dev/null
+iconutil -c icns "$iconset" -o "$staging/FilmOSStudio.icns"
+
+runtime_plist="$staging/InternalRuntime.plist"
+plutil -create xml1 "$runtime_plist"
+plutil -insert schema_version -integer 2 "$runtime_plist"
+plutil -insert start_url -string "http://127.0.0.1:43100/create" "$runtime_plist"
+plutil -insert web_health_url -string "http://127.0.0.1:43100/" "$runtime_plist"
+plutil -insert backend_health_url -string "http://127.0.0.1:43101/api/health" "$runtime_plist"
+plutil -insert application_support_directory_name -string "FilmOS Studio" "$runtime_plist"
+plutil -insert backend_data_directory_name -string "WorkbenchData" "$runtime_plist"
+plutil -convert json -o "$staging/InternalRuntime.json" "$runtime_plist"
+
 install -m 0755 "$binary" "$bundle/Contents/MacOS/FilmOSStudioDesktop"
+install -m 0755 "$staging/FilmOSBackend" "$bundle/Contents/Helpers/FilmOSBackend"
+install -m 0755 "$staging/FilmOSWeb" "$bundle/Contents/Helpers/FilmOSWeb"
 install -m 0644 "$package_dir/App/Info.plist" "$bundle/Contents/Info.plist"
+install -m 0644 "$staging/FilmOSStudio.icns" "$bundle/Contents/Resources/FilmOSStudio.icns"
+install -m 0644 "$staging/InternalRuntime.json" "$bundle/Contents/Resources/InternalRuntime.json"
+/usr/bin/ditto "$workspace_root/web/dist" "$bundle/Contents/Resources/Web"
 plutil -lint "$bundle/Contents/Info.plist" >/dev/null
+/usr/bin/jq -e '.schema_version == 2 and (.application_support_directory_name == "FilmOS Studio") and (.start_url | type == "string")' \
+    "$bundle/Contents/Resources/InternalRuntime.json" >/dev/null
 mv "$bundle" "$destination"
 
 trap - EXIT HUP INT TERM

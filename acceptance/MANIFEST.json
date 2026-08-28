@@ -1,0 +1,83 @@
+{
+  "schema_version": "1.1.0",
+  "acceptance_spec": {
+    "path": "acceptance/合同.json",
+    "version": "1.0.0",
+    "sha256": "a80bbc5de6bb4953cc3424db73573dbe483522256d54aa90cd316a7c15180b3d"
+  },
+  "evidence_index": {
+    "path": "acceptance/EVIDENCE_INDEX.json",
+    "sha256": "9dcf479ae9bb342220016fd3916be87deb927c18402c884ef49db1838c689fad"
+  },
+  "golden_project": {
+    "path": "acceptance/FilmOS_Acceptance_Project/项目.json",
+    "project_id": "filmos-acceptance-project-v1",
+    "version": "1.0.0",
+    "sha256": "d97ff77f2bd923f1824d35b5824faa73af2c2f5defdf117359160cc74295ce2e"
+  },
+  "yingce_upstream": {
+    "repository": "ddcat-ai/open-ai-canvas",
+    "ref": "refs/tags/v1.2.1",
+    "commit": "61b332583c4fcbf71890ae67e3f0f104d67706b9",
+    "tree": "87c68a9da95ef4f5914b7fc5d662dc0aac452264"
+  },
+  "schema_versions": {
+    "film_core": {
+      "version": "0.4.0",
+      "path": "film-contracts/schemas/core.schema.json",
+      "sha256": "894906d7bb3105f7a74bc14e6777bede4160cb598a686e8a15e18372c78a8516"
+    },
+    "canvas": {
+      "version": "yingce-v1.2.1",
+      "upstream_ref": "refs/tags/v1.2.1",
+      "upstream_commit": "61b332583c4fcbf71890ae67e3f0f104d67706b9"
+    },
+    "mcp": {
+      "version": "1.0.0",
+      "resource_uri_version": "v1",
+      "path": "packages/filmos-tool-contracts/contract.v1.json",
+      "sha256": "de578be2f43f43222d299777fff4521bbdceec6d808a16e607a6367442c4af7b"
+    }
+  },
+  "canonical_remote": {
+    "slug": "maiyadiu/filmos-studio",
+    "fetch_url": "https://github.com/maiyadiu/filmos-studio.git",
+    "push_url": "git@github.com:maiyadiu/filmos-studio.git",
+    "remote_name": "origin",
+    "exclusive_for_external_acceptance": true
+  },
+  "ci_workflow": ".github/workflows/acceptance.yml",
+  "planned_rc_tag": "filmos-v1.0.0-rc1",
+  "required_reports": [
+    "CHANGELOG.md",
+    "acceptance/reports/KNOWN_LIMITATIONS.md",
+    "acceptance/reports/MIGRATION_REPORT.md",
+    "acceptance/reports/UPSTREAM_COMPATIBILITY_REPORT.md",
+    "acceptance/reports/SECURITY_REPORT.md",
+    "acceptance/reports/PERFORMANCE_REPORT.md",
+    "acceptance/reports/GOLDEN_TEST_REPORT.md"
+  ],
+  "privacy": {
+    "forbid_api_keys": true,
+    "forbid_cookies": true,
+    "forbid_cli_credentials": true,
+    "forbid_private_absolute_paths": true
+  },
+  "release_manifest": {
+    "schema_version": "1.0.0",
+    "filename": "RELEASE_MANIFEST.json",
+    "artifact_only": true,
+    "must_not_be_committed": true,
+    "required_fields": [
+      "repository",
+      "git_commit_sha",
+      "git_tree_sha",
+      "acceptance_manifest_hash",
+      "evidence_index_hash",
+      "receipt_hash",
+      "build_id",
+      "timestamp"
+    ]
+  },
+  "freeze_gate": "A Pre-RC or RC identity is valid only through an artifact-only RELEASE_MANIFEST.json generated after the candidate commit is fixed. The repository MANIFEST never stores its own commit SHA."
+}

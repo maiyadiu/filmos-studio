@@ -18,7 +18,7 @@
 
 ## 验证
 
-工作目录：`/Users/apple/Downloads/other/短剧/wt-prompt/web`
+工作目录：`$WORKTREE/web`
 
 ```text
 bun test test/film-prompt-draft.test.ts

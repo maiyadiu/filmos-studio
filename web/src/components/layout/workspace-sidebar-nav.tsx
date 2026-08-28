@@ -7,7 +7,7 @@ import { useWalletBalance } from "@/hooks/use-wallet-balance";
 import { useWorkspaceLogout } from "@/hooks/use-workspace-logout";
 import { cn } from "@/lib/utils";
 import { preloadWorkspaceRoute } from "@/lib/workspace-route-modules";
-import { useUserStore, type FeatureAvailability } from "@/stores/use-user-store";
+import { useUserStore, type AuthMode, type FeatureAvailability } from "@/stores/use-user-store";
 
 export type WorkspaceNavItem = {
     id: string;
@@ -40,7 +40,7 @@ function toolItem(slug: NavigationToolSlug, to: string): WorkspaceNavItem {
     return { id: slug, title: tool?.label ?? slug, icon: tool?.icon, to };
 }
 
-function buildNav(features: FeatureAvailability, balance: string, isAdmin: boolean): { groups: WorkspaceNavGroup[]; footer: WorkspaceNavItem[] } {
+function buildNav(features: FeatureAvailability, balance: string, isAdmin: boolean, authMode: AuthMode): { groups: WorkspaceNavGroup[]; footer: WorkspaceNavItem[] } {
     const groups: WorkspaceNavGroup[] = [
         {
             items: [
@@ -73,7 +73,7 @@ function buildNav(features: FeatureAvailability, balance: string, isAdmin: boole
                 to: `/settings?section=${section.key}`,
             })),
         },
-        { id: "logout", title: "退出登录", icon: LogOut, action: "logout" },
+        ...(authMode === "account" ? [{ id: "logout", title: "退出登录", icon: LogOut, action: "logout" as const }] : []),
     ];
 
     return { groups, footer };
@@ -119,7 +119,7 @@ function WorkspaceSwitcher({ collapsed, onNavigate, onExpand }: { collapsed: boo
                         <InfinityIcon className="size-4" strokeWidth={2} />
                     </span>
                     <span className="flex min-w-0 flex-col">
-                        <span className="app-workspace-brand-wordmark truncate text-[var(--fs-body)] leading-none font-medium">影策</span>
+                        <span className="app-workspace-brand-wordmark truncate text-[var(--fs-body)] leading-none font-medium">FilmOS Studio</span>
                         <span className="mt-1 truncate text-[var(--fs-label)] leading-none text-foreground/42">创作工作台</span>
                     </span>
                 </span>
@@ -131,7 +131,7 @@ function WorkspaceSwitcher({ collapsed, onNavigate, onExpand }: { collapsed: boo
                     <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />
                     <div className="app-workspace-nav-popover absolute left-3 right-3 top-full z-50 mt-1 overflow-hidden rounded-lg border border-[var(--workspace-border)] bg-[var(--workspace-surface-strong)] py-1 animate-in fade-in zoom-in-95 duration-100">
                         <div className="px-3 py-2.5">
-                            <div className="truncate text-[var(--fs-body)] font-semibold">影策</div>
+                            <div className="truncate text-[var(--fs-body)] font-semibold">FilmOS Studio</div>
                             <div className="mt-0.5 truncate text-[var(--fs-label)] text-foreground/45">创作工作台</div>
                         </div>
                         <div className="mx-2 my-1 h-px bg-[var(--workspace-border)]" />
@@ -354,6 +354,7 @@ export function WorkspaceSidebarNav({ collapsed, onNavigate, onOpenSearch, onExp
     const [searchParams] = useSearchParams();
     const features = useUserStore((state) => state.features);
     const user = useUserStore((state) => state.user);
+    const authMode = useUserStore((state) => state.authMode);
     const creditsEnabled = useUserStore((state) => state.features.creditsEnabled);
     const { availableMicrocredits } = useWalletBalance(user?.id, creditsEnabled);
     const { handleLogout } = useWorkspaceLogout();
@@ -362,7 +363,7 @@ export function WorkspaceSidebarNav({ collapsed, onNavigate, onOpenSearch, onExp
         ? "--"
         : (availableMicrocredits / 1_000_000).toLocaleString("zh-CN", { maximumFractionDigits: 2 });
 
-    const { groups, footer } = useMemo(() => buildNav(features, balance, user?.role === "admin"), [features, balance, user?.role]);
+    const { groups, footer } = useMemo(() => buildNav(features, balance, user?.role === "admin", authMode), [features, balance, user?.role, authMode]);
 
     const slug = pathname.split("/").filter(Boolean)[0] || "create";
     const section = searchParams.get("section");

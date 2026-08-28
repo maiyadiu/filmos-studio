@@ -19,6 +19,12 @@ import (
 
 const SessionCookieName = "open_ai_canvas_session"
 
+const (
+	AuthModeAccount      = "account"
+	AuthModeDesktopLocal = "desktop_local"
+	desktopLocalUserID   = "filmos-desktop-local-user"
+)
+
 const sessionMaxAge = 30 * 24 * time.Hour
 
 var usernamePattern = regexp.MustCompile(`^[a-zA-Z0-9_-]{3,32}$`)
@@ -40,11 +46,12 @@ type LoginRequest struct {
 }
 
 type PublicAuthSettings struct {
-	FirstUser           bool `json:"firstUser"`
-	RegistrationEnabled bool `json:"registrationEnabled"`
-	LinuxDOEnabled      bool `json:"linuxdoEnabled"`
-	EmailEnabled        bool `json:"emailEnabled"`
-	EmailCodeRequired   bool `json:"emailCodeRequired"`
+	FirstUser           bool   `json:"firstUser"`
+	RegistrationEnabled bool   `json:"registrationEnabled"`
+	LinuxDOEnabled      bool   `json:"linuxdoEnabled"`
+	EmailEnabled        bool   `json:"emailEnabled"`
+	EmailCodeRequired   bool   `json:"emailCodeRequired"`
+	AuthMode            string `json:"authMode"`
 }
 
 type AuthSessionResult struct {
@@ -78,12 +85,15 @@ func Forbidden(message string) *AuthError {
 }
 
 func (s *Service) PublicAuthSettings() (*PublicAuthSettings, error) {
+	if s.DesktopLocalAuthEnabled() {
+		return &PublicAuthSettings{AuthMode: AuthModeDesktopLocal}, nil
+	}
 	count, err := s.repo.UserCount()
 	if err != nil {
 		return nil, err
 	}
 	if count == 0 {
-		return &PublicAuthSettings{FirstUser: true, RegistrationEnabled: true, LinuxDOEnabled: false}, nil
+		return &PublicAuthSettings{FirstUser: true, RegistrationEnabled: true, LinuxDOEnabled: false, AuthMode: AuthModeAccount}, nil
 	}
 	registrationEnabled, err := s.RegistrationEnabled()
 	if err != nil {
@@ -93,10 +103,13 @@ func (s *Service) PublicAuthSettings() (*PublicAuthSettings, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &PublicAuthSettings{FirstUser: false, RegistrationEnabled: registrationEnabled, LinuxDOEnabled: s.LinuxDOEnabled(), EmailEnabled: emailEnabled, EmailCodeRequired: true}, nil
+	return &PublicAuthSettings{FirstUser: false, RegistrationEnabled: registrationEnabled, LinuxDOEnabled: s.LinuxDOEnabled(), EmailEnabled: emailEnabled, EmailCodeRequired: true, AuthMode: AuthModeAccount}, nil
 }
 
 func (s *Service) Register(req RegisterRequest) (*AuthSessionResult, error) {
+	if s.DesktopLocalAuthEnabled() {
+		return nil, Forbidden("本地桌面版不使用账号注册")
+	}
 	username := normalizeUsername(req.Username)
 	email := normalizeEmail(req.Email)
 	displayName := normalizeDisplayName(req.DisplayName, username)
@@ -179,6 +192,9 @@ func (s *Service) Register(req RegisterRequest) (*AuthSessionResult, error) {
 }
 
 func (s *Service) Login(req LoginRequest) (*AuthSessionResult, error) {
+	if s.DesktopLocalAuthEnabled() {
+		return nil, Forbidden("本地桌面版不使用账号登录")
+	}
 	account := strings.TrimSpace(req.Username)
 	user, err := s.repo.UserByAccount(account)
 	if err != nil {
@@ -215,6 +231,9 @@ func (s *Service) Logout(cookieValue string) error {
 }
 
 func (s *Service) CurrentUser(cookieValue string) (*model.User, error) {
+	if s.DesktopLocalAuthEnabled() {
+		return s.desktopLocalUser()
+	}
 	sessionID, token := parseSessionCookie(cookieValue)
 	if sessionID == "" || token == "" {
 		return nil, Unauthorized("请先登录")
@@ -238,6 +257,50 @@ func (s *Service) CurrentUser(cookieValue string) (*model.User, error) {
 	}
 	if user.Status != model.UserStatusActive {
 		return nil, Forbidden("该账号已被禁用")
+	}
+	return user, nil
+}
+
+func (s *Service) AuthMode() string {
+	if s.DesktopLocalAuthEnabled() {
+		return AuthModeDesktopLocal
+	}
+	return AuthModeAccount
+}
+
+func (s *Service) desktopLocalUser() (*model.User, error) {
+	s.registrationMu.Lock()
+	defer s.registrationMu.Unlock()
+
+	user, err := s.repo.User(desktopLocalUserID)
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, err
+	}
+	now := time.Now()
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		user = &model.User{
+			ID:          desktopLocalUserID,
+			Username:    "filmos-desktop-local",
+			DisplayName: "FilmOS 本地工作台",
+			Role:        model.UserRoleAdmin,
+			Status:      model.UserStatusActive,
+			CreatedAt:   now,
+			UpdatedAt:   now,
+		}
+		if err := s.repo.Create(user); err != nil {
+			return nil, err
+		}
+	} else if user.Role != model.UserRoleAdmin || user.Status != model.UserStatusActive || user.DisplayName != "FilmOS 本地工作台" {
+		user.Role = model.UserRoleAdmin
+		user.Status = model.UserStatusActive
+		user.DisplayName = "FilmOS 本地工作台"
+		user.UpdatedAt = now
+		if err := s.repo.Save(user); err != nil {
+			return nil, err
+		}
+	}
+	if err := s.ensureSignupBonus(user.ID); err != nil {
+		return nil, err
 	}
 	return user, nil
 }

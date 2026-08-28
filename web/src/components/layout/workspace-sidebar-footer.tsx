@@ -24,6 +24,7 @@ export function WorkspaceSidebarFooter({ expandedClassName, collapsedClassName, 
     const theme = useThemeStore((state) => state.theme);
     const setTheme = useThemeStore((state) => state.setTheme);
     const user = useUserStore((state) => state.user);
+    const authMode = useUserStore((state) => state.authMode);
     const hydrated = useUserStore((state) => state.hydrated);
     const creditsEnabled = useUserStore((state) => state.features.creditsEnabled);
     const navigate = useNavigate();
@@ -90,7 +91,11 @@ export function WorkspaceSidebarFooter({ expandedClassName, collapsedClassName, 
                                 <span className="ml-2 flex-1 text-xs text-foreground/65">深色模式</span>
                                 <Switch size="small" checked={theme === "dark"} onChange={(checked) => setTheme(checked ? "dark" : "light")} aria-label="深色模式" />
                             </div>
-                            <button type="button" className="flex h-9 w-full items-center gap-2 rounded px-2 text-xs text-foreground/55 hover:bg-surface-hover hover:text-foreground" onClick={() => void handleLogout()}><LogOut className="size-3.5" />退出登录</button>
+                            {authMode === "desktop_local" ? (
+                                <div className="flex h-9 w-full items-center gap-2 rounded px-2 text-xs text-foreground/45"><CircleUserRound className="size-3.5" />本地工作台·无需登录</div>
+                            ) : (
+                                <button type="button" className="flex h-9 w-full items-center gap-2 rounded px-2 text-xs text-foreground/55 hover:bg-surface-hover hover:text-foreground" onClick={() => void handleLogout()}><LogOut className="size-3.5" />退出登录</button>
+                            )}
                         </div>
                     )}
                 >

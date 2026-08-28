@@ -7,9 +7,11 @@ import { RouterProvider } from "react-router";
 import "@/lib/plugins/builtin";
 
 import { AppProviders } from "@/components/layout/app-providers";
+import { installDesktopBackupBridge } from "@/lib/desktop-backup-bridge";
 import { router } from "@/router";
 
 document.body.style.fontFamily = '"SF Pro Display","SF Pro Text","PingFang SC","Microsoft YaHei","Helvetica Neue",sans-serif';
+installDesktopBackupBridge();
 
 createRoot(document.getElementById("root")!).render(
     <React.StrictMode>

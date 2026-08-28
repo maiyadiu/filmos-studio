@@ -32,6 +32,7 @@ export async function applyUserSession(payload: AuthSessionPayload) {
         const [persistedCanvas, persistedAssets] = await Promise.all([localForageStorage.getItem(CANVAS_STORE_KEY), localForageStorage.getItem(ASSET_STORE_KEY)]);
         const persistedConfig = scopedLocalStorage.getItem(CONFIG_STORE_KEY);
         useUserStore.getState().setUser(payload.user);
+        useUserStore.getState().setAuthMode(payload.authMode);
         useUserStore.getState().setRuntimeLimits(payload.runtimeLimits);
         useUserStore.getState().setDrawingEngine(payload.drawingEngine);
         useUserStore.getState().setFeatures(payload.features);

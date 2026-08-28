@@ -2,6 +2,7 @@ import Foundation
 
 public struct LocalDataLayout: Equatable, Sendable {
     public let rootURL: URL
+    public let workbenchDataURL: URL
     public let runtimeStateURL: URL
     public let processLogsURL: URL
     public let migrationStagingURL: URL
@@ -14,6 +15,7 @@ public struct LocalDataLayout: Equatable, Sendable {
         }
 
         rootURL = base.appendingPathComponent("FilmOS Studio", isDirectory: true)
+        workbenchDataURL = rootURL.appendingPathComponent("WorkbenchData", isDirectory: true)
         runtimeStateURL = rootURL.appendingPathComponent("Runtime", isDirectory: true)
         processLogsURL = rootURL.appendingPathComponent("Logs", isDirectory: true)
         migrationStagingURL = rootURL.appendingPathComponent("MigrationStaging", isDirectory: true)
@@ -28,7 +30,7 @@ public struct LocalDataLayout: Equatable, Sendable {
     }
 
     public func prepareDirectories(fileManager: FileManager = .default) throws {
-        for directory in [rootURL, runtimeStateURL, processLogsURL, migrationStagingURL, bookmarkStateURL] {
+        for directory in [rootURL, workbenchDataURL, runtimeStateURL, processLogsURL, migrationStagingURL, bookmarkStateURL] {
             try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
         }
     }

@@ -39,7 +39,11 @@ func main() {
 
 	repo := repository.New(db)
 	addr := env("CANVAS_BACKEND_ADDR", ":8080")
-	capabilities := service.RuntimeCapabilitiesForDeployment(addr, os.Getenv("CANVAS_DESKTOP_LOCAL_CHANNELS_ENABLED"))
+	capabilities := service.RuntimeCapabilitiesForDeployment(
+		addr,
+		os.Getenv("CANVAS_DESKTOP_LOCAL_CHANNELS_ENABLED"),
+		os.Getenv("CANVAS_DESKTOP_LOCAL_AUTH_ENABLED"),
+	)
 	svc := service.NewWithRuntimeCapabilities(repo, dataDir, capabilities)
 	if err := svc.ValidateRuntime(); err != nil {
 		log.Fatal(err)
@@ -100,6 +104,7 @@ func main() {
 	handler.RegisterSessionRoutes(api, svc)
 	handler.RegisterSkillRoutes(api, svc)
 	handler.RegisterUserDataRoutes(api, svc)
+	handler.RegisterDesktopBackupRoutes(api, svc)
 	handler.RegisterDiagnosticsRoutes(api, svc)
 	handler.RegisterPluginRoutes(api, svc)
 	projectAPI := api.Group("")
@@ -108,7 +113,7 @@ func main() {
 	handler.RegisterCanvasShareRoutes(api, svc)
 	r.NoRoute(handler.SystemProxyNoRouteHandler(svc))
 
-	log.Printf("影策 backend listening on %s", addr)
+	log.Printf("FilmOS backend listening on %s", addr)
 	if err := r.Run(addr); err != nil {
 		log.Fatal(err)
 	}

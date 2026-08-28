@@ -2,7 +2,7 @@ program: FilmOS Studio
 architecture: Film Production OS
 status: ACTIVE
 program_integrator: current-codex-task
-workspace: /Users/apple/Downloads/other/短剧/FilmOS Studio
+workspace: $REPO
 started_at: 2026-08-28T02:16:08+08:00
 source_directives:
   - AI影视工作台_影策主干_一次性并行实施总计划_V6.1.md

@@ -136,7 +136,7 @@ func RegisterAuthRoutes(r *gin.RouterGroup, svc *service.Service) {
 			failService(c, err)
 			return
 		}
-		ok(c, gin.H{"user": publicUser, "logicalModels": logicalModels, "runtimeLimits": limits, "drawingEngine": drawingEngine, "features": features})
+		ok(c, gin.H{"user": publicUser, "authMode": svc.AuthMode(), "logicalModels": logicalModels, "runtimeLimits": limits, "drawingEngine": drawingEngine, "features": features})
 	})
 	r.GET("/channels/system", func(c *gin.Context) {
 		actor, err := currentUser(c, svc)
@@ -783,7 +783,7 @@ func shortSystemProxyPath(rawPath string) (string, string, bool) {
 // as a channel request when a business route returns 404.
 func isReservedAPIPathPrefix(value string) bool {
 	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "admin", "ai", "announcements", "assets", "auth", "canvas-projects", "channels", "diagnostics", "features", "files", "model-catalog", "models", "oauth", "plugins", "projects", "public", "resources", "sessions", "settings", "skills", "style-profiles", "tasks", "user-data", "voice-profiles", "wallet":
+	case "admin", "ai", "announcements", "assets", "auth", "canvas-projects", "channels", "desktop", "diagnostics", "features", "files", "model-catalog", "models", "oauth", "plugins", "projects", "public", "resources", "sessions", "settings", "skills", "style-profiles", "tasks", "user-data", "voice-profiles", "wallet":
 		return true
 	default:
 		return false

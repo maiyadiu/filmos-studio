@@ -1,0 +1,56 @@
+#!/bin/sh
+set -eu
+
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+if [ "${FILMOS_ACCEPTANCE_ALLOW_DIRTY:-0}" != "1" ] && [ -n "$(git -C "$ROOT" status --porcelain)" ]; then
+    printf '%s\n' "Formal acceptance requires a clean worktree. Set FILMOS_ACCEPTANCE_ALLOW_DIRTY=1 only for development evidence." >&2
+    exit 2
+fi
+
+"$ROOT/acceptance/bootstrap"
+PATH_FILE=$(mktemp "${TMPDIR:-/tmp}/filmos-acceptance.XXXXXX")
+trap 'rm -f "$PATH_FILE"' EXIT HUP INT TERM
+
+ARTIFACT_ROOT=${FILMOS_ACCEPTANCE_ARTIFACT_ROOT:-"$ROOT/.local/acceptance-artifacts"}
+EVIDENCE_ROOT=${FILMOS_ACCEPTANCE_EVIDENCE_ROOT:-"$ARTIFACT_ROOT/runs"}
+RELEASE_MANIFEST="$ARTIFACT_ROOT/RELEASE_MANIFEST.json"
+mkdir -p "$EVIDENCE_ROOT"
+
+"$ROOT/.local/acceptance-venv/bin/python" "$ROOT/acceptance/run.py" \
+    --suite rc-local \
+    --evidence-root "$EVIDENCE_ROOT" \
+    --receipt-path-file "$PATH_FILE"
+RECEIPT=$(sed -n '1p' "$PATH_FILE")
+"$ROOT/.local/acceptance-venv/bin/python" "$ROOT/acceptance/verify.py" "$RECEIPT"
+
+if [ "${FILMOS_ACCEPTANCE_UPDATE_INDEX:-0}" = "1" ]; then
+    "$ROOT/.local/acceptance-venv/bin/python" "$ROOT/acceptance/update_index.py" "$RECEIPT"
+fi
+
+CLEAN=$(
+    "$ROOT/.local/acceptance-venv/bin/python" -c \
+        'import json,sys; print("1" if json.load(open(sys.argv[1], encoding="utf-8"))["clean_worktree"] else "0")' \
+        "$RECEIPT"
+)
+if [ "$CLEAN" = "1" ]; then
+    if [ -n "${FILMOS_ACCEPTANCE_BUILD_ID:-}" ]; then
+        "$ROOT/.local/acceptance-venv/bin/python" \
+            "$ROOT/acceptance/generate_release_manifest.py" \
+            --receipt "$RECEIPT" \
+            --output "$RELEASE_MANIFEST" \
+            --build-id "$FILMOS_ACCEPTANCE_BUILD_ID"
+    else
+        "$ROOT/.local/acceptance-venv/bin/python" \
+            "$ROOT/acceptance/generate_release_manifest.py" \
+            --receipt "$RECEIPT" \
+            --output "$RELEASE_MANIFEST"
+    fi
+    "$ROOT/.local/acceptance-venv/bin/python" \
+        "$ROOT/acceptance/verify_release_manifest.py" \
+        "$RELEASE_MANIFEST" "$RECEIPT"
+fi
+
+printf '%s\n' "$RECEIPT"
+if [ "$CLEAN" = "1" ]; then
+    printf '%s\n' "$RELEASE_MANIFEST"
+fi

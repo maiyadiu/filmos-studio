@@ -2,7 +2,7 @@
 
 ## 范围
 
-- Worktree：`/Users/apple/Downloads/other/短剧/wt-qa`
+- Worktree：`$WORKTREE`
 - Branch：`track/qa`
 - 基线提交：`f3a1bc92`
 - 生产代码变更：无

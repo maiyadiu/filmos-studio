@@ -38,6 +38,7 @@ export type AdminUser = LocalUser & {
 
 export type AuthSessionPayload = {
     user: LocalUser | null;
+    authMode?: "account" | "desktop_local";
     logicalModels?: PublicLogicalModel[];
     runtimeLimits?: RuntimeLimits;
     drawingEngine?: CanvasDrawingEngineSetting;
@@ -347,7 +348,7 @@ export type RuntimePolicySetting = {
 
 
 export function getAuthSettings() {
-    return request<{ firstUser: boolean; registrationEnabled: boolean; linuxdoEnabled: boolean; emailEnabled: boolean; emailCodeRequired: boolean }>(api.get("/auth/settings"));
+    return request<{ firstUser: boolean; registrationEnabled: boolean; linuxdoEnabled: boolean; emailEnabled: boolean; emailCodeRequired: boolean; authMode: "account" | "desktop_local" }>(api.get("/auth/settings"));
 }
 
 export function linuxDOLoginURL(next: string) {
