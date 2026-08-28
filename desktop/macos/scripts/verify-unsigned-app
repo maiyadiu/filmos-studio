@@ -14,15 +14,22 @@ web_server="$bundle/Contents/Helpers/FilmOSWeb"
 icon="$bundle/Contents/Resources/FilmOSStudio.icns"
 runtime="$bundle/Contents/Resources/InternalRuntime.json"
 web_root="$bundle/Contents/Resources/Web"
-plutil -lint "$plist" >/dev/null
-/usr/bin/jq -e '
-    .schema_version == 2 and
-    .application_support_directory_name == "FilmOS Studio" and
-    .backend_data_directory_name == "WorkbenchData" and
-    (has("workspace_root") | not) and
-    (has("bun_executable") | not) and
-    (has("backend_data_directory") | not)
-' "$runtime" >/dev/null
+/usr/bin/plutil -lint "$plist" >/dev/null
+
+runtime_value() {
+    /usr/bin/plutil -extract "$1" raw -o - "$runtime"
+}
+
+runtime_lacks() {
+    ! /usr/bin/plutil -extract "$1" raw -o - "$runtime" >/dev/null 2>&1
+}
+
+test "$(runtime_value schema_version)" = "2"
+test "$(runtime_value application_support_directory_name)" = "FilmOS Studio"
+test "$(runtime_value backend_data_directory_name)" = "WorkbenchData"
+runtime_lacks workspace_root
+runtime_lacks bun_executable
+runtime_lacks backend_data_directory
 
 test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist")" = "com.filmos.studio.localbeta"
 test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$plist")" = "FilmOSStudioDesktop"
@@ -43,10 +50,9 @@ file "$binary" | grep -q 'Mach-O'
 file "$backend" | grep -q 'Mach-O'
 file "$web_server" | grep -q 'Mach-O'
 
-test "$(/usr/bin/jq -r '.schema_version' "$runtime")" = "2"
-start_url=$(/usr/bin/jq -r '.start_url' "$runtime")
-web_health_url=$(/usr/bin/jq -r '.web_health_url' "$runtime")
-backend_health_url=$(/usr/bin/jq -r '.backend_health_url' "$runtime")
+start_url=$(runtime_value start_url)
+web_health_url=$(runtime_value web_health_url)
+backend_health_url=$(runtime_value backend_health_url)
 grep -q 'name="filmos-workbench" content="v1"' "$web_root/index.html"
 grep -q '<title>FilmOS Studio</title>' "$web_root/index.html"
 case "$start_url" in http://127.0.0.1:43100/*) ;; *) exit 1 ;; esac

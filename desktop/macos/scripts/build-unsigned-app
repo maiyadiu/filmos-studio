@@ -106,9 +106,11 @@ install -m 0644 "$package_dir/App/Info.plist" "$bundle/Contents/Info.plist"
 install -m 0644 "$staging/FilmOSStudio.icns" "$bundle/Contents/Resources/FilmOSStudio.icns"
 install -m 0644 "$staging/InternalRuntime.json" "$bundle/Contents/Resources/InternalRuntime.json"
 /usr/bin/ditto "$workspace_root/web/dist" "$bundle/Contents/Resources/Web"
-plutil -lint "$bundle/Contents/Info.plist" >/dev/null
-/usr/bin/jq -e '.schema_version == 2 and (.application_support_directory_name == "FilmOS Studio") and (.start_url | type == "string")' \
-    "$bundle/Contents/Resources/InternalRuntime.json" >/dev/null
+/usr/bin/plutil -lint "$bundle/Contents/Info.plist" >/dev/null
+runtime="$bundle/Contents/Resources/InternalRuntime.json"
+test "$(/usr/bin/plutil -extract schema_version raw -o - "$runtime")" = "2"
+test "$(/usr/bin/plutil -extract application_support_directory_name raw -o - "$runtime")" = "FilmOS Studio"
+test -n "$(/usr/bin/plutil -extract start_url raw -o - "$runtime")"
 mv "$bundle" "$destination"
 
 trap - EXIT HUP INT TERM

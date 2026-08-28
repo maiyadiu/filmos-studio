@@ -6,7 +6,7 @@
 - 建立 SQLite 一致性备份与恢复合同，逐文件记录 SHA-256，并排除 API Key、Cookie、CLI 登录凭据、`.settings-key` 和可重建缓存。
 - 新增 `acceptance/` 独立验收体系：固定 `FilmOS_Acceptance_Project` 全链、Golden A/B/C、重启/备份恢复、精准 STALE、Agent/ChatGPT、上游兼容、性能、隐私、报告哈希与可重放 CI；外部验收仓库锁定为 `maiyadiu/filmos-studio`。
 - 验收冻结合同改为无 Git 自引用设计：仓库内 Manifest 只哈希稳定规范与 Schema，固定 Commit 后由 Runner/CI 生成 artifact-only `RELEASE_MANIFEST.json`绑定 Commit、Tree、Receipt 和 Build。
-- 修复 Pre-RC 外部验收发现的干净 macOS Runner 差异：GitHub Acceptance 固定 Swift 6.0.3 与 Xcode 默认 Apple C/SDK 工具链，修正 Swift 6 下 WebKit delegate 主线程隔离；RC 恢复演练按冻结 Yingce Commit/Tree 自建隔离上游仓库，不再依赖本机 remote/ref。
+- 修复 Pre-RC 外部验收发现的干净 macOS Runner 差异：GitHub Acceptance 固定 Swift 6.0.3 与 Xcode 默认 Apple C/SDK 工具链，修正 Swift 6 下 WebKit delegate 主线程隔离，并以 macOS 自带 `plutil` 取代不存在的 `/usr/bin/jq`；RC 恢复演练按冻结 Yingce Commit/Tree 自建隔离上游仓库，不再依赖本机 remote/ref。
 - 修复 Dreamina reconciler 关闭时心跳等待者未跟随 shutdown 取消的竞态，并使 Node 22 下的 `unref` 心跳回归测试具有有界、可重放的事件循环条件。
 - 将 `acceptance/EVIDENCE_INDEX.json` 收敛为纯稳定 Track 证据合同；候选 Commit、Receipt、运行日志和通过状态仅存于 CI artifact 的 `RELEASE_MANIFEST.json` 与 `receipt.json`。
 - 新增用户诊断包导出：设置页和失败任务详情支持导出最近 15 分钟、30 分钟、1 小时或 24 小时内的脱敏 ZIP，并通过 `traceId`、`requestId`、`taskId` 和 `providerRequestId` 关联前端、任务日志与模型上游调用。
