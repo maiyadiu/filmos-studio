@@ -4,9 +4,9 @@
 
 - Track 00 实现状态：`IMPLEMENTED`。
 - 固定 Stable：`v1.2.1` → `61b332583c4fcbf71890ae67e3f0f104d67706b9`；tree `87c68a9da95ef4f5914b7fc5d662dc0aac452264`。
-- 当前 Candidate：`upstream-yingce/main` → `4ee5b630edfbd6da1e41b98ef1d2f3b1184c345a`，是 Stable 后代。
+- 当前 Candidate：`upstream-yingce/main` → `19ebfbb3c1dd0227d6a194cd6067d5e06e27e521`，是 Stable 后代。
 - 静态兼容分类：`C_MIGRATION_REQUIRED`。
-- Candidate 原生验证 gate：`D_BLOCKED`；上游 backend 原生测试有 1 个真实失败，未合并 Candidate。
+- Candidate 原生验证 gate：`PASSED`；最终总体仍为 `C_MIGRATION_REQUIRED`，未合并 Candidate。
 
 验证日期：`2026-08-28`（Asia/Shanghai）。
 
@@ -72,12 +72,12 @@ scripts/upstream/run-compat --output .local/upstream-compat --fail-on D_BLOCKED
 ### 5. 隔离 Candidate 原生验证
 
 ```bash
-scripts/upstream/run-compat --build-candidate --output .local/upstream-compat-build --fail-on D_BLOCKED
+scripts/upstream/run-compat --build-candidate --build-timeout 300 --output .local/stage5-upstream-build-fixed --fail-on D_BLOCKED
 ```
 
-结果：退出码 `2`，总体 `D_BLOCKED`。backend 多个 package 已通过；`backend/internal/service` 中 `TestOSSSettingKeepsS3SecretsWhenLocationChanges` 失败，位置为上游 `backend/internal/service/storage_s3_test.go:142`，错误“外部服务域名解析失败”。完整本机日志：`.local/upstream-compat-build/candidate-build.log`（未提交）。
+结果：退出码 `0`，Candidate 原生验证 `PASSED / A_AUTO_COMPATIBLE`，总体 `C_MIGRATION_REQUIRED`。Backend tests、Canvas Agent install/test/build、Web install/build 全部通过；完整本机日志为 `.local/stage5-upstream-build-fixed/candidate-build.log`（未提交）。
 
-脚本按 fail-fast 停止，未继续执行 Canvas Agent/Web install/test/build，也未将 Candidate 合入任何 FilmOS 分支。
+首次刷新曾因 Agent 跨 Runtime 测试在 Web 依赖安装前导入 `idb` 而误判 D。已修正 `build_candidate` 的安装顺序，并以脚本 5/5 自测和上述完整候选门复验；没有删除、跳过或隔离失败测试，也未将 Candidate 合入任何 FilmOS 分支。
 
 ### 6. 回滚保护
 
@@ -89,7 +89,7 @@ scripts/upstream/rollback --dry-run
 
 ## Known gaps
 
-1. Candidate 原生验证当前为 `D_BLOCKED`；必须先解决/确认上游 S3 测试的 DNS 依赖，再重新执行完整 backend、Canvas Agent 和 Web 验证。
+1. Candidate 原生门已通过，但持久模型和迁移变化仍为 `C_MIGRATION_REQUIRED`；通过原生构建不等于迁移或业务吸收获批。
 2. 当前差异器是确定性的静态 inventory/diff gate，不替代 OpenAPI 语义兼容器、真实数据库迁移演练或 Track 13 Golden；C 级结果必须交由 Program Integrator 和相关 Owner 继续验证。
 3. GitHub Actions 工作流已定义，但本轨未外部推送，因此没有远端 Actions run URL/receipt；本地证据不能冒充远端 CI 已通过。
 

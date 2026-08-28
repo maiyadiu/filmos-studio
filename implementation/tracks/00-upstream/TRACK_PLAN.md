@@ -3,8 +3,9 @@
 TRACK: `00-upstream`
 MODEL: `GPT-5.6 Sol`
 REASONING: `XHigh`
-STATUS: `IMPLEMENTED`
-CANDIDATE_GATE: `D_BLOCKED`
+STATUS: `IMPLEMENTED_REFRESHED`
+CANDIDATE_NATIVE_GATE: `PASSED`
+CANDIDATE_CLASSIFICATION: `C_MIGRATION_REQUIRED`
 
 ## 1. 本轨目标
 
@@ -14,7 +15,7 @@ CANDIDATE_GATE: `D_BLOCKED`
 
 - GitHub Release API：`ddcat-ai/open-ai-canvas` 当前最新非 prerelease 为 `v1.2.1`，发布时间 `2026-08-26T08:29:49Z`。
 - Stable：本地 annotated tag `v1.2.1` 与别名 `filmos-upstream-v1.2.1` 均 peel 到 commit `61b332583c4fcbf71890ae67e3f0f104d67706b9`；tree 为 `87c68a9da95ef4f5914b7fc5d662dc0aac452264`。
-- Candidate：`upstream-yingce/main` 为 `4ee5b630edfbd6da1e41b98ef1d2f3b1184c345a`，且是 Stable 的后代。
+- Candidate：`upstream-yingce/main` 为 `19ebfbb3c1dd0227d6a194cd6067d5e06e27e521`，且是 Stable 的后代。
 - Dev：本轨开工 HEAD 为 `f3a1bc925aca081816d1771f451b5d4cfcec6b76`，且是 Stable 的后代。
 - Reference：`reference-tigerowo/main=57b13aa1a2d7439955b0e65abe742bc7144df32f`；`reference-basket/main=ed013e8e5ce8ccab47cf2fc779f8e94555eb4c23`。
 - API：读取 `backend/cmd/server/main.go`、`backend/internal/handler/*.go`、`web/src/services/api/*`。Candidate 新增插件状态、管理员可用性和用户激活接口，并改变插件响应/权限语义。

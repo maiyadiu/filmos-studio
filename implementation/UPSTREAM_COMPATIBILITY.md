@@ -5,7 +5,7 @@
 | 状态 | Ref | Commit | 用途 |
 | --- | --- | --- | --- |
 | Stable | `v1.2.1` | `61b332583c4fcbf71890ae67e3f0f104d67706b9` | 唯一兼容基线和回滚锚点 |
-| Candidate | `upstream-yingce/main` | `4ee5b630edfbd6da1e41b98ef1d2f3b1184c345a` | 只读上游候选，不自动合并 |
+| Candidate | `upstream-yingce/main` | `19ebfbb3c1dd0227d6a194cd6067d5e06e27e521` | 只读上游候选，不自动合并 |
 | Dev | `HEAD` | 随 FilmOS 分支推进 | FilmOS Thin Patch，不冒充上游候选 |
 | Tigerowo reference | `reference-tigerowo/main` | `57b13aa1a2d7439955b0e65abe742bc7144df32f` | 只读模块检索 |
 | Basket reference | `reference-basket/main` | `ed013e8e5ce8ccab47cf2fc779f8e94555eb4c23` | 只读模块检索 |
@@ -81,9 +81,9 @@ scripts/upstream/run-compat --offline --output .local/upstream-compat
 | Canvas Schema | `B_ADAPTER_CHANGE` | 新增 Director 类型与运行语义；无已导出类型删除 |
 | MCP | `A_AUTO_COMPATIBLE` | Candidate 当前无 MCP 文件/工具 Schema 差异 |
 
-静态总体分类为 `C_MIGRATION_REQUIRED`。加入隔离 Candidate 原生验证后，当前 gate 为 `D_BLOCKED`：`go test ./...` 在上游 `backend/internal/service/storage_s3_test.go` 的 `TestOSSSettingKeepsS3SecretsWhenLocationChanges` 失败，真实错误为“外部服务域名解析失败”。验证按 fail-fast 停止，因此 Canvas Agent/Web 构建尚未执行。
+静态与最终总体分类均为 `C_MIGRATION_REQUIRED`。候选隔离原生验证已通过 Backend tests、Canvas Agent install/test/build 与 Web install/build；没有 D 级原生失败。候选仍不能直接吸收，因为 3 个新增持久模型、`ChannelModel` 变化和 2 个迁移/schema 文件修改必须先经过可回滚迁移与 Golden 验证。
 
-这不等于 Track 00 实现失败；它证明 D 级门禁能阻止一个原生测试未通过且包含数据迁移的 Candidate 被自动吸收。上游测试环境/实现修复后必须重新运行完整 Candidate build，不能跳过该测试来降级判定。
+第一次刷新运行曾在 Canvas Agent 跨 Runtime 测试导入 Web `idb` 时失败。根因是兼容脚本先运行 Agent test、后安装 Web 依赖；脚本现改为在任何跨 Runtime 测试前安装两侧锁定依赖。修正后的完整隔离门通过，未删除、跳过或单独隔离测试。
 
 ## 回滚
 

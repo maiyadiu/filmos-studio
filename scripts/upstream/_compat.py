@@ -641,9 +641,11 @@ def build_candidate(ctx: StateContext, output: Path, timeout: int) -> dict[str, 
     commands = [
         ("backend", ["go", "test", "./..."]),
         ("canvas-agent", ["bun", "install", "--frozen-lockfile"]),
+        # Canvas Agent has cross-runtime tests that import Web source modules.
+        # Install both dependency graphs before executing either native gate.
+        ("web", ["bun", "install", "--frozen-lockfile"]),
         ("canvas-agent", ["bun", "run", "test"]),
         ("canvas-agent", ["bun", "run", "build"]),
-        ("web", ["bun", "install", "--frozen-lockfile"]),
         ("web", ["bun", "run", "build"]),
     ]
     logs: list[str] = []
