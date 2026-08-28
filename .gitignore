@@ -37,6 +37,7 @@ assets/prototypes/.*.drawio.bkp
 .claude/settings.local.json
 .cursor/
 .playwright-mcp/
+/output/playwright/**/.playwright-cli/
 .serena/
 .spec-workflow/
 .vscode/

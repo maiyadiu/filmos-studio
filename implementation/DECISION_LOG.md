@@ -34,6 +34,7 @@
 - 接受 `CR-10-001`：新增 `GenerationAttemptEvidence`，Provider ID 保持可扩展，禁止保存密钥、Cookie、data URL、绝对路径和外部下载 URL。
 - 部分接受 `CR-09-001`：本阶段正式落地 `DirectorUnit` / `CoverageLink` / `ContinuityCheckResult`；SceneTwin、Blocking、Camera 的完整持久化留到 Golden C，不因投影模块存在而宣称已实现。
 - 接受 `CR-08-001`：实际 MCP 入口调用默认关闭的 Film 注册函数；增加 OpenAPI 操作面同步门，未通过前不扩展正式写入工具。
+- 部分接受 `CR-04-001`：本阶段正式落地 Human-only Script Lock、`ScriptDecision` 与 version/hash 原子守卫；Cue/Section 稳定映射和精确 Impact 传播留到下一阶段，不能以当前脚本锁定链冒充已实现。
 - 安全边界：本阶段 Provider 只准备 `NOT_SUBMITTED` 包并导入本地 fixture/人工结果；不进行外部生成、上传、远程发布、额度消耗或真实数据迁移。
 - 正式批准：Candidate 和 Review 不得自动生成 Approval；Approval 必须由 Human 绑定当前 Candidate content hash。
 - 回滚：保持全部 Film Feature Flag 默认关闭，移除 MCP 共享入口的注册调用，并回退 Sidecar 新表/路由；不修改 Host 核心表或稳定 ID。

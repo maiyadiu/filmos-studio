@@ -45,3 +45,14 @@
 - 当前头总门禁：Film Web `69/0`、189 assertions，TypeScript 与生产构建通过；Film Core `10/0`；Contracts 通过；Golden A 离线 Mock `4/0`；迁移 `8/0`。
 - 过程证据：Agent 首次集成专项因依赖目录未安装而无法加载 `zod`，按锁文件安装后专项、构建和完整回归通过；Film Core 总门禁第一次命令路径重复写入 `film-core/tests`，没有进入测试，改为当前目录 `tests` 后 `10/0` 通过。
 - 准确边界：无外部生成、上传、远程发布或积分消费；Candidate 分支仍未通过真实 Golden，不是可发布候选版。
+
+## 2026-08-28 开工批次 06｜第二阶段
+
+- 裁定：锁定真实 Golden A 最小纵向合同；接受 Prompt/Provider/Agent 请求，部分接受 Director 与 Script 合同，未把 deferred 对象伪装为已实现。
+- Core：Schema 升至 `0.2.0`，17 paths（16 implemented / 1 planned）；正式记录、Human-only Script Lock、Review/Approval 分离与双层 hash 已落地。加入严格 loopback-only CORS 后共 `37/0`。
+- MCP：共享 server 已接入 Film 注册函数；默认与 `canvasOnly` 工具增量均为 0，显式开启只新增 5 个 Film 工具；真实 MCP SDK + Sidecar Read → Preview → Apply 通过。
+- Web：真实 Project Overview 入口与 Production Canvas 安全预演已接线，任一 Flag 关闭即不产生 Film DOM；Film 专项 `78/0`、228 assertions，原生 Web `471/0`，类型检查和构建通过。
+- Golden A：真实临时 FastAPI/SQLite HTTP 链 `2/0`，从 Host/Core Project、Script Lock、Director/Coverage、VisualLock/Asset、Prompt/Package、Manual Import、Candidate/Review 到 Human Approval 全链通过；`fallback_mock_used=false`，外部调用 0。
+- 浏览器：Playwright 真实操作 Host 临时项目，发现并修复 Film Core CORS 缺口；`/health` 200 且回显精确本机 Origin，启用态显示安全预演，关闭态 Film DOM 不存在。
+- 回滚/恢复：stale version/hash/revision/stateHash 全部 fail closed；当前守卫可重放；关 Flag 恢复纯 Host 概览。完整灾难恢复、唯一 production canvas 正式创建和 Impact API 尚未完成。
+- 安全边界：未执行外部生成、上传、远程发布、真实数据迁移或积分消费；所有 Film Flag 仍默认关闭。

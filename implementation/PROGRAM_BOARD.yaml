@@ -23,18 +23,18 @@ integration_windows:
 tracks:
   - { id: "00", name: upstream, branch: track/upstream, worktree: ../wt-upstream, status: INTEGRATED_STATIC_C_CANDIDATE_D }
   - { id: "01", name: desktop, branch: track/desktop, worktree: ../wt-desktop, status: INTEGRATED_CORE_14_TESTS_PASSED }
-  - { id: "02", name: film-core, branch: track/film-core, worktree: ../wt-film-core, status: INTEGRATED_V0_10_TESTS_PASSED }
-  - { id: "03", name: project-ui, branch: track/project-ui, worktree: ../wt-project-ui, status: INTEGRATED_PROJECTION_7_TESTS_PASSED }
+  - { id: "02", name: film-core, branch: track/film-core, worktree: ../wt-film-core, status: INTEGRATED_STAGE2_CORE_37_TESTS_PASSED }
+  - { id: "03", name: project-ui, branch: track/project-ui, worktree: ../wt-project-ui, status: INTEGRATED_STAGE2_BROWSER_ENTRY_PASSED_DEFAULT_OFF }
   - { id: "04", name: story, branch: track/story, worktree: ../wt-story, status: INTEGRATED_DOMAIN_9_TESTS_PASSED }
-  - { id: "05", name: production-canvas, branch: track/production-canvas, worktree: ../wt-production-canvas, status: INTEGRATED_PROJECTION_7_TESTS_PASSED }
+  - { id: "05", name: production-canvas, branch: track/production-canvas, worktree: ../wt-production-canvas, status: INTEGRATED_STAGE2_SAFE_PREVIEW_AND_CONFLICT_GATES }
   - { id: "06", name: assets, branch: track/assets, worktree: ../wt-assets, status: INTEGRATED_ASSET_LOCK_10_TESTS_PASSED }
-  - { id: "07", name: prompt, branch: track/prompt, worktree: ../wt-prompt, status: INTEGRATED_PROMPT_DRAFT_8_TESTS_PASSED }
-  - { id: "08", name: agent, branch: track/agent, worktree: ../wt-agent, status: INTEGRATED_OFFLINE_NOT_REGISTERED_13_TESTS_PASSED }
-  - { id: "09", name: director, branch: track/director, worktree: ../wt-director, status: INTEGRATED_PROJECTION_GATE_9_TESTS_PASSED }
-  - { id: "10", name: providers, branch: track/providers, worktree: ../wt-providers, status: INTEGRATED_LOCAL_PACKAGE_11_TESTS_PASSED }
+  - { id: "07", name: prompt, branch: track/prompt, worktree: ../wt-prompt, status: INTEGRATED_STAGE2_DUAL_HASH_COMPILER_PASSED }
+  - { id: "08", name: agent, branch: track/agent, worktree: ../wt-agent, status: INTEGRATED_STAGE2_MCP_REGISTERED_DEFAULT_OFF_REAL_SIDECAR_PASSED }
+  - { id: "09", name: director, branch: track/director, worktree: ../wt-director, status: INTEGRATED_STAGE2_FORMAL_DIRECTOR_COVERAGE_CONTINUITY }
+  - { id: "10", name: providers, branch: track/providers, worktree: ../wt-providers, status: INTEGRATED_STAGE2_MANUAL_IMPORT_EXTERNAL_CALLS_ZERO }
   - { id: "11", name: migration, branch: track/migration, worktree: ../wt-migration, status: INTEGRATED_SANDBOX_PREVIEW_8_TESTS_PASSED }
   - { id: "12", name: remote, branch: track/remote, worktree: ../wt-remote, status: INTEGRATED_OFFLINE_PREVIEW_8_TESTS_PASSED }
-  - { id: "13", name: qa, branch: track/qa, worktree: ../wt-qa, status: INTEGRATED_BASELINE_AND_MOCK_PASSED }
+  - { id: "13", name: qa, branch: track/qa, worktree: ../wt-qa, status: INTEGRATED_REAL_HTTP_AND_BROWSER_GOLDEN_A_PASSED }
 first_vertical_slice:
   chain:
     - Project
@@ -48,5 +48,5 @@ first_vertical_slice:
     - Candidate
     - QC
     - Approved
-  status: STARTED_THROUGH_MANUAL_IMPORT_LOCAL_GATES_NO_REAL_E2E
-updated_at: 2026-08-28T03:40:00+08:00
+  status: REAL_GOLDEN_A_PASSED_EXTERNAL_CALLS_ZERO
+updated_at: 2026-08-28T09:58:18+08:00
