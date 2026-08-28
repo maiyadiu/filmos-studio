@@ -6,6 +6,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 
@@ -29,6 +30,81 @@ def command(*arguments: str) -> subprocess.CompletedProcess[str]:
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
     )
+
+
+def xcode_default(*arguments: str) -> subprocess.CompletedProcess[str]:
+    environment = os.environ.copy()
+    environment["TOOLCHAINS"] = "com.apple.dt.toolchain.XcodeDefault"
+    return subprocess.run(
+        ("/usr/bin/xcrun", "--sdk", "macosx", *arguments),
+        cwd=ROOT,
+        env=environment,
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+    )
+
+
+def xcode_value(*arguments: str) -> str:
+    result = xcode_default(*arguments)
+    value = result.stdout.strip()
+    if result.returncode or not value:
+        raise DesktopReleaseError(value or "Xcode default toolchain is unavailable")
+    return value
+
+
+def verify_apple_c_toolchain(require_explicit: bool) -> str:
+    expected_cc = Path(xcode_value("--find", "clang")).resolve()
+    expected_sdk = Path(xcode_value("--show-sdk-path")).resolve()
+    configured_cc = os.environ.get("CC", "").strip()
+    configured_sdk = os.environ.get("SDKROOT", "").strip()
+    if require_explicit and (not configured_cc or not configured_sdk):
+        raise DesktopReleaseError(
+            "GitHub Desktop build must explicitly select the Xcode default CC and macOS SDKROOT"
+        )
+
+    cc = Path(configured_cc).resolve() if configured_cc else expected_cc
+    sdk = Path(configured_sdk).resolve() if configured_sdk else expected_sdk
+    if cc != expected_cc or sdk != expected_sdk:
+        raise DesktopReleaseError(
+            "Desktop C toolchain drifted from the Xcode default clang/macOS SDK"
+        )
+    if not cc.is_file() or not os.access(cc, os.X_OK) or not sdk.is_dir():
+        raise DesktopReleaseError("Desktop C toolchain paths are unavailable")
+
+    version = subprocess.run(
+        (str(cc), "--version"),
+        cwd=ROOT,
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+    )
+    first_line = version.stdout.splitlines()[0].strip() if version.stdout else ""
+    if version.returncode or "Apple clang version" not in first_line:
+        raise DesktopReleaseError("Desktop CC is not the Apple clang toolchain")
+
+    with tempfile.TemporaryDirectory(prefix="filmos-c-toolchain-") as directory:
+        source = Path(directory) / "probe.c"
+        output = Path(directory) / "probe.o"
+        source.write_text(
+            "#include <stdlib.h>\nint filmos_c_toolchain_probe(void) { return EXIT_SUCCESS; }\n",
+            encoding="utf-8",
+        )
+        probe = subprocess.run(
+            (str(cc), "-isysroot", str(sdk), "-c", str(source), "-o", str(output)),
+            cwd=ROOT,
+            check=False,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if probe.returncode or not output.is_file():
+            raise DesktopReleaseError(
+                probe.stdout.strip() or "Apple C toolchain could not compile the Desktop probe"
+            )
+    return first_line
 
 
 def parsed_version(value: str) -> tuple[int, int, int]:
@@ -67,6 +143,8 @@ def main() -> int:
             f"GitHub Desktop toolchain drifted: expected {pinned}, got {installed[0]}.{installed[1]}.{installed[2]}"
         )
 
+    apple_clang = verify_apple_c_toolchain(require_explicit=bool(pinned))
+
     print(
         json.dumps(
             {
@@ -74,6 +152,9 @@ def main() -> int:
                 "installed": ".".join(str(part) for part in installed),
                 "package_tools_version": ".".join(str(part) for part in required),
                 "github_pin": pinned or None,
+                "apple_c_toolchain": apple_clang,
+                "apple_c_stdlib_probe": "PASSED",
+                "macos_sdk": "XcodeDefault/macosx",
                 "swift_6_contract_sources": [
                     "desktop/macos/Package.swift",
                     "desktop/macos/Tests/FilmOSDesktopCoreTests",

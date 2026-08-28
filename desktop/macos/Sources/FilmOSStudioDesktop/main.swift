@@ -282,7 +282,7 @@ private enum DesktopWorkbenchError: Error, LocalizedError {
 }
 
 @MainActor
-private final class WorkbenchWindow: NSObject, WKNavigationDelegate, WKUIDelegate {
+private final class WorkbenchWindow: NSObject, @preconcurrency WKNavigationDelegate, @preconcurrency WKUIDelegate {
     let window: NSWindow
 
     private let webView: WKWebView

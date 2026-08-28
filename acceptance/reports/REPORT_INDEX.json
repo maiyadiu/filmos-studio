@@ -2,9 +2,9 @@
   "evidence_status": "DEVELOPMENT_EVIDENCE_DIRTY",
   "raw_sources": [
     {
-      "bytes": 24616,
+      "bytes": 24708,
       "path": "CHANGELOG.md",
-      "sha256": "e7af727d2df14167308308351263762af6d458e4e3bf684706f69bc55f69bf9e"
+      "sha256": "11b9be1d409e77ed69023393881b7264ed8f0978b5755aeea12158a53fd60101"
     },
     {
       "bytes": 3357,

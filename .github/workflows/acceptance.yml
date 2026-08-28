@@ -56,8 +56,30 @@ jobs:
         with:
           swift-version: ${{ env.FILMOS_DESKTOP_SWIFT_VERSION }}
 
-      - name: Verify formal Desktop Swift toolchain
-        run: swift --version
+      - name: Establish formal Desktop Swift and Apple C toolchains
+        shell: bash
+        run: |
+          set -euo pipefail
+          swift --version
+
+          apple_cc="$(TOOLCHAINS=com.apple.dt.toolchain.XcodeDefault /usr/bin/xcrun --sdk macosx --find clang)"
+          apple_cxx="$(TOOLCHAINS=com.apple.dt.toolchain.XcodeDefault /usr/bin/xcrun --sdk macosx --find clang++)"
+          macos_sdk="$(TOOLCHAINS=com.apple.dt.toolchain.XcodeDefault /usr/bin/xcrun --sdk macosx --show-sdk-path)"
+          test -x "$apple_cc"
+          test -x "$apple_cxx"
+          test -d "$macos_sdk"
+
+          probe_source="$(mktemp "${RUNNER_TEMP}/filmos-c-toolchain.XXXXXX")"
+          probe_object="${probe_source}.o"
+          trap 'rm -f "$probe_source" "$probe_object"' EXIT
+          printf '#include <stdlib.h>\nint filmos_c_toolchain_probe(void) { return EXIT_SUCCESS; }\n' > "$probe_source"
+          "$apple_cc" -isysroot "$macos_sdk" -x c -c "$probe_source" -o "$probe_object"
+
+          {
+            echo "CC=$apple_cc"
+            echo "CXX=$apple_cxx"
+            echo "SDKROOT=$macos_sdk"
+          } >> "$GITHUB_ENV"
 
       - uses: actions/setup-python@v5
         with:
