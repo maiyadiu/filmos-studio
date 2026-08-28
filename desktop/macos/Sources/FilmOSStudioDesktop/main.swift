@@ -1,6 +1,11 @@
 import AppKit
 import FilmOSDesktopCore
 
+if ProcessInfo.processInfo.environment["FILMOS_DESKTOP_SMOKE_CHECK"] == "1" {
+    print("{\"application\":\"FilmOS Studio\",\"services_started\":false,\"smoke_check\":true}")
+    exit(EXIT_SUCCESS)
+}
+
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var window: NSWindow?

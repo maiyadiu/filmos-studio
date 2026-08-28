@@ -82,3 +82,12 @@ STATUS: `FIRST_SLICE_VERIFIED`
 - Track 02：后续提供真实 Film Core SQLite 初始化与 schema；本轨只保留 `film-core.sqlite` 相对位置，不创建伪数据库。
 - Track 08：后续确认桌面 NativeCommandBroker 与现有 Local Runtime/MCP 的协议边界。
 - Track 13：后续补签名 `.app` 启动、崩溃恢复和跨 Mac 真机 Golden。
+
+## 第五阶段 Beta 本地包
+
+- `BUILD`：使用 SwiftPM release executable 组装标准 macOS `.app/Contents/{MacOS,Resources}` 与锁定的 `Info.plist`。
+- `EXTEND`：AppKit 入口增加 `FILMOS_DESKTOP_SMOKE_CHECK=1`，只验证可执行初始化并明确 `services_started=false`；不打开窗口、不启动 Host/Core/Agent。
+- `DEFER`：Developer ID 签名、公证、DMG/PKG、自动更新、真实服务编排和跨 Mac 真机恢复仍需凭据、外部授权与独立验收。
+- 回滚：删除本阶段 bundle 脚本/模板并保持 `film.desktop_host=false`；未修改用户 Workspace 或主机 Application Support。
+
+STATUS: `STAGE_5_UNSIGNED_APP_LOCAL_PASSED`

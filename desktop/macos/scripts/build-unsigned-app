@@ -1,0 +1,47 @@
+#!/bin/sh
+set -eu
+
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+package_dir=$(CDPATH= cd -- "$script_dir/.." && pwd)
+destination=${1:-"$package_dir/.local/FilmOS Studio.app"}
+
+case "$destination" in
+    *.app) ;;
+    *)
+        echo "output must end with .app" >&2
+        exit 2
+        ;;
+esac
+
+if [ -e "$destination" ]; then
+    echo "refusing to overwrite existing bundle: $destination" >&2
+    exit 2
+fi
+
+swift build --package-path "$package_dir" -c release
+binary_dir=$(swift build --package-path "$package_dir" -c release --show-bin-path)
+binary="$binary_dir/FilmOSStudioDesktop"
+if [ ! -x "$binary" ]; then
+    echo "release executable missing: $binary" >&2
+    exit 1
+fi
+
+destination_parent=$(dirname -- "$destination")
+mkdir -p "$destination_parent"
+staging=$(mktemp -d "$destination_parent/.filmos-app.XXXXXX")
+cleanup() {
+    find "$staging" -type f -delete 2>/dev/null || true
+    find "$staging" -depth -type d -empty -delete 2>/dev/null || true
+}
+trap cleanup EXIT HUP INT TERM
+
+bundle="$staging/FilmOS Studio.app"
+mkdir -p "$bundle/Contents/MacOS" "$bundle/Contents/Resources"
+install -m 0755 "$binary" "$bundle/Contents/MacOS/FilmOSStudioDesktop"
+install -m 0644 "$package_dir/App/Info.plist" "$bundle/Contents/Info.plist"
+plutil -lint "$bundle/Contents/Info.plist" >/dev/null
+mv "$bundle" "$destination"
+
+trap - EXIT HUP INT TERM
+find "$staging" -depth -type d -empty -delete 2>/dev/null || true
+printf 'UNSIGNED_APP_READY %s\n' "$destination"

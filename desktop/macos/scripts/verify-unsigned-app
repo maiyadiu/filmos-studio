@@ -1,0 +1,28 @@
+#!/bin/sh
+set -eu
+
+bundle=${1:-}
+if [ -z "$bundle" ] || [ ! -d "$bundle" ]; then
+    echo "usage: verify-unsigned-app <FilmOS Studio.app>" >&2
+    exit 2
+fi
+
+plist="$bundle/Contents/Info.plist"
+binary="$bundle/Contents/MacOS/FilmOSStudioDesktop"
+plutil -lint "$plist" >/dev/null
+
+test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist")" = "com.filmos.studio.localbeta"
+test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$plist")" = "FilmOSStudioDesktop"
+test -x "$binary"
+file "$binary" | grep -q 'Mach-O'
+
+if [ -e "$bundle/Contents/_CodeSignature/CodeResources" ]; then
+    echo "distribution signature material must not be present in local Beta bundle" >&2
+    exit 1
+fi
+
+smoke=$(FILMOS_DESKTOP_SMOKE_CHECK=1 "$binary")
+test "$smoke" = '{"application":"FilmOS Studio","services_started":false,"smoke_check":true}'
+
+bundle_hash=$(shasum -a 256 "$plist" "$binary" | awk '{print $1}' | shasum -a 256 | awk '{print $1}')
+printf 'UNSIGNED_APP_VERIFIED bundle_hash=%s services_started=false\n' "$bundle_hash"

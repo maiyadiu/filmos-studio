@@ -140,3 +140,14 @@ Duration: 0.019s (final test execution)
 - 回退本 Track 提交即可；本批未修改 Host、Web、Canvas Agent、数据库 schema 或其他 Track 所有权路径。
 - 本批没有对用户数据执行迁移；测试数据只在随机 XCTest/Swift Testing 临时目录中创建并随用例清理。
 - 全局开关 `film.desktop_host` 和 `film.local_workspace` 仍为 `false`，新代码未与原影策流程接线。
+
+## 第五阶段 unsigned `.app` 证据
+
+- 新增锁定 `Info.plist`、`build-unsigned-app` 与 `verify-unsigned-app`；构建脚本拒绝覆盖既有 bundle，先执行 release build，再在同一父目录临时 staging 后原子移动。
+- bundle 标识为 `com.filmos.studio.localbeta`，最低 macOS 13；不包含 `_CodeSignature/CodeResources`，不能冒充 Developer ID 签名或公证包。
+- smoke 模式真实执行 bundle 内 Mach-O，只输出 `smoke_check=true / services_started=false` 后退出，不打开 AppKit 窗口、不启动任何服务。
+- 两个不同临时目录连续构建的 executable SHA-256 均为 `2e08396dbb4e5af4f227daab2f8b8f1dd5711a3b9572ead0799e16099b8e4138`，Info.plist SHA-256 均为 `05a26b93e5c27045c9cb5050d4fcca3910ee42d21f393e7b2fe616f91ceabe4a`。
+
+验证回执：Swift `14 tests / 3 suites` 通过；Debug/Release 构建通过；脚本语法通过；bundle 结构、plist、Mach-O、无分发签名材料与真实 smoke 通过，内容组合 hash 为 `ea4005508f9d014d39ce4bbfb50bffaa786ce78dedb11926568f962b8140852a`。临时 `.app` 已清理。
+
+状态边界：`PASSED_LOCAL_UNSIGNED_APP`。签名、公证、DMG/PKG、自动更新、真实服务启动和跨 Mac 恢复仍为 `NOT_AUTHORIZED / NOT_RUN`。
