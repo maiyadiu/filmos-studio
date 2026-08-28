@@ -20,6 +20,7 @@ export type FilmHostBinding = {
 
 export type PromptAssetBinding = {
     binding: FilmHostBinding;
+    sourceContentHash: string;
     role: string;
     priority: number;
 };
@@ -71,9 +72,11 @@ export type PromptDraftCompilerInput = {
         directorUnit: FilmHostBinding;
     };
     directorIrText: string;
+    directorIrHash: string;
     visualLock: {
         binding: FilmHostBinding;
         lockText: string;
+        lockHash: string;
     };
     template: {
         hostPromptTemplateId: string;
@@ -150,7 +153,12 @@ export class PromptDraftCompileError extends Error {
     readonly report: PromptAuditReport;
 
     constructor(report: PromptAuditReport) {
-        super(report.findings.filter((finding) => finding.status === "FAIL").map((finding) => `${finding.code}: ${finding.message}`).join("; "));
+        super(
+            report.findings
+                .filter((finding) => finding.status === "FAIL")
+                .map((finding) => `${finding.code}: ${finding.message}`)
+                .join("; "),
+        );
         this.name = "PromptDraftCompileError";
         this.report = report;
     }
@@ -191,8 +199,8 @@ export async function compilePromptDraft(input: PromptDraftCompilerInput): Promi
                 delivery_state: "not_ready",
                 stale_state: "fresh",
             },
-            director_ir_hash: normalized.scope.directorUnit.contentHash,
-            visual_lock_hash: normalized.visualLock.binding.contentHash,
+            director_ir_hash: normalized.directorIrHash,
+            visual_lock_hash: normalized.visualLock.lockHash,
             model_capability_profile: `${normalized.providerCapability.profileId}@${normalized.providerCapability.profileVersion}`,
             prompt_text: promptText,
         },
@@ -252,12 +260,15 @@ export async function auditPromptDraftInput(input: PromptDraftCompilerInput): Pr
     validateBinding(input.visualLock?.binding, "VISUAL_LOCK", undefined, findings);
     input.assets?.forEach((asset, index) => {
         validateBinding(asset.binding, `ASSET_${index}`, undefined, findings);
+        validateRawHash(asset.sourceContentHash, `ASSET_${index}_SOURCE_HASH_INVALID`, "Asset source hash", findings);
         if (!asset.role?.trim()) fail(`ASSET_${index}_ROLE_INVALID`, "Asset role must be explicit");
         if (!Number.isInteger(asset.priority) || asset.priority < 0 || asset.priority > 100) fail(`ASSET_${index}_PRIORITY_INVALID`, "Asset priority must be an integer from 0 to 100");
     });
 
     validateRequiredText(input.directorIrText, "DIRECTOR_IR_TEXT_INVALID", "Director IR text", findings);
     validateRequiredText(input.visualLock?.lockText, "VISUAL_LOCK_TEXT_INVALID", "Visual lock text", findings);
+    validateRawHash(input.directorIrHash, "DIRECTOR_IR_RAW_HASH_INVALID", "Director IR raw hash", findings);
+    validateRawHash(input.visualLock?.lockHash, "VISUAL_LOCK_RAW_HASH_INVALID", "Visual lock raw hash", findings);
     validateTemplate(input.template, findings);
     validateCapability(input.providerCapability, findings);
     validateProviderParameters(input.providerParameters, input.providerCapability, findings);
@@ -265,11 +276,11 @@ export async function auditPromptDraftInput(input: PromptDraftCompilerInput): Pr
 
     if (!findings.some((finding) => finding.status === "FAIL")) {
         const directorHash = await sha256Text(input.directorIrText);
-        if (directorHash !== input.scope.directorUnit.contentHash) fail("DIRECTOR_IR_HASH_MISMATCH", "Director IR text does not match the bound contentHash");
+        if (directorHash !== input.directorIrHash) fail("DIRECTOR_IR_HASH_MISMATCH", "Director IR text does not match directorIrHash");
         else pass("DIRECTOR_IR_HASH_BOUND", "Director IR content hash verified");
 
         const visualLockHash = await sha256Text(input.visualLock.lockText);
-        if (visualLockHash !== input.visualLock.binding.contentHash) fail("VISUAL_LOCK_HASH_MISMATCH", "Visual lock text does not match the bound contentHash");
+        if (visualLockHash !== input.visualLock.lockHash) fail("VISUAL_LOCK_HASH_MISMATCH", "Visual lock text does not match visualLock.lockHash");
         else pass("VISUAL_LOCK_HASH_BOUND", "Visual lock content hash verified");
 
         const templateHash = await sha256Text(input.template.content);
@@ -320,9 +331,7 @@ function normalizeInput(input: PromptDraftCompilerInput): PromptDraftCompilerInp
             binding: normalizeBinding(input.visualLock.binding),
         },
         template: { ...input.template },
-        assets: input.assets
-            .map((asset) => ({ ...asset, binding: normalizeBinding(asset.binding) }))
-            .sort((left, right) => `${left.role}:${left.binding.filmEntityId}`.localeCompare(`${right.role}:${right.binding.filmEntityId}`, "en")),
+        assets: input.assets.map((asset) => ({ ...asset, binding: normalizeBinding(asset.binding) })).sort((left, right) => `${left.role}:${left.binding.filmEntityId}`.localeCompare(`${right.role}:${right.binding.filmEntityId}`, "en")),
         providerCapability: {
             ...input.providerCapability,
             supports: { ...input.providerCapability.supports },
@@ -335,14 +344,19 @@ function normalizeInput(input: PromptDraftCompilerInput): PromptDraftCompilerInp
 
 function buildPromptText(input: PromptDraftCompilerInput): string {
     const assetLines = input.assets.length
-        ? input.assets.map((asset) => canonicalJson({
-            film_entity_id: asset.binding.filmEntityId,
-            host_references: asset.binding.hostReferences,
-            version: asset.binding.version,
-            content_hash: asset.binding.contentHash,
-            role: asset.role,
-            priority: asset.priority,
-        })).join("\n")
+        ? input.assets
+              .map((asset) =>
+                  canonicalJson({
+                      film_entity_id: asset.binding.filmEntityId,
+                      host_references: asset.binding.hostReferences,
+                      version: asset.binding.version,
+                      record_content_hash: asset.binding.contentHash,
+                      source_content_hash: asset.sourceContentHash,
+                      role: asset.role,
+                      priority: asset.priority,
+                  }),
+              )
+              .join("\n")
         : "[]";
 
     return [
@@ -375,10 +389,13 @@ function canonicalJson(value: unknown): string {
     if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
     if (typeof value === "object") {
         const record = value as Record<string, unknown>;
-        return `{${Object.keys(record).sort().map((key) => {
-            if (record[key] === undefined) throw new TypeError(`Canonical JSON does not allow undefined at ${key}`);
-            return `${JSON.stringify(key)}:${canonicalJson(record[key])}`;
-        }).join(",")}}`;
+        return `{${Object.keys(record)
+            .sort()
+            .map((key) => {
+                if (record[key] === undefined) throw new TypeError(`Canonical JSON does not allow undefined at ${key}`);
+                return `${JSON.stringify(key)}:${canonicalJson(record[key])}`;
+            })
+            .join(",")}}`;
     }
     throw new TypeError(`Canonical JSON does not allow ${typeof value}`);
 }
@@ -415,6 +432,10 @@ function validateBinding(binding: FilmHostBinding | undefined, code: string, req
 
 function validateRequiredText(value: string | undefined, code: string, label: string, findings: PromptAuditFinding[]) {
     if (!value?.trim()) findings.push({ code, status: "FAIL", message: `${label} must be explicit and non-empty` });
+}
+
+function validateRawHash(value: string | undefined, code: string, label: string, findings: PromptAuditFinding[]) {
+    if (!value || !SHA256.test(value)) findings.push({ code, status: "FAIL", message: `${label} must be a lowercase SHA-256` });
 }
 
 function validateTemplate(template: PromptDraftCompilerInput["template"] | undefined, findings: PromptAuditFinding[]) {

@@ -22,6 +22,9 @@ export type GoldenALocalInput = {
   hostProjectId: string;
   hostUnitId: string;
   hostShotId: string;
+  directorIr: { text: string; contentHash: string };
+  visualLockRaw: { text: string; contentHash: string };
+  assetSourceContentHash: string;
   project: GoldenFilmRef;
   scriptVersion: GoldenFilmRef;
   directorUnit: GoldenFilmRef;
@@ -46,6 +49,8 @@ export type GoldenALocalReceipt = {
   prompt: {
     audit: "PASS";
     promptDraftId: string;
+    promptText: string;
+    templateHash: string;
     promptHash: string;
     inputHash: string;
   };
@@ -68,27 +73,44 @@ export type GoldenALocalReceipt = {
     approvalState: "not_approved";
     contentHash: string;
   };
+  sourceBindings: {
+    directorRecordHash: string;
+    directorRawHash: string;
+    visualLockRecordHash: string;
+    visualLockRawHash: string;
+    assetRecordHash: string;
+    assetSourceHash: string;
+  };
+  manualImport: {
+    providerTaskId: string;
+    receiptId: string;
+    receiptContentHash: string;
+    manualSourceId: string;
+    importedBy: string;
+    authorizationEvidenceId: string;
+    hostResourceId: string;
+    outputContentHash: string;
+  };
 };
 
 export async function runGoldenALocalChain(
   input: GoldenALocalInput,
 ): Promise<GoldenALocalReceipt> {
-  const directorIrText =
-    "人物在门口停步，右手握住门把，视线保持在室内目标；镜头不得越过既定轴线。";
-  const visualLockText =
-    "人物保持画面左侧，门与动作目标保持右侧；服装、道具与视线连续。";
   const templateContent =
     "将导演 IR、视觉锁与授权资产绑定编译为可人工执行的提示词，不补写未提供事实。";
-  const directorHash = await sha256Text(directorIrText);
-  const visualLockHash = await sha256Text(visualLockText);
   const templateHash = await sha256Text(templateContent);
-  if (input.directorUnit.contentHash !== directorHash)
+  if (
+    input.directorIr.contentHash !== (await sha256Text(input.directorIr.text))
+  )
     throw new Error(
-      "DirectorUnit content hash does not bind the local compiler input",
+      "DirectorUnit raw IR hash does not bind the local compiler input",
     );
-  if (input.visualLock.contentHash !== visualLockHash)
+  if (
+    input.visualLockRaw.contentHash !==
+    (await sha256Text(input.visualLockRaw.text))
+  )
     throw new Error(
-      "VisualLock content hash does not bind the local compiler input",
+      "VisualLock raw text hash does not bind the local compiler input",
     );
 
   const canvas = projectProductionCanvas({
@@ -132,14 +154,16 @@ export async function runGoldenALocalChain(
       shot: binding(input.shot, "shot", input.hostShotId),
       directorUnit: binding(input.directorUnit, "unit", input.hostUnitId),
     },
-    directorIrText,
+    directorIrText: input.directorIr.text,
+    directorIrHash: input.directorIr.contentHash,
     visualLock: {
       binding: binding(
         input.visualLock,
         "asset_version",
         "host-visual-lock-golden-a",
       ),
-      lockText: visualLockText,
+      lockText: input.visualLockRaw.text,
+      lockHash: input.visualLockRaw.contentHash,
     },
     template: {
       hostPromptTemplateId: "host-prompt-template-golden-a",
@@ -155,6 +179,7 @@ export async function runGoldenALocalChain(
           "asset_version",
           "host-asset-version-golden-a",
         ),
+        sourceContentHash: input.assetSourceContentHash,
         role: "character",
         priority: 100,
       },
@@ -231,9 +256,9 @@ export async function runGoldenALocalChain(
       capturedAt: "2026-08-28T03:01:00.000Z",
     },
     manualSource: {
-      sourceId: "golden-a-local-fixture",
+      sourceId: "golden-a-local-runtime",
       sourceKind: "local_runtime_export",
-      importedBy: "golden-a-human-fixture",
+      importedBy: "golden-a-director",
       importedAt: "2026-08-28T03:02:00.000Z",
       authorizationEvidenceId: "golden-a-import-authorization",
     },
@@ -258,6 +283,8 @@ export async function runGoldenALocalChain(
     prompt: {
       audit: compiled.audit.status,
       promptDraftId: compiled.promptDraft.ref.film_entity_id,
+      promptText: compiled.promptDraft.prompt_text,
+      templateHash,
       promptHash: compiled.hashes.prompt_hash,
       inputHash: compiled.hashes.input_hash,
     },
@@ -280,6 +307,24 @@ export async function runGoldenALocalChain(
       approvalState: candidate.approvalState,
       contentHash: candidate.ref.contentHash,
     },
+    sourceBindings: {
+      directorRecordHash: input.directorUnit.contentHash,
+      directorRawHash: input.directorIr.contentHash,
+      visualLockRecordHash: input.visualLock.contentHash,
+      visualLockRawHash: input.visualLockRaw.contentHash,
+      assetRecordHash: input.assetVersion.contentHash,
+      assetSourceHash: input.assetSourceContentHash,
+    },
+    manualImport: {
+      providerTaskId: "golden-a-manual-task",
+      receiptId: "golden-a-manual-receipt",
+      receiptContentHash: input.outputRepresentation.contentHash,
+      manualSourceId: "golden-a-local-runtime",
+      importedBy: "golden-a-director",
+      authorizationEvidenceId: "golden-a-import-authorization",
+      hostResourceId: "host-resource-golden-a",
+      outputContentHash: input.outputRepresentation.contentHash,
+    },
   };
 }
 
@@ -291,15 +336,18 @@ export async function goldenALocalFixture(): Promise<GoldenALocalInput> {
   const hashes = {
     project: "a".repeat(64),
     script: "b".repeat(64),
-    director: await sha256Text(directorText),
+    director: "6".repeat(64),
+    directorRaw: await sha256Text(directorText),
     shot: "c".repeat(64),
     coverage: "d".repeat(64),
     prompt: "e".repeat(64),
     package: "f".repeat(64),
     attempt: "1".repeat(64),
     candidate: "2".repeat(64),
-    visualLock: await sha256Text(visualLockText),
+    visualLock: "7".repeat(64),
+    visualLockRaw: await sha256Text(visualLockText),
     asset: "3".repeat(64),
+    assetSource: "8".repeat(64),
     output: "4".repeat(64),
     relation: "5".repeat(64),
   };
@@ -307,6 +355,12 @@ export async function goldenALocalFixture(): Promise<GoldenALocalInput> {
     hostProjectId: "host-project-golden-a",
     hostUnitId: "host-unit-golden-a",
     hostShotId: "host-shot-golden-a",
+    directorIr: { text: directorText, contentHash: hashes.directorRaw },
+    visualLockRaw: {
+      text: visualLockText,
+      contentHash: hashes.visualLockRaw,
+    },
+    assetSourceContentHash: hashes.assetSource,
     project: ref(1, "film_project", 1, hashes.project),
     scriptVersion: ref(2, "script_version", 1, hashes.script),
     directorUnit: ref(3, "director_unit", 1, hashes.director),

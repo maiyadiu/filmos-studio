@@ -32,6 +32,7 @@ python3 tests/film-golden/run_golden_a.py
 Sidecar，读取其 `/openapi.json`，并要求 D-0005 裁定的正式操作全部存在：
 
 - `POST /formal-records`、`GET /formal-records/{filmEntityId}`；
+- human-only `POST /script-versions/lock`；
 - `POST /prompts/compile`、`POST /manual-results/import`；
 - `POST /reviews`、`POST /approvals`、`POST /continuity/check`。
 
@@ -40,10 +41,20 @@ Sidecar，读取其 `/openapi.json`，并要求 D-0005 裁定的正式操作全�
 均为 `false`、外部调用为 `0`、`fallback_mock_used=false`。它不会退回离线
 Mock，也不会把本地准备写成已持久化或已批准。
 
+操作齐全时，runner 通过真实 HTTP 创建 Project/ContentUnit/Shot、未锁
+ScriptVersion，再执行人工 Script Lock，原子取得 ScriptDecision 与新的 locked
+ScriptVersion；DirectorUnit 只绑定这两个正式来源。之后写入 CoverageLink、
+VisualLockSet、AssetBinding，调用真实本地 Production Canvas、Prompt compiler
+与 Manual Provider 模块，再由 Core 持久化 PromptDraft、GenerationPackage、
+AttemptEvidence、Candidate、Continuity QC、Review 和独立 Human Approval。
+全链外部 Provider 调用数为 0。
+
 `golden_a_local.ts` 是真实本地域段：直接复用 Production Canvas 投影、
 `compilePromptDraft`、`prepareSubmissionPackage` 和
 `importManualProviderResult`。它只能报告 `prepared=true`、`persisted=false`，
 ManualImport 结果保持 `Candidate/pending/not_approved`，外部调用固定为 0。
+本地域段同时保留 formal record aggregate `contentHash` 与 raw Director IR、
+VisualLock、Asset source hash，二者分别校验，不能互相冒充。
 只有完整 Sidecar HTTP 的 Review 与 Human Approval 回执才能改变后续状态。
 
 ```bash

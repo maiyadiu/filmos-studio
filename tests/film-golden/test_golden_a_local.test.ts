@@ -23,13 +23,27 @@ describe("Golden A real local Prompt/Manual Provider segment", () => {
       reviewState: "pending",
       approvalState: "not_approved",
     });
+    expect(result.sourceBindings.directorRecordHash).not.toBe(
+      result.sourceBindings.directorRawHash,
+    );
+    expect(result.sourceBindings.visualLockRecordHash).not.toBe(
+      result.sourceBindings.visualLockRawHash,
+    );
+    expect(result.sourceBindings.assetRecordHash).not.toBe(
+      result.sourceBindings.assetSourceHash,
+    );
+    expect(result.manualImport).toMatchObject({
+      providerTaskId: "golden-a-manual-task",
+      manualSourceId: "golden-a-local-runtime",
+      importedBy: "golden-a-director",
+    });
   });
 
-  test("fails closed when the DirectorUnit hash no longer binds compiler input", async () => {
+  test("fails closed when the DirectorUnit raw IR hash no longer binds compiler input", async () => {
     const input = await goldenALocalFixture();
-    input.directorUnit.contentHash = "0".repeat(64);
+    input.directorIr.contentHash = "0".repeat(64);
     await expect(runGoldenALocalChain(input)).rejects.toThrow(
-      "DirectorUnit content hash",
+      "DirectorUnit raw IR hash",
     );
   });
 
