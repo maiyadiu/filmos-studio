@@ -10,6 +10,8 @@ import { LocalRuntimeSessionManager } from "../src/local-runtime-session.js";
 import { createCanvasAgentHttpModule, trustedCreateSessionInput } from "../src/modules/canvas-agent-http.js";
 import { toolDescriptions, toolInputSchemas, toolNames } from "../src/schemas.js";
 import type { LocalRuntimeConfig } from "../src/config.js";
+import { AGENT_FEATURE_FLAG_IDS } from "../src/brains/feature-flags.js";
+import { MemoryBrainSessionStore } from "../src/brains/session-store.js";
 
 const authority = "127.0.0.1:41743";
 const endpoint = `http://${authority}`;
@@ -60,7 +62,17 @@ test("Canvas module declares only Canvas scopes and constructs without CLI side 
     });
     assert.ok(module.routes.some((route) => route.path === "/events" && route.lastEventId));
     assert.ok(module.routes.every((route) => route.scope === "canvas:connect" && route.legacy));
+    assert.equal(module.routes.some((route) => route.path === "/agent/connections"), false, "generic runtime is default-off");
     assert.deepEqual(calls, []);
+});
+
+test("complete feature set registers generic routes while preserving legacy Codex aliases", () => {
+    const config = fixtureConfig();
+    config.agentFeatureFlags = Object.fromEntries(AGENT_FEATURE_FLAG_IDS.map((id) => [id, true]));
+    const module = createCanvasAgentHttpModule(config, sessionFixture([]), { brainSessionStore: new MemoryBrainSessionStore() });
+    assert.equal(module.routes.some((route) => route.path === "/agent/connections"), true);
+    assert.equal(module.routes.some((route) => route.path === "/agent/sessions/:sessionId/resume"), true);
+    assert.equal(module.routes.some((route) => route.path === "/agent/codex/turn"), true);
 });
 
 test("generic session input ignores model-supplied identity and uses the live workbench scope", () => {

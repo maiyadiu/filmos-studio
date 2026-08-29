@@ -160,6 +160,8 @@ export interface CreateBrainSessionInput {
 export interface ResumeBrainSessionInput {
     sessionId: string;
     providerThreadId?: string;
+    canvasId?: string;
+    grant?: AgentPermissionGrant;
 }
 
 export type EntitySummary = {
@@ -370,6 +372,7 @@ export interface AgentTurnInput {
     prompt: string;
     context: AgentContextPackV1;
     localImagePaths?: string[];
+    localSkills?: Array<{ type: "skill"; name: string; path: string }>;
 }
 
 export interface AgentTurnResult {

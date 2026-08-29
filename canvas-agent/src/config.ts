@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 
 import type { RuntimeBrowserRegistration } from "./local-runtime-session.js";
+import { AGENT_FEATURE_FLAG_IDS, type AgentFeatureFlagId } from "./brains/feature-flags.js";
 
 export const LOCAL_RUNTIME_DEFAULT_PORT = 17371;
 /** @deprecated Use LOCAL_RUNTIME_DEFAULT_PORT. */
@@ -45,6 +46,7 @@ export type LocalRuntimeConfig = {
     browserRegistrations: RuntimeBrowserRegistration[];
     legacyBootstrap?: boolean;
     canvases?: Record<string, CanvasWorkspaceConfig>;
+    agentFeatureFlags?: Partial<Record<AgentFeatureFlagId, boolean>>;
 };
 /** @deprecated Use LocalRuntimeConfig. */
 export type CanvasAgentConfig = LocalRuntimeConfig;
@@ -97,6 +99,9 @@ export function normalizeLocalRuntimeConfig(value: unknown): LocalRuntimeConfig 
         ...(Array.isArray(input.origins) ? { origins: [...input.origins] } : {}),
         ...(input.legacyBootstrap === true ? { legacyBootstrap: true } : {}),
         ...(input.canvases && typeof input.canvases === "object" ? { canvases: input.canvases } : {}),
+        ...(input.agentFeatureFlags && typeof input.agentFeatureFlags === "object" ? {
+            agentFeatureFlags: Object.fromEntries(AGENT_FEATURE_FLAG_IDS.flatMap((id) => typeof input.agentFeatureFlags?.[id] === "boolean" ? [[id, input.agentFeatureFlags[id]]] : [])),
+        } : {}),
         ...(typeof input.ownerId === "string" ? { ownerId: input.ownerId } : {}),
     };
     ensureRuntimeOwnerId(config);

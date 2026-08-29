@@ -90,6 +90,42 @@ export class AgentSessionManager {
         }
     }
 
+    async resumeSession(sessionId: string, actorId: string) {
+        const session = await this.requireSession(sessionId);
+        if (session.status === "closed") throw new Error("BRAIN_SESSION_CLOSED");
+        const profile = this.registry.getProfile(session.brainProfileId);
+        const status = await this.registry.probe(profile.id);
+        if (status.status !== "ready") throw new Error(`BRAIN_CONNECTION_${status.status.toUpperCase()}:${status.statusReason ?? profile.id}`);
+        const grant = this.grants.issue({
+            sessionId,
+            connectionId: session.connectionId,
+            actorId,
+            projectId: session.projectId,
+            ...(session.domainProjectId ? { domainProjectId: session.domainProjectId } : {}),
+            toolSurface: profile.toolSurface,
+            allowedTools: this.tools.names(profile.toolSurface),
+        });
+        try {
+            const patch = await this.registry.getAdapter(profile.id).resumeSession({
+                sessionId,
+                ...(session.providerThreadId ? { providerThreadId: session.providerThreadId } : {}),
+                canvasId: session.canvasId,
+                grant,
+            });
+            assertAdapterPatchScope(session, patch);
+            this.grants.revoke(session.permissionGrantId);
+            return await this.store.updateSession(sessionId, {
+                ...(patch.providerThreadId ? { providerThreadId: patch.providerThreadId } : {}),
+                permissionGrantId: grant.id,
+                status: "ready",
+                updatedAt: this.now().toISOString(),
+            });
+        } catch (error) {
+            this.grants.revoke(grant.id);
+            throw error;
+        }
+    }
+
     async bindContextReceipt(sessionId: string, receiptId: string) {
         return await this.store.updateSession(sessionId, { lastContextReceiptId: receiptId, updatedAt: this.now().toISOString() });
     }

@@ -1,3 +1,5 @@
+import path from "node:path";
+
 import { CONFIG_DIR, ensureCanvasWorkspace, type LocalRuntimeConfig } from "../config.js";
 import { codexConfig, codexProcessManager } from "../agents.js";
 import type { AgentEmit } from "../types.js";
@@ -9,32 +11,45 @@ import { AgentPermissionGrantStore } from "./permission-grants.js";
 import { registerBuiltinBrainProfiles } from "./profiles.js";
 import { BrainProfileRegistry } from "./registry.js";
 import { AgentSessionManager } from "./session-manager.js";
-import { MemoryBrainSessionStore } from "./session-store.js";
+import { JsonBrainSessionStore, type BrainSessionStore } from "./session-store.js";
 import { CanonicalAgentToolManifest } from "./tool-manifest.js";
+import { enabledAgentProfileIds, type AgentFeatureFlags } from "./feature-flags.js";
+
+type GenericAgentRuntimeOptions = {
+    store?: BrainSessionStore;
+    featureFlags: AgentFeatureFlags;
+};
 
 export class GenericAgentRuntime {
     readonly registry = new BrainProfileRegistry();
-    readonly store = new MemoryBrainSessionStore();
+    readonly store: BrainSessionStore;
     readonly grants = new AgentPermissionGrantStore();
     readonly confirmations = new AgentConfirmationStore();
     readonly contexts = new AgentContextBroker();
     readonly tools = new CanonicalAgentToolManifest();
     readonly audit = new MemoryAgentAuditSink();
     readonly manager: AgentSessionManager;
+    private readonly hydratedSessions = new Set<string>();
+    private readonly actorId: string;
 
     constructor(
         config: LocalRuntimeConfig,
         emit: AgentEmit,
         private readonly snapshot: () => WorkbenchContextSnapshot,
         requestConfirmation: ConstructorParameters<typeof CodexSubscriptionAdapter>[3],
+        options: GenericAgentRuntimeOptions,
     ) {
-        registerBuiltinBrainProfiles(this.registry);
-        this.registry.registerAdapter(new CodexSubscriptionAdapter(
-            codexProcessManager,
-            (canvasId) => ensureCanvasWorkspace(config, canvasId).workspacePath,
-            (grant) => codexConfig(CONFIG_DIR, grant),
-            requestConfirmation,
-        ));
+        this.actorId = config.ownerId || "local-owner";
+        this.store = options.store ?? new JsonBrainSessionStore(path.join(CONFIG_DIR, "brain-sessions.v1.json"), config.canvases);
+        registerBuiltinBrainProfiles(this.registry, enabledAgentProfileIds(options.featureFlags));
+        if (options.featureFlags["film.agent_codex_subscription"]) {
+            this.registry.registerAdapter(new CodexSubscriptionAdapter(
+                codexProcessManager,
+                (canvasId) => ensureCanvasWorkspace(config, canvasId).workspacePath,
+                (grant) => codexConfig(CONFIG_DIR, grant),
+                requestConfirmation,
+            ));
+        }
         this.manager = new AgentSessionManager(this.registry, this.store, this.grants, this.confirmations, this.contexts, () => new Date(), this.tools, this.audit);
         void emit;
     }
@@ -56,7 +71,14 @@ export class GenericAgentRuntime {
     async createSession(input: Parameters<AgentSessionManager["createSession"]>[0]) {
         if (!this.registry.hasAdapter(input.brainProfileId)) throw new Error(`BRAIN_ADAPTER_UNAVAILABLE:${input.brainProfileId}`);
         const session = await this.manager.createSession(input);
+        this.hydratedSessions.add(session.id);
         return await this.captureContext(session.id);
+    }
+
+    async resumeSession(sessionId: string, actorId: string) {
+        const session = await this.manager.resumeSession(sessionId, actorId);
+        this.hydratedSessions.add(sessionId);
+        return await this.captureContext(sessionId);
     }
 
     async captureContext(sessionId: string) {
@@ -67,18 +89,25 @@ export class GenericAgentRuntime {
         return { session: next, context: captured.pack, receipt: captured.receipt };
     }
 
-    async sendTurn(sessionId: string, input: { turnId: string; prompt: string }, emit: AgentEmit) {
+    async sendTurn(sessionId: string, input: { turnId: string; prompt: string; localImagePaths?: string[]; localSkills?: Array<{ type: "skill"; name: string; path: string }> }, emit: AgentEmit) {
+        const session = await this.store.getSession(sessionId);
+        if (!session) throw new Error(`Unknown brain session: ${sessionId}`);
+        if (!this.hydratedSessions.has(sessionId)) {
+            await this.manager.resumeSession(sessionId, this.actorId);
+            this.hydratedSessions.add(sessionId);
+        }
         const captured = await this.captureContext(sessionId);
         const result = await this.manager.sendTurn(sessionId, {
             turnId: input.turnId,
             prompt: input.prompt,
             context: captured.context,
+            ...(input.localImagePaths?.length ? { localImagePaths: [...input.localImagePaths] } : {}),
+            ...(input.localSkills?.length ? { localSkills: input.localSkills.map((skill) => ({ ...skill })) } : {}),
         }, async (event) => emit("agent_event", event));
         return { session: await this.store.getSession(sessionId), contextReceiptId: captured.receipt.receiptId, result };
     }
 
     async dispose() {
-        const sessions = await this.store.listSessions();
-        await Promise.all(sessions.filter((session) => session.status !== "closed").map((session) => this.manager.closeSession(session.id).catch(() => undefined)));
+        this.hydratedSessions.clear();
     }
 }

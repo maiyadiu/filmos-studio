@@ -34,6 +34,10 @@ export function normalizeBrainProfileId(value: CanvasAgentMode | string | null |
     return BRAIN_PROFILE_IDS.includes(value as NativeBrainProfileId) ? value as NativeBrainProfileId : "codex.subscription";
 }
 
+export function legacyAgentModeFromProfile(value: CanvasAgentMode | string): LegacyCanvasAgentMode {
+    return normalizeBrainProfileId(value) === "codex.subscription" ? "local" : "online";
+}
+
 export function brainProfilePresentation(value: CanvasAgentMode | string) {
     const id = normalizeBrainProfileId(value);
     return BRAIN_PROFILE_PRESENTATIONS.find((profile) => profile.id === id) ?? BRAIN_PROFILE_PRESENTATIONS[0];

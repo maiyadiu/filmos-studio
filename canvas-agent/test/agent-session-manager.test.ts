@@ -87,3 +87,40 @@ test("session grants come from the canonical manifest and every turn records pro
         { outcome: "succeeded", profile: "codex.mock", transport: "codex_app_server", billing: "subscription", tool: "__brain_turn__" },
     ]);
 });
+
+test("restart resume reissues a scoped grant and preserves the provider thread", async () => {
+    const registry = new BrainProfileRegistry();
+    registry.registerProfile(profile("codex.mock"));
+    let resumeInput: Record<string, unknown> | undefined;
+    registry.registerAdapter({
+        ...adapter("codex.mock"),
+        resumeSession: async (input) => {
+            resumeInput = input as unknown as Record<string, unknown>;
+            return { providerThreadId: input.providerThreadId };
+        },
+    });
+    const store = new MemoryBrainSessionStore();
+    await store.saveSession({
+        id: "session-restart",
+        conversationId: "conversation-restart",
+        brainProfileId: "codex.mock",
+        connectionId: "codex.mock",
+        projectId: "project-restart",
+        canvasId: "canvas-restart",
+        providerThreadId: "thread-preserved",
+        permissionGrantId: "expired-grant",
+        status: "interrupted",
+        createdAt: "2026-08-29T00:00:00.000Z",
+        updatedAt: "2026-08-29T00:00:00.000Z",
+    });
+    const grants = new AgentPermissionGrantStore();
+    const manager = new AgentSessionManager(registry, store, grants, new AgentConfirmationStore(), new AgentContextBroker());
+    const resumed = await manager.resumeSession("session-restart", "trusted-owner");
+
+    assert.equal(resumed.status, "ready");
+    assert.equal(resumed.providerThreadId, "thread-preserved");
+    assert.notEqual(resumed.permissionGrantId, "expired-grant");
+    assert.equal((resumeInput?.grant as { actorId?: string } | undefined)?.actorId, "trusted-owner");
+    assert.equal(resumeInput?.canvasId, "canvas-restart");
+    assert.equal(grants.get(resumed.permissionGrantId)?.allowedTools.includes("film_command_apply"), true);
+});

@@ -1,0 +1,66 @@
+import type { LocalRuntimeSessionClient } from "@/services/local-runtime-session";
+import { getLocalRuntimeSessionClient } from "@/stores/use-local-runtime-store";
+
+export type BrainSessionView = {
+    id: string;
+    conversationId: string;
+    brainProfileId: string;
+    projectId: string;
+    canvasId: string;
+    providerThreadId?: string;
+    status: string;
+    updatedAt: string;
+};
+
+type AgentRuntimeTransport = Pick<LocalRuntimeSessionClient, "request">;
+
+export class AgentSessionClient {
+    constructor(private readonly runtime: AgentRuntimeTransport = getLocalRuntimeSessionClient()) {}
+
+    listConnections(signal?: AbortSignal) {
+        return this.json<{ connections: unknown[]; toolManifest: unknown[] }>("/agent/connections", { method: "GET", signal });
+    }
+
+    listSessions(scope: { projectId?: string; brainProfileId?: string } = {}, signal?: AbortSignal) {
+        const query = new URLSearchParams();
+        if (scope.projectId) query.set("projectId", scope.projectId);
+        if (scope.brainProfileId) query.set("brainProfileId", scope.brainProfileId);
+        return this.json<{ sessions: BrainSessionView[] }>(`/agent/sessions${query.size ? `?${query}` : ""}`, { method: "GET", signal });
+    }
+
+    createSession(input: { conversationId: string; brainProfileId: string }, signal?: AbortSignal) {
+        return this.post<{ session: BrainSessionView; contextReceiptId?: string }>("/agent/sessions", input, signal);
+    }
+
+    resumeSession(sessionId: string, signal?: AbortSignal) {
+        return this.post<{ session: BrainSessionView; contextReceiptId?: string }>(`/agent/sessions/${segment(sessionId)}/resume`, {}, signal);
+    }
+
+    sendTurn(sessionId: string, input: { prompt: string; turnId?: string; attachments?: Array<{ name?: string; type?: string; dataUrl?: string }>; skills?: Array<{ skillId?: string; name: string; description?: string; instruction: string }> }, signal?: AbortSignal) {
+        return this.post<{ session: BrainSessionView; contextReceiptId: string; result: unknown }>(`/agent/sessions/${segment(sessionId)}/turns`, input, signal);
+    }
+
+    cancelTurn(sessionId: string, turnId: string, signal?: AbortSignal) {
+        return this.post<{ sessionId: string; turnId: string }>(`/agent/sessions/${segment(sessionId)}/turns/${segment(turnId)}/cancel`, {}, signal);
+    }
+
+    closeSession(sessionId: string, signal?: AbortSignal) {
+        return this.post<{ session: BrainSessionView }>(`/agent/sessions/${segment(sessionId)}/close`, {}, signal);
+    }
+
+    private post<T>(path: string, body: Record<string, unknown>, signal?: AbortSignal) {
+        return this.json<T>(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal });
+    }
+
+    private async json<T>(path: string, init: RequestInit) {
+        const response = await this.runtime.request(path, init);
+        const value = await response.json().catch(() => ({})) as { ok?: boolean; code?: string; message?: string } & T;
+        if (!response.ok || value.ok !== true) throw new Error(value.code || value.message || `AGENT_RUNTIME_REQUEST_FAILED:${response.status}`);
+        return value;
+    }
+}
+
+function segment(value: string) {
+    if (!value.trim()) throw new Error("Agent session identifier is required");
+    return encodeURIComponent(value);
+}

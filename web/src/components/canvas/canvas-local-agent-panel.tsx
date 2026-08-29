@@ -31,6 +31,7 @@ import { isProjectAgentReadTool, isProjectAgentToolName, runProjectAgentTool } f
 import { AgentChatComposer, AgentChatMessage, AgentPendingToolCard, AgentWorkingMessage, type CanvasAgentChatAttachment } from "./canvas-agent-chat-ui";
 import { VoiceRecordingButton } from "@/components/conversation/voice-recording-button";
 import { AgentChatEmptyState } from "./canvas-agent-panel-chrome";
+import { AgentSessionClient, type BrainSessionView } from "@/film/agent/agent-client";
 
 const PANEL_MOTION_SECONDS = 0.5;
 const MAX_ATTACHMENTS = 6;
@@ -49,6 +50,7 @@ type AgentEventPayload = {
     error?: { message?: string };
     message?: string;
     usage?: Record<string, unknown>;
+    delta?: string;
 };
 type AgentEventItem = { id?: string; type?: string; text?: unknown; message?: unknown; server?: string; tool?: string; status?: string; arguments?: unknown; result?: unknown; error?: { message?: string } };
 
@@ -69,6 +71,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
     collapsed,
     embedded,
     headless,
+    genericRuntime = false,
     autoConnect,
     onApplyOps,
     onUndoOps,
@@ -79,6 +82,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
     collapsed?: boolean;
     embedded?: boolean;
     headless?: boolean;
+    genericRuntime?: boolean;
     autoConnect?: boolean;
     onApplyOps: (ops: CanvasAgentOp[], context?: { conversationId?: string; messageId?: string; source?: "online" | "local" }) => Promise<CanvasAgentSnapshot>;
     onUndoOps: () => CanvasAgentSnapshot | null;
@@ -113,6 +117,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
     const [resizing, setResizing] = useState(false);
     const [accountStatus, setAccountStatus] = useState<CodexAccountStatus | null>(null);
     const [accountBusy, setAccountBusy] = useState(false);
+    const agentSessionClient = useMemo(() => new AgentSessionClient(), []);
     const listRef = useRef<HTMLDivElement>(null);
     // 供 Agent 输入框「@」插入的画布节点引用候选（active 标记为可用，供「@」菜单列出），与「/」弹出的已加入技能候选
     const composerReferences = useMemo(() => buildCanvasResourceReferences(snapshot.nodes, snapshot.connections).map((item) => ({ ...item, active: true })), [snapshot]);
@@ -183,6 +188,19 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
         if ((!connectedRef.current && !useCanvasAgentStore.getState().connected) || !projectId) return;
         setAgentState({ loadingThreads: true });
         try {
+            if (genericRuntime) {
+                const data = await agentSessionClient.listSessions({ projectId, brainProfileId: "codex.subscription" });
+                const sessions = data.sessions.filter((item) => item.status !== "closed");
+                const current = useCanvasAgentStore.getState();
+                const activeSessionId = sessions.some((item) => item.id === current.activeThreadId) ? current.activeThreadId : sessions[0]?.id || "";
+                setAgentState({
+                    threads: sessions.map(brainSessionThread),
+                    activeThreadId: activeSessionId,
+                    workspacePath: "FilmOS BrainSession · 项目隔离",
+                    ...(activeSessionId === current.activeThreadId ? {} : { messages: [] }),
+                });
+                return;
+            }
             const data = await fetchAgentJson<AgentThreadsResponse>(`/agent/codex/threads?canvasId=${encodeURIComponent(projectId)}`);
             const current = useCanvasAgentStore.getState();
             setAgentState({
@@ -200,7 +218,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
         } finally {
             setAgentState({ loadingThreads: false });
         }
-    }, [setAgentState]);
+    }, [agentSessionClient, genericRuntime, setAgentState]);
     const loadAccountStatus = useCallback(async () => {
         if (!connectedRef.current && !useCanvasAgentStore.getState().connected) return;
         try {
@@ -351,18 +369,32 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
         addMessage({ role: "user", text: text || "发送了图片", attachments: files });
         addEventLog("用户发送", { text, attachments: files.map(({ name, type, size }) => ({ name, type, size })) });
         try {
-            const data = await fetchAgentJson<{ threadId?: string }>("/agent/codex/turn", {
-                method: "POST",
-                headers: { "content-type": "application/json" },
-                body: JSON.stringify({
+            if (genericRuntime) {
+                let sessionId = useCanvasAgentStore.getState().activeThreadId;
+                if (!sessionId) {
+                    const created = await agentSessionClient.createSession({ conversationId: createId(), brainProfileId: "codex.subscription" });
+                    sessionId = created.session.id;
+                    setAgentState({ activeThreadId: sessionId });
+                }
+                await agentSessionClient.sendTurn(sessionId, {
                     prompt: requestPrompt,
-                    canvasId: snapshotRef.current.projectId,
-                    threadId: useCanvasAgentStore.getState().activeThreadId || undefined,
                     attachments: files.map(({ name, type, dataUrl }) => ({ name, type, dataUrl })),
                     skills: mentionedSkills.map((skill) => ({ skillId: skill.skill_id, name: skill.skill_name, description: skill.description, instruction: skill.instruction || skill.description })),
-                }),
-            });
-            if (data.threadId) setAgentState({ activeThreadId: data.threadId });
+                });
+            } else {
+                const data = await fetchAgentJson<{ threadId?: string }>("/agent/codex/turn", {
+                    method: "POST",
+                    headers: { "content-type": "application/json" },
+                    body: JSON.stringify({
+                        prompt: requestPrompt,
+                        canvasId: snapshotRef.current.projectId,
+                        threadId: useCanvasAgentStore.getState().activeThreadId || undefined,
+                        attachments: files.map(({ name, type, dataUrl }) => ({ name, type, dataUrl })),
+                        skills: mentionedSkills.map((skill) => ({ skillId: skill.skill_id, name: skill.skill_name, description: skill.description, instruction: skill.instruction || skill.description })),
+                    }),
+                });
+                if (data.threadId) setAgentState({ activeThreadId: data.threadId });
+            }
             addEventLog("本地 Agent 已接收", { accepted: true });
             files.forEach((item) => {
                 URL.revokeObjectURL(item.url);
@@ -592,6 +624,12 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
         if (!connected || !projectId) return;
         setAgentState({ loadingThreads: true });
         try {
+            if (genericRuntime) {
+                const data = await agentSessionClient.createSession({ conversationId: createId(), brainProfileId: "codex.subscription" });
+                setAgentState({ activeThreadId: data.session.id, messages: [], activeTab: "chat", activity: "新对话" });
+                await loadThreads();
+                return;
+            }
             const data = await fetchAgentJson<AgentThreadResponse>("/agent/codex/threads/new", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ canvasId: projectId }) });
             setAgentState({ activeThreadId: data.thread?.id || data.workspace?.activeThreadId || "", messages: [], activeTab: "chat", activity: "新对话" });
             await loadThreads();
@@ -608,6 +646,12 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
         if (!connected || !projectId || !threadId) return;
         setAgentState({ loadingThreads: true });
         try {
+            if (genericRuntime) {
+                await agentSessionClient.resumeSession(threadId);
+                setAgentState({ activeThreadId: threadId, messages: [], activeTab: "chat", activity: "已恢复会话" });
+                await loadThreads();
+                return;
+            }
             const data = await fetchAgentJson<AgentThreadResponse>(`/agent/codex/threads/${encodeURIComponent(threadId)}/resume`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ canvasId: projectId }) });
             setAgentState({ activeThreadId: data.thread?.id || threadId, messages: normalizeHistoryMessages(data.messages || []), activeTab: "chat", activity: "已恢复会话" });
             await loadThreads();
@@ -624,6 +668,17 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
         if (!connected || !projectId || !threadId) return;
         setAgentState({ loadingThreads: true });
         try {
+            if (genericRuntime) {
+                await agentSessionClient.closeSession(threadId);
+                const current = useCanvasAgentStore.getState();
+                setAgentState({
+                    threads: current.threads.filter((thread) => thread.id !== threadId),
+                    activeThreadId: current.activeThreadId === threadId ? "" : current.activeThreadId,
+                    messages: current.activeThreadId === threadId ? [] : current.messages,
+                });
+                message.success("会话已关闭");
+                return;
+            }
             await fetchAgentJson(`/agent/codex/threads/${encodeURIComponent(threadId)}/delete`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ canvasId: projectId }) });
             const current = useCanvasAgentStore.getState();
             setAgentState({
@@ -1154,7 +1209,19 @@ function formatLogJson(logs: AgentEventLog[], context: AgentLogContext) {
 }
 
 function eventText(event: AgentEventPayload) {
+    if (event.type === "message.delta" && typeof event.delta === "string") return event.delta;
     return event.type === "item.completed" && event.item?.type === "agent_message" ? stringText(event.item.text) : "";
+}
+
+function brainSessionThread(session: BrainSessionView): AgentThreadSummary {
+    const timestamp = Date.parse(session.updatedAt) / 1000;
+    return {
+        id: session.id,
+        name: session.brainProfileId === "codex.subscription" ? "Codex 对话" : session.brainProfileId,
+        preview: `${session.status} · ${session.providerThreadId || "待建立 Provider Thread"}`,
+        status: session.status,
+        updatedAt: Number.isFinite(timestamp) ? timestamp : undefined,
+    };
 }
 
 function usageText(event: AgentEventPayload) {

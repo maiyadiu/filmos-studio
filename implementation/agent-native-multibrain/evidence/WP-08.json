@@ -1,0 +1,81 @@
+{
+  "schema_version": "1",
+  "work_package": "WP-08",
+  "baseline_commit": "9267a5f198182bfa16403723e865cf815983ef13",
+  "observed_at": "2026-08-29T14:22:39Z",
+  "checks": [
+    {
+      "command": "npm run build && npx tsx --test test/agent-feature-flags.test.ts test/agent-session-migration.test.ts test/agent-rollback.test.ts test/agent-session-manager.test.ts test/canvas-agent-module.test.ts test/codex-app-server-adapter.test.ts test/agent-tool-broker.test.ts test/internal-canvas-mcp-mode.test.ts",
+      "cwd": "canvas-agent",
+      "status": "PASS",
+      "tests": 43,
+      "failures": 0
+    },
+    {
+      "command": "bun run typecheck && bun test src/film/agent/feature-flags.test.mjs src/film/agent/agent-client.test.mjs src/film/agent/brain-selector.test.mjs src/film/agent/model-api-billing-guard.test.mjs src/film/agent/model-api-tool-manifest.test.mjs && bun run build",
+      "cwd": "web",
+      "status": "PASS",
+      "tests": 11,
+      "failures": 0,
+      "note": "Vite reports existing chunk-size warnings only."
+    },
+    {
+      "command": "npm test && npm run build",
+      "cwd": "services/filmos-chatgpt-app",
+      "status": "PASS",
+      "tests": 27,
+      "failures": 0
+    },
+    {
+      "command": "swift build --product FilmOSStudioDesktop",
+      "cwd": "desktop/macos",
+      "status": "PASS",
+      "failures": 0
+    },
+    {
+      "command": "swift test",
+      "cwd": "desktop/macos",
+      "status": "BLOCKED_TOOLCHAIN",
+      "reason": "Active CommandLineTools Swift toolchain does not provide the Swift Testing module; formal Swift 6 CI must execute this suite."
+    }
+  ],
+  "source_sha256": {
+    "canvas-agent/src/brains/feature-flags.ts": "036cb4800d7c21e5d9cae7d01a83a8da82e59240f3e1961cd4d6e9d82e22d8fe",
+    "canvas-agent/src/brains/session-store.ts": "3a0a7c9790604fbda7c0e37027def7bae81b6f9d5297bfab34a4967cba62fadd",
+    "canvas-agent/src/brains/session-manager.ts": "45e67b97608a4371f41bf31f68e70cf3618fed89d599145601a429ba3d105c26",
+    "canvas-agent/src/brains/generic-agent-runtime.ts": "8ca62706ba24d18990098eb1092241f3f432a7036f0cd09c6ec3a455fc4954ab",
+    "canvas-agent/src/modules/canvas-agent-http.ts": "c3e7fe76bd8fe5e8cf7345d6779dda2876e92898ef195b6b00c25b3133185f1a",
+    "canvas-agent/scripts/rollback-native-multibrain.mjs": "4a7aff776dff76ae325f229d5658adf2b0e49f8aceba9a19dfd2a82cc8bde474",
+    "canvas-agent/test/agent-session-migration.test.ts": "cb39c2d9861ad55d2e2df42e6c3a11af5603f3de10db6a181d4acd0237fc1b1e",
+    "canvas-agent/test/agent-feature-flags.test.ts": "2382328213972115275f68405176e8d08694941d22d8a9a172ed213a10254f03",
+    "canvas-agent/test/agent-rollback.test.ts": "6db312132c92c57f894175c28d96d933b769fde940f1820f063b45b7b48a3841",
+    "web/src/film/agent/feature-flags.ts": "4d1b0d42fd58ba91fbfb6b83e7197c7e9e9c5697604bcf23007b5c8e77584183",
+    "web/src/film/agent/agent-client.ts": "3821794532c644befa60d140345f98f67ea908345e3da275dcc98847f90a9705",
+    "web/src/components/canvas/canvas-local-agent-panel.tsx": "99fb9c4bcb5a2aa187fd99f0a52f9fa31dcf445f1078bb467e374ac095e7df18",
+    "desktop/macos/Sources/FilmOSDesktopCore/ChatGPTConnectionManager.swift": "b9da773c6ac055ba8abecebeb51b876cc7818a4c1bb233507e87dd78510f495d",
+    "implementation/FEATURE_FLAGS.yaml": "7490153de46dbfe5b6d20b81f42132563dddc7552437fa1e1819d822709bbb21"
+  },
+  "golden_case_ids": [
+    "AGENT-FLAGS-DEFAULT-OFF-001",
+    "AGENT-FLAG-DEPENDENCY-CLOSED-001",
+    "AGENT-LEGACY-THREAD-MIGRATION-001",
+    "AGENT-SESSION-RESTART-RECOVERY-001",
+    "AGENT-ROLLBACK-NO-DATA-LOSS-001",
+    "AGENT-LEGACY-ROUTE-ALIAS-001",
+    "AGENT-CHATGPT-PREFERENCE-ROLLBACK-001"
+  ],
+  "assertions": {
+    "ten_required_flags_exist_and_default_false": true,
+    "partial_generic_runtime_safety_flags_fail_closed": true,
+    "legacy_active_thread_is_copied_idempotently": true,
+    "legacy_active_thread_remains_available_for_rollback": true,
+    "in_flight_session_recovers_as_interrupted": true,
+    "resume_reissues_a_trusted_scoped_grant": true,
+    "provider_thread_is_preserved_across_restart": true,
+    "online_local_preferences_migrate_to_explicit_profiles": true,
+    "chatgpt_v1_combined_preference_is_preserved_for_rollback": true,
+    "api_channel_tunnel_id_and_keychain_runtime_key_are_not_migrated_or_deleted": true,
+    "legacy_codex_routes_remain_available": true,
+    "generic_web_client_never_sends_actor_project_billing_or_bearer_identity": true
+  }
+}

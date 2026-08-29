@@ -144,6 +144,8 @@ export const BUILTIN_BRAIN_PROFILES: readonly BrainProfile[] = [
     },
 ] as const;
 
-export function registerBuiltinBrainProfiles(registry: { registerProfile(profile: BrainProfile): unknown }) {
-    for (const profile of BUILTIN_BRAIN_PROFILES) registry.registerProfile(profile);
+export function registerBuiltinBrainProfiles(registry: { registerProfile(profile: BrainProfile): unknown }, enabledProfileIds?: ReadonlySet<string>) {
+    for (const profile of BUILTIN_BRAIN_PROFILES) registry.registerProfile(enabledProfileIds
+        ? { ...profile, availability: enabledProfileIds.has(profile.id) ? "enabled" : "disabled" }
+        : profile);
 }

@@ -282,8 +282,16 @@ function toolName(name: string) {
     return name;
 }
 
-async function writeAttachmentFiles(attachments: AgentAttachment[]) {
+export async function writeAttachmentFiles(attachments: AgentAttachment[]) {
     return await Promise.all(attachments.filter((item) => item.dataUrl?.startsWith("data:image/")).map(writeAttachmentFile));
+}
+
+export async function removeAttachmentFiles(files: readonly string[]) {
+    await Promise.all(files.map((file) => fs.unlink(file).catch(() => undefined)));
+}
+
+export async function removeSkillDirectories(directories: readonly string[]) {
+    await Promise.all(directories.map((directory) => fs.rm(directory, { recursive: true, force: true }).catch(() => undefined)));
 }
 
 async function writeAttachmentFile(item: AgentAttachment) {

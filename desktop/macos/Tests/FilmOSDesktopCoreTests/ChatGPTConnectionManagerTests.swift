@@ -176,7 +176,7 @@ struct ChatGPTConnectionManagerTests {
         #expect(preferences.loadConnectionConfig()?.tunnelID == "tunnel_12345678")
         #expect(preferences.loadConnectionConfig()?.connectionID == "chatgpt.subscription.host")
         #expect(preferences.loadProjectSession()?.projectID == "host-project-a")
-        #expect(defaults.data(forKey: "filmos.chatgpt.connection.v1") == nil)
+        #expect(defaults.data(forKey: "filmos.chatgpt.connection.v1") != nil)
     }
 
     @Test

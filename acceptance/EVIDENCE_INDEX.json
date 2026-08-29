@@ -280,8 +280,10 @@
       "automated_tests": [
         "python3 acceptance/checks/film_core_environment.py",
         "npm --prefix packages/filmos-agent-contracts test",
-        "npm test",
-        "npm run build",
+        "cd canvas-agent && npm test",
+        "cd canvas-agent && npm run build",
+        "cd canvas-agent && npx tsx --test test/agent-feature-flags.test.ts test/agent-session-migration.test.ts test/agent-rollback.test.ts",
+        "cd web && bun test src/film/agent/feature-flags.test.mjs src/film/agent/agent-client.test.mjs",
         "scripts/recovery/RC恢复演练 --synthetic",
         "python3 acceptance/checks/performance.py"
       ],

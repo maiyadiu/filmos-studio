@@ -1,12 +1,13 @@
 import { Button, Select, Switch, Tooltip } from "antd";
 import { BookOpenCheck, BookOpenText, Bot, Clapperboard, Focus, History, LayoutTemplate, PanelRightClose, PanelsTopLeft, Plus, RotateCcw, Workflow } from "lucide-react";
 import { useNavigate } from "react-router";
+import type { ReactNode } from "react";
 
 import type { CanvasContextSummary } from "@/lib/canvas/canvas-context-summary";
 import type { CanvasTheme } from "@/lib/canvas-theme";
 import { useUserStore } from "@/stores/use-user-store";
 import type { CanvasAgentMode } from "./canvas-agent-chat-ui";
-import { BRAIN_PROFILE_PRESENTATIONS, brainProfilePresentation, normalizeBrainProfileId } from "@/film/agent/brain-profiles";
+import { BRAIN_PROFILE_PRESENTATIONS, brainProfilePresentation, legacyAgentModeFromProfile, normalizeBrainProfileId } from "@/film/agent/brain-profiles";
 
 export function AgentPanelChrome({
     theme,
@@ -26,6 +27,7 @@ export function AgentPanelChrome({
     onNewChat,
     newChatDisabled = false,
     connectionStatus = "就绪",
+    nativeBrainSelectorEnabled = false,
 }: {
     theme: CanvasTheme;
     mode: CanvasAgentMode;
@@ -44,6 +46,7 @@ export function AgentPanelChrome({
     onNewChat?: () => void;
     newChatDisabled?: boolean;
     connectionStatus?: string;
+    nativeBrainSelectorEnabled?: boolean;
 }) {
     const navigate = useNavigate();
 
@@ -87,7 +90,7 @@ export function AgentPanelChrome({
                 {context.chapterLabel ? <span className="inline-flex min-w-0 items-center gap-1"><BookOpenText className="size-3 shrink-0" /><span className="max-w-32 truncate">{context.chapterLabel}{context.shotLabel ? ` · ${context.shotLabel}` : ""}</span></span> : null}
                 {referenceCount ? <span>{referenceCount} 个参考</span> : null}
                 <div className="ml-auto flex shrink-0 items-center gap-1.5">
-                    <BrainSelector value={mode} theme={theme} status={connectionStatus} onChange={onModeChange} />
+                    <BrainSelector value={mode} theme={theme} status={connectionStatus} native={nativeBrainSelectorEnabled} onChange={onModeChange} />
                     <Tooltip title={undoCount ? `撤销最近一批 Agent 写回，可撤销 ${undoCount} 批` : "没有可撤销的 Agent 写回"}>
                         <Button type="text" shape="circle" className="!h-6 !w-6 !min-w-6" disabled={!canUndo} style={{ color: theme.node.muted }} icon={<RotateCcw className="size-3" />} onClick={onUndo} aria-label="撤销最近一批 Agent 写回" />
                     </Tooltip>
@@ -101,24 +104,28 @@ export function AgentPanelChrome({
     );
 }
 
-function BrainSelector({ value, theme, status, onChange }: { value: CanvasAgentMode; theme: CanvasTheme; status: string; onChange: (value: CanvasAgentMode) => void }) {
+function BrainSelector({ value, theme, status, native, onChange }: { value: CanvasAgentMode; theme: CanvasTheme; status: string; native: boolean; onChange: (value: CanvasAgentMode) => void }) {
     const current = brainProfilePresentation(value);
+    const options: Array<{ value: CanvasAgentMode; label: ReactNode }> = native ? BRAIN_PROFILE_PRESENTATIONS.map((profile) => ({
+        value: profile.id,
+        label: <span className="flex items-center justify-between gap-3"><span>{profile.label}</span><span className="text-[var(--fs-tiny)] opacity-50">{profile.detail}</span></span>,
+    })) : [
+        { value: "online", label: "网站 Agent" },
+        { value: "local", label: "本机 Agent" },
+    ];
     return (
         <div className="flex h-7 shrink-0 items-center gap-1" aria-label="Agent 大脑与连接">
-            <Select
+            <Select<CanvasAgentMode>
                 size="small"
                 variant="borderless"
-                value={normalizeBrainProfileId(value)}
+                value={native ? normalizeBrainProfileId(value) : legacyAgentModeFromProfile(value)}
                 popupMatchSelectWidth={250}
                 className="min-w-[106px]"
                 aria-label="选择 Agent 大脑"
                 onChange={(next) => onChange(next as CanvasAgentMode)}
-                options={BRAIN_PROFILE_PRESENTATIONS.map((profile) => ({
-                    value: profile.id,
-                    label: <span className="flex items-center justify-between gap-3"><span>{profile.label}</span><span className="text-[var(--fs-tiny)] opacity-50">{profile.detail}</span></span>,
-                }))}
+                options={options}
             />
-            <span className="rounded-full px-1.5 py-0.5 text-[var(--fs-tiny)]" style={{ color: theme.node.muted, background: `${theme.node.text}08` }}>{current.billing}</span>
+            {native ? <span className="rounded-full px-1.5 py-0.5 text-[var(--fs-tiny)]" style={{ color: theme.node.muted, background: `${theme.node.text}08` }}>{current.billing}</span> : null}
             <span className="max-w-16 truncate text-[var(--fs-tiny)]" style={{ color: theme.node.muted }} title={status}>{status}</span>
         </div>
     );

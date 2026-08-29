@@ -28,6 +28,7 @@ import { AgentChatEmptyState, AgentPanelChrome } from "./canvas-agent-panel-chro
 import { CanvasLocalAgentPanel } from "./canvas-local-agent-panel";
 import { CanvasChatGPTHostedPanel } from "./canvas-chatgpt-hosted-panel";
 import { isModelApiBrainProfile, normalizeBrainProfileId } from "@/film/agent/brain-profiles";
+import { isAgentFeatureEnabled } from "@/film/agent/feature-flags";
 import { assertExplicitModelRuntimeSelection } from "@/film/agent/model-api-billing-guard";
 import { MODEL_API_AGENT_TOOLS, MODEL_API_READ_TOOL_NAMES } from "@/film/agent/model-api-tool-manifest";
 import { NODE_DEFAULT_SIZE } from "@/constant/canvas";
@@ -178,6 +179,8 @@ export function CanvasAssistantPanel({
     const setAgentState = useCanvasAgentStore((state) => state.setAgentState);
     const codexConnected = useCanvasAgentStore((state) => state.connected);
     const codexEnabled = useCanvasAgentStore((state) => state.enabled);
+    const nativeBrainSelectorEnabled = isAgentFeatureEnabled("film.agent_native_brain_selector");
+    const genericAgentRuntimeEnabled = isAgentFeatureEnabled("film.agent_generic_runtime");
     const activeProfile = normalizeBrainProfileId(agentMode);
     const modelRuntimeActive = isModelApiBrainProfile(activeProfile) || activeProfile === "local.model";
     const [view, setView] = useState<OnlineAgentTab>("chat");
@@ -1067,8 +1070,9 @@ export function CanvasAssistantPanel({
                 onNewChat={modelRuntimeActive ? () => { startChatSession(); setView("chat"); } : undefined}
                 newChatDisabled={false}
                 connectionStatus={connectionStatus}
+                nativeBrainSelectorEnabled={nativeBrainSelectorEnabled}
             />
-            {activeProfile === "codex.subscription" ? <CanvasLocalAgentPanel embedded snapshot={snapshot} canUndoOps={canUndoOps} undoOpsCount={undoOpsCount} onApplyOps={onApplyOps} onUndoOps={onUndoOps} autoConnect={autoConnectLocal} /> : activeProfile === "chatgpt.subscription.host" ? <CanvasChatGPTHostedPanel theme={theme} projectId={projectId} /> : onlineContent}
+            {activeProfile === "codex.subscription" ? <CanvasLocalAgentPanel embedded genericRuntime={genericAgentRuntimeEnabled} snapshot={snapshot} canUndoOps={canUndoOps} undoOpsCount={undoOpsCount} onApplyOps={onApplyOps} onUndoOps={onUndoOps} autoConnect={autoConnectLocal} /> : activeProfile === "chatgpt.subscription.host" ? <CanvasChatGPTHostedPanel theme={theme} projectId={projectId} /> : onlineContent}
         </motion.aside>
     );
 }

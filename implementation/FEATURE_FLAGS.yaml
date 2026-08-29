@@ -20,4 +20,14 @@ flags:
   film.chatgpt_proposal_handoff: false
   film.chatgpt_write_tools: false
   film.chatgpt_api_panel: false
+  film.agent_native_brain_selector: false
+  film.agent_generic_runtime: false
+  film.agent_context_broker: false
+  film.agent_canonical_tool_manifest: false
+  film.agent_canonical_tool_broker: false
+  film.agent_codex_subscription: false
+  film.agent_chatgpt_host: false
+  film.agent_model_api_profiles: false
+  film.agent_no_silent_api_fallback: false
+  film.agent_request_scoped_identity: false
 rollback_rule: disabling_any_flag_must_leave_original_yingce_flow_available

@@ -10,6 +10,10 @@ import {
     resumeCodexThread,
     runClaudeTurn,
     runCodexTurn,
+    writeAttachmentFiles,
+    removeAttachmentFiles,
+    writeSkillFiles,
+    removeSkillDirectories,
     startCodexThread,
     startCodexChatGPTLogin,
     summarizeCodexThread,
@@ -30,26 +34,34 @@ import { CodexApprovalCoordinator } from "../brains/codex-approval-coordinator.j
 import { CanonicalAgentToolManifest } from "../brains/tool-manifest.js";
 import { GenericAgentRuntime } from "../brains/generic-agent-runtime.js";
 import type { WorkbenchContextSnapshot } from "../brains/context-broker.js";
+import { assertGenericAgentRuntimeDependencies, resolveAgentFeatureFlags } from "../brains/feature-flags.js";
+import type { BrainSessionStore } from "../brains/session-store.js";
 
 export type CanvasAgentSession = Pick<
     CanvasSession,
     "health" | "workbenchContext" | "agentContextSnapshot" | "openEvents" | "updateState" | "resolveResult" | "emitAll" | "callTool" | "closeRuntimeSession" | "dispose"
 >;
 
+export type CanvasAgentHttpModuleOptions = { brainSessionStore?: BrainSessionStore };
+
 export function createCanvasAgentHttpModule(
     config: LocalRuntimeConfig,
     session: CanvasAgentSession = new CanvasSession(),
+    options: CanvasAgentHttpModuleOptions = {},
 ): LocalRuntimeModule {
     const emit = (type: string, payload: unknown) => session.emitAll(type, payload);
     const permissionGrants = new AgentPermissionGrantStore();
     const canonicalTools = new CanonicalAgentToolManifest();
     const approvals = new CodexApprovalCoordinator(undefined, emit);
-    const generic = new GenericAgentRuntime(
-        config,
-        emit,
-        () => session.agentContextSnapshot() as WorkbenchContextSnapshot,
-        ({ sessionId, request }) => approvals.request({ sessionId, request, contextReceiptId: liveContextReceipt(session) }),
-    );
+    const agentFeatureFlags = resolveAgentFeatureFlags(config.agentFeatureFlags);
+    assertGenericAgentRuntimeDependencies(agentFeatureFlags);
+    const generic = agentFeatureFlags["film.agent_generic_runtime"] ? new GenericAgentRuntime(
+            config,
+            emit,
+            () => session.agentContextSnapshot() as WorkbenchContextSnapshot,
+            ({ sessionId, request }) => approvals.request({ sessionId, request, contextReceiptId: liveContextReceipt(session) }),
+            { featureFlags: agentFeatureFlags, ...(options.brainSessionStore ? { store: options.brainSessionStore } : {}) },
+        ) : undefined;
     const grantsByCanvas = new Map<string, AgentPermissionGrant>();
     const grantForCanvas = (canvasId: string) => {
         const current = grantsByCanvas.get(canvasId);
@@ -101,54 +113,7 @@ export function createCanvasAgentHttpModule(
         canvasRoute("GET", "/agent/context", (_req, res) => {
             res.json({ ok: true, context: session.workbenchContext() });
         }),
-        canvasRoute("GET", "/agent/connections", async (_req, res) => {
-            res.json({ ok: true, connections: await generic.listConnections(), toolManifest: generic.tools.list() });
-        }),
-        canvasRoute("GET", "/agent/sessions", async (req, res) => {
-            res.json({ ok: true, sessions: await generic.store.listSessions({
-                ...(queryValue(req, "projectId") ? { projectId: queryValue(req, "projectId") } : {}),
-                ...(queryValue(req, "brainProfileId") ? { brainProfileId: queryValue(req, "brainProfileId") } : {}),
-            }) });
-        }, { queryKeys: ["projectId", "brainProfileId"] }),
-        canvasRoute("POST", "/agent/sessions", async (req, res) => {
-            const body = jsonRecord(req);
-            const current = session.agentContextSnapshot();
-            const result = await generic.createSession(trustedCreateSessionInput(body, current, config.ownerId || "local-owner"));
-            res.json({ ok: true, ...result });
-        }),
-        canvasRoute("GET", "/agent/sessions/:sessionId", async (req, res) => {
-            const item = await generic.store.getSession(routeParam(req.params.sessionId));
-            if (!item) {
-                res.status(404).json({ ok: false, code: "BRAIN_SESSION_NOT_FOUND" });
-                return;
-            }
-            res.json({ ok: true, session: item });
-        }),
-        canvasRoute("POST", "/agent/sessions/:sessionId/context", async (req, res) => {
-            assertEmptyBody(req);
-            res.json({ ok: true, ...(await generic.captureContext(routeParam(req.params.sessionId))) });
-        }),
-        canvasRoute("POST", "/agent/sessions/:sessionId/turns", async (req, res) => {
-            const body = jsonRecord(req);
-            const turnId = typeof body.turnId === "string" && body.turnId.trim() ? body.turnId.trim() : randomUUID();
-            const result = await generic.sendTurn(routeParam(req.params.sessionId), { turnId, prompt: requiredBodyString(body, "prompt") }, emit);
-            res.json({ ok: true, ...result });
-        }),
-        canvasRoute("POST", "/agent/sessions/:sessionId/turns/:turnId/cancel", async (req, res) => {
-            assertEmptyBody(req);
-            const sessionId = routeParam(req.params.sessionId);
-            const item = await generic.store.getSession(sessionId);
-            if (!item) {
-                res.status(404).json({ ok: false, code: "BRAIN_SESSION_NOT_FOUND" });
-                return;
-            }
-            await generic.registry.getAdapter(item.brainProfileId).cancelTurn(sessionId);
-            res.json({ ok: true, sessionId, turnId: routeParam(req.params.turnId) });
-        }),
-        canvasRoute("POST", "/agent/sessions/:sessionId/close", async (req, res) => {
-            assertEmptyBody(req);
-            res.json({ ok: true, session: await generic.manager.closeSession(routeParam(req.params.sessionId)) });
-        }),
+        ...(generic ? createGenericAgentRoutes(generic, config, session, emit) : []),
         canvasRoute("GET", "/agent/codex/workspace", (req, res) => {
             const workspace = ensureCanvasWorkspace(config, queryValue(req, "canvasId"));
             res.json({ ok: true, workspace });
@@ -304,9 +269,74 @@ export function createCanvasAgentHttpModule(
             for (const grant of grantsByCanvas.values()) permissionGrants.revoke(grant.id);
             grantsByCanvas.clear();
             approvals.dispose();
-            return Promise.all([Promise.resolve(session.dispose()), generic.dispose()]).then(() => undefined);
+            return Promise.all([Promise.resolve(session.dispose()), generic?.dispose()]).then(() => undefined);
         },
     };
+}
+
+function createGenericAgentRoutes(generic: GenericAgentRuntime, config: LocalRuntimeConfig, session: CanvasAgentSession, emit: (type: string, payload: unknown) => void) {
+    return [
+        canvasRoute("GET", "/agent/connections", async (_req, res) => {
+            res.json({ ok: true, connections: await generic.listConnections(), toolManifest: generic.tools.list() });
+        }),
+        canvasRoute("GET", "/agent/sessions", async (req, res) => {
+            res.json({ ok: true, sessions: await generic.store.listSessions({
+                ...(queryValue(req, "projectId") ? { projectId: queryValue(req, "projectId") } : {}),
+                ...(queryValue(req, "brainProfileId") ? { brainProfileId: queryValue(req, "brainProfileId") } : {}),
+            }) });
+        }, { queryKeys: ["projectId", "brainProfileId"] }),
+        canvasRoute("POST", "/agent/sessions", async (req, res) => {
+            const body = jsonRecord(req);
+            const current = session.agentContextSnapshot();
+            const result = await generic.createSession(trustedCreateSessionInput(body, current, config.ownerId || "local-owner"));
+            res.json({ ok: true, ...result });
+        }),
+        canvasRoute("GET", "/agent/sessions/:sessionId", async (req, res) => {
+            const item = await generic.store.getSession(routeParam(req.params.sessionId));
+            if (!item) {
+                res.status(404).json({ ok: false, code: "BRAIN_SESSION_NOT_FOUND" });
+                return;
+            }
+            res.json({ ok: true, session: item });
+        }),
+        canvasRoute("POST", "/agent/sessions/:sessionId/resume", async (req, res) => {
+            assertEmptyBody(req);
+            res.json({ ok: true, ...(await generic.resumeSession(routeParam(req.params.sessionId), config.ownerId || "local-owner")) });
+        }),
+        canvasRoute("POST", "/agent/sessions/:sessionId/context", async (req, res) => {
+            assertEmptyBody(req);
+            res.json({ ok: true, ...(await generic.captureContext(routeParam(req.params.sessionId))) });
+        }),
+        canvasRoute("POST", "/agent/sessions/:sessionId/turns", async (req, res) => {
+            const body = jsonRecord(req);
+            const turnId = typeof body.turnId === "string" && body.turnId.trim() ? body.turnId.trim() : randomUUID();
+            const attachments = Array.isArray(body.attachments) ? body.attachments as AgentAttachment[] : [];
+            const localImagePaths = await writeAttachmentFiles(attachments);
+            let preparedSkills: Awaited<ReturnType<typeof writeSkillFiles>> = { directories: [], inputs: [] };
+            try {
+                preparedSkills = await writeSkillFiles(parseAgentSkills(body.skills));
+                const result = await generic.sendTurn(routeParam(req.params.sessionId), { turnId, prompt: requiredBodyString(body, "prompt"), localImagePaths, localSkills: preparedSkills.inputs }, emit);
+                res.json({ ok: true, ...result });
+            } finally {
+                await Promise.all([removeAttachmentFiles(localImagePaths), removeSkillDirectories(preparedSkills.directories)]);
+            }
+        }),
+        canvasRoute("POST", "/agent/sessions/:sessionId/turns/:turnId/cancel", async (req, res) => {
+            assertEmptyBody(req);
+            const sessionId = routeParam(req.params.sessionId);
+            const item = await generic.store.getSession(sessionId);
+            if (!item) {
+                res.status(404).json({ ok: false, code: "BRAIN_SESSION_NOT_FOUND" });
+                return;
+            }
+            await generic.registry.getAdapter(item.brainProfileId).cancelTurn(sessionId);
+            res.json({ ok: true, sessionId, turnId: routeParam(req.params.turnId) });
+        }),
+        canvasRoute("POST", "/agent/sessions/:sessionId/close", async (req, res) => {
+            assertEmptyBody(req);
+            res.json({ ok: true, session: await generic.manager.closeSession(routeParam(req.params.sessionId)) });
+        }),
+    ];
 }
 
 function codexOptions(grant: AgentPermissionGrant, approvals: CodexApprovalCoordinator, session: CanvasAgentSession) {

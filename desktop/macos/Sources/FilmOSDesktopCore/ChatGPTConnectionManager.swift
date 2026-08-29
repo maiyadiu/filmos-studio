@@ -258,7 +258,7 @@ public final class UserDefaultsChatGPTConnectionPreferences: ChatGPTConnectionPr
               let legacy = try? JSONDecoder().decode(LegacyStoredChatGPTConnection.self, from: data) else { return }
         saveConnectionConfig(ChatGPTHostConnectionConfig(tunnelID: legacy.tunnelID, autoConnect: legacy.autoConnect))
         saveProjectSession(ChatGPTProjectHostSession(projectID: legacy.projectID))
-        defaults.removeObject(forKey: legacyKey)
+        // 保留 V1 原值供一版回滚读取；V2 已存在后不会重复迁移或覆盖用户的新设置。
     }
 }
 

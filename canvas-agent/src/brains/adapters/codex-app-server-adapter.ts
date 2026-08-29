@@ -71,12 +71,13 @@ export class CodexSubscriptionAdapter implements AgentRuntimeAdapter {
 
     async resumeSession(input: ResumeBrainSessionInput): Promise<Partial<BrainSession>> {
         const threadId = input.providerThreadId || this.threadsBySession.get(input.sessionId);
-        const grant = this.grantsBySession.get(input.sessionId);
+        const grant = input.grant || this.grantsBySession.get(input.sessionId);
         if (!threadId || !grant) throw new Error("CODEX_SESSION_RESUME_CONTEXT_MISSING");
         const client = await this.processManager.client();
-        await client.resumeThread(threadId, undefined, this.configForGrant(grant), this.binding(this.profileId, input.sessionId, () => undefined));
+        await client.resumeThread(threadId, input.canvasId ? this.workspaceForCanvas(input.canvasId) : undefined, this.configForGrant(grant), this.binding(this.profileId, input.sessionId, () => undefined));
         this.threadsBySession.set(input.sessionId, threadId);
         this.clientsBySession.set(input.sessionId, client);
+        this.grantsBySession.set(input.sessionId, structuredClone(grant));
         return { providerThreadId: threadId };
     }
 
@@ -93,7 +94,7 @@ export class CodexSubscriptionAdapter implements AgentRuntimeAdapter {
                     threadId,
                     turnPrompt(input),
                     input.localImagePaths || [],
-                    [],
+                    input.localSkills || [],
                     this.binding(this.profileId, sessionId, normalizedEmit(sessionId, input.turnId, sink)),
                     (turnId) => this.activeTurnsBySession.set(sessionId, { client, threadId, turnId }),
                 );
