@@ -80,7 +80,17 @@ fi
 destination_parent=$(dirname -- "$destination")
 mkdir -p "$destination_parent"
 staging=$(mktemp -d "$destination_parent/.filmos-app.XXXXXX")
+bun_artifact_manifest="$staging/bun-build-artifacts.before"
+find "$workspace_root/services/filmos-chatgpt-app" -maxdepth 1 -type f -name '.*.bun-build' -print | LC_ALL=C sort >"$bun_artifact_manifest"
+cleanup_bun_build_artifacts() {
+    find "$workspace_root/services/filmos-chatgpt-app" -maxdepth 1 -type f -name '.*.bun-build' -print | while IFS= read -r artifact; do
+        if ! grep -F -x -q "$artifact" "$bun_artifact_manifest"; then
+            rm -f -- "$artifact"
+        fi
+    done
+}
 cleanup() {
+    cleanup_bun_build_artifacts
     find "$staging" -type f -delete 2>/dev/null || true
     find "$staging" -depth -type d -empty -delete 2>/dev/null || true
 }
@@ -181,6 +191,7 @@ test "$(/usr/bin/plutil -extract application_support_directory_name raw -o - "$r
 test -n "$(/usr/bin/plutil -extract start_url raw -o - "$runtime")"
 mv "$bundle" "$destination"
 
+cleanup_bun_build_artifacts
 trap - EXIT HUP INT TERM
 find "$staging" -depth -type d -empty -delete 2>/dev/null || true
 printf 'UNSIGNED_APP_READY %s\n' "$destination"

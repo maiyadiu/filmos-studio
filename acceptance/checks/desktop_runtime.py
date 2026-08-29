@@ -42,6 +42,19 @@ def run(command: tuple[str, ...], environment: dict[str, str] | None = None) -> 
     return output
 
 
+def worktree_status() -> str:
+    result = subprocess.run(
+        ("git", "status", "--porcelain"),
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise RuntimeError("could not inspect worktree status")
+    return result.stdout
+
+
 def listener_pid(port: int) -> int:
     result = subprocess.run(
         ("lsof", "-nP", "-t", f"-iTCP:{port}", "-sTCP:LISTEN"),
@@ -111,7 +124,10 @@ def main() -> None:
         tunnel_archive_cache = ROOT / ".local" / "cache" / "tunnel-client" / "tunnel-client-v0.0.13-darwin-arm64.zip"
         if tunnel_archive_cache.is_file():
             environment["FILMOS_TUNNEL_CLIENT_ARCHIVE_CACHE"] = str(tunnel_archive_cache)
+        worktree_before = worktree_status()
         build_output = run(("desktop/macos/scripts/build-unsigned-app", str(bundle)), environment)
+        if worktree_status() != worktree_before:
+            raise RuntimeError("desktop bundle build left tracked or untracked source-tree artifacts")
         verify_output = run(("desktop/macos/scripts/verify-unsigned-app", str(bundle)), environment)
         runtime = json.loads((bundle / "Contents/Resources/InternalRuntime.json").read_text(encoding="utf-8"))
         forbidden_runtime_keys = {"workspace_root", "bun_executable", "backend_data_directory"}
