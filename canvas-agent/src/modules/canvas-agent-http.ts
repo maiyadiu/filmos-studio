@@ -250,7 +250,7 @@ export function createCanvasAgentHttpModule(
             runClaudeTurn(withAgentPrompt(String(body.prompt || "")), emit);
             res.json({ ok: true });
         }),
-        canvasRoute("POST", "/agent/confirmations/:confirmationId/decision", async (req, res) => {
+        agentOrLegacyRoute(Boolean(generic), "POST", "/agent/confirmations/:confirmationId/decision", "agent:confirmations:decide", async (req, res) => {
             const body = jsonRecord(req);
             const sessionId = requiredBodyString(body, "sessionId");
             if (generic && await generic.store.getSession(sessionId)) {
@@ -290,7 +290,7 @@ export function createCanvasAgentHttpModule(
             id: "canvas-agent",
             displayName: "Canvas Agent",
             apiVersion: 1,
-            scopes: ["canvas:connect"],
+            scopes: ["canvas:connect", "agent:profiles:read", "agent:sessions:read", "agent:sessions:manage", "agent:turns:run", "agent:confirmations:decide", "agent:tools:execute", "agent:handoff:manage"],
         },
         routes,
         onRuntimeSessionRevoked: (sessionId) => session.closeRuntimeSession(sessionId),
@@ -320,22 +320,22 @@ function requireBrowserRuntimeTransport(session: CanvasAgentSession): BrowserRun
 
 function createGenericAgentRoutes(generic: GenericAgentRuntime, config: LocalRuntimeConfig, session: CanvasAgentSession, emit: (type: string, payload: unknown) => void) {
     return [
-        canvasRoute("GET", "/agent/connections", async (_req, res) => {
+        agentRoute("GET", "/agent/connections", "agent:profiles:read", async (_req, res) => {
             res.json({ ok: true, connections: await generic.listConnections(), toolManifest: generic.tools.list() });
         }),
-        canvasRoute("GET", "/agent/sessions", async (req, res) => {
+        agentRoute("GET", "/agent/sessions", "agent:sessions:read", async (req, res) => {
             res.json({ ok: true, sessions: await generic.store.listSessions({
                 ...(queryValue(req, "projectId") ? { projectId: queryValue(req, "projectId") } : {}),
                 ...(queryValue(req, "brainProfileId") ? { brainProfileId: queryValue(req, "brainProfileId") } : {}),
             }) });
         }, { queryKeys: ["projectId", "brainProfileId"] }),
-        canvasRoute("POST", "/agent/sessions", async (req, res) => {
+        agentRoute("POST", "/agent/sessions", "agent:sessions:manage", async (req, res) => {
             const body = jsonRecord(req);
             const current = session.agentContextSnapshot();
             const result = await generic.createSession(trustedCreateSessionInput(body, current, config.ownerId || "local-owner"));
             res.json({ ok: true, ...result });
         }),
-        canvasRoute("GET", "/agent/sessions/:sessionId", async (req, res) => {
+        agentRoute("GET", "/agent/sessions/:sessionId", "agent:sessions:read", async (req, res) => {
             const item = await generic.store.getSession(routeParam(req.params.sessionId));
             if (!item) {
                 res.status(404).json({ ok: false, code: "BRAIN_SESSION_NOT_FOUND" });
@@ -343,15 +343,15 @@ function createGenericAgentRoutes(generic: GenericAgentRuntime, config: LocalRun
             }
             res.json({ ok: true, session: item });
         }),
-        canvasRoute("POST", "/agent/sessions/:sessionId/resume", async (req, res) => {
+        agentRoute("POST", "/agent/sessions/:sessionId/resume", "agent:sessions:manage", async (req, res) => {
             assertEmptyBody(req);
             res.json({ ok: true, ...(await generic.resumeSession(routeParam(req.params.sessionId), config.ownerId || "local-owner")) });
         }),
-        canvasRoute("POST", "/agent/sessions/:sessionId/context", async (req, res) => {
+        agentRoute("POST", "/agent/sessions/:sessionId/context", "agent:sessions:read", async (req, res) => {
             assertEmptyBody(req);
             res.json({ ok: true, ...(await generic.captureContext(routeParam(req.params.sessionId))) });
         }),
-        canvasRoute("POST", "/agent/sessions/:sessionId/turns", async (req, res) => {
+        agentRoute("POST", "/agent/sessions/:sessionId/turns", "agent:turns:run", async (req, res) => {
             const body = jsonRecord(req);
             const turnId = typeof body.turnId === "string" && body.turnId.trim() ? body.turnId.trim() : randomUUID();
             const attachments = Array.isArray(body.attachments) ? body.attachments as AgentAttachment[] : [];
@@ -365,7 +365,7 @@ function createGenericAgentRoutes(generic: GenericAgentRuntime, config: LocalRun
                 await Promise.all([removeAttachmentFiles(localImagePaths), removeSkillDirectories(preparedSkills.directories)]);
             }
         }),
-        canvasRoute("POST", "/agent/sessions/:sessionId/tools", async (req, res) => {
+        agentRoute("POST", "/agent/sessions/:sessionId/tools", "agent:tools:execute", async (req, res) => {
             const body = jsonRecord(req);
             const outcome = await generic.requestTool({
                 sessionId: routeParam(req.params.sessionId),
@@ -377,10 +377,10 @@ function createGenericAgentRoutes(generic: GenericAgentRuntime, config: LocalRun
             if (outcome.status !== "completed") throw new Error("AGENT_TOOL_OUTCOME_INCOMPLETE");
             res.json({ ok: true, outcome });
         }),
-        canvasRoute("GET", "/agent/diagnostics", async (_req, res) => {
+        agentRoute("GET", "/agent/diagnostics", "agent:profiles:read", async (_req, res) => {
             res.json({ ok: true, ...generic.diagnostics() });
         }),
-        canvasRoute("POST", "/agent/sessions/:sessionId/turns/:turnId/cancel", async (req, res) => {
+        agentRoute("POST", "/agent/sessions/:sessionId/turns/:turnId/cancel", "agent:turns:run", async (req, res) => {
             assertEmptyBody(req);
             const sessionId = routeParam(req.params.sessionId);
             const item = await generic.store.getSession(sessionId);
@@ -391,7 +391,7 @@ function createGenericAgentRoutes(generic: GenericAgentRuntime, config: LocalRun
             await generic.registry.getAdapter(item.brainProfileId).cancelTurn(sessionId);
             res.json({ ok: true, sessionId, turnId: routeParam(req.params.turnId) });
         }),
-        canvasRoute("POST", "/agent/sessions/:sessionId/close", async (req, res) => {
+        agentRoute("POST", "/agent/sessions/:sessionId/close", "agent:sessions:manage", async (req, res) => {
             assertEmptyBody(req);
             res.json({ ok: true, session: await generic.manager.closeSession(routeParam(req.params.sessionId)) });
         }),
@@ -426,6 +426,7 @@ function validateAgentGrantHeaders(req: Request, grants: AgentPermissionGrantSto
         connectionId: requiredHeader(req, "x-filmos-agent-connection-id"),
         projectId: requiredHeader(req, "x-filmos-agent-project-id"),
         nonce: requiredHeader(req, "x-filmos-agent-grant-nonce"),
+        signature: requiredHeader(req, "x-filmos-agent-grant-signature"),
         toolName,
     });
 }
@@ -460,6 +461,26 @@ function canvasRoute(
         legacy: true,
         ...options,
     };
+}
+
+function agentRoute(
+    method: "GET" | "POST",
+    path: string,
+    scope: Extract<LocalRuntimeProtectedRoute["scope"], `agent:${string}`>,
+    handler: (req: Request, res: Response) => void | Promise<void>,
+    options: { queryKeys?: readonly string[]; lastEventId?: boolean } = {},
+): LocalRuntimeProtectedRoute {
+    return { method, path, scope, handler: route(handler), ...options };
+}
+
+function agentOrLegacyRoute(
+    generic: boolean,
+    method: "GET" | "POST",
+    path: string,
+    scope: Extract<LocalRuntimeProtectedRoute["scope"], `agent:${string}`>,
+    handler: (req: Request, res: Response) => void | Promise<void>,
+) {
+    return generic ? agentRoute(method, path, scope, handler) : canvasRoute(method, path, handler);
 }
 
 function route(handler: (req: Request, res: Response) => void | Promise<void>): RequestHandler {

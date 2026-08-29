@@ -97,6 +97,7 @@ async function postCanvasAgentTool(config: CanvasAgentConfig, name: ToolName | "
         "x-filmos-agent-connection-id": String(process.env.FILMOS_AGENT_CONNECTION_ID || ""),
         "x-filmos-agent-project-id": String(process.env.FILMOS_AGENT_PROJECT_ID || ""),
         "x-filmos-agent-grant-nonce": String(process.env.FILMOS_AGENT_GRANT_NONCE || ""),
+        "x-filmos-agent-grant-signature": String(process.env.FILMOS_AGENT_GRANT_SIGNATURE || ""),
     } : {};
     const res = await fetch(`${config.url}/api/tools`, { method: "POST", headers: { "content-type": "application/json", "x-canvas-agent-token": config.token, ...grantHeaders }, body: JSON.stringify({ name, input }) });
     const body = (await res.json()) as CanvasAgentToolResponse;

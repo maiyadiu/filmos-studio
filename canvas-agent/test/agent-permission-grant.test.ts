@@ -9,6 +9,9 @@ test("permission grant is short-lived, session-scoped and tool-scoped", () => {
 
     assert.equal(store.validate(grant.id, { sessionId: "session-1", connectionId: "codex.subscription", projectId: "project-1", toolName: "workbench_get_context", now: new Date(grant.issuedAt) }).nonce, grant.nonce);
     assert.throws(() => store.validate(grant.id, { sessionId: "session-1", connectionId: "codex.subscription", projectId: "project-1", nonce: "wrong" }), /NONCE_MISMATCH/);
+    assert.throws(() => store.validate(grant.id, { sessionId: "session-1", connectionId: "codex.subscription", projectId: "project-1", signature: "wrong" }), /SIGNATURE_MISMATCH/);
+    assert.equal(grant.keyId, "filmos-local-runtime-v1");
+    assert.match(grant.signature, /^[A-Za-z0-9_-]{43}$/);
     assert.throws(() => store.validate(grant.id, { sessionId: "session-2", connectionId: "codex.subscription", projectId: "project-1" }), /SCOPE_MISMATCH/);
     assert.throws(() => store.validate(grant.id, { sessionId: "session-1", connectionId: "codex.subscription", projectId: "project-1", toolName: "canvas_apply_ops" }), /TOOL_NOT_GRANTED/);
     assert.throws(() => store.validate(grant.id, { sessionId: "session-1", connectionId: "codex.subscription", projectId: "project-1", now: new Date(Date.parse(grant.expiresAt) + 1) }), /EXPIRED/);

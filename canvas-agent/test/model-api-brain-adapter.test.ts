@@ -51,7 +51,7 @@ function createInput(brainProfileId: string) {
 }
 
 function grant(connectionId: string): AgentPermissionGrant {
-    return { id: "grant", sessionId: "session", connectionId, actorId: "actor", projectId: "project", toolSurface: "workbench_operator", allowedTools: [], issuedAt: new Date(0).toISOString(), expiresAt: new Date(1).toISOString(), nonce: "nonce" };
+    return { id: "grant", sessionId: "session", connectionId, actorId: "actor", projectId: "project", toolSurface: "workbench_operator", allowedTools: [], issuedAt: new Date(0).toISOString(), expiresAt: new Date(1).toISOString(), nonce: "nonce", keyId: "filmos-local-runtime-v1", signature: "signature" };
 }
 
 function turn(brainProfileId: string, localImagePaths: string[] = []): AgentTurnInput {

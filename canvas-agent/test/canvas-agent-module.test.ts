@@ -50,7 +50,7 @@ test("MCP manifest exposes the semantic canvas read tools with schemas and descr
     );
 });
 
-test("Canvas module declares only Canvas scopes and constructs without CLI side effects", () => {
+test("Canvas module declares signed Agent scopes and constructs default-off without CLI side effects", () => {
     const calls: string[] = [];
     const module = createCanvasAgentHttpModule(fixtureConfig(), sessionFixture(calls));
 
@@ -58,7 +58,7 @@ test("Canvas module declares only Canvas scopes and constructs without CLI side 
         id: "canvas-agent",
         displayName: "Canvas Agent",
         apiVersion: 1,
-        scopes: ["canvas:connect"],
+        scopes: ["canvas:connect", "agent:profiles:read", "agent:sessions:read", "agent:sessions:manage", "agent:turns:run", "agent:confirmations:decide", "agent:tools:execute", "agent:handoff:manage"],
     });
     assert.ok(module.routes.some((route) => route.path === "/events" && route.lastEventId));
     assert.ok(module.routes.every((route) => route.scope === "canvas:connect" && route.legacy));
@@ -66,13 +66,19 @@ test("Canvas module declares only Canvas scopes and constructs without CLI side 
     assert.deepEqual(calls, []);
 });
 
-test("complete feature set registers generic routes while preserving legacy Codex aliases", () => {
+test("complete feature set registers generic routes while preserving legacy Codex aliases", async () => {
     const config = fixtureConfig();
     config.agentFeatureFlags = Object.fromEntries(AGENT_FEATURE_FLAG_IDS.map((id) => [id, true]));
-    const module = createCanvasAgentHttpModule(config, sessionFixture([]), { brainSessionStore: new MemoryBrainSessionStore() });
-    assert.equal(module.routes.some((route) => route.path === "/agent/connections"), true);
-    assert.equal(module.routes.some((route) => route.path === "/agent/sessions/:sessionId/resume"), true);
-    assert.equal(module.routes.some((route) => route.path === "/agent/codex/turn"), true);
+    const module = createCanvasAgentHttpModule(config, new CanvasSession(), { brainSessionStore: new MemoryBrainSessionStore() });
+    try {
+        assert.equal(module.routes.some((route) => route.path === "/agent/connections"), true);
+        assert.equal(module.routes.some((route) => route.path === "/agent/sessions/:sessionId/resume"), true);
+        assert.equal(module.routes.some((route) => route.path === "/agent/codex/turn"), true);
+        assert.equal(module.routes.find((route) => route.path === "/agent/connections")?.legacy, undefined);
+        assert.equal(module.routes.find((route) => route.path === "/agent/sessions/:sessionId/tools")?.scope, "agent:tools:execute");
+    } finally {
+        await module.dispose?.();
+    }
 });
 
 test("generic session input ignores model-supplied identity and uses the live workbench scope", () => {

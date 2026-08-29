@@ -326,6 +326,8 @@ export interface AgentPermissionGrant {
     issuedAt: string;
     expiresAt: string;
     nonce: string;
+    keyId: "filmos-local-runtime-v1";
+    signature: string;
 }
 
 export interface ChatGPTHostSession {

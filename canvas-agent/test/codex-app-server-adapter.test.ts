@@ -17,6 +17,8 @@ const grant: AgentPermissionGrant = {
     issuedAt: "2026-08-29T00:00:00.000Z",
     expiresAt: "2026-08-29T01:00:00.000Z",
     nonce: "nonce-1",
+    keyId: "filmos-local-runtime-v1",
+    signature: "signature-1",
 };
 
 test("Codex subscription probe reports managed ChatGPT auth and quota without an API key", async () => {
@@ -38,6 +40,7 @@ test("Codex subscription probe reports managed ChatGPT auth and quota without an
     assert.equal(env.FILMOS_BRAIN_PROFILE_ID, "codex.subscription");
     assert.equal(env.FILMOS_AGENT_GRANT_ID, grant.id);
     assert.equal(env.FILMOS_AGENT_GRANT_NONCE, grant.nonce);
+    assert.equal(env.FILMOS_AGENT_GRANT_SIGNATURE, grant.signature);
 });
 
 test("Codex server requests fail closed unless the matching FilmOS confirmation approves", async () => {
