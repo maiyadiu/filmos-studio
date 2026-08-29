@@ -1,0 +1,2898 @@
+{
+  "schema_version": "1.0.0",
+  "contract_id": "filmos-agent-canonical-tools",
+  "source_contracts": {
+    "canvas_project": "canvas-agent/src/schemas.ts",
+    "film_core": "canvas-agent/src/film/contracts.ts",
+    "risk_surface": "canvas-agent/src/brains/tool-manifest.ts"
+  },
+  "tools": [
+    {
+      "name": "canvas_apply_ops",
+      "title": "Canvas Apply Ops",
+      "description": "批量操作当前网页画布。ops 支持 add_node、update_node、delete_node、delete_connections、connect_nodes、set_viewport、select_nodes、run_generation。",
+      "risk": "write",
+      "surfaces": [
+        "canvas_legacy",
+        "runtime_admin",
+        "workbench_operator"
+      ],
+      "provider": "canvas",
+      "requires_fresh_context": true,
+      "may_create_charges": false,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "expectedRevision": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "expectedStateHash": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "ops": {
+            "items": {
+              "anyOf": [
+                {
+                  "additionalProperties": true,
+                  "properties": {
+                    "height": {
+                      "type": "number"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "metadata": {
+                      "additionalProperties": {},
+                      "type": "object"
+                    },
+                    "nodeType": {
+                      "enum": [
+                        "image",
+                        "text",
+                        "script",
+                        "video",
+                        "audio",
+                        "frame"
+                      ],
+                      "type": "string"
+                    },
+                    "position": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "x": {
+                          "type": "number"
+                        },
+                        "y": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "x",
+                        "y"
+                      ],
+                      "type": "object"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "const": "add_node",
+                      "type": "string"
+                    },
+                    "width": {
+                      "type": "number"
+                    },
+                    "x": {
+                      "type": "number"
+                    },
+                    "y": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": true,
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "metadata": {
+                      "additionalProperties": {},
+                      "type": "object"
+                    },
+                    "patch": {
+                      "additionalProperties": {},
+                      "type": "object"
+                    },
+                    "type": {
+                      "const": "update_node",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "id"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": true,
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "ids": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "nodeType": {
+                      "enum": [
+                        "image",
+                        "text",
+                        "script",
+                        "video",
+                        "audio",
+                        "frame"
+                      ],
+                      "type": "string"
+                    },
+                    "type": {
+                      "const": "delete_node",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": true,
+                  "properties": {
+                    "all": {
+                      "type": "boolean"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "ids": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "type": {
+                      "const": "delete_connections",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": true,
+                  "properties": {
+                    "fromHandleId": {
+                      "type": "string"
+                    },
+                    "fromNodeId": {
+                      "type": "string"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "toHandleId": {
+                      "type": "string"
+                    },
+                    "toNodeId": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "const": "connect_nodes",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "fromNodeId",
+                    "toNodeId"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": true,
+                  "properties": {
+                    "type": {
+                      "const": "set_viewport",
+                      "type": "string"
+                    },
+                    "viewport": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "k": {
+                          "type": "number"
+                        },
+                        "x": {
+                          "type": "number"
+                        },
+                        "y": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "x",
+                        "y",
+                        "k"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "viewport"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": true,
+                  "properties": {
+                    "ids": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "type": {
+                      "const": "select_nodes",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "ids"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": true,
+                  "properties": {
+                    "mode": {
+                      "enum": [
+                        "text",
+                        "image",
+                        "video",
+                        "audio"
+                      ],
+                      "type": "string"
+                    },
+                    "nodeId": {
+                      "type": "string"
+                    },
+                    "prompt": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "const": "run_generation",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "nodeId"
+                  ],
+                  "type": "object"
+                }
+              ]
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "ops"
+        ],
+        "type": "object"
+      },
+      "input_schema_hash": "5c56c4232f202f7051edba17e24e332c1f9c46e36147db98e8fe32a58db889e9"
+    },
+    {
+      "name": "canvas_connect_nodes",
+      "title": "Canvas Connect Nodes",
+      "description": "批量连接节点。",
+      "risk": "write",
+      "surfaces": [
+        "canvas_legacy",
+        "runtime_admin",
+        "workbench_operator"
+      ],
+      "provider": "canvas",
+      "requires_fresh_context": true,
+      "may_create_charges": false,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "connections": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "fromHandleId": {
+                  "type": "string"
+                },
+                "fromNodeId": {
+                  "type": "string"
+                },
+                "toHandleId": {
+                  "type": "string"
+                },
+                "toNodeId": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "fromNodeId",
+                "toNodeId"
+              ],
+              "type": "object"
+            },
+            "minItems": 1,
+            "type": "array"
+          }
+        },
+        "required": [
+          "connections"
+        ],
+        "type": "object"
+      },
+      "input_schema_hash": "677276ec84bacc9aa602090ef43f7c56c0d448508daaf1426897145a7806a7cb"
+    },
+    {
+      "name": "canvas_create_generation_flow",
+      "title": "Canvas Create Generation Flow",
+      "description": "创建通用生成流程：提示词文本节点、对应类型的生成目标节点和参考节点连线，可用于文案、生图、视频或音频。",
+      "risk": "paid",
+      "surfaces": [
+        "canvas_legacy",
+        "runtime_admin",
+        "workbench_operator"
+      ],
+      "provider": "generation",
+      "requires_fresh_context": true,
+      "may_create_charges": true,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "audioFormat": {
+            "type": "string"
+          },
+          "audioInstructions": {
+            "type": "string"
+          },
+          "audioSpeed": {
+            "type": "string"
+          },
+          "audioVoice": {
+            "type": "string"
+          },
+          "autoRun": {
+            "type": "boolean"
+          },
+          "count": {
+            "type": "number"
+          },
+          "generateAudio": {
+            "type": "string"
+          },
+          "mode": {
+            "enum": [
+              "text",
+              "image",
+              "video",
+              "audio"
+            ],
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "prompt": {
+            "type": "string"
+          },
+          "quality": {
+            "type": "string"
+          },
+          "referenceNodeIds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "seconds": {
+            "type": "string"
+          },
+          "size": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "vquality": {
+            "type": "string"
+          },
+          "watermark": {
+            "type": "string"
+          },
+          "x": {
+            "type": "number"
+          },
+          "y": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "prompt"
+        ],
+        "type": "object"
+      },
+      "input_schema_hash": "308608978a0477613cc18a7e0dd61d910d1d2c23f09cf63a71f113b497622ebb"
+    },
+    {
+      "name": "canvas_create_image_prompt_flow",
+      "title": "Canvas Create Image Prompt Flow",
+      "description": "创建提示词文本节点和图片目标节点并自动连线，可选择立即触发生图。",
+      "risk": "paid",
+      "surfaces": [
+        "canvas_legacy",
+        "runtime_admin",
+        "workbench_operator"
+      ],
+      "provider": "generation",
+      "requires_fresh_context": true,
+      "may_create_charges": true,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "audioFormat": {
+            "type": "string"
+          },
+          "audioInstructions": {
+            "type": "string"
+          },
+          "audioSpeed": {
+            "type": "string"
+          },
+          "audioVoice": {
+            "type": "string"
+          },
+          "autoRun": {
+            "type": "boolean"
+          },
+          "count": {
+            "type": "number"
+          },
+          "generateAudio": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "prompt": {
+            "type": "string"
+          },
+          "quality": {
+            "type": "string"
+          },
+          "seconds": {
+            "type": "string"
+          },
+          "size": {
+            "type": "string"
+          },
+          "vquality": {
+            "type": "string"
+          },
+          "watermark": {
+            "type": "string"
+          },
+          "x": {
+            "type": "number"
+          },
+          "y": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "prompt"
+        ],
+        "type": "object"
+      },
+      "input_schema_hash": "f6b3bf51ae656ecbad053c41780b4df0d7af55b3070a222a8f376b43f40dfb27"
+    },
+    {
+      "name": "canvas_create_node",
+      "title": "Canvas Create Node",
+      "description": "创建任意类型节点：text、script、image、video、audio、frame。适合创建脚本、媒体占位、背板或自定义 metadata 节点。",
+      "risk": "write",
+      "surfaces": [
+        "canvas_legacy",
+        "runtime_admin",
+        "workbench_operator"
+      ],
+      "provider": "canvas",
+      "requires_fresh_context": true,
+      "may_create_charges": false,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "height": {
+            "type": "number"
+          },
+          "metadata": {
+            "additionalProperties": {},
+            "type": "object"
+          },
+          "nodeType": {
+            "enum": [
+              "image",
+              "text",
+              "script",
+              "video",
+              "audio",
+              "frame"
+            ],
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "width": {
+            "type": "number"
+          },
+          "x": {
+            "type": "number"
+          },
+          "y": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "nodeType"
+        ],
+        "type": "object"
+      },
+      "input_schema_hash": "b1ab36e29af51b6ef6af5ad1c84ba836ba412cc1d2d855f9fb000ccb1b69338a"
+    },
+    {
+      "name": "canvas_create_text_node",
+      "title": "Canvas Create Text Node",
+      "description": "在当前画布创建单个文本节点。",
+      "risk": "write",
+      "surfaces": [
+        "canvas_legacy",
+        "runtime_admin",
+        "workbench_operator"
+      ],
+      "provider": "canvas",
+      "requires_fresh_context": true,
+      "may_create_charges": false,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "height": {
+            "type": "number"
+          },
+          "text": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "width": {
+            "type": "number"
+          },
+          "x": {
+            "type": "number"
+          },
+          "y": {
+            "type": "number"
+          }
+        },
+        "type": "object"
+      },
+      "input_schema_hash": "2ba94e189df97da7bf779a90b10204d9cedd641b55e42edfef3370d8f701e27e"
+    },
+    {
+      "name": "canvas_create_text_nodes",
+      "title": "Canvas Create Text Nodes",
+      "description": "批量创建文本节点，适合生成标题、段落、脚本、说明等内容块。",
+      "risk": "write",
+      "surfaces": [
+        "canvas_legacy",
+        "runtime_admin",
+        "workbench_operator"
+      ],
+      "provider": "canvas",
+      "requires_fresh_context": true,
+      "may_create_charges": false,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "direction": {
+            "enum": [
+              "row",
+              "column"
+            ],
+            "type": "string"
+          },
+          "gap": {
+            "type": "number"
+          },
+          "items": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "height": {
+                  "type": "number"
+                },
+                "text": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "width": {
+                  "type": "number"
+                },
+                "x": {
+                  "type": "number"
+                },
+                "y": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "text"
+              ],
+              "type": "object"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "x": {
+            "type": "number"
+          },
+          "y": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "type": "object"
+      },
+      "input_schema_hash": "2d7d232d00b2c6cfbb5ff2b8ce66bcbd568338cbaf5cc0ba0b80780ce6c3a7b1"
+    },
+    {
+      "name": "canvas_create_workflow",
+      "title": "Canvas Create Workflow",
+      "description": "创建语义化工作流/流水线。character_cards 是角色拆分图片卡片，character_three_view 是角色三视图，storyboard_video 是分镜剧情视频。媒体节点必须有 prompt/content；已有素材使用先读取到的真实 node id 填入 referenceNodeIds。自动分配 id、根据真实节点尺寸布局、建立 edges/referenceRefs/referenceNodeIds 连线并返回可验证结果；不要用批量文本节点代替工作流。",
+      "risk": "write",
+      "surfaces": [
+        "canvas_legacy",
+        "runtime_admin",
+        "workbench_operator"
+      ],
+      "provider": "canvas",
+      "requires_fresh_context": true,
+      "may_create_charges": false,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "autoRun": {
+            "type": "boolean"
+          },
+          "description": {
+            "type": "string"
+          },
+          "direction": {
+            "enum": [
+              "horizontal",
+              "vertical"
+            ],
+            "type": "string"
+          },
+          "edges": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "from": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "to": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "from",
+                "to"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "gap": {
+            "minimum": 48,
+            "type": "number"
+          },
+          "nodes": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "content": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "height": {
+                  "exclusiveMinimum": 0,
+                  "type": "number"
+                },
+                "kind": {
+                  "enum": [
+                    "text",
+                    "script",
+                    "image",
+                    "video",
+                    "audio",
+                    "character_cards",
+                    "character_three_view",
+                    "storyboard_video"
+                  ],
+                  "type": "string"
+                },
+                "prompt": {
+                  "type": "string"
+                },
+                "ref": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "referenceNodeIds": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "referenceRefs": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "runGeneration": {
+                  "type": "boolean"
+                },
+                "title": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "width": {
+                  "exclusiveMinimum": 0,
+                  "type": "number"
+                }
+              },
+              "required": [
+                "ref",
+                "kind",
+                "title"
+              ],
+              "type": "object"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "start": {
+            "additionalProperties": false,
+            "properties": {
+              "x": {
+                "type": "number"
+              },
+              "y": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "x",
+              "y"
+            ],
+            "type": "object"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "nodes"
+        ],
+        "type": "object"
+      },
+      "input_schema_hash": "3b6ea9790edbd8608ff92e3cedac88e14bea8c136e40c5837178aef3d4a847dc"
+    },
+    {
+      "name": "canvas_delete_nodes",
+      "title": "Canvas Delete Nodes",
+      "description": "删除指定节点及相关连线。",
+      "risk": "destructive",
+      "surfaces": [
+        "canvas_legacy",
+        "runtime_admin",
+        "workbench_operator"
+      ],
+      "provider": "canvas",
+      "requires_fresh_context": true,
+      "may_create_charges": false,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "ids": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array"
+          }
+        },
+        "required": [
+          "ids"
+        ],
+        "type": "object"
+      },
+      "input_schema_hash": "47dbc82a1d447e41114d7c80f7c7890c9f3f55fa224997ca8035f9d08bc91b39"
+    },
+    {
+      "name": "canvas_export_snapshot",
+      "title": "Canvas Export Snapshot",
+      "description": "导出当前画布快照，用于理解布局。",
+      "risk": "read",
+      "surfaces": [
+        "canvas_legacy",
+        "runtime_admin",
+        "workbench_operator"
+      ],
+      "provider": "canvas",
+      "requires_fresh_context": true,
+      "may_create_charges": false,
+      "input_schema": {
+        "additionalProperties": true,
+        "properties": {},
+        "type": "object"
+      },
+      "input_schema_hash": "446208e6d264845ca1000c09a95814fb9f17696e17bcaba34a88a5f8a0f07da1"
+    },
+    {
+      "name": "canvas_find_nodes",
+      "title": "Canvas Find Nodes",
+      "description": "按标题、内容、提示词、类型、状态、资产或工作流检索真实节点，返回可用于后续写操作的节点 id。",
+      "risk": "read",
+      "surfaces": [
+        "canvas_legacy",
+        "runtime_admin",
+        "workbench_operator"
+      ],
+      "provider": "canvas",
+      "requires_fresh_context": true,
+      "may_create_charges": false,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "limit": {
+            "maximum": 200,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "query": {
+            "type": "string"
+          },
+          "resourceOnly": {
+            "type": "boolean"
+          },
+          "statuses": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "types": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "input_schema_hash": "ca32084a5873527541d5902f58877d9e6661498ad06699c092cf6c0b492b020c"
+    },
+    {
+      "name": "canvas_generate_audio",
+      "title": "Canvas Generate Audio",
+      "description": "创建通用音频生成流程并立即触发生成。",
+      "risk": "paid",
+      "surfaces": [
+        "canvas_legacy",
+        "runtime_admin",
+        "workbench_operator"
+      ],
+      "provider": "generation",
+      "requires_fresh_context": true,
+      "may_create_charges": true,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "audioFormat": {
+            "type": "string"
+          },
+          "audioInstructions": {
+            "type": "string"
+          },
+          "audioSpeed": {
+            "type": "string"
+          },
+          "audioVoice": {
+            "type": "string"
+          },
+          "count": {
+            "type": "number"
+          },
+          "generateAudio": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "prompt": {
+            "type": "string"
+          },
+          "quality": {
+            "type": "string"
+          },
+          "referenceNodeIds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "seconds": {
+            "type": "string"
+          },
+          "size": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "vquality": {
+            "type": "string"
+          },
+          "watermark": {
+            "type": "string"
+          },
+          "x": {
+            "type": "number"
+          },
+          "y": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "prompt"
+        ],
+        "type": "object"
+      },
+      "input_schema_hash": "dd02b658cafddf5fff772688d7878bb92f33c44f407257c9dad14e5332abadcf"
+    },
+    {
+      "name": "canvas_generate_image",
+      "title": "Canvas Generate Image",
+      "description": "创建通用图片生成流程并立即触发生成。",
+      "risk": "paid",
+      "surfaces": [
+        "canvas_legacy",
+        "runtime_admin",
+        "workbench_operator"
+      ],
+      "provider": "generation",
+      "requires_fresh_context": true,
+      "may_create_charges": true,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "audioFormat": {
+            "type": "string"
+          },
+          "audioInstructions": {
+            "type": "string"
+          },
+          "audioSpeed": {
+            "type": "string"
+          },
+          "audioVoice": {
+            "type": "string"
+          },
+          "count": {
+            "type": "number"
+          },
+          "generateAudio": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "prompt": {
+            "type": "string"
+          },
+          "quality": {
+            "type": "string"
+          },
+          "referenceNodeIds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "seconds": {
+            "type": "string"
+          },
+          "size": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "vquality": {
+            "type": "string"
+          },
+          "watermark": {
+            "type": "string"
+          },
+          "x": {
+            "type": "number"
+          },
+          "y": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "prompt"
+        ],
+        "type": "object"
+      },
+      "input_schema_hash": "dd02b658cafddf5fff772688d7878bb92f33c44f407257c9dad14e5332abadcf"
+    },
+    {
+      "name": "canvas_generate_text",
+      "title": "Canvas Generate Text",
+      "description": "创建通用文本生成流程并立即触发生成。",
+      "risk": "paid",
+      "surfaces": [
+        "canvas_legacy",
+        "runtime_admin",
+        "workbench_operator"
+      ],
+      "provider": "generation",
+      "requires_fresh_context": true,
+      "may_create_charges": true,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "audioFormat": {
+            "type": "string"
+          },
+          "audioInstructions": {
+            "type": "string"
+          },
+          "audioSpeed": {
+            "type": "string"
+          },
+          "audioVoice": {
+            "type": "string"
+          },
+          "count": {
+            "type": "number"
+          },
+          "generateAudio": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "prompt": {
+            "type": "string"
+          },
+          "quality": {
+            "type": "string"
+          },
+          "referenceNodeIds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "seconds": {
+            "type": "string"
+          },
+          "size": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "vquality": {
+            "type": "string"
+          },
+          "watermark": {
+            "type": "string"
+          },
+          "x": {
+            "type": "number"
+          },
+          "y": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "prompt"
+        ],
+        "type": "object"
+      },
+      "input_schema_hash": "dd02b658cafddf5fff772688d7878bb92f33c44f407257c9dad14e5332abadcf"
+    },
+    {
+      "name": "canvas_generate_video",
+      "title": "Canvas Generate Video",
+      "description": "创建通用视频生成流程并立即触发生成。",
+      "risk": "paid",
+      "surfaces": [
+        "canvas_legacy",
+        "runtime_admin",
+        "workbench_operator"
+      ],
+      "provider": "generation",
+      "requires_fresh_context": true,
+      "may_create_charges": true,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "audioFormat": {
+            "type": "string"
+          },
+          "audioInstructions": {
+            "type": "string"
+          },
+          "audioSpeed": {
+            "type": "string"
+          },
+          "audioVoice": {
+            "type": "string"
+          },
+          "count": {
+            "type": "number"
+          },
+          "generateAudio": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "prompt": {
+            "type": "string"
+          },
+          "quality": {
+            "type": "string"
+          },
+          "referenceNodeIds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "seconds": {
+            "type": "string"
+          },
+          "size": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "vquality": {
+            "type": "string"
+          },
+          "watermark": {
+            "type": "string"
+          },
+          "x": {
+            "type": "number"
+          },
+          "y": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "prompt"
+        ],
+        "type": "object"
+      },
+      "input_schema_hash": "dd02b658cafddf5fff772688d7878bb92f33c44f407257c9dad14e5332abadcf"
+    },
+    {
+      "name": "canvas_get_connection",
+      "title": "Canvas Get Connection",
+      "description": "按真实连线 id 精确读取连线端点、端点节点摘要和 handle 信息；找不到时明确返回未找到。",
+      "risk": "read",
+      "surfaces": [
+        "canvas_legacy",
+        "runtime_admin",
+        "workbench_operator"
+      ],
+      "provider": "canvas",
+      "requires_fresh_context": true,
+      "may_create_charges": false,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "type": "object"
+      },
+      "input_schema_hash": "edf9aab1fda640465c91e2a89ac6059b04e1f643957c3dd8e010e8075b5c5f95"
+    },
+    {
+      "name": "canvas_get_context",
+      "title": "Canvas Get Context",
+      "description": "读取面向 Agent 的语义化画布上下文：节点用途、连接关系、选区、资源引用、生成状态和状态哈希。优先于直接猜测节点 metadata。",
+      "risk": "read",
+      "surfaces": [
+        "canvas_legacy",
+        "runtime_admin",
+        "workbench_operator"
+      ],
+      "provider": "canvas",
+      "requires_fresh_context": true,
+      "may_create_charges": false,
+      "input_schema": {
+        "additionalProperties": true,
+        "properties": {},
+        "type": "object"
+      },
+      "input_schema_hash": "446208e6d264845ca1000c09a95814fb9f17696e17bcaba34a88a5f8a0f07da1"
+    },
+    {
+      "name": "canvas_get_generation_tasks",
+      "title": "Canvas Get Generation Tasks",
+      "description": "读取当前画布节点已经绑定的生成任务观察状态，包括 taskId、节点、任务状态、进度、阶段和错误；这是画布快照观察，不会主动轮询上游。",
+      "risk": "read",
+      "surfaces": [
+        "canvas_legacy",
+        "runtime_admin",
+        "workbench_operator"
+      ],
+      "provider": "canvas",
+      "requires_fresh_context": true,
+      "may_create_charges": false,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "maximum": 200,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "nodeIds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "input_schema_hash": "b180d7dc1e45780304c1b72f739b7570440b9299709fb5aea4d662f087613d48"
+    },
+    {
+      "name": "canvas_get_node",
+      "title": "Canvas Get Node",
+      "description": "按真实节点 id 精确读取单个节点的语义、完整安全 metadata、资源状态和关联连线；找不到时明确返回未找到。",
+      "risk": "read",
+      "surfaces": [
+        "canvas_legacy",
+        "runtime_admin",
+        "workbench_operator"
+      ],
+      "provider": "canvas",
+      "requires_fresh_context": true,
+      "may_create_charges": false,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "type": "object"
+      },
+      "input_schema_hash": "edf9aab1fda640465c91e2a89ac6059b04e1f643957c3dd8e010e8075b5c5f95"
+    },
+    {
+      "name": "canvas_get_resources",
+      "title": "Canvas Get Resources",
+      "description": "读取当前画布引用的媒体资源清单，包括资源/资产引用、类型、尺寸、大小、时长和就绪状态；不会返回媒体 URL。",
+      "risk": "read",
+      "surfaces": [
+        "canvas_legacy",
+        "runtime_admin",
+        "workbench_operator"
+      ],
+      "provider": "canvas",
+      "requires_fresh_context": true,
+      "may_create_charges": false,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "maximum": 300,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "nodeIds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "input_schema_hash": "69924737cb38f49d39ca78a811a946bcf7dac2f7f23eaa24f1466bb3df5a607e"
+    },
+    {
+      "name": "canvas_get_selection",
+      "title": "Canvas Get Selection",
+      "description": "读取当前网页画布选中的节点。",
+      "risk": "read",
+      "surfaces": [
+        "canvas_legacy",
+        "runtime_admin",
+        "workbench_operator"
+      ],
+      "provider": "canvas",
+      "requires_fresh_context": true,
+      "may_create_charges": false,
+      "input_schema": {
+        "additionalProperties": true,
+        "properties": {},
+        "type": "object"
+      },
+      "input_schema_hash": "446208e6d264845ca1000c09a95814fb9f17696e17bcaba34a88a5f8a0f07da1"
+    },
+    {
+      "name": "canvas_get_state",
+      "title": "Canvas Get State",
+      "description": "读取当前网页画布的节点、连线、选区和视口。",
+      "risk": "read",
+      "surfaces": [
+        "canvas_legacy",
+        "runtime_admin",
+        "workbench_operator"
+      ],
+      "provider": "canvas",
+      "requires_fresh_context": true,
+      "may_create_charges": false,
+      "input_schema": {
+        "additionalProperties": true,
+        "properties": {},
+        "type": "object"
+      },
+      "input_schema_hash": "446208e6d264845ca1000c09a95814fb9f17696e17bcaba34a88a5f8a0f07da1"
+    },
+    {
+      "name": "canvas_move_nodes",
+      "title": "Canvas Move Nodes",
+      "description": "移动一个或多个节点，支持绝对坐标或 dx/dy 偏移。",
+      "risk": "write",
+      "surfaces": [
+        "canvas_legacy",
+        "runtime_admin",
+        "workbench_operator"
+      ],
+      "provider": "canvas",
+      "requires_fresh_context": true,
+      "may_create_charges": false,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "dx": {
+                  "type": "number"
+                },
+                "dy": {
+                  "type": "number"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "x": {
+                  "type": "number"
+                },
+                "y": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "id"
+              ],
+              "type": "object"
+            },
+            "minItems": 1,
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "type": "object"
+      },
+      "input_schema_hash": "5107d88ff3882ab4cf608fe7f65dfaf0cb8c9931a4b9c3449afac6a2b0efcfc9"
+    },
+    {
+      "name": "canvas_resize_node",
+      "title": "Canvas Resize Node",
+      "description": "调整节点尺寸。",
+      "risk": "write",
+      "surfaces": [
+        "canvas_legacy",
+        "runtime_admin",
+        "workbench_operator"
+      ],
+      "provider": "canvas",
+      "requires_fresh_context": true,
+      "may_create_charges": false,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "freeResize": {
+            "type": "boolean"
+          },
+          "height": {
+            "type": "number"
+          },
+          "id": {
+            "type": "string"
+          },
+          "width": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "id",
+          "width",
+          "height"
+        ],
+        "type": "object"
+      },
+      "input_schema_hash": "344a27ab9c1e00e4b3018b4b0af5e9914e01bd9fa3bfacabfcc52fbfba6437c0"
+    },
+    {
+      "name": "canvas_run_generation",
+      "title": "Canvas Run Generation",
+      "description": "触发指定节点生成；对已有生成任务明确重试时传 retry=true，以复用产品级重试幂等身份。",
+      "risk": "paid",
+      "surfaces": [
+        "canvas_legacy",
+        "runtime_admin",
+        "workbench_operator"
+      ],
+      "provider": "generation",
+      "requires_fresh_context": true,
+      "may_create_charges": true,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "mode": {
+            "enum": [
+              "text",
+              "image",
+              "video",
+              "audio"
+            ],
+            "type": "string"
+          },
+          "nodeId": {
+            "type": "string"
+          },
+          "prompt": {
+            "type": "string"
+          },
+          "retry": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "nodeId"
+        ],
+        "type": "object"
+      },
+      "input_schema_hash": "fb2f97ce0fdf84274ac5873d10eb606e382c0e7f280d8e478d3033e01014038c"
+    },
+    {
+      "name": "canvas_select_nodes",
+      "title": "Canvas Select Nodes",
+      "description": "设置当前选中节点。",
+      "risk": "write",
+      "surfaces": [
+        "canvas_legacy",
+        "runtime_admin",
+        "workbench_operator"
+      ],
+      "provider": "canvas",
+      "requires_fresh_context": true,
+      "may_create_charges": false,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "ids"
+        ],
+        "type": "object"
+      },
+      "input_schema_hash": "2af3411551f0d61fb846115fdfe759238db53b5b3853e162067ca95c110fa9d8"
+    },
+    {
+      "name": "canvas_set_viewport",
+      "title": "Canvas Set Viewport",
+      "description": "调整画布视口。",
+      "risk": "write",
+      "surfaces": [
+        "canvas_legacy",
+        "runtime_admin",
+        "workbench_operator"
+      ],
+      "provider": "canvas",
+      "requires_fresh_context": true,
+      "may_create_charges": false,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "viewport": {
+            "additionalProperties": false,
+            "properties": {
+              "k": {
+                "type": "number"
+              },
+              "x": {
+                "type": "number"
+              },
+              "y": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "x",
+              "y",
+              "k"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "viewport"
+        ],
+        "type": "object"
+      },
+      "input_schema_hash": "792e0f344a3b299dfdd22e596adf0c4a4bb291120be7dafd77e3a40eeb8f68d7"
+    },
+    {
+      "name": "canvas_update_node",
+      "title": "Canvas Update Node",
+      "description": "更新节点基础字段或 metadata。",
+      "risk": "write",
+      "surfaces": [
+        "canvas_legacy",
+        "runtime_admin",
+        "workbench_operator"
+      ],
+      "provider": "canvas",
+      "requires_fresh_context": true,
+      "may_create_charges": false,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": {},
+            "type": "object"
+          },
+          "patch": {
+            "additionalProperties": {},
+            "type": "object"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "type": "object"
+      },
+      "input_schema_hash": "a06b10e0dfde480b3954f54cb9046de6c1a78884a2e2b3b134cb3d6fa90cedd0"
+    },
+    {
+      "name": "canvas_update_node_text",
+      "title": "Canvas Update Node Text",
+      "description": "更新文本节点内容和标题。",
+      "risk": "write",
+      "surfaces": [
+        "canvas_legacy",
+        "runtime_admin",
+        "workbench_operator"
+      ],
+      "provider": "canvas",
+      "requires_fresh_context": true,
+      "may_create_charges": false,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "text"
+        ],
+        "type": "object"
+      },
+      "input_schema_hash": "3c62b224499e48d8213df746944de2ccc2aee14602bf3f99e958fc1cd1759b93"
+    },
+    {
+      "name": "canvas_validate_ops",
+      "title": "Canvas Validate Ops",
+      "description": "在真正写入前校验批量操作中的节点 id、连接关系和参数，避免对不存在节点或错误资源执行操作。",
+      "risk": "draft",
+      "surfaces": [
+        "canvas_legacy",
+        "runtime_admin",
+        "workbench_operator"
+      ],
+      "provider": "canvas",
+      "requires_fresh_context": true,
+      "may_create_charges": false,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "ops": {
+            "items": {
+              "anyOf": [
+                {
+                  "additionalProperties": true,
+                  "properties": {
+                    "height": {
+                      "type": "number"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "metadata": {
+                      "additionalProperties": {},
+                      "type": "object"
+                    },
+                    "nodeType": {
+                      "enum": [
+                        "image",
+                        "text",
+                        "script",
+                        "video",
+                        "audio",
+                        "frame"
+                      ],
+                      "type": "string"
+                    },
+                    "position": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "x": {
+                          "type": "number"
+                        },
+                        "y": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "x",
+                        "y"
+                      ],
+                      "type": "object"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "const": "add_node",
+                      "type": "string"
+                    },
+                    "width": {
+                      "type": "number"
+                    },
+                    "x": {
+                      "type": "number"
+                    },
+                    "y": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": true,
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "metadata": {
+                      "additionalProperties": {},
+                      "type": "object"
+                    },
+                    "patch": {
+                      "additionalProperties": {},
+                      "type": "object"
+                    },
+                    "type": {
+                      "const": "update_node",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "id"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": true,
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "ids": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "nodeType": {
+                      "enum": [
+                        "image",
+                        "text",
+                        "script",
+                        "video",
+                        "audio",
+                        "frame"
+                      ],
+                      "type": "string"
+                    },
+                    "type": {
+                      "const": "delete_node",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": true,
+                  "properties": {
+                    "all": {
+                      "type": "boolean"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "ids": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "type": {
+                      "const": "delete_connections",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": true,
+                  "properties": {
+                    "fromHandleId": {
+                      "type": "string"
+                    },
+                    "fromNodeId": {
+                      "type": "string"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "toHandleId": {
+                      "type": "string"
+                    },
+                    "toNodeId": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "const": "connect_nodes",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "fromNodeId",
+                    "toNodeId"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": true,
+                  "properties": {
+                    "type": {
+                      "const": "set_viewport",
+                      "type": "string"
+                    },
+                    "viewport": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "k": {
+                          "type": "number"
+                        },
+                        "x": {
+                          "type": "number"
+                        },
+                        "y": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "x",
+                        "y",
+                        "k"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "viewport"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": true,
+                  "properties": {
+                    "ids": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "type": {
+                      "const": "select_nodes",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "ids"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": true,
+                  "properties": {
+                    "mode": {
+                      "enum": [
+                        "text",
+                        "image",
+                        "video",
+                        "audio"
+                      ],
+                      "type": "string"
+                    },
+                    "nodeId": {
+                      "type": "string"
+                    },
+                    "prompt": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "const": "run_generation",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "nodeId"
+                  ],
+                  "type": "object"
+                }
+              ]
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "ops"
+        ],
+        "type": "object"
+      },
+      "input_schema_hash": "0ac5eef4c467a76dd464e3cc9b3fb53529afe0307837235ddce103cf64aada35"
+    },
+    {
+      "name": "chatgpt_prepare_handoff",
+      "title": "准备 ChatGPT Host Handoff",
+      "description": "为当前项目和 Context Receipt 准备 Host Handoff；不会调用模型 API，也不会直接写入 FilmOS。",
+      "risk": "draft",
+      "surfaces": [
+        "chatgpt_hosted"
+      ],
+      "provider": "chatgpt_handoff",
+      "requires_fresh_context": true,
+      "may_create_charges": false,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "note": {
+            "maxLength": 4000,
+            "type": "string"
+          },
+          "task": {
+            "maxLength": 20000,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "task"
+        ],
+        "type": "object"
+      },
+      "input_schema_hash": "1c014f945cc9dba4cc704e5f902fbd2eb964356e5ccf6371805f690a35d096df"
+    },
+    {
+      "name": "dreamina_cli",
+      "title": "Dreamina CLI 维护入口",
+      "description": "仅 Runtime Admin 可使用的兼容 Provider 工具；会消耗真实 credits，普通 Workbench Agent 不可见。",
+      "risk": "paid",
+      "surfaces": [
+        "runtime_admin"
+      ],
+      "provider": "generation",
+      "requires_fresh_context": false,
+      "may_create_charges": true,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "input": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "operation": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "operation",
+          "input"
+        ],
+        "type": "object"
+      },
+      "input_schema_hash": "cd7247d8382fba9c9e5c4f6ec82008d9fb43f13b9d6571af10d956b9de6ead54"
+    },
+    {
+      "name": "film_audit_events_get",
+      "title": "Film Audit Events Get",
+      "description": "只读查询 Film Core 审计事件，不修改项目、画布或 Provider 状态。",
+      "risk": "read",
+      "surfaces": [
+        "runtime_admin",
+        "workbench_operator"
+      ],
+      "provider": "film_core",
+      "requires_fresh_context": true,
+      "may_create_charges": false,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "maximum": 500,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "target_id": {
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "input_schema_hash": "2d9e99ac7bb95dbc88218ad18bd1e757756d1a31ef5a4c372ad2e9e32ff6bab6"
+    },
+    {
+      "name": "film_command_apply",
+      "title": "Film Command Apply",
+      "description": "正式应用已经 Preview 的 Film Command。必须复用未消费的 Preview 收据并重新校验 Film 与画布并发守卫；Agent 不得自批 Approved 或 Script Lock。",
+      "risk": "approval",
+      "surfaces": [
+        "runtime_admin",
+        "workbench_operator"
+      ],
+      "provider": "film_core",
+      "requires_fresh_context": true,
+      "may_create_charges": false,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "command": {
+            "anyOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "actor_kind": {
+                    "enum": [
+                      "human",
+                      "codex",
+                      "deepseek",
+                      "claude",
+                      "local_model",
+                      "system"
+                    ],
+                    "type": "string"
+                  },
+                  "command_type": {
+                    "const": "entity.create",
+                    "type": "string"
+                  },
+                  "expected_version": {
+                    "const": 0,
+                    "type": "number"
+                  },
+                  "payload": {
+                    "additionalProperties": {},
+                    "type": "object"
+                  },
+                  "target_id": {
+                    "type": "null"
+                  }
+                },
+                "required": [
+                  "command_type",
+                  "target_id",
+                  "expected_version",
+                  "payload"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "actor_kind": {
+                    "enum": [
+                      "human",
+                      "codex",
+                      "deepseek",
+                      "claude",
+                      "local_model",
+                      "system"
+                    ],
+                    "type": "string"
+                  },
+                  "command_type": {
+                    "const": "entity.set_states",
+                    "type": "string"
+                  },
+                  "expected_version": {
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "payload": {
+                    "additionalProperties": {},
+                    "type": "object"
+                  },
+                  "target_id": {
+                    "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "command_type",
+                  "target_id",
+                  "expected_version",
+                  "payload"
+                ],
+                "type": "object"
+              }
+            ]
+          },
+          "guards": {
+            "additionalProperties": false,
+            "properties": {
+              "expected_canvas_revision": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "expected_canvas_state_hash": {
+                "pattern": "^[0-9a-f]{16,64}$",
+                "type": "string"
+              },
+              "expected_content_hash": {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              "read_receipt": {
+                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                "type": "string"
+              }
+            },
+            "required": [
+              "read_receipt",
+              "expected_content_hash",
+              "expected_canvas_revision",
+              "expected_canvas_state_hash"
+            ],
+            "type": "object"
+          },
+          "human_confirmation": {
+            "additionalProperties": false,
+            "properties": {
+              "confirmed_at": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "confirmed_by": {
+                "maxLength": 256,
+                "minLength": 1,
+                "type": "string"
+              },
+              "reason": {
+                "maxLength": 1000,
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "confirmed_by",
+              "confirmed_at",
+              "reason"
+            ],
+            "type": "object"
+          },
+          "preview_receipt": {
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "command",
+          "guards",
+          "preview_receipt"
+        ],
+        "type": "object"
+      },
+      "input_schema_hash": "621bf71df1b70d12a7dd1a1fc8fe8769b998e7add562e642cf8d8ee3935abb3b"
+    },
+    {
+      "name": "film_command_preview",
+      "title": "Film Command Preview",
+      "description": "只读预演 Film Command。必须绑定已读取收据、expected_version/content_hash 和当前画布 revision/stateHash；不会正式写入。",
+      "risk": "draft",
+      "surfaces": [
+        "runtime_admin",
+        "workbench_operator"
+      ],
+      "provider": "film_core",
+      "requires_fresh_context": true,
+      "may_create_charges": false,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "command": {
+            "anyOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "actor_kind": {
+                    "enum": [
+                      "human",
+                      "codex",
+                      "deepseek",
+                      "claude",
+                      "local_model",
+                      "system"
+                    ],
+                    "type": "string"
+                  },
+                  "command_type": {
+                    "const": "entity.create",
+                    "type": "string"
+                  },
+                  "expected_version": {
+                    "const": 0,
+                    "type": "number"
+                  },
+                  "payload": {
+                    "additionalProperties": {},
+                    "type": "object"
+                  },
+                  "target_id": {
+                    "type": "null"
+                  }
+                },
+                "required": [
+                  "command_type",
+                  "target_id",
+                  "expected_version",
+                  "payload"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "actor_kind": {
+                    "enum": [
+                      "human",
+                      "codex",
+                      "deepseek",
+                      "claude",
+                      "local_model",
+                      "system"
+                    ],
+                    "type": "string"
+                  },
+                  "command_type": {
+                    "const": "entity.set_states",
+                    "type": "string"
+                  },
+                  "expected_version": {
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "payload": {
+                    "additionalProperties": {},
+                    "type": "object"
+                  },
+                  "target_id": {
+                    "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "command_type",
+                  "target_id",
+                  "expected_version",
+                  "payload"
+                ],
+                "type": "object"
+              }
+            ]
+          },
+          "guards": {
+            "additionalProperties": false,
+            "properties": {
+              "expected_canvas_revision": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "expected_canvas_state_hash": {
+                "pattern": "^[0-9a-f]{16,64}$",
+                "type": "string"
+              },
+              "expected_content_hash": {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              "read_receipt": {
+                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                "type": "string"
+              }
+            },
+            "required": [
+              "read_receipt",
+              "expected_content_hash",
+              "expected_canvas_revision",
+              "expected_canvas_state_hash"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "command",
+          "guards"
+        ],
+        "type": "object"
+      },
+      "input_schema_hash": "cf6f338ab86b144d0b0b404c6d3f60a8158c6bce084aaf5c4c1e8de2abf3ab92"
+    },
+    {
+      "name": "film_entity_get",
+      "title": "Film Entity Get",
+      "description": "读取单个 Film 实体、version 与 content_hash，并签发短期只读收据；禁止从记忆猜测正式状态。",
+      "risk": "read",
+      "surfaces": [
+        "runtime_admin",
+        "workbench_operator"
+      ],
+      "provider": "film_core",
+      "requires_fresh_context": true,
+      "may_create_charges": false,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "film_entity_id": {
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "film_entity_id"
+        ],
+        "type": "object"
+      },
+      "input_schema_hash": "ba4515a0b041da8bfdffcea6a736bb0e56dd92f6bba0d2f401cb26aeebaa5c66"
+    },
+    {
+      "name": "film_project_get_context",
+      "title": "Film Project Get Context",
+      "description": "读取 Film Core 项目上下文并签发短期只读收据；任何后续创建命令必须引用该收据。",
+      "risk": "read",
+      "surfaces": [
+        "runtime_admin",
+        "workbench_operator"
+      ],
+      "provider": "film_core",
+      "requires_fresh_context": true,
+      "may_create_charges": false,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "host_project_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "host_project_id"
+        ],
+        "type": "object"
+      },
+      "input_schema_hash": "221537d49d14e5283c08d2d95dcb5a25b7123bc14ba9a44a7cf15e760b620c61"
+    },
+    {
+      "name": "project_confirm_asset_candidate",
+      "title": "Project Confirm Asset Candidate",
+      "description": "确认一个资产候选，创建正式资产或关联已有个人资产。",
+      "risk": "write",
+      "surfaces": [
+        "canvas_legacy",
+        "runtime_admin",
+        "workbench_operator"
+      ],
+      "provider": "host_project",
+      "requires_fresh_context": true,
+      "may_create_charges": false,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "assetId": {
+            "type": "string"
+          },
+          "candidateId": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "projectId": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "candidateId"
+        ],
+        "type": "object"
+      },
+      "input_schema_hash": "0ea32376d870c0bfb9476d909b6ad98b8af1cf755f1564daf97f56b7122fc05c"
+    },
+    {
+      "name": "project_create_or_update_shots",
+      "title": "Project Create Or Update Shots",
+      "description": "创建或更新项目镜头业务数据，不把镜头状态写进画布 metadata。",
+      "risk": "write",
+      "surfaces": [
+        "canvas_legacy",
+        "runtime_admin",
+        "workbench_operator"
+      ],
+      "provider": "host_project",
+      "requires_fresh_context": true,
+      "may_create_charges": false,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "projectId": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "shots": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "description": {
+                  "type": "string"
+                },
+                "durationMs": {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "position": {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "title": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "unitId": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "title"
+              ],
+              "type": "object"
+            },
+            "maxItems": 100,
+            "minItems": 1,
+            "type": "array"
+          }
+        },
+        "required": [
+          "shots"
+        ],
+        "type": "object"
+      },
+      "input_schema_hash": "2842a79c403664eb33f5c3ca1a4ba98c9aebfe3c10cce7039469ca52715ed9c5"
+    },
+    {
+      "name": "project_extract_asset_candidates",
+      "title": "Project Extract Asset Candidates",
+      "description": "将分镜识别出的角色、场景、服饰、道具或武器需求登记为待确认资产候选。",
+      "risk": "write",
+      "surfaces": [
+        "canvas_legacy",
+        "runtime_admin",
+        "workbench_operator"
+      ],
+      "provider": "host_project",
+      "requires_fresh_context": true,
+      "may_create_charges": false,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "candidates": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "category": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "details": {
+                  "additionalProperties": {},
+                  "type": "object"
+                },
+                "name": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "shotId": {
+                  "type": "string"
+                },
+                "unitId": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "category"
+              ],
+              "type": "object"
+            },
+            "maxItems": 100,
+            "minItems": 1,
+            "type": "array"
+          },
+          "projectId": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "candidates"
+        ],
+        "type": "object"
+      },
+      "input_schema_hash": "a68c8f11405f7cdfaa0fcbef963ad9a38936a0f9ae00b21ac70e7576eea3e55c"
+    },
+    {
+      "name": "project_get_context",
+      "title": "Project Get Context",
+      "description": "读取当前短剧项目的章节、画布、资产、镜头、候选和工作流事实。",
+      "risk": "read",
+      "surfaces": [
+        "canvas_legacy",
+        "runtime_admin",
+        "workbench_operator"
+      ],
+      "provider": "host_project",
+      "requires_fresh_context": true,
+      "may_create_charges": false,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "projectId": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "input_schema_hash": "35b20ae1f03a56efdffc4056ebb9e0c760b0ea0229ca153c9fcf3f20d249ef3e"
+    },
+    {
+      "name": "project_link_asset",
+      "title": "Project Link Asset",
+      "description": "将个人资产引用到当前短剧项目，不复制媒体文件。",
+      "risk": "write",
+      "surfaces": [
+        "canvas_legacy",
+        "runtime_admin",
+        "workbench_operator"
+      ],
+      "provider": "host_project",
+      "requires_fresh_context": true,
+      "may_create_charges": false,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "assetId": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "category": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "projectId": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "assetId",
+          "category"
+        ],
+        "type": "object"
+      },
+      "input_schema_hash": "824887b9dd510c59154fed4fac8bfeda222ebc4ee42bf2b87b3e706188cad9a7"
+    },
+    {
+      "name": "project_link_shot_asset",
+      "title": "Project Link Shot Asset",
+      "description": "将具体资产版本按首帧、尾帧或参考等用途关联到镜头。",
+      "risk": "write",
+      "surfaces": [
+        "canvas_legacy",
+        "runtime_admin",
+        "workbench_operator"
+      ],
+      "provider": "host_project",
+      "requires_fresh_context": true,
+      "may_create_charges": false,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "assetVersionId": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "projectId": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "reference",
+              "start_frame",
+              "end_frame",
+              "keyframe",
+              "storyboard",
+              "output"
+            ],
+            "type": "string"
+          },
+          "shotId": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "shotId",
+          "assetVersionId",
+          "role"
+        ],
+        "type": "object"
+      },
+      "input_schema_hash": "1bde23f4127ece3809e653e674244418e1db61dda333152af58bdc61fd7d2b73"
+    },
+    {
+      "name": "project_list_units",
+      "title": "Project List Units",
+      "description": "按类型或状态筛选当前短剧项目的章节/项目单元。",
+      "risk": "read",
+      "surfaces": [
+        "canvas_legacy",
+        "runtime_admin",
+        "workbench_operator"
+      ],
+      "provider": "host_project",
+      "requires_fresh_context": true,
+      "may_create_charges": false,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "projectId": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "input_schema_hash": "8594b08ff18adb59d9bfa6e9f555f6f27b36e3e51a6796a9936094f9056a92c4"
+    },
+    {
+      "name": "project_register_task_output",
+      "title": "Project Register Task Output",
+      "description": "将成功生成任务挂到流程步骤，并登记到具体资产版本和资源表示。",
+      "risk": "write",
+      "surfaces": [
+        "canvas_legacy",
+        "runtime_admin",
+        "workbench_operator"
+      ],
+      "provider": "host_project",
+      "requires_fresh_context": true,
+      "may_create_charges": false,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "assetVersionId": {
+            "type": "string"
+          },
+          "mediaType": {
+            "type": "string"
+          },
+          "metadataJson": {
+            "type": "string"
+          },
+          "outputJson": {
+            "type": "string"
+          },
+          "projectId": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "resourceId": {
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "reference",
+              "start_frame",
+              "end_frame",
+              "keyframe",
+              "storyboard",
+              "output"
+            ],
+            "type": "string"
+          },
+          "stepId": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "taskId": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "stepId",
+          "taskId"
+        ],
+        "type": "object"
+      },
+      "input_schema_hash": "4368857628ceb83c5552094a36a6e785cdee432e051e6f599ee48d78a386e291"
+    },
+    {
+      "name": "project_start_workflow_step",
+      "title": "Project Start Workflow Step",
+      "description": "启动项目或章节制作流程中的一个步骤。",
+      "risk": "write",
+      "surfaces": [
+        "canvas_legacy",
+        "runtime_admin",
+        "workbench_operator"
+      ],
+      "provider": "host_project",
+      "requires_fresh_context": true,
+      "may_create_charges": false,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "projectId": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "stepId": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "stepId"
+        ],
+        "type": "object"
+      },
+      "input_schema_hash": "6af94d5c4ec749af5bec1b2d6e33065246c2997892bd253d82ef61c18042be63"
+    },
+    {
+      "name": "project_upsert_asset_version",
+      "title": "Project Upsert Asset Version",
+      "description": "为项目资产创建新的设定和提示词版本，保留历史版本。",
+      "risk": "write",
+      "surfaces": [
+        "canvas_legacy",
+        "runtime_admin",
+        "workbench_operator"
+      ],
+      "provider": "host_project",
+      "requires_fresh_context": true,
+      "may_create_charges": false,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "assetId": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "definitionJson": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          },
+          "projectId": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "prompt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "assetId"
+        ],
+        "type": "object"
+      },
+      "input_schema_hash": "0b4f795ec66aba8c9a04cb9ca8500389b9ef78750344aeb450475537223ab81b"
+    },
+    {
+      "name": "workbench_get_context",
+      "title": "读取当前 FilmOS 工作上下文",
+      "description": "读取受信工作台路由、项目、Film、画布、选区、资产与版本收据；不接受模型提供的身份或项目覆盖。",
+      "risk": "read",
+      "surfaces": [
+        "chatgpt_hosted",
+        "workbench_operator"
+      ],
+      "provider": "runtime",
+      "requires_fresh_context": false,
+      "may_create_charges": false,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "input_schema_hash": "99334726611ccf58a148b0814696bfa6fe08c1b2d027e946beccf5a74331c9aa"
+    }
+  ],
+  "contract_hash": "93a4038f424b6576ecd8b3020ddbd1f7cdd12ec52d3a03e7a4e24f7587461f7f"
+}

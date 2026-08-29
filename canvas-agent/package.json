@@ -12,7 +12,7 @@
     "README.md"
   ],
   "scripts": {
-    "build:agent-contracts": "npm --prefix ../packages/filmos-agent-contracts run build",
+    "build:agent-contracts": "npm --prefix ../packages/filmos-agent-contracts run build && npm --prefix ../packages/filmos-agent-tool-contracts run build",
     "dev": "tsx src/index.ts",
     "sync:film-openapi": "node scripts/sync-film-openapi.mjs",
     "check:film-openapi": "node scripts/sync-film-openapi.mjs --check",
@@ -24,6 +24,7 @@
   },
   "dependencies": {
     "@filmos/agent-contracts": "file:../packages/filmos-agent-contracts",
+    "@filmos/agent-tool-contracts": "file:../packages/filmos-agent-tool-contracts",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@openai/codex": "^0.149.1",
     "docx": "^9.5.1",

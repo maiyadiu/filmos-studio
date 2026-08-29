@@ -1,0 +1,42 @@
+{
+  "name": "@filmos/agent-tool-contracts",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "./dist/canonical-tools.js",
+  "types": "./dist/canonical-tools.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/canonical-tools.d.ts",
+      "import": "./dist/canonical-tools.js"
+    },
+    "./model-api-tools": {
+      "types": "./dist/model-api-tools.d.ts",
+      "import": "./dist/model-api-tools.js"
+    },
+    "./mcp-tools": {
+      "types": "./dist/mcp-tools.d.ts",
+      "import": "./dist/mcp-tools.js"
+    }
+  },
+  "files": [
+    "dist",
+    "generated"
+  ],
+  "scripts": {
+    "generate": "tsx scripts/generate.ts",
+    "check": "tsx scripts/generate.ts --check",
+    "build": "npm run generate && tsc -p tsconfig.json",
+    "test": "npm run check && npm run build && node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "zod-to-json-schema": "3.25.2"
+  },
+  "devDependencies": {
+    "tsx": "4.23.1",
+    "typescript": "7.0.2"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT"
+}

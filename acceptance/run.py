@@ -85,6 +85,13 @@ RC_LOCAL_CHECKS = CURRENT_CHECKS + (
         ("08-agent", "13-qa", "14-chatgpt-app"),
     ),
     Check(
+        "agent-tool-contract-single-source",
+        "Generated canonical Agent Tool schema, risk and surface contract",
+        (sys.executable, "acceptance/checks/agent_tool_contract_single_source.py"),
+        ROOT,
+        ("08-agent", "13-qa", "14-chatgpt-app"),
+    ),
+    Check(
         "mcp-actual-tool-count",
         "Actual Streamable HTTP MCP listTools and dynamic risk inventory",
         ("npx", "tsx", "scripts/mcp-manifest-receipt.ts"),
@@ -235,6 +242,7 @@ REAL_AGENT_CHECKS = (
 CHECK_ARTIFACT_NAMES = {
     "no-openai-model-api-billing": "no-openai-model-api-billing-receipt.json",
     "agent-native-multibrain": "agent-native-multibrain-receipt.json",
+    "agent-tool-contract-single-source": "agent-tool-contract-single-source-receipt.json",
     "mcp-actual-tool-count": "mcp-actual-tool-count-receipt.json",
     "codex-subscription-real": "codex-subscription-real-receipt.json",
 }

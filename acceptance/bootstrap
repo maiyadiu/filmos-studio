@@ -19,6 +19,10 @@ if ! "$VENV/bin/python" -c 'import fastapi,film_production_core,httpx,jsonschema
 fi
 (cd "$ROOT/web" && bun install --frozen-lockfile)
 (cd "$ROOT/canvas-agent" && bun install --frozen-lockfile)
+if [ ! -x "$ROOT/packages/filmos-agent-tool-contracts/node_modules/.bin/tsx" ]; then
+    (cd "$ROOT/packages/filmos-agent-tool-contracts" && npm ci --ignore-scripts)
+fi
+(cd "$ROOT/packages/filmos-agent-tool-contracts" && npm run build)
 if [ ! -x "$ROOT/packages/filmos-tool-contracts/node_modules/.bin/tsc" ]; then
     (cd "$ROOT/packages/filmos-tool-contracts" && npm ci --ignore-scripts)
 fi

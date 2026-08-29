@@ -6,6 +6,7 @@
       "name": "@ddcat666/open-ai-canvas-agent",
       "dependencies": {
         "@filmos/agent-contracts": "file:../packages/filmos-agent-contracts",
+        "@filmos/agent-tool-contracts": "file:../packages/filmos-agent-tool-contracts",
         "@modelcontextprotocol/sdk": "^1.30.0",
         "@openai/codex": "^0.149.1",
         "docx": "^9.5.1",
@@ -86,6 +87,8 @@
     "@esbuild/win32-x64": ["@esbuild/win32-x64@0.28.1", "https://registry.npmmirror.com/@esbuild/win32-x64/-/win32-x64-0.28.1.tgz", { "os": "win32", "cpu": "x64" }, "sha512-bm4Mowrv+GXMlpWX++EcXw/iLyd1o3+bJkC2DkWXYVvgZCqD/bSj9ctZeAMC3cIxgjRVR2Dufaiu4YPxr5gW1A=="],
 
     "@filmos/agent-contracts": ["@filmos/agent-contracts@file:../packages/filmos-agent-contracts", { "devDependencies": { "typescript": "^7.0.2" } }],
+
+    "@filmos/agent-tool-contracts": ["@filmos/agent-tool-contracts@file:../packages/filmos-agent-tool-contracts", { "dependencies": { "zod-to-json-schema": "3.25.2" }, "devDependencies": { "tsx": "4.23.1", "typescript": "7.0.2" } }],
 
     "@hono/node-server": ["@hono/node-server@1.19.14", "https://registry.npmmirror.com/@hono/node-server/-/node-server-1.19.14.tgz", { "peerDependencies": { "hono": "^4" } }, "sha512-GwtvgtXxnWsucXvbQXkRgqksiH2Qed37H9xHZocE5sA3N8O8O8/8FA3uclQXxXVzc9XBZuEOMK7+r02FmSpHtw=="],
 

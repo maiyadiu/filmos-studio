@@ -11,6 +11,7 @@ on:
       - film-contracts/**
       - film-core/**
       - packages/filmos-tool-contracts/**
+      - packages/filmos-agent-tool-contracts/**
       - scripts/**
       - services/filmos-chatgpt-app/**
       - web/**
@@ -48,6 +49,7 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: |
+            packages/filmos-agent-tool-contracts/package-lock.json
             packages/filmos-tool-contracts/package-lock.json
             services/filmos-chatgpt-app/package-lock.json
 

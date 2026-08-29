@@ -1,5 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { canonicalMcpTools } from "@filmos/agent-tool-contracts/mcp-tools";
 
 import { AGENT_PROMPT, loadConfig, type CanvasAgentConfig, VERSION } from "./config.js";
 import type { AgentToolRisk, AgentToolSurfaceId } from "./brains/contracts.js";
@@ -10,6 +11,7 @@ import { registerDreaminaMcp } from "./modules/dreamina-mcp.js";
 import { toolDescriptions, toolInputSchemas, toolNames, type ToolName } from "./schemas.js";
 
 type CanvasAgentToolResponse = { ok?: boolean; result?: unknown; error?: string };
+const canonicalMcpToolsByName: ReadonlyMap<string, (typeof canonicalMcpTools)[number]> = new Map(canonicalMcpTools.map((tool) => [tool.name, tool]));
 
 export async function startMcpServer(options: { canvasOnly?: boolean; surface?: AgentToolSurfaceId } = {}) {
     const config = loadConfig(true);
@@ -42,10 +44,11 @@ export function registerMcpTools(server: McpServer, config: CanvasAgentConfig, o
 }
 
 function registerWorkbenchContextTool(server: McpServer, config: CanvasAgentConfig) {
+    const contract = requiredMcpContract("workbench_get_context");
     server.registerTool("workbench_get_context", {
-        description: "读取由 FilmOS 当前受信 Session 注入的 Project、Film、Canvas、Selection、Asset 与 revision/hash 上下文收据。",
+        description: contract.description,
         inputSchema: {},
-        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+        annotations: contract.annotations,
     }, async () => {
         const result = await postCanvasAgentTool(config, "workbench_get_context", {});
         return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
@@ -60,15 +63,21 @@ function resolveToolSurface(options: RegisterMcpToolsOptions): AgentToolSurfaceI
 
 function registerCanvasTool(server: McpServer, config: CanvasAgentConfig, name: ToolName) {
     const schema = toolInputSchemas[name];
-    const risk = new CanonicalAgentToolManifest().get(name).risk;
+    const contract = requiredMcpContract(name);
     server.registerTool(name, {
-        description: toolDescriptions[name],
+        description: contract.description,
         inputSchema: schema.shape,
-        annotations: mcpAnnotationsForRisk(risk),
+        annotations: contract.annotations,
     }, async (input: unknown) => {
         const result = await postCanvasAgentTool(config, name, schema.parse(input));
         return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
     });
+}
+
+function requiredMcpContract(name: string) {
+    const contract = canonicalMcpToolsByName.get(name);
+    if (!contract) throw new Error(`AGENT_MCP_GENERATED_CONTRACT_MISSING:${name}`);
+    return contract;
 }
 
 function mcpAnnotationsForRisk(risk: AgentToolRisk) {
