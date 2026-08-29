@@ -110,16 +110,71 @@ test("first proven Secure Tunnel read marks ChatGPT reached FilmOS and writes a 
     await client.connect(transport);
     await client.callTool({ name: "filmos_get_project_context", arguments: {} });
     const health = await (await fetch(`http://127.0.0.1:${port}/health`)).json() as any;
-    assert.equal(health.external_account_connected, true);
-    assert.equal(health.tool_name, "filmos_get_project_context");
-    assert.equal(health.project_scope, projectA);
-    assert.equal(health.challenge_id, challenge);
-    assert.match(health.request_id, /^[0-9a-f-]{36}$/);
-    assert.match(health.result_hash, /^[0-9a-f]{64}$/);
+    assert.equal(health.external_account_connected, false);
+    assert.equal(health.observation_scope, "authenticated_handoff_status_only");
+    const status = await (await fetch(`http://127.0.0.1:${port}/handoff/status?project_id=${projectA}`, { headers: { authorization: `Bearer ${issued.token}` } })).json() as any;
+    assert.equal(status.external_account_connected, true);
+    assert.equal(status.tool_name, "filmos_get_project_context");
+    assert.equal(status.project_scope, projectA);
+    assert.equal(status.challenge_id, challenge);
+    assert.match(status.request_id, /^[0-9a-f-]{36}$/);
+    assert.match(status.result_hash, /^[0-9a-f]{64}$/);
+    assert.equal(status.mcp_session_id, transport.sessionId);
+    assert.ok(Date.parse(status.observation_expires_at) > Date.now());
     const receipt = audit.records.find((record) => record.challenge_id === challenge);
     assert.equal(receipt?.tool_name, "filmos_get_project_context");
-    assert.equal(receipt?.request_id, health.request_id);
-    assert.equal(receipt?.result_hash, health.result_hash);
+    assert.equal(receipt?.request_id, status.request_id);
+    assert.equal(receipt?.result_hash, status.result_hash);
+
+    const disconnect = await fetch(`http://127.0.0.1:${port}/handoff/disconnect`, { method: "POST", headers: { authorization: `Bearer ${issued.token}`, "content-type": "application/json" }, body: "{}" });
+    assert.equal(disconnect.status, 200);
+    assert.deepEqual(await disconnect.json(), { disconnected: true, grant_id: issued.grant.grant_id, project_id: projectA });
+    const disconnected = await (await fetch(`http://127.0.0.1:${port}/handoff/status?project_id=${projectA}`, { headers: { authorization: `Bearer ${issued.token}` } })).json() as any;
+    assert.equal(disconnected.status_code, "WAITING_FOR_CHATGPT");
+    assert.equal(disconnected.external_account_connected, false);
+  } finally {
+    await client.close().catch(() => undefined);
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
+test("Secure Tunnel observations expire by grant/session freshness and cannot cross project scope", async () => {
+  const grants = new MemoryProjectGrantStore();
+  const issuedA = await grants.issue(projectA, "chatgpt-live-a");
+  const issuedB = await grants.issue(projectB, "chatgpt-live-b");
+  const proof = "freshness-proof-42";
+  const instance = createFilmOSChatGPTApp({
+    enabled: true,
+    proposalHandoffEnabled: false,
+    grants,
+    dataSource: new MemoryFilmOSReadDataSource(projects),
+    audit: new MemoryAuditSink(),
+    secureTunnelProof: proof,
+    externalObservationTtlMs: 100,
+  });
+  const server = instance.app.listen(0, "127.0.0.1");
+  await new Promise<void>((resolve) => server.once("listening", resolve));
+  const port = (server.address() as AddressInfo).port;
+  const client = new Client({ name: "freshness-a", version: "1.0.0" });
+  const transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`), { requestInit: { headers: {
+    authorization: `Bearer ${issuedA.token}`,
+    "x-filmos-transport": "secure-mcp-tunnel",
+    "x-filmos-transport-proof": proof,
+    "x-filmos-live-gate-challenge": "live_freshness_12345678",
+  } } });
+  try {
+    await client.connect(transport);
+    await client.callTool({ name: "filmos_get_project_context", arguments: {} });
+    const a = await (await fetch(`http://127.0.0.1:${port}/handoff/status?project_id=${projectA}`, { headers: { authorization: `Bearer ${issuedA.token}` } })).json() as any;
+    const b = await (await fetch(`http://127.0.0.1:${port}/handoff/status?project_id=${projectB}`, { headers: { authorization: `Bearer ${issuedB.token}` } })).json() as any;
+    assert.equal(a.external_account_connected, true);
+    assert.equal(a.project_scope, projectA);
+    assert.equal(b.external_account_connected, false);
+    assert.equal(b.project_scope, null);
+    await new Promise((resolve) => setTimeout(resolve, 130));
+    const expired = await (await fetch(`http://127.0.0.1:${port}/handoff/status?project_id=${projectA}`, { headers: { authorization: `Bearer ${issuedA.token}` } })).json() as any;
+    assert.equal(expired.external_account_connected, false);
+    assert.equal(expired.status_code, "WAITING_FOR_CHATGPT");
   } finally {
     await client.close().catch(() => undefined);
     await new Promise<void>((resolve) => server.close(() => resolve()));

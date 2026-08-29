@@ -20,6 +20,9 @@ final class DesktopChatGPTRuntime: ChatGPTConnectionOperating {
     private var startedServices: Set<ServiceID> = []
     private var activeTransportProof: String?
     private var grantExpiresAt: Date?
+    private var activeProjectID: String?
+    private var activeGrantID: String?
+    private var activeGrantToken: String?
 
     init(
         supervisor: ServiceSupervisor,
@@ -68,7 +71,9 @@ final class DesktopChatGPTRuntime: ChatGPTConnectionOperating {
         mcpEnvironment["FILMOS_CHATGPT_APP_ENABLED"] = "true"
         mcpEnvironment["FILMOS_CHATGPT_READ_TOOLS_ENABLED"] = "true"
         mcpEnvironment["FILMOS_CHATGPT_WIDGETS_ENABLED"] = "true"
-        mcpEnvironment["FILMOS_CHATGPT_PROPOSAL_HANDOFF_ENABLED"] = "false"
+        mcpEnvironment["FILMOS_CHATGPT_PROPOSAL_HANDOFF_ENABLED"] = baseEnvironment["FILMOS_CHATGPT_PROPOSAL_HANDOFF_ENABLED"] == "true" ? "true" : "false"
+        mcpEnvironment["FILMOS_CHATGPT_HOST_PROFILE"] = "chatgpt.subscription.host.pro_readonly"
+        mcpEnvironment["FILMOS_CHATGPT_CONNECTION_ID"] = "chatgpt.subscription.host"
         mcpEnvironment["FILMOS_CHATGPT_HOST"] = "127.0.0.1"
         mcpEnvironment["FILMOS_CHATGPT_PORT"] = "17840"
         mcpEnvironment["FILMOS_CHATGPT_LOCAL_DIR"] = mcpDirectory.path
@@ -101,6 +106,17 @@ final class DesktopChatGPTRuntime: ChatGPTConnectionOperating {
 
     func prepareLocalServices(projectID: String, transportProof: String) async throws {
         try await ensureService(filmCoreServiceID) { await Self.endpointReady("http://127.0.0.1:17650/health") }
+        if let activeProjectID, activeProjectID != projectID {
+            await disconnectHostSession()
+            stopTunnel()
+            try await revokeActiveGrant()
+            try? FileManager.default.removeItem(at: authorizationHeaderURL)
+            try? tokenStore.delete(for: .chatGPTBridgeSession)
+            grantExpiresAt = nil
+            activeGrantToken = nil
+            activeGrantID = nil
+            self.activeProjectID = nil
+        }
         let renewed = try await ensureGrant(projectID: projectID)
         let mcpReady = await Self.endpointReady("http://127.0.0.1:17840/health")
         if mcpReady, activeTransportProof == transportProof, !renewed { return }
@@ -176,12 +192,25 @@ final class DesktopChatGPTRuntime: ChatGPTConnectionOperating {
     }
 
     func stopTunnel() {
+        Task { await disconnectHostSession() }
         guard startedServices.contains(secureTunnelServiceID), case .running = supervisor.state(for: secureTunnelServiceID) else {
             return
         }
         try? supervisor.stop(secureTunnelServiceID)
         startedServices.remove(secureTunnelServiceID)
         try? FileManager.default.removeItem(at: tunnelHealthURLFile)
+    }
+
+    func revokeProjectSession() async {
+        await disconnectHostSession()
+        stopTunnel()
+        try? await revokeActiveGrant()
+        try? FileManager.default.removeItem(at: authorizationHeaderURL)
+        try? tokenStore.delete(for: .chatGPTBridgeSession)
+        grantExpiresAt = nil
+        activeProjectID = nil
+        activeGrantID = nil
+        activeGrantToken = nil
     }
 
     func stopOwnedServices() {
@@ -195,16 +224,35 @@ final class DesktopChatGPTRuntime: ChatGPTConnectionOperating {
 
     func runtimeHealth() async -> ChatGPTRuntimeHealth {
         let coreReady = await Self.endpointReady("http://127.0.0.1:17650/health")
-        let payload = await Self.jsonPayload("http://127.0.0.1:17840/health")
+        let healthPayload = await Self.jsonPayload("http://127.0.0.1:17840/health")
         let tunnelReady = await tunnelIsReady()
-        let external = Self.externalRequest(from: payload)
+        let statusPayload: [String: Any]?
+        if let token = activeGrantToken, let projectID = activeProjectID {
+            statusPayload = await Self.jsonPayload(
+                "http://127.0.0.1:17840/handoff/status?project_id=\(Self.urlQuery(projectID))",
+                authorizationToken: token
+            )
+        } else {
+            statusPayload = nil
+        }
+        let scopedProjectID = (statusPayload?["authorized_project"] as? [String: Any])?["project_id"] as? String
+        let scopedGrantID = (statusPayload?["authorized_project"] as? [String: Any])?["grant_id"] as? String
+        let external = tunnelReady && scopedProjectID == activeProjectID ? Self.externalRequest(from: statusPayload) : nil
         return ChatGPTRuntimeHealth(
             filmCoreReady: coreReady,
-            mcpReady: payload?["ok"] as? Bool == true,
+            mcpReady: healthPayload?["ok"] as? Bool == true,
             tunnelReady: tunnelReady,
             grantExpiresAt: grantExpiresAt,
-            mcpToolCount: 20,
-            mcpWriteToolCount: 0,
+            mcpToolCount: healthPayload?["mcp_tool_count"] as? Int ?? 0,
+            mcpReadToolCount: healthPayload?["mcp_read_tool_count"] as? Int ?? 0,
+            mcpWriteToolCount: healthPayload?["mcp_write_tool_count"] as? Int ?? 0,
+            mcpPaidToolCount: healthPayload?["mcp_paid_tool_count"] as? Int ?? 0,
+            mcpDestructiveToolCount: healthPayload?["mcp_destructive_tool_count"] as? Int ?? 0,
+            grantID: scopedGrantID ?? activeGrantID,
+            authorizedProjectID: scopedProjectID,
+            profileID: healthPayload?["profile_id"] as? String ?? "chatgpt.subscription.host.pro_readonly",
+            billingMode: healthPayload?["billing_mode"] as? String ?? "subscription_host_no_extra_model_api",
+            proposalHandoffEnabled: healthPayload?["proposal_handoff_enabled"] as? Bool == true,
             externalRequest: external
         )
     }
@@ -213,16 +261,22 @@ final class DesktopChatGPTRuntime: ChatGPTConnectionOperating {
         if let valid = try? existingGrant(projectID: projectID), valid.expiresAt.timeIntervalSinceNow > 300 {
             grantExpiresAt = valid.expiresAt
             try writeAuthorizationHeader(token: valid.token)
+            activeProjectID = projectID
+            activeGrantID = valid.grantID
+            activeGrantToken = valid.token
             return false
         }
         let issued = try await issueGrant(projectID: projectID)
         try tokenStore.store(issued.token, for: .chatGPTBridgeSession)
         try writeAuthorizationHeader(token: issued.token)
         grantExpiresAt = issued.expiresAt
+        activeProjectID = projectID
+        activeGrantID = issued.grantID
+        activeGrantToken = issued.token
         return true
     }
 
-    private func existingGrant(projectID: String) throws -> (token: String, expiresAt: Date) {
+    private func existingGrant(projectID: String) throws -> (token: String, grantID: String, expiresAt: Date) {
         let token = try tokenStore.loadString(for: .chatGPTBridgeSession)
         let data = try Data(contentsOf: grantStoreURL)
         let values = try JSONDecoder().decode([StoredProjectGrant].self, from: data)
@@ -233,7 +287,7 @@ final class DesktopChatGPTRuntime: ChatGPTConnectionOperating {
         }), let expiresAt = Self.iso8601Date(grant.expiresAt), expiresAt > Date() else {
             throw DesktopChatGPTRuntimeError.grantUnavailable
         }
-        return (token, expiresAt)
+        return (token, grant.grantID, expiresAt)
     }
 
     private func issueGrant(projectID: String) async throws -> IssuedProjectGrant {
@@ -253,12 +307,29 @@ final class DesktopChatGPTRuntime: ChatGPTConnectionOperating {
             output.count <= 65_536,
             let object = try JSONSerialization.jsonObject(with: output) as? [String: Any],
             let token = object["token"] as? String,
+            let grantID = object["grant_id"] as? String,
             let expiresText = object["expires_at"] as? String,
             let expiresAt = Self.iso8601Date(expiresText)
         else {
             throw DesktopChatGPTRuntimeError.grantUnavailable
         }
-        return IssuedProjectGrant(token: token, expiresAt: expiresAt)
+        return IssuedProjectGrant(token: token, grantID: grantID, expiresAt: expiresAt)
+    }
+
+    private func revokeActiveGrant() async throws {
+        guard let grantID = activeGrantID else { return }
+        let executable = grantCLIURL
+        let workingDirectory = runtimeDirectory
+        var environment = Self.safeBaseEnvironment()
+        environment["FILMOS_CHATGPT_LOCAL_DIR"] = mcpDirectory.path
+        _ = try await Task.detached(priority: .userInitiated) {
+            try Self.runCapturedProcess(executable: executable, arguments: ["revoke", grantID], environment: environment, workingDirectory: workingDirectory)
+        }.value
+    }
+
+    private func disconnectHostSession() async {
+        guard let token = activeGrantToken else { return }
+        _ = await Self.jsonPayload("http://127.0.0.1:17840/handoff/disconnect", method: "POST", authorizationToken: token)
     }
 
     private func writeAuthorizationHeader(token: String) throws {
@@ -368,14 +439,24 @@ final class DesktopChatGPTRuntime: ChatGPTConnectionOperating {
         } catch { return false }
     }
 
-    private static func jsonPayload(_ value: String) async -> [String: Any]? {
+    private static func jsonPayload(_ value: String, method: String = "GET", authorizationToken: String? = nil) async -> [String: Any]? {
         guard let url = URL(string: value) else { return nil }
         var request = URLRequest(url: url)
+        request.httpMethod = method
+        if method == "POST" {
+            request.httpBody = Data("{}".utf8)
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        }
+        if let authorizationToken { request.setValue("Bearer \(authorizationToken)", forHTTPHeaderField: "Authorization") }
         request.timeoutInterval = 2
         request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
         guard let (data, response) = try? await URLSession.shared.data(for: request),
               (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
         return try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+    }
+
+    private static func urlQuery(_ value: String) -> String {
+        value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
     }
 
     private static func externalRequest(from payload: [String: Any]?) -> ChatGPTExternalRequest? {
@@ -391,7 +472,10 @@ final class DesktopChatGPTRuntime: ChatGPTConnectionOperating {
             requestID: requestID,
             projectScope: projectScope,
             challengeID: payload?["challenge_id"] as? String,
-            resultHash: payload?["result_hash"] as? String
+            resultHash: payload?["result_hash"] as? String,
+            connectionID: payload?["connection_id"] as? String,
+            mcpSessionID: payload?["mcp_session_id"] as? String,
+            expiresAt: (payload?["observation_expires_at"] as? String).flatMap(iso8601Date)
         )
     }
 
@@ -445,6 +529,7 @@ final class DesktopChatGPTRuntime: ChatGPTConnectionOperating {
 }
 
 private struct StoredProjectGrant: Decodable {
+    let grantID: String
     let projectID: String
     let tokenHash: String
     let expiresAt: String
@@ -452,6 +537,7 @@ private struct StoredProjectGrant: Decodable {
     let scopes: [String]
 
     enum CodingKeys: String, CodingKey {
+        case grantID = "grant_id"
         case projectID = "project_id"
         case tokenHash = "token_hash"
         case expiresAt = "expires_at"
@@ -462,6 +548,7 @@ private struct StoredProjectGrant: Decodable {
 
 private struct IssuedProjectGrant {
     let token: String
+    let grantID: String
     let expiresAt: Date
 }
 

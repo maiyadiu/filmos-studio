@@ -72,9 +72,7 @@ export function createFilmChatGPTHandoffClient(options: {
             const health = parseHealth(await request("/health", { method: "GET" }, signal));
             if (!health.enabled) return emptyStatus("disabled", health.proposal_handoff_enabled, "FILM_CHATGPT_APP_DISABLED");
             const token = await grantToken();
-            if (!token) {
-                return emptyStatus(health.external_account_connected ? "connected" : "disconnected", health.proposal_handoff_enabled, "PROJECT_GRANT_REQUIRED", true);
-            }
+            if (!token) return emptyStatus("disconnected", health.proposal_handoff_enabled, "PROJECT_GRANT_REQUIRED", true);
             const body = await request(`/handoff/status?project_id=${encodeURIComponent(projectId)}`, { method: "GET" }, signal, true, token);
             return parseStatus(body, health, projectId);
         },
@@ -112,13 +110,13 @@ function parseStatus(value: unknown, health: ReturnType<typeof parseHealth>, exp
     const connection = body.connection as ChatGPTConnectionState;
     if (!new Set<ChatGPTConnectionState>(["connected", "disconnected", "unavailable", "disabled"]).has(connection)) throw new HandoffClientError("INVALID_STATUS_RECEIPT", "本机边界返回了未知连接状态");
     if (typeof body.local_mcp_ready !== "boolean") throw new HandoffClientError("INVALID_STATUS_RECEIPT", "本机边界缺少 local_mcp_ready 回执");
-    if (typeof body.external_account_connected !== "boolean" || body.external_account_connected !== health.external_account_connected) throw new HandoffClientError("INVALID_STATUS_RECEIPT", "本机状态与 health 的外部连接回执矛盾");
+    if (typeof body.external_account_connected !== "boolean") throw new HandoffClientError("INVALID_STATUS_RECEIPT", "本机状态缺少授权范围内的外部连接回执");
     const authorizedProject = body.authorized_project === null ? null : parseAuthorizedProject(body.authorized_project);
     if (authorizedProject && authorizedProject.project_id !== expectedProjectId) throw new HandoffClientError("PROJECT_SCOPE_DENIED", "本机状态回执不属于当前 Host 项目");
     return {
         connection,
         local_mcp_ready: body.local_mcp_ready,
-        external_account_connected: health.external_account_connected,
+        external_account_connected: body.external_account_connected,
         authorized_project: authorizedProject,
         last_read_at: body.last_read_at === null ? null : requireIsoDate(body.last_read_at, "last_read_at"),
         last_context_snapshot: body.last_context_snapshot === null ? null : parseSnapshot(body.last_context_snapshot),

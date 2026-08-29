@@ -10,19 +10,25 @@ import { auditRecord, JsonlAuditSink, type AuditSink } from "./audit.js";
 import { FilmCoreReadClient, type FilmOSReadDataSource } from "./data-source.js";
 import { JsonProjectGrantStore, type ProjectGrant, type ProjectGrantStore } from "./grants.js";
 import { authorizeMediaProxy, EmptyMediaProxyStore, MediaProxyError, type MediaProxyStore } from "./media.js";
-import { createFilmOSMcpServer } from "./mcp.js";
+import { buildFilmOSMcpManifest, createFilmOSMcpServer } from "./mcp.js";
 import { PythonProposalPreviewAdapter, ProposalPreviewError, type ProposalPreviewAdapter } from "./proposal-preview.js";
 
 type TunnelContext = { tunneled: boolean; challengeId: string | null };
 type Session = { transport: StreamableHTTPServerTransport; grant: ProjectGrant; tunnel: TunnelContext };
 
 type ExternalObservation = {
+  connection_id: string;
+  mcp_session_id: string;
+  grant_id: string;
+  project_id: string;
   last_chatgpt_mcp_request_at: string;
   tool_name: string;
   request_id: string;
   project_scope: string;
   challenge_id: string;
   result_hash: string | null;
+  observed_at: string;
+  expires_at: string;
 };
 
 export type FilmOSChatGPTAppOptions = {
@@ -38,13 +44,26 @@ export type FilmOSChatGPTAppOptions = {
   allowedOrigins?: string[];
   proposalPreview?: ProposalPreviewAdapter;
   secureTunnelProof?: string;
+  connectionId?: string;
+  hostProfileId?: string;
+  externalObservationTtlMs?: number;
 };
 
 export function createFilmOSChatGPTApp(options: FilmOSChatGPTAppOptions) {
   const app = express();
   const sessions = new Map<string, Session>();
   const observations = new Map<string, { last_read_at: string; last_context_snapshot: { uri: string | null; version: number | null; state_hash: string | null } }>();
-  let externalObservation: ExternalObservation | null = null;
+  const externalObservations = new Map<string, Map<string, ExternalObservation>>();
+  const connectionId = options.connectionId ?? "chatgpt.subscription.host";
+  const hostProfileId = options.hostProfileId ?? "chatgpt.subscription.host.pro_readonly";
+  const proposalHandoffEnabled = options.proposalHandoffEnabled && hostProfileAllowsProposal(hostProfileId);
+  const manifest = buildFilmOSMcpManifest({
+    readToolsEnabled: options.readToolsEnabled,
+    widgetsEnabled: options.widgetsEnabled,
+    proposalHandoffEnabled,
+  });
+  const manifestCounts = countManifestRisks(manifest);
+  const observationTtlMs = boundedObservationTtl(options.externalObservationTtlMs);
   app.disable("x-powered-by");
   app.use(express.json({ limit: "1mb" }));
   app.use((req, res, next) => {
@@ -61,15 +80,18 @@ export function createFilmOSChatGPTApp(options: FilmOSChatGPTAppOptions) {
     ok: true,
     feature: "film.chatgpt_app",
     enabled: options.enabled,
-    proposal_handoff_enabled: options.proposalHandoffEnabled,
+    profile_id: hostProfileId,
+    billing_mode: "subscription_host_no_extra_model_api",
+    model_api_adapter_available: false,
+    fallback_enabled: false,
+    proposal_handoff_enabled: proposalHandoffEnabled,
     public_listener: false,
-    external_account_connected: externalObservation !== null,
-    last_chatgpt_mcp_request_at: externalObservation?.last_chatgpt_mcp_request_at ?? null,
-    tool_name: externalObservation?.tool_name ?? null,
-    request_id: externalObservation?.request_id ?? null,
-    project_scope: externalObservation?.project_scope ?? null,
-    challenge_id: externalObservation?.challenge_id ?? null,
-    result_hash: externalObservation?.result_hash ?? null,
+    mcp_manifest: manifest,
+    mcp_tool_names: manifest.map((tool) => tool.name),
+    mcp_tool_count: manifest.length,
+    ...manifestCounts,
+    external_account_connected: false,
+    observation_scope: "authenticated_handoff_status_only",
   }));
 
   const authenticate = async (req: Request, res: Response): Promise<{ grant: ProjectGrant } | null> => {
@@ -89,7 +111,9 @@ export function createFilmOSChatGPTApp(options: FilmOSChatGPTAppOptions) {
       const session = sessions.get(sessionId);
       if (!session) return res.status(404).json({ code: "MCP_SESSION_NOT_FOUND" });
       if (session.grant.grant_id !== authorization.grant.grant_id) return res.status(403).json({ code: "SESSION_GRANT_MISMATCH" });
-      return session.transport.handleRequest(req, res, req.body);
+      const result = await session.transport.handleRequest(req, res, req.body);
+      if (req.method === "DELETE") clearExternalSession(sessions, externalObservations, sessionId, session.grant.grant_id);
+      return result;
     }
     if (req.method !== "POST" || !isInitializeRequest(req.body)) return res.status(400).json({ code: "MCP_INITIALIZE_REQUIRED" });
     const tunnel = secureTunnelContext(req, options.secureTunnelProof);
@@ -102,7 +126,7 @@ export function createFilmOSChatGPTApp(options: FilmOSChatGPTAppOptions) {
       grant: authorization.grant,
       dataSource: options.dataSource,
       audit: options.audit,
-      proposalHandoffEnabled: options.proposalHandoffEnabled,
+      proposalHandoffEnabled,
       proposalSigningSecret: options.proposalSigningSecret,
       readToolsEnabled: options.readToolsEnabled,
       widgetsEnabled: options.widgetsEnabled,
@@ -113,18 +137,36 @@ export function createFilmOSChatGPTApp(options: FilmOSChatGPTAppOptions) {
           last_context_snapshot: { uri: snapshot.uri, version: snapshot.version, state_hash: snapshot.state_hash },
         });
         if (tunnel.tunneled && tunnel.challengeId) {
-          externalObservation = {
+          const sessionId = transport.sessionId;
+          if (!sessionId) return;
+          const observedAt = new Date(snapshot.read_at);
+          const grantExpiry = new Date(authorization.grant.expires_at).getTime();
+          const expiresAt = new Date(Math.min(grantExpiry, observedAt.getTime() + observationTtlMs));
+          const value: ExternalObservation = {
+            connection_id: connectionId,
+            mcp_session_id: sessionId,
+            grant_id: authorization.grant.grant_id,
+            project_id: authorization.grant.project_id,
             last_chatgpt_mcp_request_at: snapshot.read_at,
             tool_name: snapshot.tool_name,
             request_id: snapshot.request_id,
             project_scope: authorization.grant.project_id,
             challenge_id: tunnel.challengeId,
             result_hash: snapshot.state_hash,
+            observed_at: observedAt.toISOString(),
+            expires_at: expiresAt.toISOString(),
           };
+          const scoped = externalObservations.get(authorization.grant.grant_id) ?? new Map<string, ExternalObservation>();
+          scoped.set(sessionId, value);
+          externalObservations.set(authorization.grant.grant_id, scoped);
         }
       },
     });
-    transport.onclose = () => { if (transport.sessionId) sessions.delete(transport.sessionId); };
+    transport.onclose = () => {
+      const sessionId = transport.sessionId;
+      if (!sessionId) return;
+      clearExternalSession(sessions, externalObservations, sessionId, authorization.grant.grant_id);
+    };
     await server.connect(transport);
     return transport.handleRequest(req, res, req.body);
   };
@@ -143,6 +185,7 @@ export function createFilmOSChatGPTApp(options: FilmOSChatGPTAppOptions) {
       return res.status(403).json(body);
     }
     const observation = observations.get(authorization.grant.grant_id);
+    const externalObservation = freshestObservation(externalObservations, authorization.grant);
     const body = {
       connection: externalObservation ? "connected" : "disconnected",
       local_mcp_ready: true,
@@ -154,16 +197,42 @@ export function createFilmOSChatGPTApp(options: FilmOSChatGPTAppOptions) {
       },
       last_read_at: observation?.last_read_at ?? null,
       last_context_snapshot: observation?.last_context_snapshot ?? null,
-      proposal_handoff_enabled: options.proposalHandoffEnabled,
+      profile_id: hostProfileId,
+      billing_mode: "subscription_host_no_extra_model_api",
+      model_api_adapter_available: false,
+      fallback_enabled: false,
+      proposal_handoff_enabled: proposalHandoffEnabled,
+      mcp_manifest: manifest,
+      mcp_tool_names: manifest.map((tool) => tool.name),
+      mcp_tool_count: manifest.length,
+      ...manifestCounts,
       last_chatgpt_mcp_request_at: externalObservation?.last_chatgpt_mcp_request_at ?? null,
       tool_name: externalObservation?.tool_name ?? null,
       request_id: externalObservation?.request_id ?? null,
       project_scope: externalObservation?.project_scope ?? null,
       challenge_id: externalObservation?.challenge_id ?? null,
       result_hash: externalObservation?.result_hash ?? null,
+      connection_id: externalObservation?.connection_id ?? connectionId,
+      mcp_session_id: externalObservation?.mcp_session_id ?? null,
+      observation_expires_at: externalObservation?.expires_at ?? null,
       status_code: externalObservation ? "CHATGPT_REACHED_FILMOS" : "WAITING_FOR_CHATGPT",
     };
     await options.audit.write(auditRecord({ correlation_id: randomUUID(), action: "handoff.status", grant_id: authorization.grant.grant_id, project_id: authorization.grant.project_id, outcome: "ALLOW", result_size: byteSize(body) }));
+    return res.json(body);
+  });
+  app.post("/handoff/disconnect", async (req, res) => {
+    if (!options.enabled) return res.status(404).json({ code: "FILM_CHATGPT_APP_DISABLED" });
+    const authorization = await authenticate(req, res);
+    if (!authorization) return;
+    externalObservations.delete(authorization.grant.grant_id);
+    observations.delete(authorization.grant.grant_id);
+    for (const [sessionId, session] of sessions) {
+      if (session.grant.grant_id !== authorization.grant.grant_id) continue;
+      sessions.delete(sessionId);
+      await session.transport.close().catch(() => undefined);
+    }
+    const body = { disconnected: true, grant_id: authorization.grant.grant_id, project_id: authorization.grant.project_id };
+    await options.audit.write(auditRecord({ correlation_id: randomUUID(), action: "handoff.disconnect", grant_id: authorization.grant.grant_id, project_id: authorization.grant.project_id, outcome: "ALLOW", result_size: byteSize(body) }));
     return res.json(body);
   });
   app.post("/handoff/grants/revoke", async (req, res) => {
@@ -177,6 +246,13 @@ export function createFilmOSChatGPTApp(options: FilmOSChatGPTAppOptions) {
     }
     const revokedAt = new Date();
     await options.grants.revoke(authorization.grant.grant_id, revokedAt);
+    externalObservations.delete(authorization.grant.grant_id);
+    observations.delete(authorization.grant.grant_id);
+    for (const [sessionId, session] of sessions) {
+      if (session.grant.grant_id !== authorization.grant.grant_id) continue;
+      sessions.delete(sessionId);
+      await session.transport.close().catch(() => undefined);
+    }
     const body = { revoked: true, grant_id: authorization.grant.grant_id, revoked_at: revokedAt.toISOString() };
     await options.audit.write(auditRecord({ correlation_id: randomUUID(), action: "handoff.grant.revoke", grant_id: authorization.grant.grant_id, project_id: authorization.grant.project_id, outcome: "ALLOW", result_size: byteSize(body) }));
     return res.json(body);
@@ -185,7 +261,7 @@ export function createFilmOSChatGPTApp(options: FilmOSChatGPTAppOptions) {
     if (!options.enabled) return res.status(404).json({ code: "FILM_CHATGPT_APP_DISABLED" });
     const authorization = await authenticate(req, res);
     if (!authorization) return;
-    if (!options.proposalHandoffEnabled) {
+    if (!proposalHandoffEnabled) {
       const body = { code: "FILM_CHATGPT_PROPOSAL_HANDOFF_DISABLED" };
       await options.audit.write(auditRecord({ correlation_id: randomUUID(), action: "handoff.proposal.preview", grant_id: authorization.grant.grant_id, project_id: authorization.grant.project_id, outcome: "DENY", result_size: byteSize(body), code: body.code }));
       return res.status(404).json(body);
@@ -236,7 +312,7 @@ export function createFilmOSChatGPTApp(options: FilmOSChatGPTAppOptions) {
     if (status === 400 || error instanceof SyntaxError) return res.status(400).json({ code: "INVALID_JSON" });
     return next(error);
   });
-  return { app, sessions };
+  return { app, sessions, externalObservations };
 }
 
 export async function startFromEnvironment(env: NodeJS.ProcessEnv = process.env) {
@@ -244,6 +320,7 @@ export async function startFromEnvironment(env: NodeJS.ProcessEnv = process.env)
   const readToolsEnabled = env.FILMOS_CHATGPT_READ_TOOLS_ENABLED === "true";
   const widgetsEnabled = env.FILMOS_CHATGPT_WIDGETS_ENABLED === "true";
   const proposalHandoffEnabled = env.FILMOS_CHATGPT_PROPOSAL_HANDOFF_ENABLED === "true";
+  const hostProfileId = env.FILMOS_CHATGPT_HOST_PROFILE ?? "chatgpt.subscription.host.pro_readonly";
   const host = env.FILMOS_CHATGPT_HOST ?? "127.0.0.1";
   if (!["127.0.0.1", "::1", "localhost"].includes(host)) throw new Error("FilmOS ChatGPT MCP must bind to loopback");
   const port = Number(env.FILMOS_CHATGPT_PORT ?? 17840);
@@ -266,12 +343,56 @@ export async function startFromEnvironment(env: NodeJS.ProcessEnv = process.env)
       receiptDirectory: resolve(localDir, "proposal-receipts"),
     }) : undefined,
     secureTunnelProof: env.FILMOS_SECURE_TUNNEL_PROOF,
+    connectionId: env.FILMOS_CHATGPT_CONNECTION_ID ?? "chatgpt.subscription.host",
+    hostProfileId,
+    externalObservationTtlMs: Number(env.FILMOS_CHATGPT_OBSERVATION_TTL_MS ?? 300_000),
   });
   const httpServer = instance.app.listen(port, host);
   return { ...instance, httpServer, host, port };
 }
 
 function byteSize(value: unknown): number { return Buffer.byteLength(JSON.stringify(value)); }
+
+function hostProfileAllowsProposal(profileId: string): boolean {
+  return profileId === "chatgpt.subscription.host.pro_readonly" || profileId === "chatgpt.host.full_mcp";
+}
+
+function boundedObservationTtl(value: number | undefined): number {
+  return Number.isFinite(value) ? Math.min(15 * 60_000, Math.max(100, Number(value))) : 5 * 60_000;
+}
+
+function countManifestRisks(manifest: ReturnType<typeof buildFilmOSMcpManifest>) {
+  const count = (risk: string) => manifest.filter((tool) => tool.risk === risk).length;
+  return {
+    mcp_read_tool_count: count("read"),
+    mcp_write_tool_count: count("write"),
+    mcp_paid_tool_count: count("paid"),
+    mcp_destructive_tool_count: count("destructive"),
+  };
+}
+
+function freshestObservation(store: Map<string, Map<string, ExternalObservation>>, grant: ProjectGrant): ExternalObservation | null {
+  const scoped = store.get(grant.grant_id);
+  if (!scoped) return null;
+  const now = Date.now();
+  for (const [sessionId, value] of scoped) {
+    if (value.project_id !== grant.project_id || Date.parse(value.expires_at) <= now || Date.parse(grant.expires_at) <= now) scoped.delete(sessionId);
+  }
+  if (!scoped.size) { store.delete(grant.grant_id); return null; }
+  return [...scoped.values()].sort((left, right) => Date.parse(right.observed_at) - Date.parse(left.observed_at))[0] ?? null;
+}
+
+function clearExternalSession(
+  sessions: Map<string, Session>,
+  observations: Map<string, Map<string, ExternalObservation>>,
+  sessionId: string,
+  grantId: string,
+) {
+  sessions.delete(sessionId);
+  const scoped = observations.get(grantId);
+  scoped?.delete(sessionId);
+  if (!scoped?.size) observations.delete(grantId);
+}
 
 function isLoopbackHost(value: string | undefined): boolean {
   if (!value) return false;

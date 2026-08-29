@@ -31,6 +31,30 @@ export type FilmOSMcpSessionOptions = {
   }) => void;
 };
 
+export type FilmOSMcpToolRisk = "read" | "write" | "paid" | "destructive";
+export type FilmOSMcpManifestEntry = {
+  name: string;
+  risk: FilmOSMcpToolRisk;
+  feature_flag: string | null;
+};
+
+export function buildFilmOSMcpManifest(options: Pick<FilmOSMcpSessionOptions, "readToolsEnabled" | "widgetsEnabled" | "proposalHandoffEnabled">): FilmOSMcpManifestEntry[] {
+  if (!(options.readToolsEnabled ?? true)) return [];
+  return filmosToolContract.tools.flatMap((tool) => {
+    const featureFlag = "feature_flag" in tool ? tool.feature_flag : undefined;
+    if (featureFlag === "film.chatgpt_proposal_handoff" && !options.proposalHandoffEnabled) return [];
+    const widget = "widget" in tool ? tool.widget : undefined;
+    if (widget && !(options.widgetsEnabled ?? true)) return [];
+    const annotations = ("annotations" in tool ? tool.annotations : undefined) as { readOnlyHint?: boolean; destructiveHint?: boolean } | undefined;
+    const risk: FilmOSMcpToolRisk = annotations?.destructiveHint === true
+      ? "destructive"
+      : annotations?.readOnlyHint !== false
+        ? "read"
+        : "write";
+    return [{ name: tool.name, risk, feature_flag: featureFlag ?? null }];
+  });
+}
+
 export function createFilmOSMcpServer(options: FilmOSMcpSessionOptions): McpServer {
   const server = new McpServer(
     { name: "filmos-chatgpt", version: filmosToolContract.schema_version },
@@ -54,12 +78,10 @@ export function createFilmOSMcpServer(options: FilmOSMcpSessionOptions): McpServ
     );
   }
 
+  const manifestNames = new Set(buildFilmOSMcpManifest(options).map((tool) => tool.name));
   for (const tool of filmosToolContract.tools) {
-    if (!(options.readToolsEnabled ?? true)) continue;
-    const featureFlag = "feature_flag" in tool ? tool.feature_flag : undefined;
-    if (featureFlag === "film.chatgpt_proposal_handoff" && !options.proposalHandoffEnabled) continue;
+    if (!manifestNames.has(tool.name)) continue;
     const widget = "widget" in tool ? tool.widget : undefined;
-    if (widget && !(options.widgetsEnabled ?? true)) continue;
     server.registerTool(
       tool.name,
       {

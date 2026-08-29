@@ -119,7 +119,6 @@ final class ChatGPTConnectionWindow: NSObject {
             prepareButton.widthAnchor.constraint(equalTo: stack.widthAnchor),
         ])
 
-        manager.onSnapshot = { [weak self] snapshot in self?.render(snapshot) }
         render(manager.snapshot)
     }
 
@@ -198,14 +197,14 @@ final class ChatGPTConnectionWindow: NSObject {
         NSWorkspace.shared.open(URL(string: "https://chatgpt.com/#settings/Connectors")!)
     }
 
-    private func render(_ snapshot: ChatGPTConnectionSnapshot) {
+    func render(_ snapshot: ChatGPTConnectionSnapshot) {
         stateLabel.stringValue = snapshot.state.rawValue
         filmCoreValue.stringValue = label(snapshot.filmCoreStatus)
-        mcpValue.stringValue = "\(label(snapshot.mcpStatus))  ·  \(snapshot.mcpToolCount) 个读取工具 / \(snapshot.mcpWriteToolCount) 个写工具"
+        mcpValue.stringValue = "\(label(snapshot.mcpStatus))  ·  \(snapshot.mcpReadToolCount) 读 / \(snapshot.mcpWriteToolCount) 写 / \(snapshot.mcpPaidToolCount) 付费 / \(snapshot.mcpDestructiveToolCount) 破坏"
         tunnelValue.stringValue = label(snapshot.tunnelStatus)
         chatGPTValue.stringValue = label(snapshot.chatgptReachabilityStatus)
         grantValue.stringValue = label(snapshot.grantStatus)
-        billingValue.stringValue = label(snapshot.billingStatus)
+        billingValue.stringValue = snapshot.billingMode == "subscription_host_no_extra_model_api" ? "不使用额外模型 API" : label(snapshot.billingStatus)
         challengeValue.stringValue = snapshot.liveGateChallengeID ?? "未准备"
         reconnectButton.isHidden = snapshot.state != .tunnelFailed && snapshot.state != .tunnelReconnecting
     }

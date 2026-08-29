@@ -1,0 +1,74 @@
+{
+  "schema_version": "1",
+  "work_package": "WP-06",
+  "baseline_commit": "9267a5f198182bfa16403723e865cf815983ef13",
+  "observed_at": "2026-08-29T13:44:53Z",
+  "checks": [
+    {
+      "command": "npm run build && npx tsx --test test/chatgpt-hosted-adapter.test.ts test/brain-registry.test.ts test/agent-session-manager.test.ts test/model-api-brain-adapter.test.ts test/codex-app-server-adapter.test.ts",
+      "cwd": "canvas-agent",
+      "status": "PASS",
+      "tests": 11,
+      "failures": 0
+    },
+    {
+      "command": "npm test && npm run build",
+      "cwd": "services/filmos-chatgpt-app",
+      "status": "PASS",
+      "tests": 27,
+      "failures": 0
+    },
+    {
+      "command": "bun run typecheck && bun test src/film/chatgpt/handoff-client.test.mjs src/film/agent/brain-selector.test.mjs src/film/agent/model-api-billing-guard.test.mjs src/film/agent/workbench-context.test.mjs && bun run build",
+      "cwd": "web",
+      "status": "PASS",
+      "tests": 10,
+      "failures": 0
+    },
+    {
+      "command": "swift build --product FilmOSStudioDesktop",
+      "cwd": "desktop/macos",
+      "status": "PASS",
+      "failures": 0
+    },
+    {
+      "command": "swift test",
+      "cwd": "desktop/macos",
+      "status": "BLOCKED_TOOLCHAIN",
+      "reason": "Active CommandLineTools Swift toolchain does not provide the Swift Testing module; the production Desktop target builds successfully and formal CI must run the tests with the declared Swift 6 toolchain."
+    }
+  ],
+  "source_sha256": {
+    "canvas-agent/src/brains/adapters/chatgpt-hosted-adapter.ts": "22ec2a33c4c310ef88078b5394c87e16a2800911a89d8ff073d11ed13060b761",
+    "canvas-agent/test/chatgpt-hosted-adapter.test.ts": "f47a7ca79a222be1f293abf1d8d67ed5a5034a2fe9c083422e0d69307c99912b",
+    "services/filmos-chatgpt-app/src/mcp.ts": "dee3071a1cfab425a63bb07e741815d7b4b4aaadf9dfaf0dcb574632f3bfc910",
+    "services/filmos-chatgpt-app/src/server.ts": "f467054d91e9cb6e04a79560ba66a508d0952a12c62e57a69262c77c41e956d4",
+    "services/filmos-chatgpt-app/test/handoff-rest.test.ts": "2b872af101a073609d279b9db14a56f1b2be42317d291fc7049e938a4beb3185",
+    "desktop/macos/Sources/FilmOSDesktopCore/ChatGPTConnectionManager.swift": "640dfb07e177896b709bf968a1c32050902ef4a7a51459bcd60922a3a811d26a",
+    "desktop/macos/Sources/FilmOSStudioDesktop/DesktopChatGPTRuntime.swift": "3fabc34777e10c65405bcc594cc9f5aeea87354e25d4d4f99e473a7dfdbb0503",
+    "desktop/macos/Sources/FilmOSStudioDesktop/main.swift": "a17ae7d3d968ad0c55229f77cfaef974f82baef822d5b28482b12f66bfb3110b",
+    "web/src/film/agent/workbench-context.ts": "3a694fb4c7eb77b471c7cf0e79edf1fe396e493139b363e7e6f772000e47b6f6",
+    "web/src/film/chatgpt/handoff-client.ts": "3172ffda680446e0e5715106f2ab2ab497d6e80aea14de58c06e80bcfff4f8e7",
+    "web/src/components/canvas/canvas-chatgpt-hosted-panel.tsx": "8b68e5c4376325850c79a249b0e06f81088db25066fc15c60edb203e4d49982e"
+  },
+  "golden_case_ids": [
+    "AGENT-CHATGPT-HOST-ADAPTER-001",
+    "AGENT-CHATGPT-PROJECT-GRANT-ISOLATION-001",
+    "AGENT-CHATGPT-OBSERVATION-TTL-001",
+    "AGENT-CHATGPT-RUNTIME-MANIFEST-001",
+    "AGENT-CHATGPT-NO-FAKE-STREAMING-001",
+    "AGENT-CHATGPT-NO-DIRECT-APPLY-001"
+  ],
+  "assertions": {
+    "global_tunnel_config_and_project_host_session_are_separate": true,
+    "project_switch_rotates_and_revokes_the_old_grant": true,
+    "mcp_tool_counts_come_from_the_registered_manifest": true,
+    "observations_are_scoped_by_grant_project_and_mcp_session": true,
+    "observation_ttl_disconnect_and_revoke_clear_connected_state": true,
+    "unauthenticated_health_never_reports_external_account_connected": true,
+    "proposal_requires_service_flag_and_profile_capability": true,
+    "hosted_adapter_has_no_model_api_fallback_or_message_delta": true,
+    "hosted_adapter_exposes_zero_direct_apply": true,
+    "desktop_receives_only_sanitized_current_project_host_status": true
+  }
+}

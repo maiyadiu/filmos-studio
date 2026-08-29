@@ -77,6 +77,13 @@ export function publishWorkbenchContext(context: WorkbenchContextV1 | undefined)
     const getter = () => context ? structuredClone(context) : null;
     window.filmOSGetWorkbenchContext = getter;
     window.dispatchEvent(new CustomEvent("filmos:workbench-context", { detail: getter() }));
+    const desktop = window.webkit?.messageHandlers?.filmosDesktop;
+    if (desktop) desktop.postMessage({
+        action: "workbenchContextChanged",
+        projectId: context?.domainProjectId || "",
+        canvasId: context?.canvasId || "",
+        contextReceiptId: context ? `film:${context.filmExpectedVersion ?? 0}:${context.filmContentHash || "unavailable"}:canvas:${context.canvasId}` : "",
+    });
     return () => {
         if (window.filmOSGetWorkbenchContext === getter) delete window.filmOSGetWorkbenchContext;
     };
@@ -129,5 +136,24 @@ function visibleNodeIds(nodes: CanvasNodeData[], viewport: ViewportTransform, si
 declare global {
     interface Window {
         filmOSGetWorkbenchContext?: () => WorkbenchContextV1 | null;
+        filmOSChatGPTHostStatus?: FilmOSDesktopChatGPTHostStatus;
+        webkit?: { messageHandlers?: { filmosDesktop?: { postMessage(message: unknown): void } } };
     }
 }
+
+export type FilmOSDesktopChatGPTHostStatus = {
+    profileId: string;
+    state: string;
+    authorizedProjectId?: string;
+    grantExpiresAt?: string;
+    tunnelConnected: boolean;
+    externalAccountConnected: boolean;
+    mcpToolCount: number;
+    mcpReadToolCount: number;
+    mcpWriteToolCount: number;
+    mcpPaidToolCount: number;
+    mcpDestructiveToolCount: number;
+    billingMode: string;
+    lastReadAt?: string;
+    proposalHandoffEnabled: boolean;
+};

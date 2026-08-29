@@ -57,10 +57,11 @@ struct ChatGPTConnectionManagerTests {
         #expect(manager.snapshot.grantStatus == .pass)
         #expect(manager.snapshot.billingStatus == .zero)
         #expect(manager.snapshot.mcpToolCount == 20)
+        #expect(manager.snapshot.mcpReadToolCount == 20)
         #expect(manager.snapshot.mcpWriteToolCount == 0)
         #expect(tokens.values[.openAIMCPTunnelRuntimeKey] == Data("runtime-key-never-log".utf8))
-        #expect(preferences.value?.tunnelID == "tunnel_12345678")
-        #expect(try JSONEncoder().encode(preferences.value).contains(Data("runtime-key-never-log".utf8)) == false)
+        #expect(preferences.configuration?.tunnelID == "tunnel_12345678")
+        #expect(try JSONEncoder().encode(preferences.configuration).contains(Data("runtime-key-never-log".utf8)) == false)
         #expect(operations.lastRuntimeKey == "runtime-key-never-log")
         #expect(operations.lastTunnelArgumentsContainRuntimeKey == false)
         manager.disconnect()
@@ -139,6 +140,43 @@ struct ChatGPTConnectionManagerTests {
         #expect(operations.health.grantExpiresAt?.timeIntervalSinceNow ?? 0 > 300)
         #expect(operations.stopCount > 0)
         manager.disconnect()
+    }
+
+    @Test
+    func projectSwitchKeepsGlobalTunnelConfigButRotatesTheActiveHostSession() async throws {
+        let operations = FakeConnectionOperations()
+        let preferences = MemoryConnectionPreferences()
+        let manager = ChatGPTConnectionManager(
+            operations: operations,
+            tokenStore: MemoryTokenStore(),
+            preferences: preferences
+        )
+        try await manager.connect(tunnelID: "tunnel_12345678", runtimeKey: "runtime", projectID: "host-project-a")
+        let initialStops = operations.stopCount
+
+        try await manager.activateProject(projectID: "host-project-b", canvasID: "canvas-b", contextReceiptID: "receipt-b")
+
+        #expect(preferences.configuration?.tunnelID == "tunnel_12345678")
+        #expect(preferences.session?.projectID == "host-project-b")
+        #expect(preferences.session?.canvasID == "canvas-b")
+        #expect(preferences.session?.contextReceiptID == "receipt-b")
+        #expect(operations.lastPreparedProjectID == "host-project-b")
+        #expect(operations.stopCount > initialStops)
+        manager.disconnect()
+    }
+
+    @Test
+    func legacyCombinedPreferenceMigratesOnceIntoConnectionAndProjectSession() {
+        let suite = "filmos-chatgpt-migration-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(Data("{\"tunnelID\":\"tunnel_12345678\",\"projectID\":\"host-project-a\",\"autoConnect\":true}".utf8), forKey: "filmos.chatgpt.connection.v1")
+        let preferences = UserDefaultsChatGPTConnectionPreferences(defaults: defaults)
+
+        #expect(preferences.loadConnectionConfig()?.tunnelID == "tunnel_12345678")
+        #expect(preferences.loadConnectionConfig()?.connectionID == "chatgpt.subscription.host")
+        #expect(preferences.loadProjectSession()?.projectID == "host-project-a")
+        #expect(defaults.data(forKey: "filmos.chatgpt.connection.v1") == nil)
     }
 
     @Test
@@ -242,10 +280,14 @@ private final class MemoryTokenStore: SecureTokenStoring, @unchecked Sendable {
 
 @MainActor
 private final class MemoryConnectionPreferences: ChatGPTConnectionPreferencesStoring {
-    var value: StoredChatGPTConnection?
-    func load() -> StoredChatGPTConnection? { value }
-    func save(_ value: StoredChatGPTConnection) { self.value = value }
-    func clear() { value = nil }
+    var configuration: ChatGPTHostConnectionConfig?
+    var session: ChatGPTProjectHostSession?
+    func loadConnectionConfig() -> ChatGPTHostConnectionConfig? { configuration }
+    func saveConnectionConfig(_ value: ChatGPTHostConnectionConfig) { configuration = value }
+    func loadProjectSession() -> ChatGPTProjectHostSession? { session }
+    func saveProjectSession(_ value: ChatGPTProjectHostSession) { session = value }
+    func clearProjectSession() { session = nil }
+    func clear() { configuration = nil; session = nil }
 }
 
 @MainActor
@@ -267,6 +309,8 @@ private final class FakeConnectionOperations: ChatGPTConnectionOperating {
         lastPreparedProjectID = projectID
         health.filmCoreReady = true
         health.mcpReady = true
+        health.authorizedProjectID = projectID
+        health.grantID = "grant-\(projectID)"
         if renewGrantOnPrepare {
             health.grantExpiresAt = Date().addingTimeInterval(900)
             renewGrantOnPrepare = false
@@ -295,6 +339,13 @@ private final class FakeConnectionOperations: ChatGPTConnectionOperating {
         health.tunnelReady = false
     }
 
+    func revokeProjectSession() async {
+        stopTunnel()
+        health.authorizedProjectID = nil
+        health.grantID = nil
+        health.externalRequest = nil
+    }
+
     func runtimeHealth() async -> ChatGPTRuntimeHealth { health.value }
 }
 
@@ -305,7 +356,12 @@ private final class MutableHealth {
     var tunnelReady = false
     var grantExpiresAt: Date? = Date().addingTimeInterval(900)
     var mcpToolCount = 20
+    var mcpReadToolCount = 20
     var mcpWriteToolCount = 0
+    var mcpPaidToolCount = 0
+    var mcpDestructiveToolCount = 0
+    var grantID: String?
+    var authorizedProjectID: String?
     var externalRequest: ChatGPTExternalRequest?
 
     var value: ChatGPTRuntimeHealth {
@@ -315,7 +371,12 @@ private final class MutableHealth {
             tunnelReady: tunnelReady,
             grantExpiresAt: grantExpiresAt,
             mcpToolCount: mcpToolCount,
+            mcpReadToolCount: mcpReadToolCount,
             mcpWriteToolCount: mcpWriteToolCount,
+            mcpPaidToolCount: mcpPaidToolCount,
+            mcpDestructiveToolCount: mcpDestructiveToolCount,
+            grantID: grantID,
+            authorizedProjectID: authorizedProjectID,
             externalRequest: externalRequest
         )
     }

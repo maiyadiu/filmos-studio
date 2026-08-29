@@ -30,16 +30,24 @@ test("handoff status is flat, project scoped, audited, and reveals no token or l
     const healthBody = await health.json() as any;
     assert.equal(healthBody.ok, true);
     assert.equal(healthBody.external_account_connected, false);
-    assert.equal(healthBody.last_chatgpt_mcp_request_at, null);
+    assert.equal(healthBody.observation_scope, "authenticated_handoff_status_only");
+    assert.equal(healthBody.mcp_tool_count, healthBody.mcp_tool_names.length);
+    assert.equal(healthBody.mcp_write_tool_count, 0);
     const response = await fetch(`${baseUrl}/handoff/status?project_id=${projectA}`, { headers: { authorization: `Bearer ${issued.token}` } });
     assert.equal(response.status, 200);
     const body = await response.json() as any;
-    assert.deepEqual(Object.keys(body).sort(), ["authorized_project", "challenge_id", "connection", "external_account_connected", "last_chatgpt_mcp_request_at", "last_context_snapshot", "last_read_at", "local_mcp_ready", "project_scope", "proposal_handoff_enabled", "request_id", "result_hash", "status_code", "tool_name"]);
+    assert.deepEqual(Object.keys(body).sort(), ["authorized_project", "billing_mode", "challenge_id", "connection", "connection_id", "external_account_connected", "fallback_enabled", "last_chatgpt_mcp_request_at", "last_context_snapshot", "last_read_at", "local_mcp_ready", "mcp_destructive_tool_count", "mcp_manifest", "mcp_paid_tool_count", "mcp_read_tool_count", "mcp_session_id", "mcp_tool_count", "mcp_tool_names", "mcp_write_tool_count", "model_api_adapter_available", "observation_expires_at", "profile_id", "project_scope", "proposal_handoff_enabled", "request_id", "result_hash", "status_code", "tool_name"]);
     assert.deepEqual(body.authorized_project, { project_id: projectA, grant_id: issued.grant.grant_id, expires_at: issued.grant.expires_at });
     assert.equal(body.connection, "disconnected");
     assert.equal(body.local_mcp_ready, true);
     assert.equal(body.external_account_connected, false);
     assert.equal(body.status_code, "WAITING_FOR_CHATGPT");
+    assert.equal(body.profile_id, "chatgpt.subscription.host.pro_readonly");
+    assert.equal(body.billing_mode, "subscription_host_no_extra_model_api");
+    assert.equal(body.model_api_adapter_available, false);
+    assert.equal(body.fallback_enabled, false);
+    assert.equal(body.mcp_tool_count, body.mcp_manifest.length);
+    assert.equal(body.mcp_write_tool_count, 0);
     assert.equal(JSON.stringify(body).includes(issued.token), false);
     assert.equal(JSON.stringify(body).includes("/Users/"), false);
 
@@ -51,6 +59,35 @@ test("handoff status is flat, project scoped, audited, and reveals no token or l
   });
   assert.ok(audit.records.every((record) => record.event_id && record.recorded_at && record.result_size >= 0));
   assert.ok(audit.records.some((record) => record.action === "handoff.status" && record.outcome === "DENY"));
+});
+
+test("proposal tools require both the service flag and an eligible Host profile", async () => {
+  const grants = new MemoryProjectGrantStore();
+  const options = {
+    enabled: true,
+    proposalHandoffEnabled: true,
+    grants,
+    dataSource: new MemoryFilmOSReadDataSource(projects),
+    audit: new MemoryAuditSink(),
+  };
+  await withServer({ ...options, hostProfileId: "unsupported.profile" }, async (baseUrl) => {
+    const health = await (await fetch(`${baseUrl}/health`)).json() as any;
+    assert.equal(health.proposal_handoff_enabled, false);
+    assert.equal(health.mcp_tool_names.includes("filmos_prepare_proposal_export"), false);
+    assert.equal(health.mcp_write_tool_count, 0);
+    assert.equal(health.mcp_paid_tool_count, 0);
+    assert.equal(health.mcp_destructive_tool_count, 0);
+  });
+  await withServer({ ...options, hostProfileId: "chatgpt.subscription.host.pro_readonly" }, async (baseUrl) => {
+    const health = await (await fetch(`${baseUrl}/health`)).json() as any;
+    assert.equal(health.proposal_handoff_enabled, true);
+    assert.equal(health.mcp_tool_names.includes("filmos_prepare_proposal_export"), true);
+    assert.equal(health.mcp_tool_count, health.mcp_manifest.length);
+    assert.equal(health.mcp_write_tool_count, 0);
+    assert.equal(health.mcp_paid_tool_count, 0);
+    assert.equal(health.mcp_destructive_tool_count, 0);
+    assert.equal(health.mcp_manifest.every((tool: any) => tool.risk === "read"), true);
+  });
 });
 
 test("grant revoke only revokes the bearer grant and returns the stable receipt", async () => {

@@ -31,6 +31,9 @@ public struct ChatGPTExternalRequest: Equatable, Codable, Sendable {
     public let projectScope: String
     public let challengeID: String?
     public let resultHash: String?
+    public let connectionID: String?
+    public let mcpSessionID: String?
+    public let expiresAt: Date?
 
     public init(
         timestamp: Date,
@@ -38,7 +41,10 @@ public struct ChatGPTExternalRequest: Equatable, Codable, Sendable {
         requestID: String,
         projectScope: String,
         challengeID: String? = nil,
-        resultHash: String? = nil
+        resultHash: String? = nil,
+        connectionID: String? = nil,
+        mcpSessionID: String? = nil,
+        expiresAt: Date? = nil
     ) {
         self.timestamp = timestamp
         self.toolName = toolName
@@ -46,6 +52,9 @@ public struct ChatGPTExternalRequest: Equatable, Codable, Sendable {
         self.projectScope = projectScope
         self.challengeID = challengeID
         self.resultHash = resultHash
+        self.connectionID = connectionID
+        self.mcpSessionID = mcpSessionID
+        self.expiresAt = expiresAt
     }
 }
 
@@ -55,7 +64,15 @@ public struct ChatGPTRuntimeHealth: Equatable, Sendable {
     public let tunnelReady: Bool
     public let grantExpiresAt: Date?
     public let mcpToolCount: Int
+    public let mcpReadToolCount: Int
     public let mcpWriteToolCount: Int
+    public let mcpPaidToolCount: Int
+    public let mcpDestructiveToolCount: Int
+    public let grantID: String?
+    public let authorizedProjectID: String?
+    public let profileID: String
+    public let billingMode: String
+    public let proposalHandoffEnabled: Bool
     public let externalRequest: ChatGPTExternalRequest?
 
     public init(
@@ -63,8 +80,16 @@ public struct ChatGPTRuntimeHealth: Equatable, Sendable {
         mcpReady: Bool,
         tunnelReady: Bool,
         grantExpiresAt: Date?,
-        mcpToolCount: Int = 20,
+        mcpToolCount: Int = 0,
+        mcpReadToolCount: Int = 0,
         mcpWriteToolCount: Int = 0,
+        mcpPaidToolCount: Int = 0,
+        mcpDestructiveToolCount: Int = 0,
+        grantID: String? = nil,
+        authorizedProjectID: String? = nil,
+        profileID: String = "chatgpt.subscription.host.pro_readonly",
+        billingMode: String = "subscription_host_no_extra_model_api",
+        proposalHandoffEnabled: Bool = false,
         externalRequest: ChatGPTExternalRequest? = nil
     ) {
         self.filmCoreReady = filmCoreReady
@@ -72,7 +97,15 @@ public struct ChatGPTRuntimeHealth: Equatable, Sendable {
         self.tunnelReady = tunnelReady
         self.grantExpiresAt = grantExpiresAt
         self.mcpToolCount = mcpToolCount
+        self.mcpReadToolCount = mcpReadToolCount
         self.mcpWriteToolCount = mcpWriteToolCount
+        self.mcpPaidToolCount = mcpPaidToolCount
+        self.mcpDestructiveToolCount = mcpDestructiveToolCount
+        self.grantID = grantID
+        self.authorizedProjectID = authorizedProjectID
+        self.profileID = profileID
+        self.billingMode = billingMode
+        self.proposalHandoffEnabled = proposalHandoffEnabled
         self.externalRequest = externalRequest
     }
 }
@@ -86,7 +119,16 @@ public struct ChatGPTConnectionSnapshot: Equatable, Sendable {
     public var grantStatus: ConnectionCheckStatus
     public var billingStatus: ConnectionCheckStatus
     public var mcpToolCount: Int
+    public var mcpReadToolCount: Int
     public var mcpWriteToolCount: Int
+    public var mcpPaidToolCount: Int
+    public var mcpDestructiveToolCount: Int
+    public var authorizedProjectID: String?
+    public var grantID: String?
+    public var grantExpiresAt: Date?
+    public var profileID: String
+    public var billingMode: String
+    public var proposalHandoffEnabled: Bool
     public var lastError: String?
     public var lastConnectedAt: Date?
     public var lastExternalRequest: ChatGPTExternalRequest?
@@ -101,7 +143,16 @@ public struct ChatGPTConnectionSnapshot: Equatable, Sendable {
         grantStatus: .notConfigured,
         billingStatus: .zero,
         mcpToolCount: 0,
+        mcpReadToolCount: 0,
         mcpWriteToolCount: 0,
+        mcpPaidToolCount: 0,
+        mcpDestructiveToolCount: 0,
+        authorizedProjectID: nil,
+        grantID: nil,
+        grantExpiresAt: nil,
+        profileID: "chatgpt.subscription.host.pro_readonly",
+        billingMode: "subscription_host_no_extra_model_api",
+        proposalHandoffEnabled: false,
         lastError: nil,
         lastConnectedAt: nil,
         lastExternalRequest: nil,
@@ -109,47 +160,105 @@ public struct ChatGPTConnectionSnapshot: Equatable, Sendable {
     )
 }
 
-public struct StoredChatGPTConnection: Equatable, Codable, Sendable {
+public struct ChatGPTHostConnectionConfig: Equatable, Codable, Sendable {
     public let tunnelID: String
-    public let projectID: String
     public let autoConnect: Bool
+    public let connectionID: String
 
-    public init(tunnelID: String, projectID: String, autoConnect: Bool) {
+    public init(tunnelID: String, autoConnect: Bool, connectionID: String = "chatgpt.subscription.host") {
         self.tunnelID = tunnelID
-        self.projectID = projectID
         self.autoConnect = autoConnect
+        self.connectionID = connectionID
     }
+}
+
+public struct ChatGPTProjectHostSession: Equatable, Codable, Sendable {
+    public let projectID: String
+    public let canvasID: String?
+    public let grantID: String?
+    public let expiresAt: Date?
+    public let contextReceiptID: String?
+    public let lastExternalObservation: ChatGPTExternalRequest?
+
+    public init(projectID: String, canvasID: String? = nil, grantID: String? = nil, expiresAt: Date? = nil, contextReceiptID: String? = nil, lastExternalObservation: ChatGPTExternalRequest? = nil) {
+        self.projectID = projectID
+        self.canvasID = canvasID
+        self.grantID = grantID
+        self.expiresAt = expiresAt
+        self.contextReceiptID = contextReceiptID
+        self.lastExternalObservation = lastExternalObservation
+    }
+}
+
+private struct LegacyStoredChatGPTConnection: Codable {
+    let tunnelID: String
+    let projectID: String
+    let autoConnect: Bool
 }
 
 @MainActor
 public protocol ChatGPTConnectionPreferencesStoring: AnyObject {
-    func load() -> StoredChatGPTConnection?
-    func save(_ value: StoredChatGPTConnection)
+    func loadConnectionConfig() -> ChatGPTHostConnectionConfig?
+    func saveConnectionConfig(_ value: ChatGPTHostConnectionConfig)
+    func loadProjectSession() -> ChatGPTProjectHostSession?
+    func saveProjectSession(_ value: ChatGPTProjectHostSession)
+    func clearProjectSession()
     func clear()
 }
 
 @MainActor
 public final class UserDefaultsChatGPTConnectionPreferences: ChatGPTConnectionPreferencesStoring {
     private let defaults: UserDefaults
-    private let key: String
+    private let connectionKey: String
+    private let sessionKey: String
+    private let legacyKey: String
 
-    public init(defaults: UserDefaults = .standard, key: String = "filmos.chatgpt.connection.v1") {
+    public init(defaults: UserDefaults = .standard, key: String = "filmos.chatgpt.host.connection.v2") {
         self.defaults = defaults
-        self.key = key
+        connectionKey = key
+        sessionKey = "filmos.chatgpt.host.project-session.v2"
+        legacyKey = "filmos.chatgpt.connection.v1"
     }
 
-    public func load() -> StoredChatGPTConnection? {
-        guard let data = defaults.data(forKey: key) else { return nil }
-        return try? JSONDecoder().decode(StoredChatGPTConnection.self, from: data)
+    public func loadConnectionConfig() -> ChatGPTHostConnectionConfig? {
+        migrateLegacyIfNeeded()
+        guard let data = defaults.data(forKey: connectionKey) else { return nil }
+        return try? JSONDecoder().decode(ChatGPTHostConnectionConfig.self, from: data)
     }
 
-    public func save(_ value: StoredChatGPTConnection) {
+    public func saveConnectionConfig(_ value: ChatGPTHostConnectionConfig) {
         guard let data = try? JSONEncoder().encode(value) else { return }
-        defaults.set(data, forKey: key)
+        defaults.set(data, forKey: connectionKey)
+    }
+
+    public func loadProjectSession() -> ChatGPTProjectHostSession? {
+        migrateLegacyIfNeeded()
+        guard let data = defaults.data(forKey: sessionKey) else { return nil }
+        return try? JSONDecoder().decode(ChatGPTProjectHostSession.self, from: data)
+    }
+
+    public func saveProjectSession(_ value: ChatGPTProjectHostSession) {
+        guard let data = try? JSONEncoder().encode(value) else { return }
+        defaults.set(data, forKey: sessionKey)
     }
 
     public func clear() {
-        defaults.removeObject(forKey: key)
+        defaults.removeObject(forKey: connectionKey)
+        defaults.removeObject(forKey: sessionKey)
+        defaults.removeObject(forKey: legacyKey)
+    }
+
+    public func clearProjectSession() {
+        defaults.removeObject(forKey: sessionKey)
+    }
+
+    private func migrateLegacyIfNeeded() {
+        guard defaults.data(forKey: connectionKey) == nil,
+              let data = defaults.data(forKey: legacyKey),
+              let legacy = try? JSONDecoder().decode(LegacyStoredChatGPTConnection.self, from: data) else { return }
+        saveConnectionConfig(ChatGPTHostConnectionConfig(tunnelID: legacy.tunnelID, autoConnect: legacy.autoConnect))
+        saveProjectSession(ChatGPTProjectHostSession(projectID: legacy.projectID))
+        defaults.removeObject(forKey: legacyKey)
     }
 }
 
@@ -187,6 +296,7 @@ public protocol ChatGPTConnectionOperating: AnyObject {
     func runTunnelDoctor(tunnelID: String, runtimeKey: String, transportProof: String, challengeID: String) async throws
     func startTunnel(tunnelID: String, runtimeKey: String, transportProof: String, challengeID: String) throws
     func stopTunnel()
+    func revokeProjectSession() async
     func runtimeHealth() async -> ChatGPTRuntimeHealth
 }
 
@@ -221,7 +331,8 @@ public final class ChatGPTConnectionManager {
     private var currentRuntimeKey: String?
     private var currentTransportProof: String?
     private var currentChallengeID: String?
-    private var currentConfiguration: StoredChatGPTConnection?
+    private var currentConfiguration: ChatGPTHostConnectionConfig?
+    private var currentProjectSession: ChatGPTProjectHostSession?
 
     public init(
         operations: any ChatGPTConnectionOperating,
@@ -237,36 +348,73 @@ public final class ChatGPTConnectionManager {
         self.monitorInterval = monitorInterval
     }
 
-    public var savedConfiguration: StoredChatGPTConnection? { preferences.load() }
+    public var savedConfiguration: ChatGPTHostConnectionConfig? { preferences.loadConnectionConfig() }
+    public var activeProjectSession: ChatGPTProjectHostSession? { currentProjectSession ?? preferences.loadProjectSession() }
 
     public func connect(tunnelID: String, runtimeKey: String, projectID: String) async throws {
-        let configuration = try Self.validatedConfiguration(tunnelID: tunnelID, projectID: projectID)
+        let configuration = try Self.validatedConnectionConfig(tunnelID: tunnelID)
+        let projectSession = try Self.validatedProjectSession(projectID: projectID)
         let key = try Self.validatedRuntimeKey(runtimeKey)
         try tokenStore.store(key, for: .openAIMCPTunnelRuntimeKey)
-        preferences.save(configuration)
+        preferences.saveConnectionConfig(configuration)
+        preferences.saveProjectSession(projectSession)
         currentRuntimeKey = key
-        try await establish(configuration: configuration, resetChallenge: currentChallengeID == nil)
+        try await establish(configuration: configuration, projectSession: projectSession, resetChallenge: currentChallengeID == nil)
+    }
+
+    public func activateProject(projectID: String, canvasID: String? = nil, contextReceiptID: String? = nil) async throws {
+        let next = try Self.validatedProjectSession(projectID: projectID, canvasID: canvasID, contextReceiptID: contextReceiptID)
+        if currentProjectSession?.projectID == next.projectID {
+            currentProjectSession = ChatGPTProjectHostSession(
+                projectID: next.projectID,
+                canvasID: next.canvasID,
+                grantID: currentProjectSession?.grantID,
+                expiresAt: currentProjectSession?.expiresAt,
+                contextReceiptID: next.contextReceiptID,
+                lastExternalObservation: currentProjectSession?.lastExternalObservation
+            )
+            preferences.saveProjectSession(currentProjectSession!)
+            return
+        }
+        preferences.saveProjectSession(next)
+        currentProjectSession = next
+        guard desiredConnection, let configuration = currentConfiguration ?? preferences.loadConnectionConfig() else { return }
+        let key = try currentRuntimeKey ?? tokenStore.loadString(for: .openAIMCPTunnelRuntimeKey)
+        currentRuntimeKey = try Self.validatedRuntimeKey(key)
+        operations.stopTunnel()
+        try await establish(configuration: configuration, projectSession: next, resetChallenge: true)
+    }
+
+    public func deactivateProject() async {
+        monitorTask?.cancel()
+        monitorTask = nil
+        await operations.revokeProjectSession()
+        currentProjectSession = nil
+        preferences.clearProjectSession()
+        snapshot = .notConfigured
     }
 
     public func autoConnectIfConfigured() async {
-        guard let configuration = preferences.load(), configuration.autoConnect else { return }
+        guard let configuration = preferences.loadConnectionConfig(), configuration.autoConnect,
+              let projectSession = preferences.loadProjectSession() else { return }
         do {
             let key = try tokenStore.loadString(for: .openAIMCPTunnelRuntimeKey)
             currentRuntimeKey = try Self.validatedRuntimeKey(key)
-            try await establish(configuration: configuration, resetChallenge: true)
+            try await establish(configuration: configuration, projectSession: projectSession, resetChallenge: true)
         } catch {
             fail(error)
         }
     }
 
     public func reconnect() async throws {
-        guard let configuration = currentConfiguration ?? preferences.load() else {
+        guard let configuration = currentConfiguration ?? preferences.loadConnectionConfig(),
+              let projectSession = currentProjectSession ?? preferences.loadProjectSession() else {
             throw ChatGPTConnectionError.invalidTunnelID
         }
         let key = try currentRuntimeKey ?? tokenStore.loadString(for: .openAIMCPTunnelRuntimeKey)
         currentRuntimeKey = try Self.validatedRuntimeKey(key)
         operations.stopTunnel()
-        try await establish(configuration: configuration, resetChallenge: false)
+        try await establish(configuration: configuration, projectSession: projectSession, resetChallenge: false)
     }
 
     public func disconnect(clearCredential: Bool = false) {
@@ -278,6 +426,7 @@ public final class ChatGPTConnectionManager {
         currentTransportProof = nil
         currentChallengeID = nil
         currentConfiguration = nil
+        currentProjectSession = nil
         if clearCredential {
             try? tokenStore.delete(for: .openAIMCPTunnelRuntimeKey)
             preferences.clear()
@@ -291,7 +440,7 @@ public final class ChatGPTConnectionManager {
     }
 
     public func prepareLiveGate() async throws -> String {
-        guard let configuration = currentConfiguration, let runtimeKey = currentRuntimeKey else {
+        guard let configuration = currentConfiguration, let projectSession = currentProjectSession, let runtimeKey = currentRuntimeKey else {
             throw ChatGPTConnectionError.liveGateNotReady
         }
         let health = await operations.runtimeHealth()
@@ -313,7 +462,7 @@ public final class ChatGPTConnectionManager {
         let prompt = """
         开始 FilmOS ChatGPT Live Gate。
         Challenge ID: \(challengeID)
-        仅通过已连接的 FilmOS Studio MCP 读取项目 \(configuration.projectID)。
+        仅通过已连接的 FilmOS Studio MCP 读取项目 \(projectSession.projectID)。
         读取 Project、ContentUnit、Scene、DirectorUnit、Shot、SceneTwin、Asset、GenerationAttempt 以及 QC/Approval 状态；不得根据本提示猜测，不得调用写工具。
         回答时带上 Challenge ID，并说明读取到的对象 ID 与状态。
         """
@@ -322,7 +471,7 @@ public final class ChatGPTConnectionManager {
 
     public func diagnosticReport() async -> String {
         let health = await operations.runtimeHealth()
-        let tunnelIDPresent = preferences.load()?.tunnelID.isEmpty == false
+        let tunnelIDPresent = preferences.loadConnectionConfig()?.tunnelID.isEmpty == false
         let runtimeCredentialPresent = (try? tokenStore.load(for: .openAIMCPTunnelRuntimeKey)) != nil
         return """
         FilmOS ChatGPT Connection Doctor
@@ -345,10 +494,11 @@ public final class ChatGPTConnectionManager {
         """
     }
 
-    private func establish(configuration: StoredChatGPTConnection, resetChallenge: Bool) async throws {
+    private func establish(configuration: ChatGPTHostConnectionConfig, projectSession: ChatGPTProjectHostSession, resetChallenge: Bool) async throws {
         monitorTask?.cancel()
         desiredConnection = true
         currentConfiguration = configuration
+        currentProjectSession = projectSession
         let runtimeKey = try currentRuntimeKey ?? tokenStore.loadString(for: .openAIMCPTunnelRuntimeKey)
         let transportProof = Self.newTransportProof()
         currentRuntimeKey = runtimeKey
@@ -362,7 +512,7 @@ public final class ChatGPTConnectionManager {
         snapshot.filmCoreStatus = .starting
         snapshot.mcpStatus = .starting
         do {
-            try await operations.prepareLocalServices(projectID: configuration.projectID, transportProof: transportProof)
+            try await operations.prepareLocalServices(projectID: projectSession.projectID, transportProof: transportProof)
             var health = await operations.runtimeHealth()
             guard health.filmCoreReady, health.mcpReady else { throw ChatGPTConnectionError.localServicesUnavailable }
             guard health.mcpWriteToolCount == 0 else { throw ChatGPTConnectionError.writeToolsExposed }
@@ -414,12 +564,13 @@ public final class ChatGPTConnectionManager {
                     if let expiresAt = health.grantExpiresAt,
                        expiresAt.timeIntervalSinceNow <= 300,
                        let configuration = self.currentConfiguration,
+                       let projectSession = self.currentProjectSession,
                        let runtimeKey = self.currentRuntimeKey,
                        let transportProof = self.currentTransportProof,
                        let challengeID = self.currentChallengeID {
                         do {
                             try await self.operations.prepareLocalServices(
-                                projectID: configuration.projectID,
+                                projectID: projectSession.projectID,
                                 transportProof: transportProof
                             )
                             self.operations.stopTunnel()
@@ -475,11 +626,33 @@ public final class ChatGPTConnectionManager {
         snapshot.mcpStatus = health.mcpReady ? .pass : .failed
         snapshot.tunnelStatus = health.tunnelReady ? .connected : .failed
         snapshot.mcpToolCount = health.mcpToolCount
+        snapshot.mcpReadToolCount = health.mcpReadToolCount
         snapshot.mcpWriteToolCount = health.mcpWriteToolCount
+        snapshot.mcpPaidToolCount = health.mcpPaidToolCount
+        snapshot.mcpDestructiveToolCount = health.mcpDestructiveToolCount
+        snapshot.authorizedProjectID = health.authorizedProjectID
+        snapshot.grantID = health.grantID
+        snapshot.grantExpiresAt = health.grantExpiresAt
+        snapshot.profileID = health.profileID
+        snapshot.billingMode = health.billingMode
+        snapshot.proposalHandoffEnabled = health.proposalHandoffEnabled
         snapshot.grantStatus = grantIsValid(health.grantExpiresAt) ? .pass : .expired
         snapshot.billingStatus = .zero
-        snapshot.lastExternalRequest = health.externalRequest
-        if let request = health.externalRequest {
+        let externalRequest = validExternalRequest(health)
+        snapshot.lastExternalRequest = externalRequest
+        if let current = currentProjectSession {
+            let updated = ChatGPTProjectHostSession(
+                projectID: current.projectID,
+                canvasID: current.canvasID,
+                grantID: health.grantID,
+                expiresAt: health.grantExpiresAt,
+                contextReceiptID: current.contextReceiptID,
+                lastExternalObservation: externalRequest
+            )
+            currentProjectSession = updated
+            preferences.saveProjectSession(updated)
+        }
+        if let request = externalRequest {
             snapshot.state = .chatGPTReachedFilmOS
             snapshot.chatgptReachabilityStatus = .connected
             snapshot.lastConnectedAt = request.timestamp
@@ -489,6 +662,15 @@ public final class ChatGPTConnectionManager {
             snapshot.lastConnectedAt = Date()
         }
         snapshot.lastError = nil
+    }
+
+    private func validExternalRequest(_ health: ChatGPTRuntimeHealth) -> ChatGPTExternalRequest? {
+        guard health.tunnelReady, let request = health.externalRequest,
+              let projectID = currentProjectSession?.projectID,
+              request.projectScope == projectID,
+              health.authorizedProjectID == projectID,
+              (request.expiresAt?.timeIntervalSinceNow ?? 1) > 0 else { return nil }
+        return request
     }
 
     private func grantIsValid(_ expiresAt: Date?) -> Bool {
@@ -503,16 +685,20 @@ public final class ChatGPTConnectionManager {
         else { snapshot.tunnelStatus = .failed }
     }
 
-    private static func validatedConfiguration(tunnelID: String, projectID: String) throws -> StoredChatGPTConnection {
+    private static func validatedConnectionConfig(tunnelID: String) throws -> ChatGPTHostConnectionConfig {
         let tunnelID = tunnelID.trimmingCharacters(in: .whitespacesAndNewlines)
-        let projectID = projectID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard tunnelID.range(of: "^tunnel_[A-Za-z0-9_-]{8,128}$", options: .regularExpression) != nil else {
             throw ChatGPTConnectionError.invalidTunnelID
         }
+        return ChatGPTHostConnectionConfig(tunnelID: tunnelID, autoConnect: true)
+    }
+
+    private static func validatedProjectSession(projectID: String, canvasID: String? = nil, contextReceiptID: String? = nil) throws -> ChatGPTProjectHostSession {
+        let projectID = projectID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard projectID.range(of: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$", options: .regularExpression) != nil else {
             throw ChatGPTConnectionError.projectRequired
         }
-        return StoredChatGPTConnection(tunnelID: tunnelID, projectID: projectID, autoConnect: true)
+        return ChatGPTProjectHostSession(projectID: projectID, canvasID: canvasID, contextReceiptID: contextReceiptID)
     }
 
     private static func validatedRuntimeKey(_ value: String) throws -> String {

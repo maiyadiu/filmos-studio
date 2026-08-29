@@ -297,6 +297,7 @@ private enum DesktopWorkbenchError: Error, LocalizedError {
 private final class WorkbenchWindow: NSObject, @preconcurrency WKNavigationDelegate, @preconcurrency WKUIDelegate, @preconcurrency WKScriptMessageHandler {
     let window: NSWindow
     var onOpenChatGPTConnection: (() -> Void)?
+    var onWorkbenchProjectChanged: ((String, String?, String?) -> Void)?
 
     private let webView: WKWebView
     private let overlay = NSVisualEffectView()
@@ -426,9 +427,43 @@ private final class WorkbenchWindow: NSObject, @preconcurrency WKNavigationDeleg
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         guard message.name == "filmosDesktop", message.frameInfo.isMainFrame,
               ["127.0.0.1", "localhost"].contains(message.frameInfo.securityOrigin.host),
-              let body = message.body as? [String: Any], body.count == 1,
-              body["action"] as? String == "openChatGPTConnection" else { return }
-        onOpenChatGPTConnection?()
+              let body = message.body as? [String: Any], let action = body["action"] as? String else { return }
+        if action == "openChatGPTConnection", body.count == 1 {
+            onOpenChatGPTConnection?()
+            return
+        }
+        if action == "workbenchContextChanged",
+           Set(body.keys).isSubset(of: ["action", "projectId", "canvasId", "contextReceiptId"]),
+           let projectID = body["projectId"] as? String {
+            let normalized = projectID.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard normalized.isEmpty || normalized.range(of: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$", options: .regularExpression) != nil else { return }
+            let canvasID = (body["canvasId"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let receiptID = (body["contextReceiptId"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            onWorkbenchProjectChanged?(normalized, canvasID?.isEmpty == false ? canvasID : nil, receiptID?.isEmpty == false ? receiptID : nil)
+        }
+    }
+
+    func publishChatGPTHostStatus(_ snapshot: ChatGPTConnectionSnapshot) {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        var payload: [String: Any] = [
+            "profileId": snapshot.profileID,
+            "state": snapshot.state.rawValue,
+            "tunnelConnected": snapshot.tunnelStatus == .connected,
+            "externalAccountConnected": snapshot.chatgptReachabilityStatus == .connected,
+            "mcpToolCount": snapshot.mcpToolCount,
+            "mcpReadToolCount": snapshot.mcpReadToolCount,
+            "mcpWriteToolCount": snapshot.mcpWriteToolCount,
+            "mcpPaidToolCount": snapshot.mcpPaidToolCount,
+            "mcpDestructiveToolCount": snapshot.mcpDestructiveToolCount,
+            "billingMode": snapshot.billingMode,
+            "proposalHandoffEnabled": snapshot.proposalHandoffEnabled,
+        ]
+        if let projectID = snapshot.authorizedProjectID { payload["authorizedProjectId"] = projectID }
+        if let expiresAt = snapshot.grantExpiresAt { payload["grantExpiresAt"] = formatter.string(from: expiresAt) }
+        if let readAt = snapshot.lastExternalRequest?.timestamp { payload["lastReadAt"] = formatter.string(from: readAt) }
+        guard let data = try? JSONSerialization.data(withJSONObject: payload), let json = String(data: data, encoding: .utf8) else { return }
+        webView.evaluateJavaScript("window.filmOSChatGPTHostStatus=\(json);window.dispatchEvent(new CustomEvent('filmos:chatgpt-host-status',{detail:window.filmOSChatGPTHostStatus}));")
     }
 
     func flushForBackup() async throws {
@@ -493,6 +528,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         installMainMenu()
         let workbenchWindow = WorkbenchWindow()
         workbenchWindow.onOpenChatGPTConnection = { [weak self] in self?.openChatGPTConnection() }
+        workbenchWindow.onWorkbenchProjectChanged = { [weak self] projectID, canvasID, receiptID in
+            guard let manager = self?.coordinator?.chatGPTConnectionManager else { return }
+            Task {
+                if projectID.isEmpty { await manager.deactivateProject() }
+                else { try? await manager.activateProject(projectID: projectID, canvasID: canvasID, contextReceiptID: receiptID) }
+            }
+        }
         self.workbenchWindow = workbenchWindow
         workbenchWindow.show()
         startWorkbench()
@@ -616,6 +658,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 } else {
                     coordinator = try InternalWorkbenchCoordinator()
                     self.coordinator = coordinator
+                    coordinator.chatGPTConnectionManager.onSnapshot = { [weak self] snapshot in
+                        self?.workbenchWindow?.publishChatGPTHostStatus(snapshot)
+                        self?.chatGPTConnectionWindow?.render(snapshot)
+                    }
                 }
                 let url = try await coordinator.prepare()
                 try Task.checkCancellation()
