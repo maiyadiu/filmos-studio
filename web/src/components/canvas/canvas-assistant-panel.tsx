@@ -29,6 +29,8 @@ import { CanvasLocalAgentPanel } from "./canvas-local-agent-panel";
 import { CanvasChatGPTHostedPanel } from "./canvas-chatgpt-hosted-panel";
 import { isModelApiBrainProfile, normalizeBrainProfileId } from "@/film/agent/brain-profiles";
 import { isAgentFeatureEnabled } from "@/film/agent/feature-flags";
+import { registerBrowserRuntimeHandler } from "@/film/agent/browser-runtime-bridge";
+import { createBrowserRuntimeRequestHandler } from "@/film/agent/browser-runtime-handler";
 import { assertExplicitModelRuntimeSelection } from "@/film/agent/model-api-billing-guard";
 import { MODEL_API_AGENT_TOOLS, MODEL_API_READ_TOOL_NAMES } from "@/film/agent/model-api-tool-manifest";
 import { NODE_DEFAULT_SIZE } from "@/constant/canvas";
@@ -206,6 +208,16 @@ export function CanvasAssistantPanel({
     const cinematicSessionControllersRef = useRef(new Map<string, AbortController>());
     const generationConsumerControllerRef = useRef(new AbortController());
     const previousProfileRef = useRef(activeProfile);
+
+    useEffect(() => {
+        if (!genericAgentRuntimeEnabled) return;
+        return registerBrowserRuntimeHandler(createBrowserRuntimeRequestHandler({
+            selectedProfileId: activeProfile,
+            config: effectiveConfig,
+            isConfigReady: isAiConfigReady,
+            ordinaryConfirmationEnabled: confirmTools,
+        }));
+    }, [activeProfile, confirmTools, effectiveConfig, genericAgentRuntimeEnabled, isAiConfigReady]);
 
     useEffect(() => {
         let cancelled = false;
@@ -1072,7 +1084,13 @@ export function CanvasAssistantPanel({
                 connectionStatus={connectionStatus}
                 nativeBrainSelectorEnabled={nativeBrainSelectorEnabled}
             />
-            {activeProfile === "codex.subscription" ? <CanvasLocalAgentPanel embedded genericRuntime={genericAgentRuntimeEnabled} snapshot={snapshot} canUndoOps={canUndoOps} undoOpsCount={undoOpsCount} onApplyOps={onApplyOps} onUndoOps={onUndoOps} autoConnect={autoConnectLocal} /> : activeProfile === "chatgpt.subscription.host" ? <CanvasChatGPTHostedPanel theme={theme} projectId={projectId} /> : onlineContent}
+            {genericAgentRuntimeEnabled
+                ? <CanvasLocalAgentPanel embedded genericRuntime brainProfileId={activeProfile} snapshot={snapshot} canUndoOps={canUndoOps} undoOpsCount={undoOpsCount} onApplyOps={onApplyOps} onUndoOps={onUndoOps} autoConnect={autoConnectLocal} />
+                : activeProfile === "codex.subscription"
+                  ? <CanvasLocalAgentPanel embedded snapshot={snapshot} canUndoOps={canUndoOps} undoOpsCount={undoOpsCount} onApplyOps={onApplyOps} onUndoOps={onUndoOps} autoConnect={autoConnectLocal} />
+                  : activeProfile === "chatgpt.subscription.host"
+                    ? <CanvasChatGPTHostedPanel theme={theme} projectId={projectId} />
+                    : onlineContent}
         </motion.aside>
     );
 }

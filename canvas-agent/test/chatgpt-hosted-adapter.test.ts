@@ -136,6 +136,8 @@ function grant(sessionId: string, projectId: string): AgentPermissionGrant {
         issuedAt: "2026-08-29T00:00:00.000Z",
         expiresAt: "2026-08-29T01:00:00.000Z",
         nonce: `nonce-${sessionId}`,
+        keyId: "filmos-local-runtime-v1",
+        signature: `signature-${sessionId}`,
     };
 }
 

@@ -40,6 +40,14 @@ export class AgentSessionClient {
         return this.post<{ session: BrainSessionView; contextReceiptId: string; result: unknown }>(`/agent/sessions/${segment(sessionId)}/turns`, input, signal);
     }
 
+    requestTool(sessionId: string, input: { turnId: string; toolName: string; input?: Record<string, unknown>; ordinaryConfirmationEnabled?: boolean }, signal?: AbortSignal) {
+        return this.post<{ outcome: { status: "completed"; request: Record<string, unknown>; result: { output?: unknown; outcome: string } } }>(`/agent/sessions/${segment(sessionId)}/tools`, input, signal);
+    }
+
+    decideConfirmation(confirmationId: string, input: { sessionId: string; approved: boolean }, signal?: AbortSignal) {
+        return this.post<{ outcome: unknown }>(`/agent/confirmations/${segment(confirmationId)}/decision`, input, signal);
+    }
+
     cancelTurn(sessionId: string, turnId: string, signal?: AbortSignal) {
         return this.post<{ sessionId: string; turnId: string }>(`/agent/sessions/${segment(sessionId)}/turns/${segment(turnId)}/cancel`, {}, signal);
     }

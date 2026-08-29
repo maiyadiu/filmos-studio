@@ -58,8 +58,10 @@ export interface ChatGPTHostBridgeClient {
         brainSessionId: string;
         hostSessionId: string;
         projectId: string;
+        turnId: string;
         contextReceiptId: string;
         prompt: string;
+        context: AgentTurnInput["context"];
     }): Promise<ChatGPTHostBridgeHandoff>;
     closeSession(input: { brainSessionId: string; hostSessionId: string; projectId: string }): Promise<void>;
 }
@@ -96,6 +98,7 @@ export class ChatGPTHostedAdapter implements AgentRuntimeAdapter {
 
     async createSession(input: CreateBrainSessionInput, grant: AgentPermissionGrant): Promise<Partial<BrainSession>> {
         assertCreateScope(input, grant, this.profileId);
+        const hostProjectId = input.domainProjectId || input.projectId;
         const prepared = await this.bridge.prepareSession({
             brainSessionId: grant.sessionId,
             projectId: input.projectId,
@@ -103,7 +106,7 @@ export class ChatGPTHostedAdapter implements AgentRuntimeAdapter {
             canvasId: input.canvasId,
             permissionGrant: structuredClone(grant),
         });
-        assertHostSession(prepared, input.projectId);
+        assertHostSession(prepared, hostProjectId);
         this.hostSessions.set(grant.sessionId, structuredClone(prepared));
         return { providerThreadId: prepared.hostSessionId };
     }
@@ -128,7 +131,7 @@ export class ChatGPTHostedAdapter implements AgentRuntimeAdapter {
         if (input.session.brainProfileId !== this.profileId || input.session.connectionId !== this.connectionId) {
             throw new Error("CHATGPT_HOST_PROFILE_SCOPE_MISMATCH");
         }
-        if (host.projectId !== input.session.projectId) throw new Error("CHATGPT_HOST_PROJECT_SCOPE_MISMATCH");
+        if (host.projectId !== (input.session.domainProjectId || input.session.projectId)) throw new Error("CHATGPT_HOST_PROJECT_SCOPE_MISMATCH");
         if (!input.context.contextReceiptId.trim()) throw new Error("CHATGPT_HOST_CONTEXT_RECEIPT_REQUIRED");
 
         const at = new Date().toISOString();
@@ -137,8 +140,10 @@ export class ChatGPTHostedAdapter implements AgentRuntimeAdapter {
             brainSessionId: input.session.id,
             hostSessionId: host.hostSessionId,
             projectId: host.projectId,
+            turnId: input.turnId,
             contextReceiptId: input.context.contextReceiptId,
             prompt: input.prompt,
+            context: structuredClone(input.context),
         });
         assertHandoff(handoff, host, input.context.contextReceiptId);
         await sink({ type: "turn.completed", sessionId: input.session.id, turnId: input.turnId, at: new Date().toISOString() });

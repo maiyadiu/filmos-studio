@@ -1,7 +1,7 @@
 import { LocalRuntimeClientError } from "@/services/local-runtime-session";
 
 export type LocalRuntimeModuleId = "canvas-agent" | "dreamina" | "portrait-clearance";
-export type LocalRuntimeScope = "runtime:status" | "runtime:revoke" | "canvas:connect" | "dreamina:status" | "dreamina:login" | "dreamina:logout" | "dreamina:run" | "dreamina:models" | "dreamina:generate" | "portrait:status" | "portrait:model" | "portrait:run" | "portrait:read";
+export type LocalRuntimeScope = "runtime:status" | "runtime:revoke" | "canvas:connect" | "agent:profiles:read" | "agent:sessions:read" | "agent:sessions:manage" | "agent:turns:run" | "agent:confirmations:decide" | "agent:tools:execute" | "agent:handoff:manage" | "dreamina:status" | "dreamina:login" | "dreamina:logout" | "dreamina:run" | "dreamina:models" | "dreamina:generate" | "portrait:status" | "portrait:model" | "portrait:run" | "portrait:read";
 
 export type LocalRuntimeModuleDescriptor = {
     id: LocalRuntimeModuleId;
@@ -25,7 +25,7 @@ export type LocalRuntimeTransport = {
 
 const MAX_RESPONSE_BYTES = 64 * 1024;
 const MODULE_SCOPES: Record<LocalRuntimeModuleId, ReadonlySet<LocalRuntimeScope>> = {
-    "canvas-agent": new Set(["canvas:connect"]),
+    "canvas-agent": new Set(["canvas:connect", "agent:profiles:read", "agent:sessions:read", "agent:sessions:manage", "agent:turns:run", "agent:confirmations:decide", "agent:tools:execute", "agent:handoff:manage"]),
     dreamina: new Set(["dreamina:status", "dreamina:login", "dreamina:logout", "dreamina:run", "dreamina:models", "dreamina:generate"]),
     "portrait-clearance": new Set(["portrait:status", "portrait:model", "portrait:run", "portrait:read"]),
 };

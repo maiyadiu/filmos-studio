@@ -298,6 +298,8 @@ public protocol ChatGPTConnectionOperating: AnyObject {
     func stopTunnel()
     func revokeProjectSession() async
     func runtimeHealth() async -> ChatGPTRuntimeHealth
+    func publishHostContext(_ context: Data, challengeID: String) async throws -> Data
+    func publishPendingHostHandoff(_ handoff: Data, challengeID: String) async throws -> Data
 }
 
 public struct ReconnectBackoff: Equatable, Sendable {
@@ -467,6 +469,16 @@ public final class ChatGPTConnectionManager {
         回答时带上 Challenge ID，并说明读取到的对象 ID 与状态。
         """
         return prompt
+    }
+
+    public func publishHostContext(_ context: Data) async throws -> Data {
+        let challengeID = try currentHostChallenge()
+        return try await operations.publishHostContext(context, challengeID: challengeID)
+    }
+
+    public func publishPendingHostHandoff(_ handoff: Data) async throws -> Data {
+        let challengeID = try currentHostChallenge()
+        return try await operations.publishPendingHostHandoff(handoff, challengeID: challengeID)
     }
 
     public func diagnosticReport() async -> String {
@@ -676,6 +688,21 @@ public final class ChatGPTConnectionManager {
     private func grantIsValid(_ expiresAt: Date?) -> Bool {
         guard let expiresAt else { return false }
         return expiresAt.timeIntervalSinceNow > 60
+    }
+
+    private func currentHostChallenge() throws -> String {
+        guard desiredConnection,
+              let challengeID = currentChallengeID,
+              let projectID = currentProjectSession?.projectID,
+              snapshot.authorizedProjectID == projectID,
+              snapshot.tunnelStatus == .connected,
+              snapshot.mcpStatus == .pass,
+              snapshot.mcpWriteToolCount == 0,
+              snapshot.mcpPaidToolCount == 0,
+              snapshot.mcpDestructiveToolCount == 0,
+              grantIsValid(snapshot.grantExpiresAt)
+        else { throw ChatGPTConnectionError.liveGateNotReady }
+        return challengeID
     }
 
     private func fail(_ error: Error) {

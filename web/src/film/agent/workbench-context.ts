@@ -137,6 +137,7 @@ declare global {
     interface Window {
         filmOSGetWorkbenchContext?: () => WorkbenchContextV1 | null;
         filmOSChatGPTHostStatus?: FilmOSDesktopChatGPTHostStatus;
+        filmOSResolveChatGPTHostRequest?: (requestId: string, result?: unknown, error?: string) => void;
         webkit?: { messageHandlers?: { filmosDesktop?: { postMessage(message: unknown): void } } };
     }
 }
@@ -145,6 +146,7 @@ export type FilmOSDesktopChatGPTHostStatus = {
     profileId: string;
     state: string;
     authorizedProjectId?: string;
+    authorizedGrantId?: string;
     grantExpiresAt?: string;
     tunnelConnected: boolean;
     externalAccountConnected: boolean;

@@ -116,12 +116,13 @@ export class BrowserChatGPTHostBridgeClient implements ChatGPTHostBridgeClient {
     }
 
     async prepareSession(input: Parameters<ChatGPTHostBridgeClient["prepareSession"]>[0]): Promise<ChatGPTHostBridgeSession> {
+        const { permissionGrant: _permissionGrant, ...scopedInput } = input;
         return await this.transport.request({
             channel: "chatgpt_host",
             operation: "create_session",
             profileId: "chatgpt.subscription.host",
             sessionId: input.brainSessionId,
-            payload: { input },
+            payload: { input: scopedInput },
         });
     }
 

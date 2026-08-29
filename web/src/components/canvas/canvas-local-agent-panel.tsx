@@ -32,6 +32,7 @@ import { AgentChatComposer, AgentChatMessage, AgentPendingToolCard, AgentWorking
 import { VoiceRecordingButton } from "@/components/conversation/voice-recording-button";
 import { AgentChatEmptyState } from "./canvas-agent-panel-chrome";
 import { AgentSessionClient, type BrainSessionView } from "@/film/agent/agent-client";
+import { dispatchBrowserRuntimeRequest, type BrowserRuntimeRequest } from "@/film/agent/browser-runtime-bridge";
 
 const PANEL_MOTION_SECONDS = 0.5;
 const MAX_ATTACHMENTS = 6;
@@ -51,6 +52,7 @@ type AgentEventPayload = {
     message?: string;
     usage?: Record<string, unknown>;
     delta?: string;
+    confirmation?: { id?: string; sessionId?: string; requestId?: string; toolName?: string; summary?: string; impact?: string[] };
 };
 type AgentEventItem = { id?: string; type?: string; text?: unknown; message?: unknown; server?: string; tool?: string; status?: string; arguments?: unknown; result?: unknown; error?: { message?: string } };
 
@@ -72,6 +74,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
     embedded,
     headless,
     genericRuntime = false,
+    brainProfileId = "codex.subscription",
     autoConnect,
     onApplyOps,
     onUndoOps,
@@ -83,6 +86,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
     embedded?: boolean;
     headless?: boolean;
     genericRuntime?: boolean;
+    brainProfileId?: string;
     autoConnect?: boolean;
     onApplyOps: (ops: CanvasAgentOp[], context?: { conversationId?: string; messageId?: string; source?: "online" | "local" }) => Promise<CanvasAgentSnapshot>;
     onUndoOps: () => CanvasAgentSnapshot | null;
@@ -189,7 +193,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
         setAgentState({ loadingThreads: true });
         try {
             if (genericRuntime) {
-                const data = await agentSessionClient.listSessions({ projectId, brainProfileId: "codex.subscription" });
+                const data = await agentSessionClient.listSessions({ projectId, brainProfileId });
                 const sessions = data.sessions.filter((item) => item.status !== "closed");
                 const current = useCanvasAgentStore.getState();
                 const activeSessionId = sessions.some((item) => item.id === current.activeThreadId) ? current.activeThreadId : sessions[0]?.id || "";
@@ -218,7 +222,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
         } finally {
             setAgentState({ loadingThreads: false });
         }
-    }, [agentSessionClient, genericRuntime, setAgentState]);
+    }, [agentSessionClient, brainProfileId, genericRuntime, setAgentState]);
     const loadAccountStatus = useCallback(async () => {
         if (!connectedRef.current && !useCanvasAgentStore.getState().connected) return;
         try {
@@ -285,6 +289,13 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
                 syncState(clientId, snapshotRef.current);
                 return;
             }
+            if (event.type === "browser_runtime_request") {
+                const data = parseEventJson<BrowserRuntimeRequest>(event.data);
+                if (data) void dispatchBrowserRuntimeRequest(data)
+                    .then((result) => postToolResult(clientId, { requestId: data.requestId, result }))
+                    .catch((error) => postToolResult(clientId, { requestId: data.requestId, error: error instanceof Error ? error.message : String(error) }));
+                return;
+            }
             if (event.type === "tool_call") {
                 const data = parseEventJson<AgentPendingToolCall>(event.data);
                 if (data) void handleToolCall(data);
@@ -342,8 +353,14 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
     }, [enabled, loadThreads, message, setAgentState, syncState]);
 
     useEffect(() => {
-        if (connected) void Promise.all([loadThreads(), loadAccountStatus()]);
-    }, [connected, loadAccountStatus, loadThreads, snapshot.projectId]);
+        if (connected) void Promise.all([loadThreads(), ...(brainProfileId === "codex.subscription" ? [loadAccountStatus()] : [])]);
+    }, [brainProfileId, connected, loadAccountStatus, loadThreads, snapshot.projectId]);
+
+    useEffect(() => {
+        if (!genericRuntime) return;
+        setAgentState({ activeThreadId: "", threads: [], messages: [], pendingTool: null, activity: "就绪" });
+        if (connected) void loadThreads();
+    }, [brainProfileId, connected, genericRuntime, loadThreads, setAgentState]);
 
     useEffect(() => {
         if (activeTab === "history" && connected) void loadThreads();
@@ -372,7 +389,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
             if (genericRuntime) {
                 let sessionId = useCanvasAgentStore.getState().activeThreadId;
                 if (!sessionId) {
-                    const created = await agentSessionClient.createSession({ conversationId: createId(), brainProfileId: "codex.subscription" });
+                    const created = await agentSessionClient.createSession({ conversationId: createId(), brainProfileId });
                     sessionId = created.session.id;
                     setAgentState({ activeThreadId: sessionId });
                 }
@@ -448,7 +465,8 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
     };
 
     const handleToolCall = async (payload: AgentPendingToolCall) => {
-        if (confirmToolsRef.current && (payload.name === "canvas_apply_ops" || (isProjectAgentToolName(payload.name) && !isProjectAgentReadTool(payload.name)))) {
+        const canonical = Boolean(payload.canonicalRequestId && payload.canonicalSessionId && payload.canonicalContextReceiptId);
+        if (!canonical && confirmToolsRef.current && (payload.name === "canvas_apply_ops" || (isProjectAgentToolName(payload.name) && !isProjectAgentReadTool(payload.name)))) {
             if (pendingToolRef.current) {
                 await postToolResult(clientIdRef.current, { requestId: payload.requestId, error: "仍有待确认的画布工具调用" });
                 return;
@@ -550,7 +568,11 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
 
     const rejectPendingTool = async () => {
         if (!pendingTool) return;
-        await postToolResult(clientIdRef.current, { requestId: pendingTool.requestId, error: "用户取消了画布工具调用" });
+        if (pendingTool.canonicalConfirmation) {
+            await agentSessionClient.decideConfirmation(pendingTool.canonicalConfirmation.id, { sessionId: pendingTool.canonicalConfirmation.sessionId, approved: false });
+        } else {
+            await postToolResult(clientIdRef.current, { requestId: pendingTool.requestId, error: "用户取消了画布工具调用" });
+        }
         setAgentState({ activity: "已取消", waiting: false });
         addMessage({ role: "tool", title: "拒绝执行", text: toolName(pendingTool.name), detail: { requestId: pendingTool.requestId, name: pendingTool.name, input: pendingTool.input } });
         pendingToolRef.current = null;
@@ -562,6 +584,11 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
         const tool = pendingTool;
         pendingToolRef.current = null;
         setAgentState({ pendingTool: null });
+        if (tool.canonicalConfirmation) {
+            setAgentState({ activity: "执行已批准工具", waiting: true });
+            await agentSessionClient.decideConfirmation(tool.canonicalConfirmation.id, { sessionId: tool.canonicalConfirmation.sessionId, approved: true });
+            return;
+        }
         await runToolCall(tool);
     };
 
@@ -625,7 +652,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
         setAgentState({ loadingThreads: true });
         try {
             if (genericRuntime) {
-                const data = await agentSessionClient.createSession({ conversationId: createId(), brainProfileId: "codex.subscription" });
+                const data = await agentSessionClient.createSession({ conversationId: createId(), brainProfileId });
                 setAgentState({ activeThreadId: data.session.id, messages: [], activeTab: "chat", activity: "新对话" });
                 await loadThreads();
                 return;
@@ -759,6 +786,20 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
         const nextActivity = activityText(event);
         if (nextActivity) setAgentState({ activity: nextActivity });
         if (event.type === "turn.started") setAgentState({ waiting: true });
+        if (event.type === "confirmation.required" && event.confirmation?.id && event.confirmation.sessionId && event.confirmation.requestId && event.confirmation.toolName) {
+            const pending: AgentPendingToolCall = {
+                requestId: event.confirmation.requestId,
+                name: event.confirmation.toolName,
+                canonicalConfirmation: {
+                    id: event.confirmation.id,
+                    sessionId: event.confirmation.sessionId,
+                    summary: event.confirmation.summary || event.confirmation.toolName,
+                    impact: event.confirmation.impact || [],
+                },
+            };
+            pendingToolRef.current = pending;
+            setAgentState({ pendingTool: pending, waiting: false, activity: "等待确认" });
+        }
         if (event.type === "turn.completed" || event.type === "turn.failed" || event.type === "error") setAgentState({ waiting: false, sending: false });
         const item = formatAgentEvent(event);
         if (item) {
@@ -787,7 +828,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
                     <Button type="text" shape="circle" className="!h-7 !w-7 !min-w-7" disabled={!connected || loadingThreads} style={{ color: theme.node.muted }} icon={<Plus className="size-3.5" />} onClick={() => void startNewThread()} aria-label="新建对话" />
                 </Tooltip>
             </div>
-            {connected ? (
+            {connected && brainProfileId === "codex.subscription" ? (
                 <CodexAccountBar
                     status={accountStatus}
                     busy={accountBusy}
@@ -829,8 +870,8 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
                         ))}
                         {pendingTool ? (
                             <AgentPendingToolCard
-                                summary={summarizeCanvasAgentOps(pendingTool.input?.ops || []) || toolName(pendingTool.name)}
-                                detail={{ requestId: pendingTool.requestId, name: pendingTool.name, input: pendingTool.input, impact: previewCanvasAgentOps(pendingTool.input?.ops || [], snapshot) }}
+                                summary={pendingTool.canonicalConfirmation?.summary || summarizeCanvasAgentOps(pendingTool.input?.ops || []) || toolName(pendingTool.name)}
+                                detail={{ requestId: pendingTool.requestId, name: pendingTool.name, input: pendingTool.input, impact: pendingTool.canonicalConfirmation?.impact || previewCanvasAgentOps(pendingTool.input?.ops || [], snapshot) }}
                                 theme={theme}
                                 onReject={rejectPendingTool}
                                 onApprove={approvePendingTool}
@@ -843,7 +884,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
                         attachments={attachments.map(agentAttachmentToChatAttachment)}
                         disabled={!connected}
                         sending={sending || waiting}
-                        placeholder="询问 Codex，或让它操作画布"
+                        placeholder={`询问 ${brainProfileLabel(brainProfileId)}，或让它操作画布`}
                         theme={theme}
                         references={composerReferences}
                         slashSkills={composerSkills}
@@ -1422,6 +1463,18 @@ function formatThreadTime(value?: number) {
 
 function createId() {
     return createClientId();
+}
+
+function brainProfileLabel(profileId: string) {
+    return ({
+        "codex.subscription": "Codex",
+        "chatgpt.subscription.host": "ChatGPT",
+        "openai.api": "OpenAI",
+        "anthropic.api": "Claude",
+        "deepseek.api": "DeepSeek",
+        "local.model": "Local",
+        "human.only": "Human",
+    } as Record<string, string>)[profileId] || profileId;
 }
 
 function clamp(value: number, min: number, max: number) {

@@ -68,6 +68,29 @@ struct ChatGPTConnectionManagerTests {
     }
 
     @Test
+    func hostContextAndHandoffUseCurrentTunnelChallengeWithoutExposingItToWebPayload() async throws {
+        let operations = FakeConnectionOperations()
+        let manager = ChatGPTConnectionManager(
+            operations: operations,
+            tokenStore: MemoryTokenStore(),
+            preferences: MemoryConnectionPreferences()
+        )
+        try await manager.connect(tunnelID: "tunnel_12345678", runtimeKey: "runtime", projectID: "host-project-1")
+        let context = Data("{\"project_id\":\"host-project-1\"}".utf8)
+        let handoff = Data("{\"session_id\":\"session-1\"}".utf8)
+
+        _ = try await manager.publishHostContext(context)
+        _ = try await manager.publishPendingHostHandoff(handoff)
+
+        #expect(operations.publishedContext == context)
+        #expect(operations.publishedHandoff == handoff)
+        #expect(operations.publishedChallengeID?.hasPrefix("live_") == true)
+        #expect(context.contains(Data("live_".utf8)) == false)
+        #expect(handoff.contains(Data("live_".utf8)) == false)
+        manager.disconnect()
+    }
+
+    @Test
     func firstProvenExternalReadChangesOnlyChatGPTReachabilityState() async throws {
         let operations = FakeConnectionOperations()
         let manager = ChatGPTConnectionManager(
@@ -303,6 +326,9 @@ private final class FakeConnectionOperations: ChatGPTConnectionOperating {
     var prepareCount = 0
     var lastPreparedProjectID: String?
     var doctorError: Error?
+    var publishedContext: Data?
+    var publishedHandoff: Data?
+    var publishedChallengeID: String?
 
     func prepareLocalServices(projectID: String, transportProof: String) async throws {
         prepareCount += 1
@@ -347,6 +373,18 @@ private final class FakeConnectionOperations: ChatGPTConnectionOperating {
     }
 
     func runtimeHealth() async -> ChatGPTRuntimeHealth { health.value }
+
+    func publishHostContext(_ context: Data, challengeID: String) async throws -> Data {
+        publishedContext = context
+        publishedChallengeID = challengeID
+        return Data("{\"accepted\":true,\"context_receipt_id\":\"receipt-1\"}".utf8)
+    }
+
+    func publishPendingHostHandoff(_ handoff: Data, challengeID: String) async throws -> Data {
+        publishedHandoff = handoff
+        publishedChallengeID = challengeID
+        return Data("{\"accepted\":true,\"handoff_id\":\"handoff-1\"}".utf8)
+    }
 }
 
 @MainActor

@@ -257,6 +257,48 @@ final class DesktopChatGPTRuntime: ChatGPTConnectionOperating {
         )
     }
 
+    func publishHostContext(_ context: Data, challengeID: String) async throws -> Data {
+        let value = try Self.jsonObject(context)
+        guard value["project_id"] as? String == activeProjectID else {
+            throw DesktopChatGPTRuntimeError.hostPublishRejected
+        }
+        return try await publish(path: "/handoff/live-context", method: "PUT", challengeID: challengeID, key: "context", value: value)
+    }
+
+    func publishPendingHostHandoff(_ handoff: Data, challengeID: String) async throws -> Data {
+        let value = try Self.jsonObject(handoff)
+        return try await publish(path: "/handoff/pending-agent", method: "POST", challengeID: challengeID, key: "handoff", value: value)
+    }
+
+    private func publish(path: String, method: String, challengeID: String, key: String, value: [String: Any]) async throws -> Data {
+        guard let token = activeGrantToken,
+              let url = URL(string: "http://127.0.0.1:17840\(path)"),
+              challengeID.range(of: "^live_[A-Za-z0-9_-]{8,96}$", options: .regularExpression) != nil else {
+            throw DesktopChatGPTRuntimeError.hostPublishRejected
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["challenge_id": challengeID, key: value])
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.timeoutInterval = 10
+        request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
+              (try? JSONSerialization.jsonObject(with: data)) is [String: Any] else {
+            throw DesktopChatGPTRuntimeError.hostPublishRejected
+        }
+        return data
+    }
+
+    private static func jsonObject(_ data: Data) throws -> [String: Any] {
+        guard data.count <= 256 * 1024,
+              let value = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw DesktopChatGPTRuntimeError.hostPayloadInvalid
+        }
+        return value
+    }
+
     private func ensureGrant(projectID: String) async throws -> Bool {
         if let valid = try? existingGrant(projectID: projectID), valid.expiresAt.timeIntervalSinceNow > 300 {
             grantExpiresAt = valid.expiresAt
@@ -558,6 +600,8 @@ enum DesktopChatGPTRuntimeError: Error, LocalizedError {
     case serviceUnavailable
     case grantUnavailable
     case tunnelDoctorFailed
+    case hostPayloadInvalid
+    case hostPublishRejected
 
     var errorDescription: String? {
         switch self {
@@ -566,6 +610,8 @@ enum DesktopChatGPTRuntimeError: Error, LocalizedError {
         case .serviceUnavailable: "Film Core 或 MCP 未在预期时间内就绪。"
         case .grantUnavailable: "无法建立同一项目的只读 Project Grant。"
         case .tunnelDoctorFailed: "Secure Tunnel doctor 未通过。"
+        case .hostPayloadInvalid: "ChatGPT Host 上下文格式无效。"
+        case .hostPublishRejected: "ChatGPT Host 上下文发布被安全边界拒绝。"
         }
     }
 }

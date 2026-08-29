@@ -298,6 +298,7 @@ private final class WorkbenchWindow: NSObject, @preconcurrency WKNavigationDeleg
     let window: NSWindow
     var onOpenChatGPTConnection: (() -> Void)?
     var onWorkbenchProjectChanged: ((String, String?, String?) -> Void)?
+    var onChatGPTHostRequest: ((String, String, Data) -> Void)?
 
     private let webView: WKWebView
     private let overlay = NSVisualEffectView()
@@ -440,6 +441,18 @@ private final class WorkbenchWindow: NSObject, @preconcurrency WKNavigationDeleg
             let canvasID = (body["canvasId"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
             let receiptID = (body["contextReceiptId"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
             onWorkbenchProjectChanged?(normalized, canvasID?.isEmpty == false ? canvasID : nil, receiptID?.isEmpty == false ? receiptID : nil)
+            return
+        }
+        if action == "chatgptHostRequest",
+           Set(body.keys) == Set(["action", "requestId", "operation", "payload"]),
+           let requestID = body["requestId"] as? String,
+           requestID.range(of: "^[A-Fa-f0-9-]{36}$", options: .regularExpression) != nil,
+           let operation = body["operation"] as? String,
+           ["publish_context", "publish_handoff"].contains(operation),
+           let payload = body["payload"] as? [String: Any],
+           JSONSerialization.isValidJSONObject(payload),
+           let data = try? JSONSerialization.data(withJSONObject: payload), data.count <= 256 * 1024 {
+            onChatGPTHostRequest?(requestID, operation, data)
         }
     }
 
@@ -460,10 +473,23 @@ private final class WorkbenchWindow: NSObject, @preconcurrency WKNavigationDeleg
             "proposalHandoffEnabled": snapshot.proposalHandoffEnabled,
         ]
         if let projectID = snapshot.authorizedProjectID { payload["authorizedProjectId"] = projectID }
+        if let grantID = snapshot.grantID { payload["authorizedGrantId"] = grantID }
         if let expiresAt = snapshot.grantExpiresAt { payload["grantExpiresAt"] = formatter.string(from: expiresAt) }
         if let readAt = snapshot.lastExternalRequest?.timestamp { payload["lastReadAt"] = formatter.string(from: readAt) }
         guard let data = try? JSONSerialization.data(withJSONObject: payload), let json = String(data: data, encoding: .utf8) else { return }
         webView.evaluateJavaScript("window.filmOSChatGPTHostStatus=\(json);window.dispatchEvent(new CustomEvent('filmos:chatgpt-host-status',{detail:window.filmOSChatGPTHostStatus}));")
+    }
+
+    func resolveChatGPTHostRequest(requestID: String, data: Data?, error: String?) {
+        let result = data.flatMap { try? JSONSerialization.jsonObject(with: $0) }
+        Task {
+            _ = try? await webView.callAsyncJavaScript(
+                "window.filmOSResolveChatGPTHostRequest?.(requestId, result, error);",
+                arguments: ["requestId": requestID, "result": result ?? NSNull(), "error": error ?? NSNull()],
+                in: nil,
+                contentWorld: .page
+            )
+        }
     }
 
     func flushForBackup() async throws {
@@ -533,6 +559,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Task {
                 if projectID.isEmpty { await manager.deactivateProject() }
                 else { try? await manager.activateProject(projectID: projectID, canvasID: canvasID, contextReceiptID: receiptID) }
+            }
+        }
+        workbenchWindow.onChatGPTHostRequest = { [weak self, weak workbenchWindow] requestID, operation, payload in
+            guard let manager = self?.coordinator?.chatGPTConnectionManager else {
+                workbenchWindow?.resolveChatGPTHostRequest(requestID: requestID, data: nil, error: "CHATGPT_CONNECTION_MANAGER_UNAVAILABLE")
+                return
+            }
+            Task {
+                do {
+                    let result = operation == "publish_context"
+                        ? try await manager.publishHostContext(payload)
+                        : try await manager.publishPendingHostHandoff(payload)
+                    workbenchWindow?.resolveChatGPTHostRequest(requestID: requestID, data: result, error: nil)
+                } catch {
+                    workbenchWindow?.resolveChatGPTHostRequest(requestID: requestID, data: nil, error: "CHATGPT_HOST_REQUEST_REJECTED")
+                }
             }
         }
         self.workbenchWindow = workbenchWindow
