@@ -1,5 +1,7 @@
 import { canonicalize } from "json-canonicalize";
 import crypto from "node:crypto";
+import fs from "node:fs/promises";
+import path from "node:path";
 
 import type { AgentToolManifest, AgentToolRequest, AgentToolResult, BrainProfile, BrainSession } from "./contracts.js";
 
@@ -36,6 +38,30 @@ export interface AgentAuditSink {
 export class MemoryAgentAuditSink implements AgentAuditSink {
     readonly records: AgentAuditRecord[] = [];
     async append(record: AgentAuditRecord) { this.records.push(structuredClone(record)); }
+}
+
+export class JsonlAgentAuditSink implements AgentAuditSink {
+    private queue = Promise.resolve();
+
+    constructor(private readonly file: string) {}
+
+    async append(record: AgentAuditRecord) {
+        const line = `${canonicalize(record)}\n`;
+        const write = this.queue.then(async () => {
+            await fs.mkdir(path.dirname(this.file), { recursive: true, mode: 0o700 });
+            await fs.appendFile(this.file, line, { encoding: "utf8", mode: 0o600 });
+            await fs.chmod(this.file, 0o600);
+        });
+        this.queue = write.catch(() => undefined);
+        await write;
+    }
+}
+
+export class CompositeAgentAuditSink implements AgentAuditSink {
+    constructor(private readonly sinks: readonly AgentAuditSink[]) {}
+    async append(record: AgentAuditRecord) {
+        for (const sink of this.sinks) await sink.append(record);
+    }
 }
 
 export function agentAuditRecord(input: {

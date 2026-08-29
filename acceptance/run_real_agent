@@ -1,0 +1,24 @@
+#!/bin/sh
+set -eu
+
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+if [ "${FILMOS_ACCEPTANCE_ALLOW_DIRTY:-0}" != "1" ] && [ -n "$(git -C "$ROOT" status --porcelain)" ]; then
+    printf '%s\n' "Real Agent acceptance requires a clean worktree. Set FILMOS_ACCEPTANCE_ALLOW_DIRTY=1 only for development evidence." >&2
+    exit 2
+fi
+
+"$ROOT/acceptance/bootstrap"
+PATH_FILE=$(mktemp "${TMPDIR:-/tmp}/filmos-real-agent.XXXXXX")
+trap 'rm -f "$PATH_FILE"' EXIT HUP INT TERM
+
+ARTIFACT_ROOT=${FILMOS_ACCEPTANCE_ARTIFACT_ROOT:-"$ROOT/.local/acceptance-artifacts"}
+EVIDENCE_ROOT=${FILMOS_ACCEPTANCE_EVIDENCE_ROOT:-"$ARTIFACT_ROOT/runs"}
+mkdir -p "$EVIDENCE_ROOT"
+
+env -u OPENAI_API_KEY "$ROOT/.local/acceptance-venv/bin/python" "$ROOT/acceptance/run.py" \
+    --suite rc-real-agent \
+    --evidence-root "$EVIDENCE_ROOT" \
+    --receipt-path-file "$PATH_FILE"
+RECEIPT=$(sed -n '1p' "$PATH_FILE")
+"$ROOT/.local/acceptance-venv/bin/python" "$ROOT/acceptance/verify.py" "$RECEIPT"
+printf '%s\n' "$RECEIPT"

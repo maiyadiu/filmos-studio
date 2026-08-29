@@ -32,8 +32,10 @@ test("Codex subscription probe reports managed ChatGPT auth and quota without an
     assert.equal(status.version, "pro");
     assert.equal(status.quota?.remainingPercent, 75);
 
-    const env = codexConfig("/tmp/runtime", grant).mcp_servers.yingce.env;
+    const env = codexConfig("/tmp/runtime", grant)["mcp_servers.yingce.env"];
     assert.equal("OPENAI_API_KEY" in env, false);
+    assert.equal(env.FILMOS_AGENT_PROFILE, "codex_app_server");
+    assert.equal(env.FILMOS_BRAIN_PROFILE_ID, "codex.subscription");
     assert.equal(env.FILMOS_AGENT_GRANT_ID, grant.id);
     assert.equal(env.FILMOS_AGENT_GRANT_NONCE, grant.nonce);
 });
@@ -74,6 +76,10 @@ test("Codex turns serialize per thread, run independently across sessions, and s
     const firstPatch = await adapter.createSession(sessionInput(), grant);
     const grant2 = { ...grant, id: "grant-2", sessionId: "session-2", projectId: "project-2", nonce: "nonce-2" };
     const secondPatch = await adapter.createSession({ ...sessionInput(), projectId: "project-2", canvasId: "canvas-2" }, grant2);
+    assert.deepEqual(fake.preflights, [
+        { threadId: "thread-1", server: "yingce", tool: "workbench_get_context" },
+        { threadId: "thread-2", server: "yingce", tool: "workbench_get_context" },
+    ]);
     const firstSession = { ...session(), ...firstPatch };
     const secondSession = { ...session(), id: "session-2", projectId: "project-2", canvasId: "canvas-2", permissionGrantId: "grant-2", ...secondPatch };
     const first = adapter.sendTurn(turnInput(firstSession), async () => undefined);
@@ -93,10 +99,16 @@ test("Codex turns serialize per thread, run independently across sessions, and s
 function fakeClient(onTurn?: (binding: CodexThreadBinding, threadId: string, onTurnStarted?: (turnId: string) => void) => Promise<void>) {
     let threadNumber = 0;
     const interrupts: Array<{ threadId: string; turnId: string }> = [];
+    const preflights: Array<{ threadId: string; server: string; tool: string }> = [];
     return {
         interrupts,
+        preflights,
         startThread: async () => ({ id: `thread-${++threadNumber}` }),
         resumeThread: async (threadId: string) => ({ id: threadId }),
+        callMcpTool: async (threadId: string, server: string, tool: string) => {
+            preflights.push({ threadId, server, tool });
+            return { content: [{ type: "text", text: "context" }] };
+        },
         startTurn: async (threadId: string, _prompt: string, _images: string[], _skills: unknown[], binding: CodexThreadBinding, onTurnStarted?: (turnId: string) => void) => {
             await onTurn?.(binding, threadId, onTurnStarted);
             return { turnId: "provider-turn" };

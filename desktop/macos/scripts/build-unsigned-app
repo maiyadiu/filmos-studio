@@ -5,6 +5,9 @@ script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 package_dir=$(CDPATH= cd -- "$script_dir/.." && pwd)
 workspace_root=$(CDPATH= cd -- "$package_dir/../.." && pwd)
 destination=${1:-"$package_dir/.local/FilmOS Studio.app"}
+web_port=${FILMOS_DESKTOP_WEB_PORT:-43100}
+backend_port=${FILMOS_DESKTOP_BACKEND_PORT:-43101}
+application_support_directory_name=${FILMOS_DESKTOP_APPLICATION_SUPPORT_DIRECTORY_NAME:-FilmOS Studio}
 icon_source="$package_dir/App/FilmOS图标.png"
 bun_executable=$(command -v bun || true)
 go_executable=$(command -v go || true)
@@ -19,6 +22,23 @@ case "$destination" in
     *.app) ;;
     *)
         echo "output must end with .app" >&2
+        exit 2
+        ;;
+esac
+
+case "$web_port:$backend_port" in
+    *[!0-9:]*|:|*:|*::* )
+        echo "desktop ports must be explicit integers" >&2
+        exit 2
+        ;;
+esac
+if [ "$web_port" -lt 1024 ] || [ "$web_port" -gt 65535 ] || [ "$backend_port" -lt 1024 ] || [ "$backend_port" -gt 65535 ] || [ "$web_port" -eq "$backend_port" ]; then
+    echo "desktop ports must be distinct user ports" >&2
+    exit 2
+fi
+case "$application_support_directory_name" in
+    ""|.|..|*/*|*:*)
+        echo "desktop application support directory name is invalid" >&2
         exit 2
         ;;
 esac
@@ -135,10 +155,10 @@ iconutil -c icns "$iconset" -o "$staging/FilmOSStudio.icns"
 runtime_plist="$staging/InternalRuntime.plist"
 plutil -create xml1 "$runtime_plist"
 plutil -insert schema_version -integer 2 "$runtime_plist"
-plutil -insert start_url -string "http://127.0.0.1:43100/create" "$runtime_plist"
-plutil -insert web_health_url -string "http://127.0.0.1:43100/" "$runtime_plist"
-plutil -insert backend_health_url -string "http://127.0.0.1:43101/api/health" "$runtime_plist"
-plutil -insert application_support_directory_name -string "FilmOS Studio" "$runtime_plist"
+plutil -insert start_url -string "http://127.0.0.1:$web_port/create" "$runtime_plist"
+plutil -insert web_health_url -string "http://127.0.0.1:$web_port/" "$runtime_plist"
+plutil -insert backend_health_url -string "http://127.0.0.1:$backend_port/api/health" "$runtime_plist"
+plutil -insert application_support_directory_name -string "$application_support_directory_name" "$runtime_plist"
 plutil -insert backend_data_directory_name -string "WorkbenchData" "$runtime_plist"
 plutil -convert json -o "$staging/InternalRuntime.json" "$runtime_plist"
 

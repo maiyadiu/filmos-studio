@@ -60,7 +60,12 @@ export function createCanvasAgentHttpModule(
             emit,
             () => session.agentContextSnapshot() as WorkbenchContextSnapshot,
             ({ sessionId, request }) => approvals.request({ sessionId, request, contextReceiptId: liveContextReceipt(session) }),
-            { featureFlags: agentFeatureFlags, ...(options.brainSessionStore ? { store: options.brainSessionStore } : {}) },
+            {
+                featureFlags: agentFeatureFlags,
+                grants: permissionGrants,
+                tools: canonicalTools,
+                ...(options.brainSessionStore ? { store: options.brainSessionStore } : {}),
+            },
         ) : undefined;
     const grantsByCanvas = new Map<string, AgentPermissionGrant>();
     const grantForCanvas = (canvasId: string) => {

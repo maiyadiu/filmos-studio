@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -20,14 +21,10 @@ const config: CanvasAgentConfig = {
 
 type CommandFactory = () => { command: string; args: string[] };
 type CodexConfigFactory = (configDir?: string) => {
-    mcp_servers: {
-        "yingce": {
-            command: string;
-            args: string[];
-            env?: Record<string, string>;
-            tool_timeout_sec: number;
-        };
-    };
+    "mcp_servers.yingce.command": string;
+    "mcp_servers.yingce.args": string[];
+    "mcp_servers.yingce.env": Record<string, string>;
+    "mcp_servers.yingce.tool_timeout_sec": number;
 };
 type RegisterMcpTools = (
     server: { registerTool(name: string, definition: unknown, callback: (...args: never[]) => unknown): void },
@@ -42,6 +39,9 @@ test("internal Canvas Agent MCP command starts the explicit workbench_operator s
     const command = commandFactory();
     assert.deepEqual(command.args.slice(-3), ["mcp", "--surface", "workbench_operator"]);
     assert.equal(command.args.includes("--canvas-only"), false);
+    const entry = command.args.at(-4);
+    assert.equal(typeof entry, "string");
+    assert.equal(existsSync(String(entry)), true, `MCP entry must exist: ${entry}`);
 });
 
 test("internal Codex MCP config binds the Runtime directory without an auto-approval override", () => {
@@ -49,16 +49,17 @@ test("internal Codex MCP config binds the Runtime directory without an auto-appr
     assert.equal(typeof configFactory, "function");
     if (!configFactory) return;
     const configDir = path.resolve("fixture-runtime-config-18871");
-    const server = configFactory(configDir).mcp_servers["yingce"];
-    assert.deepEqual(server.env, {
+    const overrides = configFactory(configDir);
+    assert.deepEqual(overrides["mcp_servers.yingce.env"], {
         FRAMEFIELD_LOCAL_RUNTIME_CONFIG_DIR: configDir,
         FILMOS_AGENT_GATEWAY_ENABLED: "true",
-        FILMOS_AGENT_PROFILE: "codex.subscription",
+        FILMOS_AGENT_PROFILE: "codex_app_server",
+        FILMOS_BRAIN_PROFILE_ID: "codex.subscription",
     });
-    assert.equal(server.args.includes("workbench_operator"), true);
-    assert.equal("default_tools_approval_mode" in server, false);
-    assert.equal(server.args.some((value) => /token|secret/i.test(value)), false);
-    assert.equal(Object.keys(server.env ?? {}).some((key) => /token|secret/i.test(key)), false);
+    assert.equal(overrides["mcp_servers.yingce.args"].includes("workbench_operator"), true);
+    assert.equal("default_tools_approval_mode" in overrides, false);
+    assert.equal(overrides["mcp_servers.yingce.args"].some((value) => /token|secret/i.test(value)), false);
+    assert.equal(Object.keys(overrides["mcp_servers.yingce.env"]).some((key) => /token|secret/i.test(key)), false);
 });
 
 test("workbench_operator exposes Canvas and Film tools without direct provider bypass", () => {
@@ -86,11 +87,18 @@ test("real MCP listTools exactly matches the canonical workbench manifest", asyn
     const client = new Client({ name: "workbench-manifest-client", version: "1" });
     await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
     try {
-        const actual = (await client.listTools()).tools.map((tool) => tool.name).sort();
+        const listed = (await client.listTools()).tools;
+        const actual = listed.map((tool) => tool.name).sort();
         const expected = new CanonicalAgentToolManifest().names("workbench_operator").sort();
         assert.deepEqual(actual, expected);
         assert.equal(actual.includes("workbench_get_context"), true);
         assert.equal(actual.includes("dreamina_cli"), false);
+        const byName = new Map(listed.map((tool) => [tool.name, tool]));
+        assert.equal(byName.get("canvas_get_node")?.annotations?.readOnlyHint, true);
+        assert.equal(byName.get("canvas_validate_ops")?.annotations?.readOnlyHint, true);
+        assert.equal(byName.get("canvas_update_node")?.annotations?.readOnlyHint, false);
+        assert.equal(byName.get("canvas_delete_nodes")?.annotations?.destructiveHint, true);
+        assert.equal(byName.get("canvas_generate_image")?.annotations?.openWorldHint, true);
     } finally {
         await client.close();
         await server.close();
@@ -101,7 +109,7 @@ test("internal MCP tool timeout covers the Canvas generation continuation window
     const configFactory = (agentsModule as unknown as { codexConfig?: CodexConfigFactory }).codexConfig;
     assert.equal(typeof configFactory, "function");
     if (!configFactory) return;
-    const timeoutMs = configFactory().mcp_servers["yingce"].tool_timeout_sec * 1_000;
+    const timeoutMs = configFactory()["mcp_servers.yingce.tool_timeout_sec"] * 1_000;
     assert.ok(timeoutMs >= 35 * 60 * 1_000, `internal MCP timeout ${timeoutMs}ms must cover the 35-minute generation continuation window`);
     assert.ok(timeoutMs > 35 * 60 * 1_000, "internal MCP timeout must leave shutdown/response margin after the Canvas continuation window");
 });

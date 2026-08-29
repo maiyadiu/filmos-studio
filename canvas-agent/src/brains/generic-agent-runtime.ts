@@ -3,7 +3,7 @@ import path from "node:path";
 import { CONFIG_DIR, ensureCanvasWorkspace, type LocalRuntimeConfig } from "../config.js";
 import { codexConfig, codexProcessManager } from "../agents.js";
 import type { AgentEmit } from "../types.js";
-import { MemoryAgentAuditSink } from "./agent-audit.js";
+import { CompositeAgentAuditSink, JsonlAgentAuditSink, MemoryAgentAuditSink } from "./agent-audit.js";
 import { CodexSubscriptionAdapter } from "./adapters/codex-app-server-adapter.js";
 import { AgentConfirmationStore } from "./confirmations.js";
 import { AgentContextBroker, type WorkbenchContextSnapshot } from "./context-broker.js";
@@ -18,15 +18,17 @@ import { enabledAgentProfileIds, type AgentFeatureFlags } from "./feature-flags.
 type GenericAgentRuntimeOptions = {
     store?: BrainSessionStore;
     featureFlags: AgentFeatureFlags;
+    grants?: AgentPermissionGrantStore;
+    tools?: CanonicalAgentToolManifest;
 };
 
 export class GenericAgentRuntime {
     readonly registry = new BrainProfileRegistry();
     readonly store: BrainSessionStore;
-    readonly grants = new AgentPermissionGrantStore();
+    readonly grants: AgentPermissionGrantStore;
     readonly confirmations = new AgentConfirmationStore();
     readonly contexts = new AgentContextBroker();
-    readonly tools = new CanonicalAgentToolManifest();
+    readonly tools: CanonicalAgentToolManifest;
     readonly audit = new MemoryAgentAuditSink();
     readonly manager: AgentSessionManager;
     private readonly hydratedSessions = new Set<string>();
@@ -41,6 +43,8 @@ export class GenericAgentRuntime {
     ) {
         this.actorId = config.ownerId || "local-owner";
         this.store = options.store ?? new JsonBrainSessionStore(path.join(CONFIG_DIR, "brain-sessions.v1.json"), config.canvases);
+        this.grants = options.grants ?? new AgentPermissionGrantStore();
+        this.tools = options.tools ?? new CanonicalAgentToolManifest();
         registerBuiltinBrainProfiles(this.registry, enabledAgentProfileIds(options.featureFlags));
         if (options.featureFlags["film.agent_codex_subscription"]) {
             this.registry.registerAdapter(new CodexSubscriptionAdapter(
@@ -50,7 +54,11 @@ export class GenericAgentRuntime {
                 requestConfirmation,
             ));
         }
-        this.manager = new AgentSessionManager(this.registry, this.store, this.grants, this.confirmations, this.contexts, () => new Date(), this.tools, this.audit);
+        const audit = new CompositeAgentAuditSink([
+            this.audit,
+            new JsonlAgentAuditSink(path.join(CONFIG_DIR, "agent-audit.v1.jsonl")),
+        ]);
+        this.manager = new AgentSessionManager(this.registry, this.store, this.grants, this.confirmations, this.contexts, () => new Date(), this.tools, audit);
         void emit;
     }
 

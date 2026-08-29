@@ -63,6 +63,7 @@ export class CodexSubscriptionAdapter implements AgentRuntimeAdapter {
         const binding = this.binding(input.brainProfileId, grant.sessionId, () => undefined);
         const thread = await client.startThread(workspace, this.configForGrant(grant), binding);
         const threadId = requiredThreadId(thread);
+        await preflightWorkbenchMcp(client, threadId);
         this.threadsBySession.set(grant.sessionId, threadId);
         this.clientsBySession.set(grant.sessionId, client);
         this.grantsBySession.set(grant.sessionId, structuredClone(grant));
@@ -75,6 +76,7 @@ export class CodexSubscriptionAdapter implements AgentRuntimeAdapter {
         if (!threadId || !grant) throw new Error("CODEX_SESSION_RESUME_CONTEXT_MISSING");
         const client = await this.processManager.client();
         await client.resumeThread(threadId, input.canvasId ? this.workspaceForCanvas(input.canvasId) : undefined, this.configForGrant(grant), this.binding(this.profileId, input.sessionId, () => undefined));
+        await preflightWorkbenchMcp(client, threadId);
         this.threadsBySession.set(input.sessionId, threadId);
         this.clientsBySession.set(input.sessionId, client);
         this.grantsBySession.set(input.sessionId, structuredClone(grant));
@@ -153,6 +155,10 @@ export class CodexSubscriptionAdapter implements AgentRuntimeAdapter {
     }
 }
 
+async function preflightWorkbenchMcp(client: CodexAppServerClient, threadId: string) {
+    await client.callMcpTool(threadId, "yingce", "workbench_get_context");
+}
+
 function turnPrompt(input: AgentTurnInput) {
     return [
         "FilmOS 当前上下文由系统生成；不得猜测 ID、版本或哈希。需要更多事实时先调用 workbench_get_context 或精确读取工具。",
@@ -170,8 +176,28 @@ function normalizedEmit(sessionId: string, turnId: string, sink: AgentEventSink)
         const eventType = String(value.type || "");
         const now = new Date().toISOString();
         if (eventType === "item.updated") {
-            const text = String(record(value.item).text || "");
-            if (text) void sink({ type: "message.delta", sessionId, turnId, delta: text, at: now });
+            const delta = String(value.delta || record(value.item).text || "");
+            if (delta) void sink({ type: "message.delta", sessionId, turnId, delta, at: now });
+        }
+        if (eventType === "item.completed" && String(record(value.item).type || "") === "mcp_tool_call") {
+            const item = record(value.item);
+            const toolName = String(item.tool || item.name || "unknown_mcp_tool");
+            const failed = Boolean(item.error) || String(item.status || "").toLowerCase() === "failed";
+            void sink({
+                type: "tool.completed",
+                sessionId,
+                turnId,
+                result: {
+                    requestId: String(item.id || `${sessionId}:${turnId}:${toolName}`),
+                    sessionId,
+                    toolName,
+                    outcome: failed ? "failed" : "succeeded",
+                    ...(item.result !== undefined ? { output: item.result } : {}),
+                    ...(failed ? { errorCode: "CODEX_MCP_TOOL_FAILED", errorMessage: String(record(item.error).message || item.error || "MCP tool failed") } : {}),
+                    completedAt: now,
+                },
+                at: now,
+            });
         }
         if (eventType === "error") void sink({ type: "turn.failed", sessionId, turnId, code: "CODEX_TURN_ERROR", message: String(value.message || "Codex turn failed"), at: now });
     };

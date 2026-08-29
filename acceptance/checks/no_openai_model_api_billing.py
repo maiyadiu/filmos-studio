@@ -46,21 +46,25 @@ def main() -> None:
 
     desktop = (ROOT / "desktop/macos/Sources/FilmOSStudioDesktop/DesktopChatGPTRuntime.swift").read_text(encoding="utf-8")
     supervisor = (ROOT / "desktop/macos/Sources/FilmOSDesktopCore/ServiceSupervisor.swift").read_text(encoding="utf-8")
+    manager = (ROOT / "desktop/macos/Sources/FilmOSDesktopCore/ChatGPTConnectionManager.swift").read_text(encoding="utf-8")
     required_markers = {
         "control_plane_key_reference": '"--control-plane.api-key", "env:CONTROL_PLANE_API_KEY"' in desktop,
         "runtime_key_is_secret_environment": '"CONTROL_PLANE_API_KEY"' in supervisor,
         "no_openai_api_key_runtime": "OPENAI_API_KEY" not in desktop,
-        "read_only_mcp": 'mcpWriteToolCount: 0' in desktop,
+        "dynamic_mcp_risk_counts": 'mcpWriteToolCount: healthPayload?["mcp_write_tool_count"] as? Int ?? 0' in desktop,
+        "read_only_host_blocks_write_tools": "health.mcpWriteToolCount == 0" in manager,
     }
     if not all(required_markers.values()):
         violations.append({"path": "desktop/macos", "endpoint": "RUNTIME_CONTRACT_MISSING"})
 
     ended = datetime.now(timezone.utc)
     receipt = {
-        "schema_version": "1.0.0",
+        "schema_version": "1.1.0",
         "gate_id": "NO-OPENAI-MODEL-API-001",
         "gate": "NO_OPENAI_MODEL_API_BILLING",
         "billing_mode": "SUBSCRIPTION_ONLY",
+        "protected_profiles": ["codex.subscription", "chatgpt.subscription.host"],
+        "allow_api_fallback": False,
         "start_time": started.isoformat(),
         "end_time": ended.isoformat(),
         "observation_mode": "STATIC_RUNTIME_NETWORK_CONTRACT",

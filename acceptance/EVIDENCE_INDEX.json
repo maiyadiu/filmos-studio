@@ -282,6 +282,9 @@
         "npm --prefix packages/filmos-agent-contracts test",
         "cd canvas-agent && npm test",
         "cd canvas-agent && npm run build",
+        "python3 acceptance/checks/agent_native_multibrain.py",
+        "cd services/filmos-chatgpt-app && npx tsx scripts/mcp-manifest-receipt.ts",
+        "acceptance/run_real_agent",
         "cd canvas-agent && npx tsx --test test/agent-feature-flags.test.ts test/agent-session-migration.test.ts test/agent-rollback.test.ts",
         "cd web && bun test src/film/agent/feature-flags.test.mjs src/film/agent/agent-client.test.mjs",
         "scripts/recovery/RC恢复演练 --synthetic",
@@ -296,17 +299,22 @@
         "AGENT-CHATGPT-HOSTED-001",
         "AGENT-NO-API-FALLBACK-001",
         "AGENT-SESSION-RECOVERY-001",
+        "AGENT-NATIVE-MULTIBRAIN-CONTRACT-001",
+        "MCP-ACTUAL-TOOL-COUNT-001",
         "PERFORMANCE-LOCAL-001"
       ],
       "required_local_check_ids": [
         "film-core-environment",
+        "agent-native-multibrain",
         "canvas-agent",
+        "mcp-actual-tool-count",
         "performance-local",
         "rc-recovery"
       ],
       "required_final_check_ids": [
         "film-core-environment",
         "canvas-agent",
+        "codex-subscription-real",
         "rc-recovery",
         "codex-agent-runtime",
         "acceptance-full-chain",
@@ -446,6 +454,9 @@
         "python3 acceptance/checks/remote_contract.py",
         "python3 acceptance/checks/reports.py",
         "python3 acceptance/checks/no_openai_model_api_billing.py",
+        "python3 acceptance/checks/agent_native_multibrain.py",
+        "cd services/filmos-chatgpt-app && npx tsx scripts/mcp-manifest-receipt.ts",
+        "acceptance/run_real_agent",
         "python3 acceptance/run.py --suite rc-local",
         "python3 acceptance/verify.py <receipt>"
       ],
@@ -460,10 +471,13 @@
         "RC-RECOVERY-001",
         "DESKTOP-BACKUP-RESTORE-001",
         "DESKTOP-CHATGPT-CONNECTION-001",
-        "NO-OPENAI-MODEL-API-001"
+        "NO-OPENAI-MODEL-API-001",
+        "AGENT-NATIVE-MULTIBRAIN-CONTRACT-001",
+        "MCP-ACTUAL-TOOL-COUNT-001"
       ],
       "required_local_check_ids": [
         "acceptance-full-chain",
+        "agent-native-multibrain",
         "acceptance-privacy",
         "acceptance-reports",
         "canvas-agent",
@@ -475,6 +489,7 @@
         "film-contracts",
         "film-core-environment",
         "golden-abc-real-http",
+        "mcp-actual-tool-count",
         "performance-local",
         "rc-recovery",
         "remote-acceptance-contract",
@@ -483,6 +498,7 @@
       ],
       "required_final_check_ids": [
         "film-core-environment",
+        "codex-subscription-real",
         "acceptance-full-chain",
         "restart-recovery",
         "precise-stale",
@@ -515,6 +531,7 @@
         "python3 acceptance/checks/desktop_chatgpt_connection.py",
         "npm test",
         "npm run test:golden-real",
+        "npx tsx scripts/mcp-manifest-receipt.ts",
         "python3 acceptance/checks/no_openai_model_api_billing.py"
       ],
       "golden_case_ids": [
@@ -522,10 +539,12 @@
         "CHATGPT-HANDOFF-LOCAL-001",
         "CHATGPT-HANDOFF-EXTERNAL-001",
         "DESKTOP-CHATGPT-CONNECTION-001",
-        "NO-OPENAI-MODEL-API-001"
+        "NO-OPENAI-MODEL-API-001",
+        "MCP-ACTUAL-TOOL-COUNT-001"
       ],
       "required_local_check_ids": [
         "film-core-environment",
+        "mcp-actual-tool-count",
         "desktop-chatgpt-connection",
         "web-typecheck",
         "web-production-build",

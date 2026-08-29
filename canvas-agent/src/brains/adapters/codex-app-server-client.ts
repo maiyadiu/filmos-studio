@@ -37,7 +37,11 @@ export class CodexAppServerClient {
         spawnProcess?: typeof spawn;
         onExit?: () => void;
     }) {
-        const child = (options.spawnProcess ?? spawn)(options.command, options.args, { stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+        const child = (options.spawnProcess ?? spawn)(options.command, options.args, {
+            stdio: ["pipe", "pipe", "pipe"],
+            windowsHide: true,
+            detached: process.platform !== "win32",
+        });
         const client = new CodexAppServerClient(child, options.emit, options.onExit ?? (() => undefined));
         child.stdout?.on("data", (chunk) => client.read(chunk.toString()));
         child.stderr?.on("data", (chunk) => client.emitProcess("agent_log", { text: chunk.toString() }));
@@ -126,6 +130,14 @@ export class CodexAppServerClient {
         return this.request("thread/read", { threadId, includeTurns });
     }
 
+    listMcpServerStatus(threadId: string) {
+        return this.request("mcpServerStatus/list", { threadId, detail: "full" });
+    }
+
+    callMcpTool(threadId: string, server: string, tool: string, args: Record<string, unknown> = {}) {
+        return this.request("mcpServer/tool/call", { threadId, server, tool, arguments: args });
+    }
+
     archiveThread(threadId: string) {
         this.unbindThread(threadId);
         return this.request("thread/archive", { threadId });
@@ -161,7 +173,7 @@ export class CodexAppServerClient {
         if (this.disposed) return;
         this.disposed = true;
         this.failAll("Codex app-server disposed");
-        this.child.kill("SIGTERM");
+        await terminateProcessTree(this.child);
     }
 
     private request(method: string, params: unknown) {
@@ -235,7 +247,7 @@ export class CodexAppServerClient {
         const text = `${this.textByItem.get(itemKey) || ""}${String(field(params, "delta") || "")}`;
         this.deltaCountByTurn.set(turnId, (this.deltaCountByTurn.get(turnId) || 0) + 1);
         this.textByItem.set(itemKey, text);
-        emit("agent_event", { agent: "codex", type: "item.updated", item: { id, type: "agent_message", text } });
+        emit("agent_event", { agent: "codex", type: "item.updated", delta: String(field(params, "delta") || ""), item: { id, type: "agent_message", text } });
     }
 
     private async answerServerRequest(message: Json) {
@@ -278,6 +290,45 @@ export class CodexAppServerClient {
         this.pending.clear();
         this.activeTurns.clear();
     }
+}
+
+async function terminateProcessTree(child: ChildProcess) {
+    if (child.exitCode !== null || child.signalCode !== null) return;
+    const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()));
+    signalProcessTree(child, "SIGTERM");
+    if (await settledWithin(exited, 5_000)) return;
+    signalProcessTree(child, "SIGKILL");
+    await settledWithin(exited, 2_000);
+    child.stdin?.destroy();
+    child.stdout?.destroy();
+    child.stderr?.destroy();
+}
+
+function signalProcessTree(child: ChildProcess, signal: NodeJS.Signals) {
+    if (process.platform !== "win32" && child.pid) {
+        try {
+            process.kill(-child.pid, signal);
+            return;
+        } catch {
+            // The process may have exited between the status check and signal.
+        }
+    }
+    try {
+        child.kill(signal);
+    } catch {
+        // Already exited.
+    }
+}
+
+async function settledWithin(promise: Promise<void>, timeoutMs: number) {
+    let timeout: NodeJS.Timeout | undefined;
+    const timedOut = new Promise<false>((resolve) => {
+        timeout = setTimeout(() => resolve(false), timeoutMs);
+        timeout.unref?.();
+    });
+    const settled = await Promise.race([promise.then(() => true as const), timedOut]);
+    if (timeout) clearTimeout(timeout);
+    return settled;
 }
 
 export function declineServerRequest(method: string) {

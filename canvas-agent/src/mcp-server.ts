@@ -2,7 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 
 import { AGENT_PROMPT, loadConfig, type CanvasAgentConfig, VERSION } from "./config.js";
-import type { AgentToolSurfaceId } from "./brains/contracts.js";
+import type { AgentToolRisk, AgentToolSurfaceId } from "./brains/contracts.js";
 import { CanonicalAgentToolManifest } from "./brains/tool-manifest.js";
 import { filmToolNames } from "./film/contracts.js";
 import { registerFilmAgentMcp, type FilmAgentMcpOptions } from "./film/mcp.js";
@@ -60,10 +60,25 @@ function resolveToolSurface(options: RegisterMcpToolsOptions): AgentToolSurfaceI
 
 function registerCanvasTool(server: McpServer, config: CanvasAgentConfig, name: ToolName) {
     const schema = toolInputSchemas[name];
-    server.registerTool(name, { description: toolDescriptions[name], inputSchema: schema.shape }, async (input: unknown) => {
+    const risk = new CanonicalAgentToolManifest().get(name).risk;
+    server.registerTool(name, {
+        description: toolDescriptions[name],
+        inputSchema: schema.shape,
+        annotations: mcpAnnotationsForRisk(risk),
+    }, async (input: unknown) => {
         const result = await postCanvasAgentTool(config, name, schema.parse(input));
         return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
     });
+}
+
+function mcpAnnotationsForRisk(risk: AgentToolRisk) {
+    const readOnly = risk === "read" || risk === "draft";
+    return {
+        readOnlyHint: readOnly,
+        destructiveHint: risk === "destructive",
+        idempotentHint: readOnly,
+        openWorldHint: risk === "paid",
+    };
 }
 
 async function postCanvasAgentTool(config: CanvasAgentConfig, name: ToolName | "workbench_get_context", input: unknown) {

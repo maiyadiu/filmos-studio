@@ -5,6 +5,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -12,6 +13,7 @@ UPSTREAM_SCRIPTS = ROOT / "scripts" / "upstream"
 
 sys.path.insert(0, str(UPSTREAM_SCRIPTS))
 
+import frozen_upstream  # noqa: E402
 from frozen_upstream import (  # noqa: E402
     LOCAL_CANDIDATE_REF,
     LOCAL_STABLE_REF,
@@ -91,6 +93,29 @@ class FrozenUpstreamBootstrapTest(unittest.TestCase):
         with self.assertRaisesRegex(FrozenUpstreamError, "Candidate object"):
             prepare_frozen_upstream(destination, contract=self.contract)
         self.assertFalse(destination.exists())
+
+    def test_transient_fetch_failure_retries_without_changing_frozen_objects(self) -> None:
+        destination = self.root / "retried-upstream.git"
+        original_git = frozen_upstream._git
+        attempts = 0
+
+        def transient(repo: Path, *arguments: str) -> str:
+            nonlocal attempts
+            if arguments and arguments[0] == "fetch":
+                attempts += 1
+                if attempts == 1:
+                    raise FrozenUpstreamError("transient fetch interruption")
+            return original_git(repo, *arguments)
+
+        with mock.patch.object(frozen_upstream, "_git", side_effect=transient), mock.patch.object(frozen_upstream.time, "sleep"):
+            receipt = prepare_frozen_upstream(destination, contract=self.contract)
+
+        self.assertEqual(attempts, 2)
+        self.assertEqual(receipt["fetch_attempts"], 2)
+        self.assertEqual(
+            self.git("rev-parse", f"{LOCAL_CANDIDATE_REF}^{{commit}}", cwd=destination),
+            self.candidate_commit,
+        )
 
 
 if __name__ == "__main__":

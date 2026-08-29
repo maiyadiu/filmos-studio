@@ -56,7 +56,7 @@ def main() -> None:
         '"FILMOS_SECURE_TUNNEL_PROOF"',
         '"X-FilmOS-Live-Gate-Challenge: env:FILMOS_LIVE_GATE_CHALLENGE"',
         '"http://127.0.0.1:17650/film"',
-        'mcpWriteToolCount: 0',
+        'mcpWriteToolCount: healthPayload?["mcp_write_tool_count"] as? Int ?? 0',
     )
     if not all(marker in runtime_source for marker in required_runtime_markers):
         raise RuntimeError("desktop ChatGPT runtime contract is incomplete")
@@ -77,8 +77,8 @@ def main() -> None:
         "bounded_reconnect": [1, 2, 5, 10, 30],
         "owned_process_shutdown": True,
         "clean_clone_contract_build": True,
-        "read_tools": 20,
-        "write_tools": 0,
+        "tool_count_source": "MCP_HEALTH_MANIFEST_RUNTIME",
+        "write_tools_gate": "DYNAMIC_ZERO_REQUIRED",
         "bundled_helpers": ["FilmOSFilmCore", "FilmOSChatGPTMCP", "FilmOSChatGPTGrant", "tunnel-client", "cloudflared"],
     }, sort_keys=True))
 

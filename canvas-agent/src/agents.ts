@@ -1,4 +1,5 @@
 import { spawn, type StdioOptions } from "node:child_process";
+import { existsSync } from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -141,7 +142,9 @@ async function ensureCodexThread(app: CodexAppServerClient, emit: AgentEmit, opt
 
 export function canvasAgentMcpCommand() {
     const current = process.argv.find((arg) => /index\.(t|j)s$/.test(arg)) || "";
-    const entry = path.resolve(current || fileURLToPath(new URL("./index.js", import.meta.url)));
+    const builtEntry = fileURLToPath(new URL("./index.js", import.meta.url));
+    const sourceEntry = fileURLToPath(new URL("./index.ts", import.meta.url));
+    const entry = path.resolve(current || (existsSync(builtEntry) ? builtEntry : sourceEntry));
     const tsx = path.join(path.dirname(entry), "..", "node_modules", "tsx", "dist", "cli.mjs");
     return entry.endsWith(".ts")
         ? { command: process.execPath, args: [tsx, entry, "mcp", "--surface", "workbench_operator"] }
@@ -152,7 +155,8 @@ export function codexConfig(configDir = CONFIG_DIR, grant?: AgentPermissionGrant
     const env = {
         FRAMEFIELD_LOCAL_RUNTIME_CONFIG_DIR: configDir,
         FILMOS_AGENT_GATEWAY_ENABLED: "true",
-        FILMOS_AGENT_PROFILE: "codex.subscription",
+        FILMOS_AGENT_PROFILE: "codex_app_server",
+        FILMOS_BRAIN_PROFILE_ID: "codex.subscription",
         ...(grant ? {
             FILMOS_AGENT_GRANT_ID: grant.id,
             FILMOS_AGENT_SESSION_ID: grant.sessionId,
@@ -161,16 +165,15 @@ export function codexConfig(configDir = CONFIG_DIR, grant?: AgentPermissionGrant
             FILMOS_AGENT_GRANT_NONCE: grant.nonce,
         } : {}),
     };
+    // app-server's thread/start `config` field is a map of dotted config
+    // overrides, not a nested config.toml document. Flat keys keep the MCP
+    // process and its short-lived grant isolated to the provider thread.
     return {
-        mcp_servers: {
-            "yingce": {
-                command: canvasAgentMcp.command,
-                args: canvasAgentMcp.args,
-                env,
-                startup_timeout_sec: 20,
-                tool_timeout_sec: Math.ceil((CANVAS_GENERATION_CONTINUATION_TIMEOUT_MS + INTERNAL_CANVAS_MCP_TIMEOUT_MARGIN_MS) / 1_000),
-            },
-        },
+        "mcp_servers.yingce.command": canvasAgentMcp.command,
+        "mcp_servers.yingce.args": canvasAgentMcp.args,
+        "mcp_servers.yingce.env": env,
+        "mcp_servers.yingce.startup_timeout_sec": 20,
+        "mcp_servers.yingce.tool_timeout_sec": Math.ceil((CANVAS_GENERATION_CONTINUATION_TIMEOUT_MS + INTERNAL_CANVAS_MCP_TIMEOUT_MARGIN_MS) / 1_000),
     };
 }
 

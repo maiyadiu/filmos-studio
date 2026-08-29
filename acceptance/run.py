@@ -78,6 +78,20 @@ CURRENT_CHECKS = (
 
 RC_LOCAL_CHECKS = CURRENT_CHECKS + (
     Check(
+        "agent-native-multibrain",
+        "Inherited native multi-brain architecture and Gate A-J contract",
+        (sys.executable, "acceptance/checks/agent_native_multibrain.py"),
+        ROOT,
+        ("08-agent", "13-qa", "14-chatgpt-app"),
+    ),
+    Check(
+        "mcp-actual-tool-count",
+        "Actual Streamable HTTP MCP listTools and dynamic risk inventory",
+        ("npx", "tsx", "scripts/mcp-manifest-receipt.ts"),
+        ROOT / "services" / "filmos-chatgpt-app",
+        ("08-agent", "13-qa", "14-chatgpt-app"),
+    ),
+    Check(
         "desktop-chatgpt-connection",
         "Desktop-managed Film Core, MCP, Keychain, Secure Tunnel lifecycle and Live Gate",
         (sys.executable, "acceptance/checks/desktop_chatgpt_connection.py"),
@@ -207,6 +221,25 @@ RC_LOCAL_CHECKS = CURRENT_CHECKS + (
 )
 
 
+REAL_AGENT_CHECKS = (
+    Check(
+        "codex-subscription-real",
+        "Real ChatGPT-managed Codex subscription context, MCP, restart and audit Golden",
+        ("npx", "tsx", "scripts/codex-subscription-golden.ts"),
+        ROOT / "canvas-agent",
+        ("08-agent", "13-qa"),
+    ),
+)
+
+
+CHECK_ARTIFACT_NAMES = {
+    "no-openai-model-api-billing": "no-openai-model-api-billing-receipt.json",
+    "agent-native-multibrain": "agent-native-multibrain-receipt.json",
+    "mcp-actual-tool-count": "mcp-actual-tool-count-receipt.json",
+    "codex-subscription-real": "codex-subscription-real-receipt.json",
+}
+
+
 def canonical(value: object) -> bytes:
     return (json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n").encode()
 
@@ -282,6 +315,8 @@ def selected_checks(suite: str) -> Sequence[Check]:
         return CURRENT_CHECKS
     if suite == "rc-local":
         return RC_LOCAL_CHECKS
+    if suite == "rc-real-agent":
+        return REAL_AGENT_CHECKS
     raise ValueError(suite)
 
 
@@ -343,9 +378,10 @@ def run_check(check: Check, run_dir: Path, environment: dict[str, str]) -> dict[
     redacted = redact_log(process.stdout or b"")
     log_path.write_bytes(redacted)
     artifact = None
-    if check.check_id == "no-openai-model-api-billing" and process.returncode == 0:
+    artifact_name = CHECK_ARTIFACT_NAMES.get(check.check_id)
+    if artifact_name and process.returncode == 0:
         payload = json.loads(redacted.decode("utf-8"))
-        artifact_path = run_dir / "no-openai-model-api-billing-receipt.json"
+        artifact_path = run_dir / artifact_name
         artifact_path.write_bytes(json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2).encode() + b"\n")
         artifact = {
             "path": artifact_path.name,
@@ -373,7 +409,7 @@ def run_check(check: Check, run_dir: Path, environment: dict[str, str]) -> dict[
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="FilmOS reproducible acceptance runner")
-    parser.add_argument("--suite", choices=("current", "rc-local"), default="current")
+    parser.add_argument("--suite", choices=("current", "rc-local", "rc-real-agent"), default="current")
     parser.add_argument("--only", action="append", default=[], help="run only the named check; repeatable")
     parser.add_argument("--evidence-root", type=Path, default=DEFAULT_EVIDENCE_ROOT)
     parser.add_argument("--receipt-path-file", type=Path)

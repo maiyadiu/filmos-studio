@@ -41,7 +41,13 @@ url="https://github.com/openai/tunnel-client/releases/download/v${version}/${arc
 if [ -n "${FILMOS_TUNNEL_CLIENT_ARCHIVE_CACHE:-}" ] && [ -f "$FILMOS_TUNNEL_CLIENT_ARCHIVE_CACHE" ]; then
     cp "$FILMOS_TUNNEL_CLIENT_ARCHIVE_CACHE" "$temporary/$archive"
 else
-    curl -fsSL --retry 3 --connect-timeout 20 --max-time 300 --proto '=https' --tlsv1.2 "$url" -o "$temporary/$archive"
+    # The release archive is large enough that slow/unstable runners can cross a
+    # five-minute transfer window. Resume the same verified archive instead of
+    # discarding partial bytes; the pinned SHA-256 remains the trust boundary.
+    : > "$temporary/$archive"
+    curl -fSL --retry 5 --retry-all-errors --retry-delay 2 --continue-at - \
+        --connect-timeout 30 --max-time 900 --proto '=https' --tlsv1.2 \
+        "$url" -o "$temporary/$archive"
 fi
 actual=$(shasum -a 256 "$temporary/$archive" | awk '{print $1}')
 if [ "$actual" != "$expected" ]; then

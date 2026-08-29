@@ -30,7 +30,8 @@ runtime_lacks() {
 }
 
 test "$(runtime_value schema_version)" = "2"
-test "$(runtime_value application_support_directory_name)" = "FilmOS Studio"
+expected_support_name=${FILMOS_EXPECTED_APPLICATION_SUPPORT_DIRECTORY_NAME:-FilmOS Studio}
+test "$(runtime_value application_support_directory_name)" = "$expected_support_name"
 test "$(runtime_value backend_data_directory_name)" = "WorkbenchData"
 runtime_lacks workspace_root
 runtime_lacks bun_executable
@@ -70,9 +71,11 @@ web_health_url=$(runtime_value web_health_url)
 backend_health_url=$(runtime_value backend_health_url)
 grep -q 'name="filmos-workbench" content="v1"' "$web_root/index.html"
 grep -q '<title>FilmOS Studio</title>' "$web_root/index.html"
-case "$start_url" in http://127.0.0.1:43100/*) ;; *) exit 1 ;; esac
-test "$web_health_url" = "http://127.0.0.1:43100/"
-test "$backend_health_url" = "http://127.0.0.1:43101/api/health"
+case "$start_url" in http://127.0.0.1:*/*) ;; *) exit 1 ;; esac
+case "$web_health_url" in http://127.0.0.1:*/) ;; *) exit 1 ;; esac
+case "$backend_health_url" in http://127.0.0.1:*/api/health) ;; *) exit 1 ;; esac
+test "$start_url" = "${web_health_url}create"
+test "$web_health_url" != "${backend_health_url%/api/health}/"
 if /usr/bin/grep -E -q '(/Users/|/Downloads/|workspace_root|bun_executable|backend_data_directory")' "$runtime"; then
     echo "runtime configuration must not reference source or protected user directories" >&2
     exit 1

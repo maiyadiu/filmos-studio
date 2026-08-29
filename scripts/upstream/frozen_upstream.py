@@ -4,6 +4,7 @@ import json
 import re
 import shutil
 import subprocess
+import time
 from pathlib import Path
 from typing import Any
 
@@ -91,19 +92,27 @@ def prepare_frozen_upstream(
         raise FrozenUpstreamError("frozen upstream destination must be a new path")
     target.parent.mkdir(parents=True, exist_ok=True)
     _git(target.parent, "init", "--bare", "--quiet", str(target))
+    fetch_attempts = 0
     try:
         stable = frozen["stable"]
         candidate = frozen["candidate"]
-        _git(
-            target,
-            "fetch",
-            "--quiet",
-            "--depth=1",
-            "--no-tags",
-            frozen["repository_url"],
-            f"{stable['commit']}:{LOCAL_STABLE_REF}",
-            f"{candidate['commit']}:{LOCAL_CANDIDATE_REF}",
-        )
+        for fetch_attempts in range(1, 4):
+            try:
+                _git(
+                    target,
+                    "fetch",
+                    "--quiet",
+                    "--depth=1",
+                    "--no-tags",
+                    frozen["repository_url"],
+                    f"{stable['commit']}:{LOCAL_STABLE_REF}",
+                    f"{candidate['commit']}:{LOCAL_CANDIDATE_REF}",
+                )
+                break
+            except FrozenUpstreamError:
+                if fetch_attempts == 3:
+                    raise
+                time.sleep(fetch_attempts)
         resolved_stable = _git(target, "rev-parse", f"{LOCAL_STABLE_REF}^{{commit}}")
         resolved_candidate = _git(target, "rev-parse", f"{LOCAL_CANDIDATE_REF}^{{commit}}")
         stable_tree = _git(target, "rev-parse", f"{LOCAL_STABLE_REF}^{{tree}}")
@@ -123,6 +132,7 @@ def prepare_frozen_upstream(
         "repository": frozen["repository"],
         "repository_url": frozen["repository_url"],
         "fetch_strategy": "exact_commit_shallow",
+        "fetch_attempts": fetch_attempts,
         "stable": {**stable, "local_ref": LOCAL_STABLE_REF},
         "candidate": {**candidate, "local_ref": LOCAL_CANDIDATE_REF},
     }
