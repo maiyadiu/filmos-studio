@@ -2,14 +2,14 @@
   "evidence_status": "CLEAN_LOCAL_EVIDENCE_NOT_FROZEN",
   "raw_sources": [
     {
-      "bytes": 25287,
+      "bytes": 25666,
       "path": "CHANGELOG.md",
-      "sha256": "55478dcd36fadcd37ae24166a51173d23051e2a34317381e81ba6d7326fd8637"
+      "sha256": "495a716673f21768384b765d0001bad4894518122e9036907b9ded4210ce62ea"
     },
     {
       "bytes": 3357,
       "path": "acceptance/MANIFEST.json",
-      "sha256": "bbe80f270b5c7f0abecff70b88c6059486e8e5b207d215955c054d32c70ce9cf"
+      "sha256": "d8907de8195782d1c56c7d8eef5590b92208831abceb3caaf4ce3255feb1216d"
     },
     {
       "bytes": 2187,
@@ -47,6 +47,26 @@
       "sha256": "953163a579f8f2ada4c2d778cca31171530bfbd43e14415a7ddcbc2b30a3c685"
     },
     {
+      "bytes": 3445,
+      "path": "acceptance/EXTERNAL_AUDIT_P0_RESOLUTION.json",
+      "sha256": "24b5ab9a6d610f439f0a8735e884d1ed33aaecf75be3615966558494f6784f08"
+    },
+    {
+      "bytes": 3011,
+      "path": "acceptance/evidence/runs/agent-codex-subscription-controlled-write-001/CODEX_CONTROLLED_WRITE_GATE.json",
+      "sha256": "dc7ca74b78164cd1c79fe5c5a3edc413e4c2c505c04d70be923265bf57b947fb"
+    },
+    {
+      "bytes": 15498,
+      "path": "acceptance/evidence/runs/agent-codex-subscription-controlled-write-001/audit-trace.jsonl",
+      "sha256": "1229d784798b57332af6385e29a30bec0e8557a81582f837253bbd2f35cef7db"
+    },
+    {
+      "bytes": 82428,
+      "path": "packages/filmos-agent-tool-contracts/generated/canonical-tools.json",
+      "sha256": "5a6dd7a1be28cf46c852c3825412aec89082b56c8662a84ccb8b780f8cf66ffc"
+    },
+    {
       "bytes": 1730,
       "path": "acceptance/evidence/runs/20260829T153743Z-bbedc297c1b2-rc-real-agent/codex-subscription-real-receipt.json",
       "sha256": "149a7fb50efe313670962e885d1644d63f4d25ce04556e58ede0750953beeaf2"
@@ -72,44 +92,47 @@
       "sha256": "ecaa6419e92c8245b06d00364c707aa88c9d29b973f8bbc9a0aa7726a2648073"
     }
   ],
-  "receipt": "acceptance/evidence/runs/20260829T174957Z-0b6a11cfbe92-rc-local/receipt.json",
-  "receipt_sha256": "858fc68c380dc3d1bcc2d6e02e017d8034c0d840a0c85c60c427c31aa74ac4ca",
+  "receipt": ".local/acceptance-artifacts/runs/20260829T235731Z-e2ed10924c7f-rc-local/receipt.json",
+  "receipt_sha256": "7393946765b2f60348e8ae687f29b9c9f74793fa243b12bbf816df7387b99360",
   "reports": [
     {
-      "bytes": 3007,
+      "bytes": 4023,
       "check_ids": [
         "desktop-release-build",
         "desktop-chatgpt-connection",
         "no-openai-model-api-billing",
         "agent-native-multibrain",
+        "agent-codex-controlled-write",
+        "agent-tool-contract-single-source",
+        "agent-candidate-activation",
         "mcp-actual-tool-count",
         "performance-local",
         "remote-acceptance-contract"
       ],
       "path": "acceptance/reports/KNOWN_LIMITATIONS.md",
-      "sha256": "268b35982446a7096970de466f715213578a0374258b1da51cb1ab298c48927d"
+      "sha256": "1e4f12b8c514949de9ae10331c2f0fabca68cd80d0580b2cd381a9c564af2224"
     },
     {
-      "bytes": 1630,
+      "bytes": 1638,
       "check_ids": [
         "rc-recovery",
         "upstream-compatibility",
         "desktop-backup-restore"
       ],
       "path": "acceptance/reports/MIGRATION_REPORT.md",
-      "sha256": "275352f5137bc85530146ad8d32d1a5ba216beb5c7d731c6372a89583840d25d"
+      "sha256": "094896a967ecdc219857e2672c6a9ba8b2ca107ffbe0bc64c981d64eed9f128a"
     },
     {
-      "bytes": 1386,
+      "bytes": 1394,
       "check_ids": [
         "upstream-compatibility",
         "rc-recovery"
       ],
       "path": "acceptance/reports/UPSTREAM_COMPATIBILITY_REPORT.md",
-      "sha256": "472abcddd4fb3ec1c47f06dc1f4ab70376dae202354c4403385fb00fda9cb3b0"
+      "sha256": "663dd84ec2ef75de505d076d9df830cda244477f49aab6c4c5631ac9fe5c08a5"
     },
     {
-      "bytes": 3044,
+      "bytes": 3789,
       "check_ids": [
         "desktop-local-auth",
         "desktop-backup-restore",
@@ -119,23 +142,26 @@
         "desktop-chatgpt-connection",
         "no-openai-model-api-billing",
         "agent-native-multibrain",
+        "agent-codex-controlled-write",
+        "agent-tool-contract-single-source",
+        "agent-candidate-activation",
         "mcp-actual-tool-count",
         "acceptance-privacy"
       ],
       "path": "acceptance/reports/SECURITY_REPORT.md",
-      "sha256": "19f805c9ebd9a6982b2e95cd6597a2e74799b17466a6b1984432d7cb5194a583"
+      "sha256": "d2a2541e81da48e71adcdf13a01eabbc15238eccc6fdf2bd6114d124d26161a1"
     },
     {
-      "bytes": 1524,
+      "bytes": 1532,
       "check_ids": [
         "web-production-build",
         "performance-local"
       ],
       "path": "acceptance/reports/PERFORMANCE_REPORT.md",
-      "sha256": "8daf5003fdd27a7a28785633aea83e9a748de32fd77be4479580adeac5538b89"
+      "sha256": "2444035638ac6c23b4daf4267aab09e1f8663dd3bbd72630cf01d54c30537599"
     },
     {
-      "bytes": 2486,
+      "bytes": 3266,
       "check_ids": [
         "desktop-backup-restore",
         "golden-abc-real-http",
@@ -143,14 +169,17 @@
         "chatgpt-golden-real",
         "desktop-chatgpt-connection",
         "agent-native-multibrain",
+        "agent-codex-controlled-write",
+        "agent-tool-contract-single-source",
+        "agent-candidate-activation",
         "mcp-actual-tool-count",
         "no-openai-model-api-billing"
       ],
       "path": "acceptance/reports/GOLDEN_TEST_REPORT.md",
-      "sha256": "c2903e1b4f8a81add8b305422056b8b0c3555b168d1c6cf22780a203f7dea724"
+      "sha256": "0a9113be0c1c3bd8028f11ce0d5a059b510456c52f44b3e8856e4013ce8b872c"
     }
   ],
   "schema_version": "1.0.0",
-  "source_snapshot_sha256": "6151f72e376995a57410835d7ca5c0e7336ae0f3c3b4d18366ba5c78d1f7fdd0",
-  "started_from_commit": "0b6a11cfbe92e84b901e62fcec24ff79d3b6a158"
+  "source_snapshot_sha256": "8c93725a8ecffb63617df0e1c07fcdfb62e8aa6207156a3b42e67f82b81c7f08",
+  "started_from_commit": "e2ed10924c7fb7679ac80bc78281c6d3d9e3083e"
 }
