@@ -1,0 +1,76 @@
+{
+  "schema_version": "1",
+  "work_package": "WP-07",
+  "baseline_commit": "9267a5f198182bfa16403723e865cf815983ef13",
+  "observed_at": "2026-08-29T14:05:25Z",
+  "checks": [
+    {
+      "command": "npm run build && npx tsx --test test/agent-tool-broker.test.ts test/agent-session-manager.test.ts test/internal-canvas-mcp-mode.test.ts test/film-agent-gateway.test.ts test/agent-context-pack.test.ts test/canvas-agent-module.test.ts",
+      "cwd": "canvas-agent",
+      "status": "PASS",
+      "tests": 46,
+      "failures": 0
+    },
+    {
+      "command": "bun run typecheck && bun test src/film/agent/model-api-tool-manifest.test.mjs",
+      "cwd": "web",
+      "status": "PASS",
+      "tests": 2,
+      "failures": 0
+    },
+    {
+      "command": "bun run build",
+      "cwd": "web",
+      "status": "PASS",
+      "failures": 0,
+      "note": "Vite reports existing chunk-size warnings only."
+    },
+    {
+      "command": "git diff --check",
+      "cwd": ".",
+      "status": "PASS",
+      "failures": 0
+    }
+  ],
+  "source_sha256": {
+    "canvas-agent/src/brains/agent-audit.ts": "67a30b30719a6b2a1fef7bef04932fcc469f853c28fc88525bf83f8904c904c6",
+    "canvas-agent/src/brains/policy-gateway.ts": "4f361d4804afc9578b4e932f43a615fa7151cf47c0b1dacc60c35544d772a32a",
+    "canvas-agent/src/brains/tool-broker.ts": "b032157c4d2a00f74fcd1d56086e6a82b4d91b865579f9d9224813a78945f661",
+    "canvas-agent/src/brains/tool-manifest.ts": "0a5369e8786c0d5af74172e9c922b94a55ab0d70fc57344336b52e00d44315fa",
+    "canvas-agent/src/brains/generic-agent-runtime.ts": "c4469d996bf4667448d8ed1f0797abc94ebe485f813f5a3f1f1b6ccc7f47721f",
+    "canvas-agent/src/modules/canvas-agent-http.ts": "7456cb9a6b0169016cf9b6094521be4d78d92bd43c6fc1673b48dbf20a305519",
+    "canvas-agent/src/mcp-server.ts": "13a512c31a5ffd1f5c4fb2cd5ae1eaa71e2f5bd36911753f70b012bf7fd86fc3",
+    "canvas-agent/test/agent-tool-broker.test.ts": "e37322cf3267955cc379a9103e52349f984bc2bdaee1a45cfea38ed43811b0a6",
+    "canvas-agent/test/agent-session-manager.test.ts": "2217e2188943630ab92a8e5b7e0f0f235973a2522c7c1de130a410ced5d00362",
+    "canvas-agent/test/internal-canvas-mcp-mode.test.ts": "94f77d53384955073aa2fc0a7597f7900973957ba99fbc62bf1e9c4a156a9526",
+    "canvas-agent/test/canvas-agent-module.test.ts": "67008bb72d423eac55871439ea98cae7a0766ae8dadd857ff351e5e4b9e6548c",
+    "web/src/film/agent/model-api-tool-manifest.ts": "a914ea52b1bdd60305f3bd546353f38a94cf4aa82506d7918a3b512e90951967",
+    "web/src/film/agent/model-api-tool-manifest.test.mjs": "bae7b94ac6f6383218697f4133c40d5971cb5aff076ce875a5ae78043c244747",
+    "web/src/components/canvas/canvas-assistant-panel.tsx": "7c37ccf731dc6b53023cf854f4356e49779fa818e5d4f587dfa504fba648dcfa"
+  },
+  "golden_case_ids": [
+    "AGENT-CANONICAL-MANIFEST-001",
+    "AGENT-MCP-MANIFEST-PARITY-001",
+    "AGENT-TRUSTED-IDENTITY-001",
+    "AGENT-UNIFIED-CONFIRMATION-001",
+    "AGENT-CONFIRMATION-REPLAY-001",
+    "AGENT-CONTEXT-STALE-001",
+    "AGENT-POSTCONDITION-001",
+    "AGENT-AUDIT-PROVENANCE-001",
+    "AGENT-NO-SILENT-FALLBACK-001"
+  ],
+  "assertions": {
+    "all_native_adapters_receive_one_canonical_tool_contract": true,
+    "runtime_mcp_list_exactly_matches_the_canonical_workbench_manifest": true,
+    "trusted_session_injects_actor_project_canvas_profile_and_billing_identity": true,
+    "model_supplied_identity_is_ignored": true,
+    "paid_destructive_approval_and_publish_tools_always_require_confirmation": true,
+    "confirmation_and_context_receipts_are_session_scoped_and_one_use": true,
+    "canvas_and_film_stale_guards_fail_closed": true,
+    "write_success_requires_a_verifiable_postcondition": true,
+    "audit_separates_proposed_by_and_applied_by": true,
+    "codex_probe_failure_never_invokes_the_api_adapter": true,
+    "legacy_agent_codex_routes_remain_registered": true,
+    "react_panel_no_longer_owns_a_parallel_tool_schema": true
+  }
+}

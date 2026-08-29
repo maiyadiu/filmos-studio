@@ -7,7 +7,7 @@ import { buildCanvasContext } from "../src/canvas-context.js";
 import { CanvasSession } from "../src/canvas-session.js";
 import { createLocalRuntimeApp } from "../src/local-runtime.js";
 import { LocalRuntimeSessionManager } from "../src/local-runtime-session.js";
-import { createCanvasAgentHttpModule } from "../src/modules/canvas-agent-http.js";
+import { createCanvasAgentHttpModule, trustedCreateSessionInput } from "../src/modules/canvas-agent-http.js";
 import { toolDescriptions, toolInputSchemas, toolNames } from "../src/schemas.js";
 import type { LocalRuntimeConfig } from "../src/config.js";
 
@@ -61,6 +61,45 @@ test("Canvas module declares only Canvas scopes and constructs without CLI side 
     assert.ok(module.routes.some((route) => route.path === "/events" && route.lastEventId));
     assert.ok(module.routes.every((route) => route.scope === "canvas:connect" && route.legacy));
     assert.deepEqual(calls, []);
+});
+
+test("generic session input ignores model-supplied identity and uses the live workbench scope", () => {
+    const input = trustedCreateSessionInput({
+        conversationId: "conversation-1",
+        brainProfileId: "codex.subscription",
+        actorId: "spoofed-actor",
+        projectId: "spoofed-project",
+        canvasId: "spoofed-canvas",
+        billingMode: "none",
+    }, {
+        projectId: "host-project",
+        domainProjectId: "film-project",
+        contentUnitId: "unit-1",
+        sceneId: "scene-1",
+        directorUnitId: "director-1",
+        shotId: "shot-1",
+        canvasId: "canvas-1",
+        canvasRevision: 4,
+        canvasStateHash: "sha256:canvas",
+        nodes: [],
+        connections: [],
+        selectedNodeIds: [],
+        visibleNodeIds: [],
+        assets: [],
+    }, "trusted-owner");
+
+    assert.deepEqual(input, {
+        conversationId: "conversation-1",
+        brainProfileId: "codex.subscription",
+        projectId: "host-project",
+        domainProjectId: "film-project",
+        contentUnitId: "unit-1",
+        sceneId: "scene-1",
+        directorUnitId: "director-1",
+        shotId: "shot-1",
+        canvasId: "canvas-1",
+        actorId: "trusted-owner",
+    });
 });
 
 test("Canvas legacy guard strips token before core handlers and rejects the wrong token", async () => {
@@ -401,6 +440,7 @@ function sessionFixture(calls: Array<string | { name: string; value?: unknown }>
     return {
         health: () => ({ ok: true, hasCanvas: false, clients: 0 }),
         workbenchContext: () => ({ schemaVersion: "1" as const, projectId: "canvas-1", domainProjectId: "project-1", canvasId: "canvas-1", selectedNodeIds: [], visibleNodeIds: [], assetVersionIds: [], canvasRevision: 0, canvasStateHash: "hash" }),
+        agentContextSnapshot: () => ({ projectId: "canvas-1", domainProjectId: "project-1", canvasId: "canvas-1", canvasRevision: 0, canvasStateHash: "hash", nodes: [], connections: [], selectedNodeIds: [], visibleNodeIds: [], assets: [] }),
         openEvents: (url: URL, res: { status(code: number): unknown; end(): void }) => {
             calls.push({
                 name: "events",

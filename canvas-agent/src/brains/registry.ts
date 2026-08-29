@@ -34,6 +34,10 @@ export class BrainProfileRegistry {
         return adapter;
     }
 
+    hasAdapter(profileId: string) {
+        return this.adapters.has(profileId);
+    }
+
     listProfiles() {
         return [...this.profiles.values()].map((profile) => structuredClone(profile));
     }

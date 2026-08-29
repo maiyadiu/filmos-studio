@@ -44,6 +44,42 @@ export class CanvasSession {
         };
     }
 
+    agentContextSnapshot() {
+        const context = this.workbenchContext();
+        const state = this.canvasState!;
+        const selected = new Set(state.selectedNodeIds || []);
+        const visible = new Set(state.visibleNodeIds || []);
+        const nodes = (state.nodes || []).map((node) => ({
+            id: node.id,
+            type: node.type,
+            ...(node.title ? { title: node.title } : {}),
+            metadata: {
+                selected: selected.has(node.id),
+                visible: visible.has(node.id),
+                ...(node.metadata?.assetVersionId ? { assetVersionId: node.metadata.assetVersionId } : {}),
+            },
+        }));
+        return {
+            projectId: context.projectId,
+            ...(context.domainProjectId ? { domainProjectId: context.domainProjectId } : {}),
+            ...(context.contentUnitId ? { contentUnitId: context.contentUnitId } : {}),
+            ...(context.sceneId ? { sceneId: context.sceneId } : {}),
+            ...(context.directorUnitId ? { directorUnitId: context.directorUnitId } : {}),
+            ...(context.shotId ? { shotId: context.shotId } : {}),
+            canvasId: context.canvasId,
+            canvasRevision: context.canvasRevision,
+            canvasStateHash: context.canvasStateHash,
+            nodes,
+            connections: (state.connections || []).map((connection) => ({ id: connection.id, fromNodeId: connection.fromNodeId, toNodeId: connection.toNodeId })),
+            selectedNodeIds: [...context.selectedNodeIds],
+            visibleNodeIds: [...context.visibleNodeIds],
+            assets: context.assetVersionIds.map((id) => ({ id, type: "asset_version" })),
+            ...(context.filmExpectedVersion !== undefined ? { filmExpectedVersion: context.filmExpectedVersion } : {}),
+            ...(context.filmContentHash ? { filmContentHash: context.filmContentHash } : {}),
+            ...(context.activePanel ? { activePanel: context.activePanel } : {}),
+        };
+    }
+
     openEvents(url: URL, res: ServerResponse, runtimeSessionId?: string) {
         const clientId = url.searchParams.get("clientId") || crypto.randomUUID();
         res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" });

@@ -1,4 +1,5 @@
 import type { NextFunction, Request, RequestHandler, Response } from "express";
+import { randomUUID } from "node:crypto";
 
 import {
     archiveCodexThread,
@@ -23,15 +24,16 @@ import {
 } from "../config.js";
 import type { LocalRuntimeModule, LocalRuntimeProtectedRoute } from "../local-runtime.js";
 import type { AgentAttachment } from "../types.js";
-import type { AgentPermissionGrant } from "../brains/contracts.js";
+import type { AgentPermissionGrant, CreateBrainSessionInput } from "../brains/contracts.js";
 import { AgentPermissionGrantStore } from "../brains/permission-grants.js";
 import { CodexApprovalCoordinator } from "../brains/codex-approval-coordinator.js";
-import { toolNames } from "../schemas.js";
-import { filmToolNames } from "../film/contracts.js";
+import { CanonicalAgentToolManifest } from "../brains/tool-manifest.js";
+import { GenericAgentRuntime } from "../brains/generic-agent-runtime.js";
+import type { WorkbenchContextSnapshot } from "../brains/context-broker.js";
 
 export type CanvasAgentSession = Pick<
     CanvasSession,
-    "health" | "workbenchContext" | "openEvents" | "updateState" | "resolveResult" | "emitAll" | "callTool" | "closeRuntimeSession" | "dispose"
+    "health" | "workbenchContext" | "agentContextSnapshot" | "openEvents" | "updateState" | "resolveResult" | "emitAll" | "callTool" | "closeRuntimeSession" | "dispose"
 >;
 
 export function createCanvasAgentHttpModule(
@@ -40,7 +42,14 @@ export function createCanvasAgentHttpModule(
 ): LocalRuntimeModule {
     const emit = (type: string, payload: unknown) => session.emitAll(type, payload);
     const permissionGrants = new AgentPermissionGrantStore();
+    const canonicalTools = new CanonicalAgentToolManifest();
     const approvals = new CodexApprovalCoordinator(undefined, emit);
+    const generic = new GenericAgentRuntime(
+        config,
+        emit,
+        () => session.agentContextSnapshot() as WorkbenchContextSnapshot,
+        ({ sessionId, request }) => approvals.request({ sessionId, request, contextReceiptId: liveContextReceipt(session) }),
+    );
     const grantsByCanvas = new Map<string, AgentPermissionGrant>();
     const grantForCanvas = (canvasId: string) => {
         const current = grantsByCanvas.get(canvasId);
@@ -52,7 +61,7 @@ export function createCanvasAgentHttpModule(
             actorId: config.ownerId || "local-owner",
             projectId: canvasId,
             toolSurface: "workbench_operator",
-            allowedTools: [...toolNames, ...filmToolNames],
+            allowedTools: canonicalTools.names("workbench_operator"),
         });
         grantsByCanvas.set(canvasId, grant);
         return grant;
@@ -84,10 +93,61 @@ export function createCanvasAgentHttpModule(
         canvasRoute("POST", "/api/tools", async (req, res) => {
             const body = jsonRecord(req);
             validateAgentGrantHeaders(req, permissionGrants, String(body.name || ""));
-            res.json({ ok: true, result: await session.callTool(body.name, body.input || {}) });
+            const result = body.name === "workbench_get_context"
+                ? { ...session.workbenchContext(), contextReceiptId: liveContextReceipt(session) }
+                : await session.callTool(body.name, body.input || {});
+            res.json({ ok: true, result });
         }),
         canvasRoute("GET", "/agent/context", (_req, res) => {
             res.json({ ok: true, context: session.workbenchContext() });
+        }),
+        canvasRoute("GET", "/agent/connections", async (_req, res) => {
+            res.json({ ok: true, connections: await generic.listConnections(), toolManifest: generic.tools.list() });
+        }),
+        canvasRoute("GET", "/agent/sessions", async (req, res) => {
+            res.json({ ok: true, sessions: await generic.store.listSessions({
+                ...(queryValue(req, "projectId") ? { projectId: queryValue(req, "projectId") } : {}),
+                ...(queryValue(req, "brainProfileId") ? { brainProfileId: queryValue(req, "brainProfileId") } : {}),
+            }) });
+        }, { queryKeys: ["projectId", "brainProfileId"] }),
+        canvasRoute("POST", "/agent/sessions", async (req, res) => {
+            const body = jsonRecord(req);
+            const current = session.agentContextSnapshot();
+            const result = await generic.createSession(trustedCreateSessionInput(body, current, config.ownerId || "local-owner"));
+            res.json({ ok: true, ...result });
+        }),
+        canvasRoute("GET", "/agent/sessions/:sessionId", async (req, res) => {
+            const item = await generic.store.getSession(routeParam(req.params.sessionId));
+            if (!item) {
+                res.status(404).json({ ok: false, code: "BRAIN_SESSION_NOT_FOUND" });
+                return;
+            }
+            res.json({ ok: true, session: item });
+        }),
+        canvasRoute("POST", "/agent/sessions/:sessionId/context", async (req, res) => {
+            assertEmptyBody(req);
+            res.json({ ok: true, ...(await generic.captureContext(routeParam(req.params.sessionId))) });
+        }),
+        canvasRoute("POST", "/agent/sessions/:sessionId/turns", async (req, res) => {
+            const body = jsonRecord(req);
+            const turnId = typeof body.turnId === "string" && body.turnId.trim() ? body.turnId.trim() : randomUUID();
+            const result = await generic.sendTurn(routeParam(req.params.sessionId), { turnId, prompt: requiredBodyString(body, "prompt") }, emit);
+            res.json({ ok: true, ...result });
+        }),
+        canvasRoute("POST", "/agent/sessions/:sessionId/turns/:turnId/cancel", async (req, res) => {
+            assertEmptyBody(req);
+            const sessionId = routeParam(req.params.sessionId);
+            const item = await generic.store.getSession(sessionId);
+            if (!item) {
+                res.status(404).json({ ok: false, code: "BRAIN_SESSION_NOT_FOUND" });
+                return;
+            }
+            await generic.registry.getAdapter(item.brainProfileId).cancelTurn(sessionId);
+            res.json({ ok: true, sessionId, turnId: routeParam(req.params.turnId) });
+        }),
+        canvasRoute("POST", "/agent/sessions/:sessionId/close", async (req, res) => {
+            assertEmptyBody(req);
+            res.json({ ok: true, session: await generic.manager.closeSession(routeParam(req.params.sessionId)) });
         }),
         canvasRoute("GET", "/agent/codex/workspace", (req, res) => {
             const workspace = ensureCanvasWorkspace(config, queryValue(req, "canvasId"));
@@ -214,6 +274,17 @@ export function createCanvasAgentHttpModule(
             });
             res.json({ ok: true, confirmation });
         }),
+        canvasRoute("POST", "/agent/confirmations/:confirmationId/resolve", (req, res) => {
+            const body = jsonRecord(req);
+            const confirmation = approvals.decide({
+                confirmationId: routeParam(req.params.confirmationId),
+                sessionId: requiredBodyString(body, "sessionId"),
+                actorId: config.ownerId || "local-owner",
+                approved: body.approved === true,
+                ...(body.content && typeof body.content === "object" && !Array.isArray(body.content) ? { content: body.content as Record<string, unknown> } : {}),
+            });
+            res.json({ ok: true, confirmation });
+        }),
     ];
 
     return {
@@ -233,7 +304,7 @@ export function createCanvasAgentHttpModule(
             for (const grant of grantsByCanvas.values()) permissionGrants.revoke(grant.id);
             grantsByCanvas.clear();
             approvals.dispose();
-            return session.dispose();
+            return Promise.all([Promise.resolve(session.dispose()), generic.dispose()]).then(() => undefined);
         },
     };
 }
@@ -314,6 +385,36 @@ function jsonRecord(req: Request) {
         throw new Error("Canvas request body is invalid");
     }
     return value as Record<string, unknown>;
+}
+
+function requiredBodyString(body: Record<string, unknown>, key: string) {
+    const value = body[key];
+    if (typeof value !== "string" || !value.trim()) throw new Error(`AGENT_REQUEST_FIELD_REQUIRED:${key}`);
+    return value.trim();
+}
+
+export function trustedCreateSessionInput(
+    body: Record<string, unknown>,
+    current: WorkbenchContextSnapshot,
+    actorId: string,
+): CreateBrainSessionInput {
+    return {
+        conversationId: requiredBodyString(body, "conversationId"),
+        brainProfileId: requiredBodyString(body, "brainProfileId"),
+        projectId: current.projectId,
+        ...(current.domainProjectId ? { domainProjectId: current.domainProjectId } : {}),
+        canvasId: current.canvasId,
+        ...(current.contentUnitId ? { contentUnitId: current.contentUnitId } : {}),
+        ...(current.sceneId ? { sceneId: current.sceneId } : {}),
+        ...(current.directorUnitId ? { directorUnitId: current.directorUnitId } : {}),
+        ...(current.shotId ? { shotId: current.shotId } : {}),
+        actorId,
+    };
+}
+
+function assertEmptyBody(req: Request) {
+    const body = jsonRecord(req);
+    if (Object.keys(body).length) throw new Error("AGENT_REQUEST_BODY_MUST_BE_EMPTY");
 }
 
 export function parseAgentSkills(value: unknown) {

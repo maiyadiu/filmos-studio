@@ -3,6 +3,8 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 
 import { AGENT_PROMPT, loadConfig, type CanvasAgentConfig, VERSION } from "./config.js";
 import type { AgentToolSurfaceId } from "./brains/contracts.js";
+import { CanonicalAgentToolManifest } from "./brains/tool-manifest.js";
+import { filmToolNames } from "./film/contracts.js";
 import { registerFilmAgentMcp, type FilmAgentMcpOptions } from "./film/mcp.js";
 import { registerDreaminaMcp } from "./modules/dreamina-mcp.js";
 import { toolDescriptions, toolInputSchemas, toolNames, type ToolName } from "./schemas.js";
@@ -29,12 +31,25 @@ export type RegisterMcpToolsOptions = {
 
 export function registerMcpTools(server: McpServer, config: CanvasAgentConfig, options: RegisterMcpToolsOptions = {}) {
     const surface = resolveToolSurface(options);
-    toolNames.forEach((name) => registerCanvasTool(server, config, name));
+    const allowed = new Set(new CanonicalAgentToolManifest().names(surface));
+    toolNames.filter((name) => allowed.has(name)).forEach((name) => registerCanvasTool(server, config, name));
+    if (allowed.has("workbench_get_context")) registerWorkbenchContextTool(server, config);
     if (surface === "runtime_admin") {
-        registerDreaminaMcp(server, config);
-        registerFilmAgentMcp(server, config, options.film);
+        if (allowed.has("dreamina_cli")) registerDreaminaMcp(server, config);
+        if (filmToolNames.some((name) => allowed.has(name))) registerFilmAgentMcp(server, config, options.film);
     }
-    if (surface === "workbench_operator") registerFilmAgentMcp(server, config, { ...options.film, enabled: true });
+    if (surface === "workbench_operator" && filmToolNames.some((name) => allowed.has(name))) registerFilmAgentMcp(server, config, { ...options.film, enabled: true });
+}
+
+function registerWorkbenchContextTool(server: McpServer, config: CanvasAgentConfig) {
+    server.registerTool("workbench_get_context", {
+        description: "读取由 FilmOS 当前受信 Session 注入的 Project、Film、Canvas、Selection、Asset 与 revision/hash 上下文收据。",
+        inputSchema: {},
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    }, async () => {
+        const result = await postCanvasAgentTool(config, "workbench_get_context", {});
+        return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
+    });
 }
 
 function resolveToolSurface(options: RegisterMcpToolsOptions): AgentToolSurfaceId {
@@ -51,7 +66,7 @@ function registerCanvasTool(server: McpServer, config: CanvasAgentConfig, name: 
     });
 }
 
-async function postCanvasAgentTool(config: CanvasAgentConfig, name: ToolName, input: unknown) {
+async function postCanvasAgentTool(config: CanvasAgentConfig, name: ToolName | "workbench_get_context", input: unknown) {
     const grantHeaders: Record<string, string> = process.env.FILMOS_AGENT_GATEWAY_ENABLED === "true" ? {
         "x-filmos-agent-grant-id": String(process.env.FILMOS_AGENT_GRANT_ID || ""),
         "x-filmos-agent-session-id": String(process.env.FILMOS_AGENT_SESSION_ID || ""),

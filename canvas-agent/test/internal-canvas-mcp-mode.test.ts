@@ -1,10 +1,14 @@
 import assert from "node:assert/strict";
 import path from "node:path";
 import { test } from "node:test";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 import * as agentsModule from "../src/agents.js";
 import { AGENT_PROMPT, type CanvasAgentConfig } from "../src/config.js";
 import * as mcpServerModule from "../src/mcp-server.js";
+import { CanonicalAgentToolManifest } from "../src/brains/tool-manifest.js";
 
 const config: CanvasAgentConfig = {
     url: "http://127.0.0.1:17371",
@@ -63,12 +67,34 @@ test("workbench_operator exposes Canvas and Film tools without direct provider b
     if (!register) return;
     const names: string[] = [];
     register({ registerTool(name: string) { names.push(name); } } as never, config, { surface: "workbench_operator", film: { env: {} } } as never);
+    assert.equal(names.includes("workbench_get_context"), true);
     assert.equal(names.includes("canvas_get_context"), true);
     assert.equal(names.includes("canvas_generate_image"), true);
     assert.equal(names.includes("film_project_get_context"), true);
     assert.equal(names.includes("film_command_preview"), true);
     assert.equal(names.includes("film_command_apply"), true);
     assert.equal(names.includes("dreamina_cli"), false);
+});
+
+test("real MCP listTools exactly matches the canonical workbench manifest", async () => {
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    const server = new McpServer({ name: "workbench-manifest-test", version: "1" });
+    mcpServerModule.registerMcpTools(server, config, {
+        surface: "workbench_operator",
+        film: { gateway: { callTool: async () => ({ ok: true }) } as never },
+    });
+    const client = new Client({ name: "workbench-manifest-client", version: "1" });
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+    try {
+        const actual = (await client.listTools()).tools.map((tool) => tool.name).sort();
+        const expected = new CanonicalAgentToolManifest().names("workbench_operator").sort();
+        assert.deepEqual(actual, expected);
+        assert.equal(actual.includes("workbench_get_context"), true);
+        assert.equal(actual.includes("dreamina_cli"), false);
+    } finally {
+        await client.close();
+        await server.close();
+    }
 });
 
 test("internal MCP tool timeout covers the Canvas generation continuation window", () => {

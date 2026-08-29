@@ -6,6 +6,8 @@ import { AgentConfirmationStore } from "./confirmations.js";
 import { AgentPermissionGrantStore } from "./permission-grants.js";
 import { BrainProfileRegistry } from "./registry.js";
 import type { BrainSessionStore } from "./session-store.js";
+import { CanonicalAgentToolManifest } from "./tool-manifest.js";
+import { brainTurnAuditRecord, type AgentAuditSink } from "./agent-audit.js";
 
 export class AgentSessionManager {
     constructor(
@@ -15,6 +17,8 @@ export class AgentSessionManager {
         private readonly confirmations: AgentConfirmationStore,
         private readonly contexts: AgentContextBroker,
         private readonly now: () => Date = () => new Date(),
+        private readonly tools: CanonicalAgentToolManifest = new CanonicalAgentToolManifest(),
+        private readonly audit?: AgentAuditSink,
     ) {}
 
     async createSession(input: CreateBrainSessionInput) {
@@ -31,7 +35,7 @@ export class AgentSessionManager {
             projectId: input.projectId,
             ...(input.domainProjectId ? { domainProjectId: input.domainProjectId } : {}),
             toolSurface: profile.toolSurface,
-            allowedTools: [],
+            allowedTools: this.tools.names(profile.toolSurface),
         });
         let session: BrainSession = {
             id: sessionId,
@@ -71,13 +75,17 @@ export class AgentSessionManager {
         if (input.context.contextReceiptId !== session.lastContextReceiptId) throw new Error("AGENT_CONTEXT_NOT_BOUND_TO_SESSION");
         this.grants.validate(session.permissionGrantId, { sessionId, connectionId: session.connectionId, projectId: session.projectId });
         session = await this.store.updateSession(sessionId, { status: "running", updatedAt: this.now().toISOString() });
+        const profile = this.registry.getProfile(session.brainProfileId);
+        await this.audit?.append(brainTurnAuditRecord({ profile, session, turnId: input.turnId, contextReceiptId: input.context.contextReceiptId, prompt: input.prompt, outcome: "proposed" }));
         try {
             const result = await this.registry.getAdapter(session.brainProfileId).sendTurn({ ...input, session }, sink);
             const status = result.status === "completed" || result.status === "handoff_pending" ? "completed" : result.status;
             await this.store.updateSession(sessionId, { status, ...(result.providerThreadId ? { providerThreadId: result.providerThreadId } : {}), updatedAt: this.now().toISOString() });
+            await this.audit?.append(brainTurnAuditRecord({ profile, session, turnId: input.turnId, contextReceiptId: input.context.contextReceiptId, prompt: input.prompt, outcome: "succeeded" }));
             return result;
         } catch (error) {
             await this.store.updateSession(sessionId, { status: "failed", updatedAt: this.now().toISOString() });
+            await this.audit?.append(brainTurnAuditRecord({ profile, session, turnId: input.turnId, contextReceiptId: input.context.contextReceiptId, prompt: input.prompt, outcome: "failed", errorCode: error instanceof Error ? error.message.split(":", 1)[0] : "BRAIN_TURN_FAILED" }));
             throw error;
         }
     }

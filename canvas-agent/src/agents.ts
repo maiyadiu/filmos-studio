@@ -26,7 +26,7 @@ type CodexRunOptions = {
 };
 type AgentHistoryMessage = { id: string; role: "user" | "assistant" | "tool" | "error"; title?: string; text: string; detail?: unknown; streamId?: string };
 
-const codexProcessManager = new CodexAppServerProcessManager();
+export const codexProcessManager = new CodexAppServerProcessManager();
 const codexQueuesBySession = new Map<string, Promise<unknown>>();
 const canvasAgentMcp = canvasAgentMcpCommand();
 const INTERNAL_CANVAS_MCP_TIMEOUT_MARGIN_MS = 60_000;
