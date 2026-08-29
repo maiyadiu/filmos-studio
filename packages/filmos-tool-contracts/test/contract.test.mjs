@@ -16,7 +16,7 @@ test("v1 exposes the exact standard search/fetch shapes", () => {
 test("all public tools are read-only and reserved writes are not public", async () => {
   const snapshot = JSON.parse(await readFile(new URL("../generated/mcp-tools.v1.json", import.meta.url), "utf8"));
   const publicNames = new Set(snapshot.tools.map((tool) => tool.name));
-  assert.equal(snapshot.tools.length, 20);
+  assert.equal(snapshot.tools.length, 22);
   for (const tool of snapshot.tools) {
     assert.equal(tool.annotations.readOnlyHint, true);
     assert.equal(tool.annotations.destructiveHint, false);

@@ -8,6 +8,7 @@ import { auditRecord, type AuditSink } from "./audit.js";
 import { sha256 } from "./canonical.js";
 import type { FilmOSReadDataSource } from "./data-source.js";
 import type { ProjectGrant } from "./grants.js";
+import type { ChatGPTHostContextStore } from "./host-context.js";
 import { prepareProposalPackage } from "./proposal.js";
 import { SecurityBoundaryError } from "./security.js";
 import { WIDGETS } from "./widgets.js";
@@ -21,6 +22,7 @@ export type FilmOSMcpSessionOptions = {
   readToolsEnabled?: boolean;
   widgetsEnabled?: boolean;
   liveGate?: { challengeId: string; tunneled: boolean };
+  hostContext?: ChatGPTHostContextStore;
   onRead?: (snapshot: {
     read_at: string;
     uri: string | null;
@@ -118,6 +120,24 @@ async function callTool(name: string, input: Record<string, unknown>, options: F
       notifyRead(options, correlationId, name, result.id, null, outputHash);
       await allowedAudit(options, correlationId, name, outputHash, byteSize(result));
       return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
+    }
+    if (name === "filmos_get_live_workbench_context" || name === "filmos_get_pending_agent_handoff") {
+      if (!options.liveGate?.tunneled || !options.liveGate.challengeId || !options.hostContext) {
+        throw new SecurityBoundaryError("secure_tunnel_context_required", "Live workbench handoff requires the current Secure Tunnel challenge");
+      }
+      const value = name === "filmos_get_live_workbench_context"
+        ? options.hostContext.requireContext(options.grant, options.liveGate.challengeId)
+        : {
+            handoff: options.hostContext.requireHandoff(options.grant, options.liveGate.challengeId),
+            context: options.hostContext.requireContext(options.grant, options.liveGate.challengeId),
+          };
+      const outputHash = sha256(value);
+      notifyRead(options, correlationId, name, `filmos://project/${options.grant.project_id}/host/${name}`, 1, outputHash);
+      await allowedAudit(options, correlationId, name, outputHash, byteSize(value));
+      return {
+        structuredContent: value,
+        content: [{ type: "text" as const, text: "Authorized short-lived FilmOS Host context ready." }],
+      };
     }
     if (name === "filmos_prepare_proposal_export") {
       if (!options.proposalHandoffEnabled || !options.proposalSigningSecret) throw new SecurityBoundaryError("proposal_handoff_disabled", "Proposal handoff is disabled or has no local signing secret");

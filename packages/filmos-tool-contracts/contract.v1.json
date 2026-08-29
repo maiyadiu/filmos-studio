@@ -229,6 +229,20 @@
       "required": []
     },
     {
+      "name": "filmos_get_live_workbench_context",
+      "title": "Read current FilmOS workbench context",
+      "description": "Use this to see the current authorized canvas, selection, visible node summaries, asset versions, Film and Canvas receipts. The result is short-lived and bound to the Project Grant and Secure Tunnel challenge.",
+      "input": {},
+      "required": []
+    },
+    {
+      "name": "filmos_get_pending_agent_handoff",
+      "title": "Read pending FilmOS Agent handoff",
+      "description": "Use this after the user submits a ChatGPT task from the native FilmOS Agent composer. Returns the pending task and its short-lived workbench context receipt without applying any write.",
+      "input": {},
+      "required": []
+    },
+    {
       "name": "filmos_render_project_overview",
       "title": "Render FilmOS project overview",
       "description": "Use this after reading project context when the user benefits from a visual project summary.",

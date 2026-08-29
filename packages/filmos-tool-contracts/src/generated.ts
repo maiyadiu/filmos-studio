@@ -2,7 +2,7 @@
 export const filmosToolContract = {
   "schema_version": "1.0.0",
   "contract_id": "filmos-chatgpt-readonly-v1",
-  "contract_hash": "70018bc1620d14c41d1e40c88fb67663083e01c351a3a6f7bddeea19a14b54bb",
+  "contract_hash": "1a34d4c4594b65d13c5b4abda1901210d53931f1be160c2ce99fd3e36f82126e",
   "resource_uri_version": "v1",
   "schemas": {
     "ExternalBrainConnection": {
@@ -845,6 +845,44 @@ export const filmosToolContract = {
             "maximum": 100
           }
         },
+        "required": []
+      }
+    },
+    {
+      "name": "filmos_get_live_workbench_context",
+      "title": "Read current FilmOS workbench context",
+      "description": "Use this to see the current authorized canvas, selection, visible node summaries, asset versions, Film and Canvas receipts. The result is short-lived and bound to the Project Grant and Secure Tunnel challenge.",
+      "input": {},
+      "required": [],
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "idempotentHint": true
+      },
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      }
+    },
+    {
+      "name": "filmos_get_pending_agent_handoff",
+      "title": "Read pending FilmOS Agent handoff",
+      "description": "Use this after the user submits a ChatGPT task from the native FilmOS Agent composer. Returns the pending task and its short-lived workbench context receipt without applying any write.",
+      "input": {},
+      "required": [],
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "idempotentHint": true
+      },
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
         "required": []
       }
     },

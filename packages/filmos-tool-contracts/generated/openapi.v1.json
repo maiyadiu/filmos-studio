@@ -1016,6 +1016,84 @@
         }
       }
     },
+    "/tools/filmos_get_live_workbench_context": {
+      "post": {
+        "operationId": "filmos_get_live_workbench_context",
+        "summary": "Read current FilmOS workbench context",
+        "description": "Use this to see the current authorized canvas, selection, visible node summaries, asset versions, Film and Canvas receipts. The result is short-lived and bound to the Project Grant and Secure Tunnel challenge.",
+        "x-filmos-annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "openWorldHint": false,
+          "idempotentHint": true
+        },
+        "x-filmos-widget": null,
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {},
+                "required": []
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Read-only FilmOS tool result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tools/filmos_get_pending_agent_handoff": {
+      "post": {
+        "operationId": "filmos_get_pending_agent_handoff",
+        "summary": "Read pending FilmOS Agent handoff",
+        "description": "Use this after the user submits a ChatGPT task from the native FilmOS Agent composer. Returns the pending task and its short-lived workbench context receipt without applying any write.",
+        "x-filmos-annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "openWorldHint": false,
+          "idempotentHint": true
+        },
+        "x-filmos-widget": null,
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {},
+                "required": []
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Read-only FilmOS tool result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/tools/filmos_render_project_overview": {
       "post": {
         "operationId": "filmos_render_project_overview",

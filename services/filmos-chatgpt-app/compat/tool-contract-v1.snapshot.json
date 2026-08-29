@@ -14,6 +14,8 @@
     "filmos_get_review_queue": { "required": [], "properties": { "limit": "integer" } },
     "filmos_get_blockers": { "required": [], "properties": {} },
     "filmos_get_recent_changes": { "required": [], "properties": { "limit": "integer" } },
+    "filmos_get_live_workbench_context": { "required": [], "properties": {} },
+    "filmos_get_pending_agent_handoff": { "required": [], "properties": {} },
     "filmos_render_project_overview": { "required": [], "properties": {}, "widget": "ui://filmos/project-overview-v1.html" },
     "filmos_render_content_unit_progress": { "required": ["host_unit_id"], "properties": { "host_unit_id": "string" }, "widget": "ui://filmos/content-unit-progress-v1.html" },
     "filmos_render_shot_review": { "required": ["host_shot_id"], "properties": { "host_shot_id": "string" }, "widget": "ui://filmos/shot-review-v1.html" },
