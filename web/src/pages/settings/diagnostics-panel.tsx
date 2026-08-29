@@ -4,6 +4,9 @@ import { useEffect, useState } from "react";
 
 import { exportDiagnosticBundle, downloadDiagnosticBundle, previewDiagnosticBundle, type DiagnosticExportInput, type DiagnosticPreview } from "@/services/diagnostics/diagnostics-api";
 import { getClientDiagnosticEvents, getDiagnosticRuntime } from "@/services/diagnostics/client-diagnostics";
+import { AgentSessionClient, type AgentRuntimeDiagnostics } from "@/film/agent/agent-client";
+import { AGENT_FEATURE_FLAG_IDS, readAgentFeatureFlags, readAgentRuntimeBuildProfile } from "@/film/agent/feature-flags";
+import { useLocalRuntimeStore } from "@/stores/use-local-runtime-store";
 
 type DiagnosticsPanelProps = {
     taskId?: string;
@@ -27,6 +30,27 @@ export default function DiagnosticsPanel({ taskId, projectId }: DiagnosticsPanel
     const [loadingPreview, setLoadingPreview] = useState(false);
     const [exporting, setExporting] = useState(false);
     const [bundleId, setBundleId] = useState("");
+    const runtimeConnection = useLocalRuntimeStore((state) => state.connection);
+    const connectRuntime = useLocalRuntimeStore((state) => state.connect);
+    const [agentDiagnostics, setAgentDiagnostics] = useState<AgentRuntimeDiagnostics | null>(null);
+    const [agentDiagnosticError, setAgentDiagnosticError] = useState("");
+
+    useEffect(() => {
+        const controller = new AbortController();
+        void connectRuntime(controller.signal)
+            .then(async () => {
+                if (controller.signal.aborted || useLocalRuntimeStore.getState().connection !== "connected") return;
+                const result = await new AgentSessionClient().diagnostics(controller.signal);
+                if (!controller.signal.aborted) {
+                    setAgentDiagnostics(result);
+                    setAgentDiagnosticError("");
+                }
+            })
+            .catch((error) => {
+                if (!controller.signal.aborted) setAgentDiagnosticError(error instanceof Error ? error.message : "Agent Runtime 诊断失败");
+            });
+        return () => controller.abort();
+    }, [connectRuntime]);
 
     useEffect(() => {
         let cancelled = false;
@@ -86,6 +110,7 @@ export default function DiagnosticsPanel({ taskId, projectId }: DiagnosticsPanel
                 </header>
 
                 <div className="mt-6 space-y-4">
+                    <AgentActivationCard diagnostics={agentDiagnostics} connection={runtimeConnection} error={agentDiagnosticError} />
                     <section className="rounded-xl border border-border/70 bg-background/55 p-4 sm:p-5" aria-labelledby="diagnostic-window-heading">
                         <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border/55 pb-4">
                             <div>
@@ -150,6 +175,44 @@ export default function DiagnosticsPanel({ taskId, projectId }: DiagnosticsPanel
                 </footer>
             </div>
         </div>
+    );
+}
+
+function AgentActivationCard({ diagnostics, connection, error }: { diagnostics: AgentRuntimeDiagnostics | null; connection: string; error: string }) {
+    const webFlags = readAgentFeatureFlags();
+    const build = readAgentRuntimeBuildProfile();
+    const flagsMatch = diagnostics !== null && AGENT_FEATURE_FLAG_IDS.every((id) => diagnostics.featureFlags[id] === webFlags[id]);
+    const compositionComplete = diagnostics !== null
+        && diagnostics.composition.enabledProfileIds.every((id) => diagnostics.composition.adapterProfileIds.includes(id));
+    const consistent = Boolean(
+        diagnostics?.activation.consistent
+        && diagnostics.activation.featureFlagCount === AGENT_FEATURE_FLAG_IDS.length
+        && diagnostics.activation.profileId === build.profileId
+        && diagnostics.activation.featureFlagsHash === build.featureFlagsHash
+        && flagsMatch
+        && compositionComplete,
+    );
+    return (
+        <section className="rounded-xl border border-border/70 bg-background/55 p-4 sm:p-5" aria-labelledby="agent-activation-heading" data-agent-candidate-activation={consistent ? "pass" : "blocked"}>
+            <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border/55 pb-4">
+                <div>
+                    <h3 id="agent-activation-heading" className="text-sm font-semibold text-foreground/85">Agent 候选运行配置</h3>
+                    <p className="mt-1 text-xs leading-5 text-foreground/48">Web 构建、Local Runtime 与 Adapter Registry 必须同时一致。</p>
+                </div>
+                <span className={`rounded-full px-2.5 py-1 text-[var(--fs-tiny)] font-semibold ${consistent ? "bg-emerald-500/10 text-emerald-600" : "bg-amber-500/10 text-amber-600"}`} role="status">
+                    {consistent ? "10 / 10 一致" : connection === "connected" ? "配置不一致" : "Runtime 未连接"}
+                </span>
+            </div>
+            <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                {AGENT_FEATURE_FLAG_IDS.map((id) => {
+                    const webValue = webFlags[id];
+                    const runtimeValue = diagnostics?.featureFlags[id];
+                    const matches = runtimeValue === webValue;
+                    return <div key={id} className="flex items-center justify-between gap-3 rounded-lg border border-border/50 px-3 py-2 text-xs"><code className="truncate">{id}</code><span className={matches ? "text-emerald-600" : "text-amber-600"}>{webValue ? "ON" : "OFF"} / {runtimeValue === undefined ? "?" : runtimeValue ? "ON" : "OFF"}</span></div>;
+                })}
+            </div>
+            <p className="mt-3 text-xs text-foreground/48">Profile: {build.profileId} · Registry: {compositionComplete ? "complete" : "blocked"}{error ? ` · ${error}` : ""}</p>
+        </section>
     );
 }
 

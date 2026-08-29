@@ -12,6 +12,13 @@ export type BrainSessionView = {
     updatedAt: string;
 };
 
+export type AgentRuntimeDiagnostics = {
+    composition: { enabledProfileIds: string[]; adapterProfileIds: string[] };
+    counters: Record<string, number>;
+    featureFlags: Record<string, boolean>;
+    activation: { profileId: string; featureFlagCount: number; featureFlagsHash: string; consistent: boolean };
+};
+
 type AgentRuntimeTransport = Pick<LocalRuntimeSessionClient, "request">;
 
 export class AgentSessionClient {
@@ -19,6 +26,10 @@ export class AgentSessionClient {
 
     listConnections(signal?: AbortSignal) {
         return this.json<{ connections: unknown[]; toolManifest: unknown[] }>("/agent/connections", { method: "GET", signal });
+    }
+
+    diagnostics(signal?: AbortSignal) {
+        return this.json<AgentRuntimeDiagnostics>("/agent/diagnostics", { method: "GET", signal });
     }
 
     listSessions(scope: { projectId?: string; brainProfileId?: string } = {}, signal?: AbortSignal) {

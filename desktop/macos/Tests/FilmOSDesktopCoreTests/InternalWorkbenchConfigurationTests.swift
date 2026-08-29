@@ -11,6 +11,8 @@ struct InternalWorkbenchConfigurationTests {
         #expect(configuration.startURL.absoluteString == "http://127.0.0.1:43100/create")
         #expect(configuration.applicationSupportDirectoryName == "FilmOS Studio")
         #expect(configuration.backendDataDirectoryName == "WorkbenchData")
+        #expect(configuration.agentRuntimeProfile == "integration")
+        #expect(configuration.agentFeatureFlags.count == 10)
     }
 
     @Test
@@ -27,9 +29,17 @@ struct InternalWorkbenchConfigurationTests {
         }
     }
 
+    @Test
+    func rejectsPartiallyEnabledAgentRuntimeProfile() {
+        #expect(throws: InternalWorkbenchConfigurationError.inconsistentAgentFeatureFlags) {
+            try InternalWorkbenchConfiguration.decode(validConfiguration(genericRuntime: true))
+        }
+    }
+
     private func validConfiguration(
         startURL: String = "http://127.0.0.1:43100/create",
-        dataDirectoryName: String = "WorkbenchData"
+        dataDirectoryName: String = "WorkbenchData",
+        genericRuntime: Bool = false
     ) -> Data {
         Data(
             """
@@ -39,7 +49,21 @@ struct InternalWorkbenchConfigurationTests {
               "web_health_url": "http://127.0.0.1:43100/",
               "backend_health_url": "http://127.0.0.1:43101/api/health",
               "application_support_directory_name": "FilmOS Studio",
-              "backend_data_directory_name": "\(dataDirectoryName)"
+              "backend_data_directory_name": "\(dataDirectoryName)",
+              "agent_runtime_profile": "integration",
+              "agent_feature_flags_hash": "b853a8f3ceb6b61d306e3c13b885252bae68178368e61bed7ce8bc9f0678605d",
+              "agent_feature_flags": {
+                "film.agent_native_brain_selector": false,
+                "film.agent_generic_runtime": \(genericRuntime),
+                "film.agent_context_broker": false,
+                "film.agent_canonical_tool_manifest": false,
+                "film.agent_canonical_tool_broker": false,
+                "film.agent_codex_subscription": false,
+                "film.agent_chatgpt_host": false,
+                "film.agent_model_api_profiles": false,
+                "film.agent_no_silent_api_fallback": false,
+                "film.agent_request_scoped_identity": false
+              }
             }
             """.utf8
         )

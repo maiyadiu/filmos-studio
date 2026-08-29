@@ -11,6 +11,7 @@ if ProcessInfo.processInfo.environment["FILMOS_DESKTOP_SMOKE_CHECK"] == "1" {
 
 private let backendServiceID: ServiceID = "backend"
 private let webServiceID: ServiceID = "web"
+private let localRuntimeServiceID: ServiceID = "local-runtime"
 
 @MainActor
 private final class InternalWorkbenchCoordinator {
@@ -22,6 +23,7 @@ private final class InternalWorkbenchCoordinator {
     private let supervisor: ServiceSupervisor
     let chatGPTConnectionManager: ChatGPTConnectionManager
     private let chatGPTRuntime: DesktopChatGPTRuntime
+    private let localRuntimeHealthURL = URL(string: "http://127.0.0.1:17371/health")!
     private var startedServices: Set<ServiceID> = []
 
     init(bundle: Bundle = .main) throws {
@@ -43,6 +45,7 @@ private final class InternalWorkbenchCoordinator {
         let helpersDirectory = bundle.bundleURL.appendingPathComponent("Contents/Helpers", isDirectory: true)
         let backendExecutable = helpersDirectory.appendingPathComponent("FilmOSBackend")
         let webExecutable = helpersDirectory.appendingPathComponent("FilmOSWeb")
+        let localRuntimeExecutable = helpersDirectory.appendingPathComponent("FilmOSLocalRuntime")
         let webRoot = bundleResources.appendingPathComponent("Web", isDirectory: true)
         let webEntry = webRoot.appendingPathComponent("index.html")
         let applicationRuntimeRoot = applicationSupportDirectory.appendingPathComponent(
@@ -60,6 +63,9 @@ private final class InternalWorkbenchCoordinator {
         }
         guard fileManager.isExecutableFile(atPath: webExecutable.path) else {
             throw DesktopWorkbenchError.missingBundledWebServer
+        }
+        guard fileManager.isExecutableFile(atPath: localRuntimeExecutable.path) else {
+            throw DesktopWorkbenchError.missingBundledLocalRuntime
         }
         guard fileManager.fileExists(atPath: webEntry.path) else {
             throw DesktopWorkbenchError.missingBundledWebAssets
@@ -96,6 +102,27 @@ private final class InternalWorkbenchCoordinator {
             )
         )
 
+        let localRuntimeDirectory = applicationRuntimeRoot.appendingPathComponent("LocalRuntime", isDirectory: true)
+        try fileManager.createDirectory(at: localRuntimeDirectory, withIntermediateDirectories: true)
+        var localRuntimeEnvironment = Self.safeBaseEnvironment()
+        localRuntimeEnvironment["PORT"] = "17371"
+        localRuntimeEnvironment["FRAMEFIELD_LOCAL_RUNTIME_CONFIG_DIR"] = localRuntimeDirectory.path
+        localRuntimeEnvironment["FRAMEFIELD_TRUSTED_WEB_ORIGINS"] = Self.origin(for: configuration.webHealthURL)
+        localRuntimeEnvironment["FILMOS_AGENT_RUNTIME_PROFILE"] = configuration.agentRuntimeProfile
+        localRuntimeEnvironment["FILMOS_AGENT_FEATURE_FLAGS_HASH"] = configuration.agentFeatureFlagsHash
+        localRuntimeEnvironment["FILMOS_AGENT_GATEWAY_ENABLED"] = configuration.agentRuntimeProfile == "filmos-candidate" ? "true" : "false"
+        for (flagID, value) in configuration.agentFeatureFlags {
+            localRuntimeEnvironment[Self.agentRuntimeEnvironmentName(flagID)] = value ? "true" : "false"
+        }
+        localRuntimeEnvironment["PWD"] = localRuntimeDirectory.path
+        try supervisor.register(ServiceDefinition(
+            id: localRuntimeServiceID,
+            displayName: "FilmOS Local Runtime",
+            executableURL: localRuntimeExecutable,
+            workingDirectoryURL: localRuntimeDirectory,
+            environment: localRuntimeEnvironment
+        ))
+
         var webEnvironment = Self.safeBaseEnvironment()
         webEnvironment["FILMOS_WEB_ADDR"] = "\(webHost):\(webPort)"
         webEnvironment["FILMOS_WEB_ROOT"] = webRoot.path
@@ -131,6 +158,13 @@ private final class InternalWorkbenchCoordinator {
 
     func prepare() async throws -> URL {
         try await ensureService(
+            localRuntimeServiceID,
+            displayName: "Agent Runtime",
+            readiness: { [configuration, localRuntimeHealthURL] in
+                await Self.localRuntimeIsReady(at: localRuntimeHealthURL, configuration: configuration)
+            }
+        )
+        try await ensureService(
             backendServiceID,
             displayName: "本地后端",
             readiness: { [configuration] in
@@ -150,7 +184,7 @@ private final class InternalWorkbenchCoordinator {
     func stopOwnedServices() {
         chatGPTConnectionManager.disconnect()
         chatGPTRuntime.stopOwnedServices()
-        for id in [webServiceID, backendServiceID] where startedServices.contains(id) {
+        for id in [webServiceID, backendServiceID, localRuntimeServiceID] where startedServices.contains(id) {
             guard case .running = supervisor.state(for: id) else { continue }
             try? supervisor.stop(id)
         }
@@ -207,6 +241,22 @@ private final class InternalWorkbenchCoordinator {
         return components.string ?? ""
     }
 
+    private static func agentRuntimeEnvironmentName(_ flagID: String) -> String {
+        switch flagID {
+        case "film.agent_native_brain_selector": "FILMOS_AGENT_NATIVE_BRAIN_SELECTOR"
+        case "film.agent_generic_runtime": "FILMOS_AGENT_GENERIC_RUNTIME"
+        case "film.agent_context_broker": "FILMOS_AGENT_CONTEXT_BROKER"
+        case "film.agent_canonical_tool_manifest": "FILMOS_AGENT_CANONICAL_TOOL_MANIFEST"
+        case "film.agent_canonical_tool_broker": "FILMOS_AGENT_CANONICAL_TOOL_BROKER"
+        case "film.agent_codex_subscription": "FILMOS_AGENT_CODEX_SUBSCRIPTION"
+        case "film.agent_chatgpt_host": "FILMOS_AGENT_CHATGPT_HOST"
+        case "film.agent_model_api_profiles": "FILMOS_AGENT_MODEL_API_PROFILES"
+        case "film.agent_no_silent_api_fallback": "FILMOS_AGENT_NO_SILENT_API_FALLBACK"
+        case "film.agent_request_scoped_identity": "FILMOS_AGENT_REQUEST_SCOPED_IDENTITY"
+        default: preconditionFailure("Unknown Agent feature flag")
+        }
+    }
+
     private static func backupURL(from healthURL: URL, applicationVersion: String?) throws -> URL {
         guard var components = URLComponents(url: healthURL, resolvingAgainstBaseURL: false) else {
             throw DesktopWorkbenchError.invalidRuntimeEndpoints
@@ -245,6 +295,22 @@ private final class InternalWorkbenchCoordinator {
             && html.contains("content=\"v1\"")
     }
 
+    private static func localRuntimeIsReady(at url: URL, configuration: InternalWorkbenchConfiguration) async -> Bool {
+        guard
+            let data = await responseData(at: url),
+            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            object["ok"] as? Bool == true,
+            object["agent_runtime_profile"] as? String == configuration.agentRuntimeProfile,
+            object["agent_feature_flags_hash"] as? String == configuration.agentFeatureFlagsHash,
+            object["agent_feature_flag_count"] as? Int == InternalWorkbenchConfiguration.agentFeatureFlagIDs.count,
+            object["agent_activation_consistent"] as? Bool == true,
+            object["agent_generic_runtime_enabled"] as? Bool == (configuration.agentRuntimeProfile == "filmos-candidate")
+        else {
+            return false
+        }
+        return true
+    }
+
     private static func responseData(at url: URL) async -> Data? {
         var request = URLRequest(url: url)
         request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
@@ -266,6 +332,7 @@ private enum DesktopWorkbenchError: Error, LocalizedError {
     case missingRuntimeDirectory
     case missingBundledBackend
     case missingBundledWebServer
+    case missingBundledLocalRuntime
     case missingBundledWebAssets
     case invalidRuntimeEndpoints
     case serviceLaunchFailed(String)
@@ -281,6 +348,8 @@ private enum DesktopWorkbenchError: Error, LocalizedError {
             "应用缺少本地后端，请重新构建 FilmOS Studio.app。"
         case .missingBundledWebServer:
             "应用缺少内置 Web 服务，请重新构建 FilmOS Studio.app。"
+        case .missingBundledLocalRuntime:
+            "应用缺少 Agent Runtime，请重新构建 FilmOS Studio.app。"
         case .missingBundledWebAssets:
             "应用缺少内置工作台页面，请重新构建 FilmOS Studio.app。"
         case .invalidRuntimeEndpoints:

@@ -14,6 +14,7 @@ web_server="$bundle/Contents/Helpers/FilmOSWeb"
 film_core="$bundle/Contents/Helpers/FilmOSFilmCore"
 chatgpt_mcp="$bundle/Contents/Helpers/FilmOSChatGPTMCP"
 chatgpt_grant="$bundle/Contents/Helpers/FilmOSChatGPTGrant"
+local_runtime="$bundle/Contents/Helpers/FilmOSLocalRuntime"
 tunnel_client="$bundle/Contents/Helpers/tunnel-client"
 cloudflared="$bundle/Contents/Helpers/cloudflared"
 icon="$bundle/Contents/Resources/FilmOSStudio.icns"
@@ -33,6 +34,8 @@ test "$(runtime_value schema_version)" = "2"
 expected_support_name=${FILMOS_EXPECTED_APPLICATION_SUPPORT_DIRECTORY_NAME:-FilmOS Studio}
 test "$(runtime_value application_support_directory_name)" = "$expected_support_name"
 test "$(runtime_value backend_data_directory_name)" = "WorkbenchData"
+case "$(runtime_value agent_runtime_profile)" in integration|filmos-candidate) ;; *) exit 1 ;; esac
+test "$(runtime_value agent_feature_flags_hash)" != ""
 runtime_lacks workspace_root
 runtime_lacks bun_executable
 runtime_lacks backend_data_directory
@@ -52,6 +55,7 @@ test -x "$web_server"
 test -x "$film_core"
 test -x "$chatgpt_mcp"
 test -x "$chatgpt_grant"
+test -x "$local_runtime"
 test -x "$tunnel_client"
 test -x "$cloudflared"
 test -f "$icon"
@@ -63,6 +67,7 @@ file "$web_server" | grep -q 'Mach-O'
 file "$film_core" | grep -q 'Mach-O'
 file "$chatgpt_mcp" | grep -q 'Mach-O'
 file "$chatgpt_grant" | grep -q 'Mach-O'
+file "$local_runtime" | grep -q 'Mach-O'
 file "$tunnel_client" | grep -q 'Mach-O'
 file "$cloudflared" | grep -q 'Mach-O'
 

@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "profiles": {
+    "integration": {
+      "flags": {
+        "film.agent_native_brain_selector": false,
+        "film.agent_generic_runtime": false,
+        "film.agent_context_broker": false,
+        "film.agent_canonical_tool_manifest": false,
+        "film.agent_canonical_tool_broker": false,
+        "film.agent_codex_subscription": false,
+        "film.agent_chatgpt_host": false,
+        "film.agent_model_api_profiles": false,
+        "film.agent_no_silent_api_fallback": false,
+        "film.agent_request_scoped_identity": false
+      }
+    },
+    "filmos-candidate": {
+      "flags": {
+        "film.agent_native_brain_selector": true,
+        "film.agent_generic_runtime": true,
+        "film.agent_context_broker": true,
+        "film.agent_canonical_tool_manifest": true,
+        "film.agent_canonical_tool_broker": true,
+        "film.agent_codex_subscription": true,
+        "film.agent_chatgpt_host": true,
+        "film.agent_model_api_profiles": true,
+        "film.agent_no_silent_api_fallback": true,
+        "film.agent_request_scoped_identity": true
+      }
+    }
+  }
+}

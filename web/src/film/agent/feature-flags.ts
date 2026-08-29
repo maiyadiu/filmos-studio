@@ -34,3 +34,9 @@ export function isAgentFeatureEnabled(id: AgentFeatureFlagId, env: Record<string
 export function readAgentFeatureFlags(env: Record<string, unknown> = import.meta.env) {
     return Object.fromEntries(AGENT_FEATURE_FLAG_IDS.map((id) => [id, isAgentFeatureEnabled(id, env)])) as Record<AgentFeatureFlagId, boolean>;
 }
+
+export function readAgentRuntimeBuildProfile(env: Record<string, unknown> = import.meta.env) {
+    const profileId = typeof env.VITE_FILMOS_AGENT_RUNTIME_PROFILE === "string" ? env.VITE_FILMOS_AGENT_RUNTIME_PROFILE : "integration";
+    const featureFlagsHash = typeof env.VITE_FILMOS_AGENT_FEATURE_FLAGS_HASH === "string" ? env.VITE_FILMOS_AGENT_FEATURE_FLAGS_HASH : "";
+    return { profileId, featureFlagsHash };
+}

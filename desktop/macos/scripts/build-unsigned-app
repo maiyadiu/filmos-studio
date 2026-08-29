@@ -8,6 +8,7 @@ destination=${1:-"$package_dir/.local/FilmOS Studio.app"}
 web_port=${FILMOS_DESKTOP_WEB_PORT:-43100}
 backend_port=${FILMOS_DESKTOP_BACKEND_PORT:-43101}
 application_support_directory_name=${FILMOS_DESKTOP_APPLICATION_SUPPORT_DIRECTORY_NAME:-FilmOS Studio}
+agent_runtime_profile=${FILMOS_DESKTOP_RUNTIME_PROFILE:-integration}
 icon_source="$package_dir/App/FilmOS图标.png"
 bun_executable=$(command -v bun || true)
 go_executable=$(command -v go || true)
@@ -80,10 +81,13 @@ fi
 destination_parent=$(dirname -- "$destination")
 mkdir -p "$destination_parent"
 staging=$(mktemp -d "$destination_parent/.filmos-app.XXXXXX")
+profile_environment="$staging/agent-runtime-profile.env"
+"$python_executable" "$workspace_root/scripts/agent_runtime_profile.py" shell --profile "$agent_runtime_profile" >"$profile_environment"
+. "$profile_environment"
 bun_artifact_manifest="$staging/bun-build-artifacts.before"
-find "$workspace_root/services/filmos-chatgpt-app" -maxdepth 1 -type f -name '.*.bun-build' -print | LC_ALL=C sort >"$bun_artifact_manifest"
+find "$workspace_root/services/filmos-chatgpt-app" "$workspace_root/canvas-agent" -maxdepth 1 -type f -name '.*.bun-build' -print | LC_ALL=C sort >"$bun_artifact_manifest"
 cleanup_bun_build_artifacts() {
-    find "$workspace_root/services/filmos-chatgpt-app" -maxdepth 1 -type f -name '.*.bun-build' -print | while IFS= read -r artifact; do
+    find "$workspace_root/services/filmos-chatgpt-app" "$workspace_root/canvas-agent" -maxdepth 1 -type f -name '.*.bun-build' -print | while IFS= read -r artifact; do
         if ! grep -F -x -q "$artifact" "$bun_artifact_manifest"; then
             rm -f -- "$artifact"
         fi
@@ -113,6 +117,12 @@ mkdir -p "$bundle/Contents/MacOS" "$bundle/Contents/Helpers" "$bundle/Contents/R
     npm run build:widget
     "$bun_executable" build --compile src/server.ts --outfile "$staging/FilmOSChatGPTMCP"
     "$bun_executable" build --compile src/grant-cli.ts --outfile "$staging/FilmOSChatGPTGrant"
+)
+
+(
+    cd "$workspace_root/canvas-agent"
+    npm run build:agent-contracts
+    "$bun_executable" build --compile src/desktop-runtime.ts --outfile "$staging/FilmOSLocalRuntime"
 )
 
 "$python_executable" -m PyInstaller \
@@ -162,15 +172,14 @@ sips -z 512 512 "$icon_source" --out "$iconset/icon_512x512.png" >/dev/null
 sips -z 1024 1024 "$icon_source" --out "$iconset/icon_512x512@2x.png" >/dev/null
 iconutil -c icns "$iconset" -o "$staging/FilmOSStudio.icns"
 
-runtime_plist="$staging/InternalRuntime.plist"
-plutil -create xml1 "$runtime_plist"
-plutil -insert schema_version -integer 2 "$runtime_plist"
-plutil -insert start_url -string "http://127.0.0.1:$web_port/create" "$runtime_plist"
-plutil -insert web_health_url -string "http://127.0.0.1:$web_port/" "$runtime_plist"
-plutil -insert backend_health_url -string "http://127.0.0.1:$backend_port/api/health" "$runtime_plist"
-plutil -insert application_support_directory_name -string "$application_support_directory_name" "$runtime_plist"
-plutil -insert backend_data_directory_name -string "WorkbenchData" "$runtime_plist"
-plutil -convert json -o "$staging/InternalRuntime.json" "$runtime_plist"
+"$python_executable" "$workspace_root/scripts/agent_runtime_profile.py" runtime \
+    --profile "$agent_runtime_profile" \
+    --output "$staging/InternalRuntime.json" \
+    --start-url "http://127.0.0.1:$web_port/create" \
+    --web-health-url "http://127.0.0.1:$web_port/" \
+    --backend-health-url "http://127.0.0.1:$backend_port/api/health" \
+    --application-support-directory-name "$application_support_directory_name" \
+    --backend-data-directory-name "WorkbenchData"
 
 install -m 0755 "$binary" "$bundle/Contents/MacOS/FilmOSStudioDesktop"
 install -m 0755 "$staging/FilmOSBackend" "$bundle/Contents/Helpers/FilmOSBackend"
@@ -178,6 +187,7 @@ install -m 0755 "$staging/FilmOSWeb" "$bundle/Contents/Helpers/FilmOSWeb"
 install -m 0755 "$staging/pyinstaller-dist/FilmOSFilmCore" "$bundle/Contents/Helpers/FilmOSFilmCore"
 install -m 0755 "$staging/FilmOSChatGPTMCP" "$bundle/Contents/Helpers/FilmOSChatGPTMCP"
 install -m 0755 "$staging/FilmOSChatGPTGrant" "$bundle/Contents/Helpers/FilmOSChatGPTGrant"
+install -m 0755 "$staging/FilmOSLocalRuntime" "$bundle/Contents/Helpers/FilmOSLocalRuntime"
 install -m 0755 "$staging/tunnel-client-runtime/tunnel-client" "$bundle/Contents/Helpers/tunnel-client"
 install -m 0755 "$staging/tunnel-client-runtime/cloudflared" "$bundle/Contents/Helpers/cloudflared"
 install -m 0644 "$package_dir/App/Info.plist" "$bundle/Contents/Info.plist"

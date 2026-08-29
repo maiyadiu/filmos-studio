@@ -34,7 +34,7 @@ import { CodexApprovalCoordinator } from "../brains/codex-approval-coordinator.j
 import { CanonicalAgentToolManifest } from "../brains/tool-manifest.js";
 import { GenericAgentRuntime } from "../brains/generic-agent-runtime.js";
 import type { WorkbenchContextSnapshot } from "../brains/context-broker.js";
-import { assertGenericAgentRuntimeDependencies, resolveAgentFeatureFlags } from "../brains/feature-flags.js";
+import { agentRuntimeProfileStatus, assertGenericAgentRuntimeDependencies, resolveAgentFeatureFlags } from "../brains/feature-flags.js";
 import type { BrainSessionStore } from "../brains/session-store.js";
 import type { BrowserRuntimeTransport } from "../brains/browser-runtime-port.js";
 
@@ -296,7 +296,15 @@ export function createCanvasAgentHttpModule(
         onRuntimeSessionRevoked: (sessionId) => session.closeRuntimeSession(sessionId),
         publicHealth: () => {
             const { ok: _ok, ...health } = session.health();
-            return health;
+            const activation = agentRuntimeProfileStatus(agentFeatureFlags);
+            return {
+                ...health,
+                agent_runtime_profile: activation.profileId,
+                agent_feature_flag_count: activation.featureFlagCount,
+                agent_feature_flags_hash: activation.featureFlagsHash,
+                agent_activation_consistent: activation.consistent,
+                agent_generic_runtime_enabled: agentFeatureFlags["film.agent_generic_runtime"],
+            };
         },
         dispose: () => {
             for (const grant of grantsByCanvas.values()) permissionGrants.revoke(grant.id);

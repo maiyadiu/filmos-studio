@@ -12,7 +12,7 @@ import { BrainProfileRegistry } from "./registry.js";
 import { AgentSessionManager } from "./session-manager.js";
 import { JsonBrainSessionStore, type BrainSessionStore } from "./session-store.js";
 import { CanonicalAgentToolManifest } from "./tool-manifest.js";
-import { enabledAgentProfileIds, type AgentFeatureFlags } from "./feature-flags.js";
+import { agentRuntimeProfileStatus, enabledAgentProfileIds, type AgentFeatureFlags } from "./feature-flags.js";
 import { BrainAdapterFactory } from "./adapter-factory.js";
 import { BrainRuntimeCompositionRoot } from "./runtime-composition-root.js";
 import {
@@ -58,6 +58,7 @@ export class GenericAgentRuntime {
     private readonly activeTurns = new Map<string, string>();
     private readonly confirmationWaiters = new Map<string, ConfirmationWaiter>();
     private readonly actorId: string;
+    private readonly featureFlags: AgentFeatureFlags;
 
     constructor(
         config: LocalRuntimeConfig,
@@ -67,6 +68,7 @@ export class GenericAgentRuntime {
         options: GenericAgentRuntimeOptions,
     ) {
         this.actorId = config.ownerId || "local-owner";
+        this.featureFlags = structuredClone(options.featureFlags);
         this.store = options.store ?? new JsonBrainSessionStore(path.join(CONFIG_DIR, "brain-sessions.v1.json"), config.canvases);
         this.grants = options.grants ?? new AgentPermissionGrantStore();
         this.tools = options.tools ?? new CanonicalAgentToolManifest();
@@ -225,7 +227,12 @@ export class GenericAgentRuntime {
     }
 
     diagnostics() {
-        return { composition: this.composition, counters: this.instrumentation.snapshot() };
+        return {
+            composition: this.composition,
+            counters: this.instrumentation.snapshot(),
+            featureFlags: structuredClone(this.featureFlags),
+            activation: agentRuntimeProfileStatus(this.featureFlags),
+        };
     }
 
     private readonly emit: AgentEmit;

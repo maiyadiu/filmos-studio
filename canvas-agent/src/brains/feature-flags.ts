@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 export const AGENT_FEATURE_FLAG_IDS = [
     "film.agent_native_brain_selector",
     "film.agent_generic_runtime",
@@ -58,4 +60,25 @@ export function enabledAgentProfileIds(flags: AgentFeatureFlags) {
         ...(flags["film.agent_model_api_profiles"] ? ["local.model"] : []),
         "human.only",
     ]);
+}
+
+export function agentFeatureFlagsHash(flags: AgentFeatureFlags) {
+    const canonical = [...AGENT_FEATURE_FLAG_IDS]
+        .sort()
+        .map((id) => `${id}=${flags[id] ? "true" : "false"}\n`)
+        .join("");
+    return createHash("sha256").update(canonical).digest("hex");
+}
+
+export function agentRuntimeProfileStatus(flags: AgentFeatureFlags, profileId = process.env.FILMOS_AGENT_RUNTIME_PROFILE || "integration") {
+    const values = AGENT_FEATURE_FLAG_IDS.map((id) => flags[id]);
+    const consistent = profileId === "filmos-candidate"
+        ? values.every(Boolean)
+        : profileId === "integration" && values.every((value) => !value);
+    return {
+        profileId,
+        featureFlagCount: AGENT_FEATURE_FLAG_IDS.length,
+        featureFlagsHash: agentFeatureFlagsHash(flags),
+        consistent,
+    };
 }

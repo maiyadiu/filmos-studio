@@ -2,12 +2,27 @@ import Foundation
 
 public struct InternalWorkbenchConfiguration: Equatable, Sendable {
     public static let currentSchemaVersion = 2
+    public static let agentFeatureFlagIDs = [
+        "film.agent_native_brain_selector",
+        "film.agent_generic_runtime",
+        "film.agent_context_broker",
+        "film.agent_canonical_tool_manifest",
+        "film.agent_canonical_tool_broker",
+        "film.agent_codex_subscription",
+        "film.agent_chatgpt_host",
+        "film.agent_model_api_profiles",
+        "film.agent_no_silent_api_fallback",
+        "film.agent_request_scoped_identity",
+    ]
 
     public let startURL: URL
     public let webHealthURL: URL
     public let backendHealthURL: URL
     public let applicationSupportDirectoryName: String
     public let backendDataDirectoryName: String
+    public let agentRuntimeProfile: String
+    public let agentFeatureFlags: [String: Bool]
+    public let agentFeatureFlagsHash: String
 
     public static func decode(_ data: Data) throws -> InternalWorkbenchConfiguration {
         let payload: Payload
@@ -30,13 +45,30 @@ public struct InternalWorkbenchConfiguration: Equatable, Sendable {
         guard sameOrigin(startURL, webHealthURL) else {
             throw InternalWorkbenchConfigurationError.inconsistentWebOrigin
         }
+        guard Set(payload.agentFeatureFlags.keys) == Set(agentFeatureFlagIDs) else {
+            throw InternalWorkbenchConfigurationError.inconsistentAgentFeatureFlags
+        }
+        let expectedValue: Bool
+        switch payload.agentRuntimeProfile {
+        case "integration": expectedValue = false
+        case "filmos-candidate": expectedValue = true
+        default: throw InternalWorkbenchConfigurationError.inconsistentAgentFeatureFlags
+        }
+        guard payload.agentFeatureFlags.values.allSatisfy({ $0 == expectedValue }),
+              payload.agentFeatureFlagsHash.range(of: "^[a-f0-9]{64}$", options: .regularExpression) != nil
+        else {
+            throw InternalWorkbenchConfigurationError.inconsistentAgentFeatureFlags
+        }
 
         return InternalWorkbenchConfiguration(
             startURL: startURL,
             webHealthURL: webHealthURL,
             backendHealthURL: backendHealthURL,
             applicationSupportDirectoryName: applicationSupportDirectoryName,
-            backendDataDirectoryName: backendDataDirectoryName
+            backendDataDirectoryName: backendDataDirectoryName,
+            agentRuntimeProfile: payload.agentRuntimeProfile,
+            agentFeatureFlags: payload.agentFeatureFlags,
+            agentFeatureFlagsHash: payload.agentFeatureFlagsHash
         )
     }
 
@@ -51,6 +83,9 @@ public struct InternalWorkbenchConfiguration: Equatable, Sendable {
         let backendHealthURL: String
         let applicationSupportDirectoryName: String
         let backendDataDirectoryName: String
+        let agentRuntimeProfile: String
+        let agentFeatureFlags: [String: Bool]
+        let agentFeatureFlagsHash: String
 
         enum CodingKeys: String, CodingKey {
             case schemaVersion = "schema_version"
@@ -59,6 +94,9 @@ public struct InternalWorkbenchConfiguration: Equatable, Sendable {
             case backendHealthURL = "backend_health_url"
             case applicationSupportDirectoryName = "application_support_directory_name"
             case backendDataDirectoryName = "backend_data_directory_name"
+            case agentRuntimeProfile = "agent_runtime_profile"
+            case agentFeatureFlags = "agent_feature_flags"
+            case agentFeatureFlagsHash = "agent_feature_flags_hash"
         }
     }
 
@@ -112,6 +150,7 @@ public enum InternalWorkbenchConfigurationError: Error, Equatable, LocalizedErro
     case invalidDirectoryName
     case invalidLoopbackURL
     case inconsistentWebOrigin
+    case inconsistentAgentFeatureFlags
 
     public var errorDescription: String? {
         switch self {
@@ -125,6 +164,8 @@ public enum InternalWorkbenchConfigurationError: Error, Equatable, LocalizedErro
             "Internal workbench endpoints must use loopback HTTP URLs."
         case .inconsistentWebOrigin:
             "Internal workbench start and health URLs must use the same origin."
+        case .inconsistentAgentFeatureFlags:
+            "Internal workbench Agent flags must use one complete runtime profile."
         }
     }
 }

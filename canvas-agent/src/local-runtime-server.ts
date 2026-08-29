@@ -1,0 +1,119 @@
+import { createServer, type Server } from "node:http";
+
+import {
+    LOCAL_RUNTIME_DEFAULT_PORT,
+    VERSION,
+    type LocalRuntimeConfig,
+} from "./config.js";
+import { createLocalRuntimeApp, type LocalRuntimeModule } from "./local-runtime.js";
+import { LOCAL_RUNTIME_DEFAULT_SCOPES, LocalRuntimeSessionManager } from "./local-runtime-session.js";
+
+export type StartLocalRuntimeServerOptions = {
+    config: LocalRuntimeConfig;
+    modules: readonly LocalRuntimeModule[];
+    port?: number;
+    log?: (line: string) => void;
+    persistConfig: (config: LocalRuntimeConfig) => void;
+};
+
+export function startLocalRuntimeServer(options: StartLocalRuntimeServerOptions) {
+    const { config } = options;
+    const requestedPort = options.port ?? (
+        Number(process.env.PORT)
+        || Number(new URL(config.url).port)
+        || LOCAL_RUNTIME_DEFAULT_PORT
+    );
+    if (!Number.isInteger(requestedPort) || requestedPort < 0 || requestedPort > 65_535) {
+        throw new Error("Local Runtime port is invalid");
+    }
+    const endpoint = requestedPort === 0
+        ? config.url
+        : `http://127.0.0.1:${requestedPort}`;
+    const authority = requestedPort === 0 ? "127.0.0.1:0" : `127.0.0.1:${requestedPort}`;
+    const modules = [...options.modules];
+    const scopes = [...new Set([
+        ...LOCAL_RUNTIME_DEFAULT_SCOPES,
+        ...modules.flatMap((module) => module.descriptor.scopes),
+    ])];
+    const sessions = new LocalRuntimeSessionManager({
+        endpoint,
+        trustedOrigins: config.trustedWebOrigins,
+        registrations: config.browserRegistrations,
+        scopes,
+        persistRegistrations: () => options.persistConfig(config),
+        onSessionRevoked: (sessionId) => {
+            for (const module of modules) module.onRuntimeSessionRevoked?.(sessionId);
+        },
+    });
+    const app = createLocalRuntimeApp({
+        authority,
+        endpoint,
+        version: VERSION,
+        sessionManager: sessions,
+        modules,
+        legacyMasterToken: config.token,
+        legacyOrigins: config.origins ?? [],
+    });
+    const server = createServer(app);
+    const log = options.log ?? console.log;
+    let modulesDisposed = false;
+    const disposeModules = async () => {
+        if (modulesDisposed) return;
+        modulesDisposed = true;
+        const errors: unknown[] = [];
+        for (const module of modules) {
+            try {
+                await module.dispose?.();
+            } catch (error) {
+                errors.push(error);
+            }
+        }
+        if (errors.length) throw new AggregateError(errors, "Local Runtime module disposal failed");
+    };
+    const ready = (async () => {
+        try {
+            for (const module of modules) await module.start?.();
+            server.listen(requestedPort, "127.0.0.1");
+            await listening(server);
+            log("Framefield Local Runtime");
+            log("Runtime is listening on 127.0.0.1");
+        } catch (startupError) {
+            sessions.dispose();
+            const cleanupErrors: unknown[] = [];
+            try { await closeServer(server); } catch (error) { cleanupErrors.push(error); }
+            try { await disposeModules(); } catch (error) { cleanupErrors.push(error); }
+            if (cleanupErrors.length) {
+                throw new AggregateError([startupError, ...cleanupErrors], "Local Runtime startup failed");
+            }
+            throw startupError;
+        }
+    })();
+    let closePromise: Promise<void> | undefined;
+    const close = () => {
+        closePromise ??= (async () => {
+            try { await ready; } catch { /* Startup error remains observable through ready. */ }
+            sessions.dispose();
+            const errors: unknown[] = [];
+            try { await closeServer(server); } catch (error) { errors.push(error); }
+            try { await disposeModules(); } catch (error) { errors.push(error); }
+            if (errors.length) throw new AggregateError(errors, "Local Runtime shutdown failed");
+        })();
+        return closePromise;
+    };
+    return { app, server, sessions, ready, close };
+}
+
+function listening(server: Server) {
+    if (server.listening) return Promise.resolve();
+    return new Promise<void>((resolve, reject) => {
+        server.once("listening", resolve);
+        server.once("error", reject);
+    });
+}
+
+function closeServer(server: Server) {
+    if (!server.listening) return Promise.resolve();
+    return new Promise<void>((resolve, reject) => {
+        server.close((error) => error ? reject(error) : resolve());
+    });
+}
