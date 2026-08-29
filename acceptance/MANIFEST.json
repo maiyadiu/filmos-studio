@@ -7,7 +7,7 @@
   },
   "evidence_index": {
     "path": "acceptance/EVIDENCE_INDEX.json",
-    "sha256": "357e1832c8a46e2134dc737a18fa1bb1d804eaece22a6ff1397513d20c9f781a"
+    "sha256": "23edcd48057809e75942c8d63d05d552bde6aec8afa88a951dde3234fd727479"
   },
   "golden_project": {
     "path": "acceptance/FilmOS_Acceptance_Project/项目.json",
@@ -49,7 +49,7 @@
       "version": "1.0.0",
       "resource_uri_version": "v1",
       "path": "packages/filmos-tool-contracts/contract.v1.json",
-      "sha256": "de578be2f43f43222d299777fff4521bbdceec6d808a16e607a6367442c4af7b"
+      "sha256": "4b21c1939a6b01fb8eaaf1608758fc8fe7682f39275e52adda1167ae819a8ec9"
     }
   },
   "canonical_remote": {

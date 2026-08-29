@@ -21,6 +21,9 @@ REPORT_SPECS = {
             "desktop-chatgpt-connection",
             "no-openai-model-api-billing",
             "agent-native-multibrain",
+            "agent-codex-controlled-write",
+            "agent-tool-contract-single-source",
+            "agent-candidate-activation",
             "mcp-actual-tool-count",
             "performance-local",
             "remote-acceptance-contract",
@@ -45,6 +48,9 @@ REPORT_SPECS = {
             "desktop-chatgpt-connection",
             "no-openai-model-api-billing",
             "agent-native-multibrain",
+            "agent-codex-controlled-write",
+            "agent-tool-contract-single-source",
+            "agent-candidate-activation",
             "mcp-actual-tool-count",
             "acceptance-privacy",
         ),
@@ -62,6 +68,9 @@ REPORT_SPECS = {
             "chatgpt-golden-real",
             "desktop-chatgpt-connection",
             "agent-native-multibrain",
+            "agent-codex-controlled-write",
+            "agent-tool-contract-single-source",
+            "agent-candidate-activation",
             "mcp-actual-tool-count",
             "no-openai-model-api-billing",
         ),
@@ -77,6 +86,10 @@ RAW_SOURCES = (
     "tests/film-rc/rc-recovery-receipt.json",
     "services/filmos-chatgpt-app/evidence/real-golden-receipt.json",
     "services/filmos-chatgpt-app/evidence/external-account-blocked.json",
+    "acceptance/EXTERNAL_AUDIT_P0_RESOLUTION.json",
+    "acceptance/evidence/runs/agent-codex-subscription-controlled-write-001/CODEX_CONTROLLED_WRITE_GATE.json",
+    "acceptance/evidence/runs/agent-codex-subscription-controlled-write-001/audit-trace.jsonl",
+    "packages/filmos-agent-tool-contracts/generated/canonical-tools.json",
     "acceptance/evidence/runs/20260829T153743Z-bbedc297c1b2-rc-real-agent/codex-subscription-real-receipt.json",
     "implementation/agent-native-multibrain/evidence/WP-09.json",
     "implementation/agent-native-multibrain/evidence/UI-01.json",
@@ -206,17 +219,21 @@ def report_notes(
             "- Current evidence was generated from a "
             f"{'dirty development' if dirty else 'clean fixed-commit'} source worktree.\n"
             "- Real Codex Subscription evidence is a separate receipt because it requires "
-            "managed account authorization; the report index hashes that raw receipt as a source.\n"
-            "- Real Provider CLI generation remains a separate authorized external drill; "
+            "managed account authorization; the report index hashes both the controlled-write "
+            "receipt and its append-only audit trace as raw sources.\n"
+            "- No paid Provider or model API generation was performed for this P0 correction; "
             "the Local-first chain uses `LOCAL_MANUAL_CANDIDATE_IMPORT`.\n"
-            "- External ChatGPT account acknowledgement and secure tunnel proof are not in "
-            "the Local suite.\n"
+            "- ChatGPT External Live Gate remains `BLOCKED_EXTERNAL_ACCOUNT`; local MCP, Widget "
+            "and handoff checks do not replace independent account-side acknowledgement.\n"
             "- `NO-OPENAI-MODEL-API-001` proves the checked-in runtime has no model API "
             "endpoint path; the final external Live Gate must add its own time-bounded receipt.\n"
             "- Real user database migration and real rollback remain outside the synthetic "
             "recovery drill.\n"
             "- The app is an internal unsigned macOS build; signing, notarization and public "
             "distribution are not claimed.\n"
+            "- The controlled-write operator entered one shortened expected node ID during the "
+            "restart readback; the receipt preserves that typo and binds the recovered object to "
+            "the complete DOM node ID instead of rewriting the historical trace.\n"
             "- Web JavaScript may exceed the warning budget, but must remain below the "
             "blocking budget."
         ),
@@ -237,7 +254,8 @@ def report_notes(
         ),
         "SECURITY_REPORT.md": (
             "The covered checks enforce loopback-only desktop auth, human-only approval, "
-            "credential exclusion from backup/evidence, ChatGPT preview boundaries and a "
+            "credential exclusion from backup/evidence, signed project scopes, replay-safe "
+            "controlled writes, generated tool-risk schemas, ChatGPT preview boundaries and a "
             "redacted evidence package. Runtime Key is Keychain-only, Tunnel and ChatGPT "
             "reachability remain separate states, and model API endpoint use is blocked. "
             "Passing local checks does not prove public deployment "
@@ -251,8 +269,9 @@ def report_notes(
         ),
         "GOLDEN_TEST_REPORT.md": (
             "Golden evidence combines real temporary HTTP Sidecars, the fixed Acceptance "
-            "Project, desktop backup/restore and real local ChatGPT handoff. Local Provider "
-            "import is never relabeled as real CLI generation."
+            "Project, desktop backup/restore, production multi-brain composition, Candidate App "
+            "activation, a real Codex Subscription reject/approve/restart drill and real local "
+            "ChatGPT handoff. Local Provider import is never relabeled as real CLI generation."
         ),
     }
     return notes[filename] + "\n\n" + common
