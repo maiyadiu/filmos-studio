@@ -105,6 +105,9 @@ def main() -> None:
         run(("desktop/macos/scripts/verify-unsigned-app", str(bundle)), environment)
 
         runtime = json.loads((bundle / "Contents/Resources/InternalRuntime.json").read_text(encoding="utf-8"))
+        mcp_helper = bundle / "Contents/Helpers/FilmOSCanvasAgentMCP"
+        if not mcp_helper.is_file() or not os.access(mcp_helper, os.X_OK):
+            raise RuntimeError("candidate bundle is missing its executable Canvas Agent MCP helper")
         flags = runtime.get("agent_feature_flags")
         if runtime.get("agent_runtime_profile") != "filmos-candidate" or not isinstance(flags, dict):
             raise RuntimeError("candidate runtime profile was not embedded")
@@ -162,6 +165,7 @@ def main() -> None:
             "feature_flags_hash": feature_hash,
             "vite_runtime_hash_match": True,
             "adapter_runtime_managed_by_app": True,
+            "codex_mcp_helper_bundled": True,
             "black_box_app_launch": True,
             "legacy_rollback_profile": "integration",
             "private_paths_emitted": False,

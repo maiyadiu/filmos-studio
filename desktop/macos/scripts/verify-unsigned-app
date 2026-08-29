@@ -15,6 +15,7 @@ film_core="$bundle/Contents/Helpers/FilmOSFilmCore"
 chatgpt_mcp="$bundle/Contents/Helpers/FilmOSChatGPTMCP"
 chatgpt_grant="$bundle/Contents/Helpers/FilmOSChatGPTGrant"
 local_runtime="$bundle/Contents/Helpers/FilmOSLocalRuntime"
+canvas_agent_mcp="$bundle/Contents/Helpers/FilmOSCanvasAgentMCP"
 tunnel_client="$bundle/Contents/Helpers/tunnel-client"
 cloudflared="$bundle/Contents/Helpers/cloudflared"
 icon="$bundle/Contents/Resources/FilmOSStudio.icns"
@@ -56,6 +57,7 @@ test -x "$film_core"
 test -x "$chatgpt_mcp"
 test -x "$chatgpt_grant"
 test -x "$local_runtime"
+test -x "$canvas_agent_mcp"
 test -x "$tunnel_client"
 test -x "$cloudflared"
 test -f "$icon"
@@ -68,6 +70,7 @@ file "$film_core" | grep -q 'Mach-O'
 file "$chatgpt_mcp" | grep -q 'Mach-O'
 file "$chatgpt_grant" | grep -q 'Mach-O'
 file "$local_runtime" | grep -q 'Mach-O'
+file "$canvas_agent_mcp" | grep -q 'Mach-O'
 file "$tunnel_client" | grep -q 'Mach-O'
 file "$cloudflared" | grep -q 'Mach-O'
 

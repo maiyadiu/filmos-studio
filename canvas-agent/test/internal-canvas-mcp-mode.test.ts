@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -42,6 +42,14 @@ test("internal Canvas Agent MCP command starts the explicit workbench_operator s
     const entry = command.args.at(-4);
     assert.equal(typeof entry, "string");
     assert.equal(existsSync(String(entry)), true, `MCP entry must exist: ${entry}`);
+});
+
+test("desktop workbench MCP entry stays isolated from the local runtime host", () => {
+    const entry = path.resolve("src/workbench-mcp.ts");
+    assert.equal(existsSync(entry), true);
+    const source = readFileSync(entry, "utf8");
+    assert.match(source, /workbench_operator/);
+    assert.doesNotMatch(source, /local-runtime-host|desktop-runtime|dreamina-cli-runtime/);
 });
 
 test("internal Codex MCP config binds the Runtime directory without an auto-approval override", () => {

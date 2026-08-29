@@ -24,4 +24,14 @@ describe("generic Agent Session client", () => {
         expect(calls[0].path).toBe("/agent/sessions/session%2Fa/turns");
         expect(new Headers(calls[0].init.headers).has("authorization")).toBe(false);
     });
+
+    test("sorts signed session filters in canonical query-key order", async () => {
+        const calls = [];
+        const client = new AgentSessionClient({ request: async (path, init) => {
+            calls.push({ path, init });
+            return new Response(JSON.stringify({ ok: true, sessions: [] }), { status: 200 });
+        } });
+        await client.listSessions({ projectId: "canvas-a", brainProfileId: "codex.subscription" });
+        expect(calls[0].path).toBe("/agent/sessions?brainProfileId=codex.subscription&projectId=canvas-a");
+    });
 });

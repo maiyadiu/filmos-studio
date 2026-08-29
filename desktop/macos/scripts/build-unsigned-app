@@ -123,6 +123,8 @@ mkdir -p "$bundle/Contents/MacOS" "$bundle/Contents/Helpers" "$bundle/Contents/R
     cd "$workspace_root/canvas-agent"
     npm run build:agent-contracts
     "$bun_executable" build --compile src/desktop-runtime.ts --outfile "$staging/FilmOSLocalRuntime"
+    "$bun_executable" build --compile \
+        src/workbench-mcp.ts --outfile "$staging/FilmOSCanvasAgentMCP"
 )
 
 "$python_executable" -m PyInstaller \
@@ -188,6 +190,7 @@ install -m 0755 "$staging/pyinstaller-dist/FilmOSFilmCore" "$bundle/Contents/Hel
 install -m 0755 "$staging/FilmOSChatGPTMCP" "$bundle/Contents/Helpers/FilmOSChatGPTMCP"
 install -m 0755 "$staging/FilmOSChatGPTGrant" "$bundle/Contents/Helpers/FilmOSChatGPTGrant"
 install -m 0755 "$staging/FilmOSLocalRuntime" "$bundle/Contents/Helpers/FilmOSLocalRuntime"
+install -m 0755 "$staging/FilmOSCanvasAgentMCP" "$bundle/Contents/Helpers/FilmOSCanvasAgentMCP"
 install -m 0755 "$staging/tunnel-client-runtime/tunnel-client" "$bundle/Contents/Helpers/tunnel-client"
 install -m 0755 "$staging/tunnel-client-runtime/cloudflared" "$bundle/Contents/Helpers/cloudflared"
 install -m 0644 "$package_dir/App/Info.plist" "$bundle/Contents/Info.plist"

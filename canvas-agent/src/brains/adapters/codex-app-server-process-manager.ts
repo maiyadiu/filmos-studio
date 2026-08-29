@@ -1,4 +1,5 @@
 import { createRequire } from "node:module";
+import fs from "node:fs";
 import path from "node:path";
 
 import { VERSION } from "../../config.js";
@@ -17,10 +18,10 @@ export class CodexAppServerProcessManager {
 
     async client() {
         if (!this.clientPromise) {
-            const args = [codexBin(), "app-server", "--stdio"];
+            const invocation = codexInvocation();
             this.clientPromise = this.startClient({
-                command: process.execPath,
-                args,
+                command: invocation.command,
+                args: [...invocation.args, "app-server", "--stdio"],
                 emit: this.processEmit,
                 version: VERSION,
                 onExit: () => { this.clientPromise = undefined; },
@@ -62,4 +63,23 @@ export class CodexAppServerProcessManager {
 
 export function codexBin() {
     return path.join(path.dirname(require.resolve("@openai/codex/package.json")), "bin", "codex.js");
+}
+
+export function codexInvocation() {
+    const explicit = String(process.env.FILMOS_CODEX_EXECUTABLE || "").trim();
+    const nativeCandidates = [
+        explicit,
+        "/Applications/ChatGPT.app/Contents/Resources/codex",
+        "/Applications/Codex.app/Contents/Resources/codex",
+    ].filter(Boolean);
+    const native = nativeCandidates.find((candidate) => {
+        try {
+            fs.accessSync(candidate, fs.constants.X_OK);
+            return true;
+        } catch {
+            return false;
+        }
+    });
+    if (native) return { command: native, args: [] as string[], source: explicit && native === explicit ? "explicit" as const : "official_app" as const };
+    return { command: process.execPath, args: [codexBin()], source: "node_package" as const };
 }

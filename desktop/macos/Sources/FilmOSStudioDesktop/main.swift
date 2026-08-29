@@ -46,6 +46,7 @@ private final class InternalWorkbenchCoordinator {
         let backendExecutable = helpersDirectory.appendingPathComponent("FilmOSBackend")
         let webExecutable = helpersDirectory.appendingPathComponent("FilmOSWeb")
         let localRuntimeExecutable = helpersDirectory.appendingPathComponent("FilmOSLocalRuntime")
+        let canvasAgentMCPExecutable = helpersDirectory.appendingPathComponent("FilmOSCanvasAgentMCP")
         let webRoot = bundleResources.appendingPathComponent("Web", isDirectory: true)
         let webEntry = webRoot.appendingPathComponent("index.html")
         let applicationRuntimeRoot = applicationSupportDirectory.appendingPathComponent(
@@ -66,6 +67,9 @@ private final class InternalWorkbenchCoordinator {
         }
         guard fileManager.isExecutableFile(atPath: localRuntimeExecutable.path) else {
             throw DesktopWorkbenchError.missingBundledLocalRuntime
+        }
+        guard fileManager.isExecutableFile(atPath: canvasAgentMCPExecutable.path) else {
+            throw DesktopWorkbenchError.missingBundledCanvasAgentMCP
         }
         guard fileManager.fileExists(atPath: webEntry.path) else {
             throw DesktopWorkbenchError.missingBundledWebAssets
@@ -111,6 +115,7 @@ private final class InternalWorkbenchCoordinator {
         localRuntimeEnvironment["FILMOS_AGENT_RUNTIME_PROFILE"] = configuration.agentRuntimeProfile
         localRuntimeEnvironment["FILMOS_AGENT_FEATURE_FLAGS_HASH"] = configuration.agentFeatureFlagsHash
         localRuntimeEnvironment["FILMOS_AGENT_GATEWAY_ENABLED"] = configuration.agentRuntimeProfile == "filmos-candidate" ? "true" : "false"
+        localRuntimeEnvironment["FILMOS_CANVAS_AGENT_MCP_EXECUTABLE"] = canvasAgentMCPExecutable.path
         for (flagID, value) in configuration.agentFeatureFlags {
             localRuntimeEnvironment[Self.agentRuntimeEnvironmentName(flagID)] = value ? "true" : "false"
         }
@@ -333,6 +338,7 @@ private enum DesktopWorkbenchError: Error, LocalizedError {
     case missingBundledBackend
     case missingBundledWebServer
     case missingBundledLocalRuntime
+    case missingBundledCanvasAgentMCP
     case missingBundledWebAssets
     case invalidRuntimeEndpoints
     case serviceLaunchFailed(String)
@@ -350,6 +356,8 @@ private enum DesktopWorkbenchError: Error, LocalizedError {
             "应用缺少内置 Web 服务，请重新构建 FilmOS Studio.app。"
         case .missingBundledLocalRuntime:
             "应用缺少 Agent Runtime，请重新构建 FilmOS Studio.app。"
+        case .missingBundledCanvasAgentMCP:
+            "应用缺少 Canvas Agent MCP，请重新构建 FilmOS Studio.app。"
         case .missingBundledWebAssets:
             "应用缺少内置工作台页面，请重新构建 FilmOS Studio.app。"
         case .invalidRuntimeEndpoints:

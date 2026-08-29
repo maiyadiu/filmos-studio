@@ -34,8 +34,11 @@ export class AgentSessionClient {
 
     listSessions(scope: { projectId?: string; brainProfileId?: string } = {}, signal?: AbortSignal) {
         const query = new URLSearchParams();
-        if (scope.projectId) query.set("projectId", scope.projectId);
+        // Runtime request targets are signed in canonical key order. Keep the
+        // query stable before the browser signs it so restart recovery can
+        // restore persisted Generic Agent sessions instead of receiving 400.
         if (scope.brainProfileId) query.set("brainProfileId", scope.brainProfileId);
+        if (scope.projectId) query.set("projectId", scope.projectId);
         return this.json<{ sessions: BrainSessionView[] }>(`/agent/sessions${query.size ? `?${query}` : ""}`, { method: "GET", signal });
     }
 

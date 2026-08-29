@@ -141,6 +141,11 @@ async function ensureCodexThread(app: CodexAppServerClient, emit: AgentEmit, opt
 }
 
 export function canvasAgentMcpCommand() {
+    const packagedHelper = String(process.env.FILMOS_CANVAS_AGENT_MCP_EXECUTABLE || "").trim();
+    if (packagedHelper) {
+        if (!existsSync(packagedHelper)) throw new Error("FILMOS_PACKAGED_MCP_HELPER_NOT_FOUND");
+        return { command: packagedHelper, args: ["mcp", "--surface", "workbench_operator"] };
+    }
     const current = process.argv.find((arg) => /index\.(t|j)s$/.test(arg)) || "";
     const builtEntry = fileURLToPath(new URL("./index.js", import.meta.url));
     const sourceEntry = fileURLToPath(new URL("./index.ts", import.meta.url));

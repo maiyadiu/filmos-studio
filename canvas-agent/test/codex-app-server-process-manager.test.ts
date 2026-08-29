@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { CodexAppServerProcessManager } from "../src/brains/adapters/codex-app-server-process-manager.js";
+import { CodexAppServerProcessManager, codexInvocation } from "../src/brains/adapters/codex-app-server-process-manager.js";
 
 test("Codex app-server process is reused and cleanly replaced after exit or restart", async () => {
     const clients: Array<{ disposed: boolean; dispose(): Promise<void>; readAccount(): Promise<unknown>; readRateLimits(): Promise<unknown>; startChatGPTLogin(): Promise<unknown>; logoutAccount(): Promise<unknown> }> = [];
@@ -32,4 +32,15 @@ test("Codex app-server process is reused and cleanly replaced after exit or rest
     assert.equal(clients.length, 3);
     await manager.dispose();
     assert.equal(clients[2]?.disposed, true);
+});
+
+test("Codex app-server accepts an explicit native executable for packaged Desktop", () => {
+    const previous = process.env.FILMOS_CODEX_EXECUTABLE;
+    process.env.FILMOS_CODEX_EXECUTABLE = process.execPath;
+    try {
+        assert.deepEqual(codexInvocation(), { command: process.execPath, args: [], source: "explicit" });
+    } finally {
+        if (previous === undefined) delete process.env.FILMOS_CODEX_EXECUTABLE;
+        else process.env.FILMOS_CODEX_EXECUTABLE = previous;
+    }
 });

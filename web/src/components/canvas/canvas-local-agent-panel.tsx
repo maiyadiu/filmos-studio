@@ -812,7 +812,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
         <>
             <div className="flex min-h-8 shrink-0 items-center justify-end gap-1 px-3 pb-1">
                 <div className="mr-auto min-w-0 truncate px-1 text-[var(--fs-tiny)]" style={{ color: connected ? "#16a34a" : theme.node.muted }}>
-                    {connected ? "本机 Agent 已连接" : canvasAgentConnectionStatusText({ enabled, connected, activity, connectError })}
+                    {connected ? `${brainProfileLabel(brainProfileId)} 已连接` : canvasAgentConnectionStatusText({ enabled, connected, activity, connectError })}
                 </div>
                 {!connected ? (
                     <Button size="small" type={enabled ? "default" : "primary"} className="!h-7 !px-2.5" icon={<PlugZap className="size-3.5" />} onClick={toggleAgentConnection}>
@@ -1063,7 +1063,7 @@ function AgentConnectView({
                 <div>
                     <div className="text-base font-semibold leading-6">连接本地 Agent</div>
                     <div className="mt-1 text-xs leading-5" style={{ color: theme.node.muted }}>
-                        安装仓库自带的 Codex 插件后，画布会优先自动连接本机 Agent。
+                        安装仓库自带的 Codex 插件后，画布会优先自动连接 Codex Runtime。
                     </div>
                 </div>
                 <div className="space-y-2">
