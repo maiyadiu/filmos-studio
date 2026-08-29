@@ -12,15 +12,18 @@
     "README.md"
   ],
   "scripts": {
+    "build:agent-contracts": "npm --prefix ../packages/filmos-agent-contracts run build",
     "dev": "tsx src/index.ts",
     "sync:film-openapi": "node scripts/sync-film-openapi.mjs",
     "check:film-openapi": "node scripts/sync-film-openapi.mjs --check",
+    "pretest": "npm run build:agent-contracts",
     "test": "tsx --test --test-concurrency=1 test/*.test.ts",
-    "build": "tsc -p tsconfig.json",
+    "build": "npm run build:agent-contracts && tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "prepack": "npm run build"
   },
   "dependencies": {
+    "@filmos/agent-contracts": "file:../packages/filmos-agent-contracts",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@openai/codex": "^0.149.1",
     "docx": "^9.5.1",

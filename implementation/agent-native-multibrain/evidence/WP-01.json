@@ -1,0 +1,46 @@
+{
+  "schema_version": "1",
+  "work_package": "WP-01",
+  "baseline_commit": "9267a5f198182bfa16403723e865cf815983ef13",
+  "observed_at": "2026-08-29T12:44:08Z",
+  "checks": [
+    {
+      "command": "npm --prefix packages/filmos-agent-contracts test",
+      "status": "PASS",
+      "tests": 1,
+      "failures": 0
+    },
+    {
+      "command": "npx tsx --test --test-concurrency=1 test/brain-registry.test.ts test/agent-session-manager.test.ts test/agent-context-pack.test.ts test/agent-permission-grant.test.ts test/agent-confirmation.test.ts",
+      "cwd": "canvas-agent",
+      "status": "PASS",
+      "tests": 7,
+      "failures": 0
+    },
+    {
+      "command": "npm --prefix canvas-agent run build",
+      "status": "PASS",
+      "failures": 0
+    }
+  ],
+  "source_sha256": {
+    "packages/filmos-agent-contracts/src/index.ts": "7cb4545dcee9ab8b507b559af80d7aed759d2709cd8ddf9a57a4b3bcd0589070",
+    "canvas-agent/src/brains/registry.ts": "da6a3839f20568ed12c9f2a6759142a671eebfb36f671814c9fdcfba73ecf84e",
+    "canvas-agent/src/brains/session-manager.ts": "8a90b9935cd1cad68cee1336eb3634cbd5299849d4c659645fe10935c57c4bf1",
+    "canvas-agent/src/brains/context-broker.ts": "9971d1248bc37303e7bee36971e591c18fa52c90e50aaa919a9c98114da358b7",
+    "canvas-agent/src/brains/permission-grants.ts": "7e177ba7dbf368399943365c2e497d4a0582115f8c04576fa76c9e7eaa55e405",
+    "canvas-agent/src/brains/confirmations.ts": "75df2e8b1fa8fa5d1c4708853de4feb9f8cda74aa4dca66aea9e01e899e7687d"
+  },
+  "golden_case_ids": [
+    "AGENT-MULTIBRAIN-001",
+    "AGENT-NO-API-FALLBACK-001",
+    "AGENT-CONTEXT-RECEIPT-001"
+  ],
+  "assertions": {
+    "isolated_mock_sessions": true,
+    "subscription_failure_api_calls": 0,
+    "session_scoped_grants": true,
+    "single_use_confirmations": true,
+    "stale_receipts_fail_closed": true
+  }
+}

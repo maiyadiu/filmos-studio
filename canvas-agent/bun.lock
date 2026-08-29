@@ -5,6 +5,7 @@
     "": {
       "name": "@ddcat666/open-ai-canvas-agent",
       "dependencies": {
+        "@filmos/agent-contracts": "file:../packages/filmos-agent-contracts",
         "@modelcontextprotocol/sdk": "^1.30.0",
         "@openai/codex": "^0.149.1",
         "docx": "^9.5.1",
@@ -83,6 +84,8 @@
     "@esbuild/win32-ia32": ["@esbuild/win32-ia32@0.28.1", "https://registry.npmmirror.com/@esbuild/win32-ia32/-/win32-ia32-0.28.1.tgz", { "os": "win32", "cpu": "ia32" }, "sha512-zvb/mB2bSCoJOpoCBgYKKpX6YM6mJBlBUVUtVj41DlZJVEB6/0CKlRYxP5wWl1C1ILiCoAU5wZZ4q1P3qeS6Eg=="],
 
     "@esbuild/win32-x64": ["@esbuild/win32-x64@0.28.1", "https://registry.npmmirror.com/@esbuild/win32-x64/-/win32-x64-0.28.1.tgz", { "os": "win32", "cpu": "x64" }, "sha512-bm4Mowrv+GXMlpWX++EcXw/iLyd1o3+bJkC2DkWXYVvgZCqD/bSj9ctZeAMC3cIxgjRVR2Dufaiu4YPxr5gW1A=="],
+
+    "@filmos/agent-contracts": ["@filmos/agent-contracts@file:../packages/filmos-agent-contracts", { "devDependencies": { "typescript": "^7.0.2" } }],
 
     "@hono/node-server": ["@hono/node-server@1.19.14", "https://registry.npmmirror.com/@hono/node-server/-/node-server-1.19.14.tgz", { "peerDependencies": { "hono": "^4" } }, "sha512-GwtvgtXxnWsucXvbQXkRgqksiH2Qed37H9xHZocE5sA3N8O8O8/8FA3uclQXxXVzc9XBZuEOMK7+r02FmSpHtw=="],
 

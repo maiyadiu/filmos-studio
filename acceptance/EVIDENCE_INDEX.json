@@ -268,18 +268,31 @@
     {
       "track_id": "08-agent",
       "source_paths": [
+        "packages/filmos-agent-contracts",
         "canvas-agent",
+        "canvas-agent/src/brains",
+        "web/src/film/agent",
         "web/src/film/sync",
+        "implementation/agent-native-multibrain",
+        "implementation/tracks/08-agent-native-correction",
         "tests/film-beta/performance_surface.ts"
       ],
       "automated_tests": [
         "python3 acceptance/checks/film_core_environment.py",
+        "npm --prefix packages/filmos-agent-contracts test",
         "npm test",
+        "npm run build",
         "scripts/recovery/RC恢复演练 --synthetic",
         "python3 acceptance/checks/performance.py"
       ],
       "golden_case_ids": [
         "CODEX-AGENT-001",
+        "AGENT-MULTIBRAIN-001",
+        "AGENT-CODEX-SUBSCRIPTION-001",
+        "AGENT-CONTEXT-RECEIPT-001",
+        "AGENT-TOOL-BROKER-001",
+        "AGENT-CHATGPT-HOSTED-001",
+        "AGENT-NO-API-FALLBACK-001",
         "AGENT-SESSION-RECOVERY-001",
         "PERFORMANCE-LOCAL-001"
       ],
