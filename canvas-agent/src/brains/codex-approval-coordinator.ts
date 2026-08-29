@@ -33,8 +33,8 @@ export class CodexApprovalCoordinator {
         });
         this.emit("agent_event", { agent: "codex", type: "confirmation.required", sessionId: input.sessionId, turnId: confirmation.turnId, confirmation });
         return new Promise<{ approved: boolean; content?: Record<string, unknown> }>((resolve) => {
+            // Keep the process alive until the approval resolves fail-closed; unref would strand this Promise.
             const timer = setTimeout(() => this.finish(confirmation.id, false), this.timeoutMs);
-            timer.unref();
             this.pending.set(confirmation.id, { sessionId: input.sessionId, contextReceiptId: input.contextReceiptId, resolve, timer });
         });
     }

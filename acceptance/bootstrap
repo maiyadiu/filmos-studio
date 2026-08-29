@@ -22,6 +22,7 @@ fi
 if [ ! -x "$ROOT/packages/filmos-tool-contracts/node_modules/.bin/tsc" ]; then
     (cd "$ROOT/packages/filmos-tool-contracts" && npm ci --ignore-scripts)
 fi
+(cd "$ROOT/packages/filmos-tool-contracts" && npm run build)
 if [ ! -x "$ROOT/services/filmos-chatgpt-app/node_modules/.bin/tsx" ]; then
     (cd "$ROOT/services/filmos-chatgpt-app" && npm ci --ignore-scripts)
 fi
