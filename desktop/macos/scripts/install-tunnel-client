@@ -1,0 +1,59 @@
+#!/bin/sh
+set -eu
+
+destination=${1:-}
+if [ -z "$destination" ]; then
+    echo "usage: install-tunnel-client <destination>" >&2
+    exit 2
+fi
+if [ -e "$destination" ]; then
+    echo "refusing to overwrite tunnel-client destination: $destination" >&2
+    exit 2
+fi
+
+version=0.0.13
+architecture=$(uname -m)
+case "$architecture" in
+    arm64)
+        archive="tunnel-client-v${version}-darwin-arm64.zip"
+        expected="15abf165f06050af642c948ba6bd6c905191dc5420a9422dadde2b49d892e2c6"
+        ;;
+    x86_64)
+        archive="tunnel-client-v${version}-darwin-amd64.zip"
+        expected="c683e15d84fb997f5af1cc7c4cb55008e19a555a9ed2ec0f89a5ff426d85f85c"
+        ;;
+    *)
+        echo "unsupported macOS architecture: $architecture" >&2
+        exit 1
+        ;;
+esac
+
+parent=$(dirname -- "$destination")
+mkdir -p "$parent"
+temporary=$(mktemp -d "$parent/.tunnel-client.XXXXXX")
+cleanup() {
+    find "$temporary" -type f -delete 2>/dev/null || true
+    find "$temporary" -depth -type d -empty -delete 2>/dev/null || true
+}
+trap cleanup EXIT HUP INT TERM
+
+url="https://github.com/openai/tunnel-client/releases/download/v${version}/${archive}"
+if [ -n "${FILMOS_TUNNEL_CLIENT_ARCHIVE_CACHE:-}" ] && [ -f "$FILMOS_TUNNEL_CLIENT_ARCHIVE_CACHE" ]; then
+    cp "$FILMOS_TUNNEL_CLIENT_ARCHIVE_CACHE" "$temporary/$archive"
+else
+    curl -fsSL --retry 3 --connect-timeout 20 --max-time 300 --proto '=https' --tlsv1.2 "$url" -o "$temporary/$archive"
+fi
+actual=$(shasum -a 256 "$temporary/$archive" | awk '{print $1}')
+if [ "$actual" != "$expected" ]; then
+    echo "OpenAI tunnel-client archive hash mismatch" >&2
+    exit 1
+fi
+mkdir -p "$temporary/unpacked"
+/usr/bin/ditto -x -k "$temporary/$archive" "$temporary/unpacked"
+test -x "$temporary/unpacked/tunnel-client"
+test -x "$temporary/unpacked/cloudflared"
+mv "$temporary/unpacked" "$destination"
+
+trap - EXIT HUP INT TERM
+find "$temporary" -depth -type d -empty -delete 2>/dev/null || true
+printf 'TUNNEL_CLIENT_READY version=%s architecture=%s archive_sha256=%s\n' "$version" "$architecture" "$expected"

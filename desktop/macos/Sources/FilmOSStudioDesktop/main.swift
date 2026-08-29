@@ -20,6 +20,8 @@ private final class InternalWorkbenchCoordinator {
 
     private let configuration: InternalWorkbenchConfiguration
     private let supervisor: ServiceSupervisor
+    let chatGPTConnectionManager: ChatGPTConnectionManager
+    private let chatGPTRuntime: DesktopChatGPTRuntime
     private var startedServices: Set<ServiceID> = []
 
     init(bundle: Bundle = .main) throws {
@@ -109,8 +111,16 @@ private final class InternalWorkbenchCoordinator {
             )
         )
 
+        let chatGPTRuntime = try DesktopChatGPTRuntime(
+            supervisor: supervisor,
+            helpersDirectory: helpersDirectory,
+            applicationRuntimeRoot: applicationRuntimeRoot,
+            baseEnvironment: Self.safeBaseEnvironment()
+        )
         self.configuration = configuration
         self.supervisor = supervisor
+        self.chatGPTRuntime = chatGPTRuntime
+        chatGPTConnectionManager = ChatGPTConnectionManager(operations: chatGPTRuntime)
         startURL = configuration.startURL
         dataDirectoryURL = backendDataDirectory
         backupURL = try Self.backupURL(
@@ -138,6 +148,8 @@ private final class InternalWorkbenchCoordinator {
     }
 
     func stopOwnedServices() {
+        chatGPTConnectionManager.disconnect()
+        chatGPTRuntime.stopOwnedServices()
         for id in [webServiceID, backendServiceID] where startedServices.contains(id) {
             guard case .running = supervisor.state(for: id) else { continue }
             try? supervisor.stop(id)
@@ -396,6 +408,14 @@ private final class WorkbenchWindow: NSObject, @preconcurrency WKNavigationDeleg
         webView.reload()
     }
 
+    var currentDomainProjectID: String? {
+        guard let components = webView.url?.pathComponents,
+              let projectsIndex = components.firstIndex(of: "projects"),
+              components.indices.contains(projectsIndex + 1) else { return nil }
+        let value = components[projectsIndex + 1].trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? nil : value.removingPercentEncoding ?? value
+    }
+
     func flushForBackup() async throws {
         _ = try await webView.callAsyncJavaScript(
             """
@@ -452,6 +472,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var launchTask: Task<Void, Never>?
     private var proposalWindow: NSWindow?
     private var proposalRuntime: Result<ProposalOpenRuntime, Error>?
+    private var chatGPTConnectionWindow: ChatGPTConnectionWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         installMainMenu()
@@ -483,6 +504,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func reloadWorkbench() {
         workbenchWindow?.reload()
+    }
+
+    @objc private func openChatGPTConnection() {
+        guard let coordinator else {
+            presentAlert(title: "工作台尚未就绪", message: "请等待 FilmOS Studio 启动完成。", style: .warning)
+            return
+        }
+        if chatGPTConnectionWindow == nil {
+            chatGPTConnectionWindow = ChatGPTConnectionWindow(
+                manager: coordinator.chatGPTConnectionManager,
+                projectID: { [weak self, weak coordinator] in
+                    self?.workbenchWindow?.currentDomainProjectID
+                        ?? coordinator?.chatGPTConnectionManager.savedConfiguration?.projectID
+                        ?? "host-project-1"
+                }
+            )
+        }
+        chatGPTConnectionWindow?.show()
     }
 
     @objc private func openFilmOSDataDirectory() {
@@ -567,6 +606,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 let url = try await coordinator.prepare()
                 try Task.checkCancellation()
                 self.workbenchWindow?.load(url)
+                await coordinator.chatGPTConnectionManager.autoConnectIfConfigured()
             } catch is CancellationError {
                 return
             } catch {
@@ -610,6 +650,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         exportBackupItem.target = self
         viewMenu.addItem(exportBackupItem)
         viewItem.submenu = viewMenu
+
+        let connectionItem = NSMenuItem()
+        mainMenu.addItem(connectionItem)
+        let connectionMenu = NSMenu(title: "连接")
+        let chatGPTItem = NSMenuItem(title: "ChatGPT 连接…", action: #selector(openChatGPTConnection), keyEquivalent: "")
+        chatGPTItem.target = self
+        connectionMenu.addItem(chatGPTItem)
+        connectionItem.submenu = connectionMenu
         NSApp.mainMenu = mainMenu
     }
 

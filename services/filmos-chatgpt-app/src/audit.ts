@@ -13,6 +13,11 @@ export type AuditRecord = {
   result_size: number;
   output_hash?: string;
   code?: string;
+  challenge_id?: string;
+  request_id?: string;
+  tool_name?: string;
+  timestamp?: string;
+  result_hash?: string;
 };
 
 export type AuditInput = Omit<AuditRecord, "event_id" | "recorded_at"> & { event_id?: string; recorded_at?: string };

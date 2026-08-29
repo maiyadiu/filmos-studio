@@ -38,14 +38,17 @@
         "backend/internal/service/auth.go",
         "backend/internal/service/desktop_backup.go",
         "backend/internal/handler/desktop_backup.go",
-        "web/src/lib/desktop-backup-bridge.ts"
+        "web/src/lib/desktop-backup-bridge.ts",
+        "acceptance/checks/no_openai_model_api_billing.py"
       ],
       "automated_tests": [
         "python3 acceptance/checks/desktop_release.py",
         "go test ./internal/service ./internal/handler ./cmd/server ./cmd/desktop-web",
         "python3 acceptance/checks/desktop_brand.py",
         "python3 acceptance/checks/desktop_runtime.py",
-        "python3 acceptance/checks/desktop_backup_restore.py"
+        "python3 acceptance/checks/desktop_backup_restore.py",
+        "python3 acceptance/checks/desktop_chatgpt_connection.py",
+        "python3 acceptance/checks/no_openai_model_api_billing.py"
       ],
       "golden_case_ids": [
         "DESKTOP-LAUNCH-001",
@@ -53,14 +56,18 @@
         "DESKTOP-BRAND-001",
         "DESKTOP-NO-PROTECTED-PATH-001",
         "DESKTOP-DATA-DIR-001",
-        "DESKTOP-BACKUP-RESTORE-001"
+        "DESKTOP-BACKUP-RESTORE-001",
+        "DESKTOP-CHATGPT-CONNECTION-001",
+        "NO-OPENAI-MODEL-API-001"
       ],
       "required_local_check_ids": [
         "desktop-brand",
         "desktop-local-auth",
         "desktop-release-build",
         "desktop-runtime",
-        "desktop-backup-restore"
+        "desktop-backup-restore",
+        "desktop-chatgpt-connection",
+        "no-openai-model-api-billing"
       ],
       "required_final_check_ids": [
         "desktop-brand",
@@ -68,7 +75,9 @@
         "desktop-release-build",
         "desktop-runtime",
         "desktop-backup-restore",
-        "restart-recovery"
+        "restart-recovery",
+        "desktop-chatgpt-connection",
+        "no-openai-model-api-billing"
       ]
     },
     {
@@ -414,12 +423,14 @@
       ],
       "automated_tests": [
         "python3 acceptance/checks/desktop_backup_restore.py",
+        "python3 acceptance/checks/desktop_chatgpt_connection.py",
         "python3 acceptance/checks/evidence_index.py",
         "python3 acceptance/checks/film_core_environment.py",
         "python3 acceptance/checks/full_chain.py",
         "python3 acceptance/checks/performance.py",
         "python3 acceptance/checks/remote_contract.py",
         "python3 acceptance/checks/reports.py",
+        "python3 acceptance/checks/no_openai_model_api_billing.py",
         "python3 acceptance/run.py --suite rc-local",
         "python3 acceptance/verify.py <receipt>"
       ],
@@ -432,7 +443,9 @@
         "PERFORMANCE-LOCAL-001",
         "ACCEPTANCE-REPORT-BUNDLE-001",
         "RC-RECOVERY-001",
-        "DESKTOP-BACKUP-RESTORE-001"
+        "DESKTOP-BACKUP-RESTORE-001",
+        "DESKTOP-CHATGPT-CONNECTION-001",
+        "NO-OPENAI-MODEL-API-001"
       ],
       "required_local_check_ids": [
         "acceptance-full-chain",
@@ -442,6 +455,7 @@
         "chatgpt-golden-real",
         "chatgpt-handoff-local",
         "desktop-backup-restore",
+        "desktop-chatgpt-connection",
         "evidence-index-contract",
         "film-contracts",
         "film-core-environment",
@@ -449,7 +463,8 @@
         "performance-local",
         "rc-recovery",
         "remote-acceptance-contract",
-        "upstream-compatibility"
+        "upstream-compatibility",
+        "no-openai-model-api-billing"
       ],
       "required_final_check_ids": [
         "film-core-environment",
@@ -463,7 +478,9 @@
         "remote-acceptance-contract",
         "performance-local",
         "acceptance-reports",
-        "rollback-real"
+        "rollback-real",
+        "desktop-chatgpt-connection",
+        "no-openai-model-api-billing"
       ]
     },
     {
@@ -471,32 +488,44 @@
       "source_paths": [
         "packages/filmos-tool-contracts",
         "services/filmos-chatgpt-app",
+        "desktop/macos/Sources/FilmOSDesktopCore/ChatGPTConnectionManager.swift",
+        "desktop/macos/Sources/FilmOSStudioDesktop/DesktopChatGPTRuntime.swift",
+        "desktop/macos/Sources/FilmOSStudioDesktop/ChatGPTConnectionWindow.swift",
+        "acceptance/checks/no_openai_model_api_billing.py",
         "plugins/filmos-chatgpt",
         "web/src/film/chatgpt"
       ],
       "automated_tests": [
         "python3 acceptance/checks/film_core_environment.py",
+        "python3 acceptance/checks/desktop_chatgpt_connection.py",
         "npm test",
-        "npm run test:golden-real"
+        "npm run test:golden-real",
+        "python3 acceptance/checks/no_openai_model_api_billing.py"
       ],
       "golden_case_ids": [
         "CHATGPT-MCP-001",
         "CHATGPT-HANDOFF-LOCAL-001",
-        "CHATGPT-HANDOFF-EXTERNAL-001"
+        "CHATGPT-HANDOFF-EXTERNAL-001",
+        "DESKTOP-CHATGPT-CONNECTION-001",
+        "NO-OPENAI-MODEL-API-001"
       ],
       "required_local_check_ids": [
         "film-core-environment",
+        "desktop-chatgpt-connection",
         "web-typecheck",
         "web-production-build",
         "chatgpt-handoff-local",
-        "chatgpt-golden-real"
+        "chatgpt-golden-real",
+        "no-openai-model-api-billing"
       ],
       "required_final_check_ids": [
         "film-core-environment",
+        "desktop-chatgpt-connection",
         "chatgpt-handoff-local",
         "chatgpt-golden-real",
         "chatgpt-handoff-external",
-        "acceptance-full-chain"
+        "acceptance-full-chain",
+        "no-openai-model-api-billing"
       ]
     }
   ]

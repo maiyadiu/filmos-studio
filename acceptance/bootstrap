@@ -14,8 +14,8 @@ command -v swift >/dev/null
 if [ ! -x "$VENV/bin/python" ]; then
     python3 -m venv "$VENV"
 fi
-if ! "$VENV/bin/python" -c 'import fastapi,film_production_core,httpx,jsonschema,pydantic,pytest,uvicorn' >/dev/null 2>&1; then
-    "$VENV/bin/python" -m pip install --disable-pip-version-check -e "$ROOT/film-core[test]"
+if ! "$VENV/bin/python" -c 'import fastapi,film_production_core,httpx,jsonschema,pydantic,pytest,uvicorn,PyInstaller' >/dev/null 2>&1; then
+    "$VENV/bin/python" -m pip install --disable-pip-version-check -e "$ROOT/film-core[test]" 'pyinstaller>=6.20,<7'
 fi
 (cd "$ROOT/web" && bun install --frozen-lockfile)
 (cd "$ROOT/canvas-agent" && bun install --frozen-lockfile)

@@ -23,6 +23,11 @@ public struct SecureTokenKey: Hashable, Sendable {
         account: "proposal-signing-secret"
     )
 
+    public static let openAIMCPTunnelRuntimeKey = try! SecureTokenKey(
+        service: "com.filmos.studio.openai-mcp-tunnel",
+        account: "runtime-key"
+    )
+
     private static func isSafeComponent(_ value: String) -> Bool {
         value.range(of: "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$", options: .regularExpression) != nil
     }

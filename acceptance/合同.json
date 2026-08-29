@@ -1,5 +1,5 @@
 {
-  "schema_version": "1.0.0",
+  "schema_version": "1.1.0",
   "release_target": "filmos-v1.0.0-rc1",
   "canonical_remote": "maiyadiu/filmos-studio",
   "acceptance_project": "FilmOS_Acceptance_Project",
@@ -9,6 +9,7 @@
     "automated_test_log",
     "runtime_log",
     "golden_receipt",
+    "billing_receipt",
     "artifact_sha256",
     "restart_receipt",
     "rollback_receipt"
@@ -34,6 +35,8 @@
     "precise_stale_propagation",
     "codex_agent",
     "chatgpt_handoff",
+    "desktop_managed_secure_mcp_tunnel",
+    "no_openai_model_api_billing",
     "real_cli_generation",
     "upstream_compatibility",
     "migration",
@@ -62,6 +65,8 @@
     "README_ONLY",
     "SELF_DECLARED_PASS",
     "MOCK_AS_REAL",
+    "TUNNEL_RUNNING_AS_CHATGPT_CONNECTED",
+    "OPENAI_MODEL_API_CALLS",
     "CODE_COMPLETE_AS_ACCEPTED",
     "CANDIDATE_AS_APPROVED",
     "UNHASHED_ARTIFACT",

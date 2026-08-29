@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Testing
 
@@ -6,6 +7,34 @@ import Testing
 @MainActor
 @Suite
 struct ServiceSupervisorTests {
+    @Test
+    func foundationLauncherWaitsForOwnedProcessAndEscalatesBoundedly() throws {
+        let policy = try ServiceLaunchPolicy(
+            allowedExecutableRoots: [URL(fileURLWithPath: "/bin", isDirectory: true)],
+            allowedWorkingDirectoryRoots: [URL(fileURLWithPath: "/tmp", isDirectory: true)]
+        )
+        let supervisor = ServiceSupervisor(policy: policy)
+        try supervisor.register(ServiceDefinition(
+            id: "owned-process",
+            displayName: "Owned Process",
+            executableURL: URL(fileURLWithPath: "/bin/sh"),
+            arguments: ["-c", "trap '' TERM; exec /bin/sleep 60"],
+            workingDirectoryURL: URL(fileURLWithPath: "/tmp", isDirectory: true)
+        ))
+
+        try supervisor.start("owned-process")
+        guard case let .running(processID) = supervisor.state(for: "owned-process") else {
+            Issue.record("Expected owned process to be running")
+            return
+        }
+        #expect(Darwin.kill(processID, 0) == 0)
+
+        try supervisor.stop("owned-process")
+
+        #expect(supervisor.state(for: "owned-process") == .stopped)
+        #expect(Darwin.kill(processID, 0) == -1)
+    }
+
     @Test
     func controlledServiceLifecycleUsesInjectedLauncher() throws {
         let workspaceRoot = URL(fileURLWithPath: "/tmp/FilmOSSupervisorTests", isDirectory: true)
@@ -161,6 +190,50 @@ struct ServiceSupervisorTests {
     }
 
     @Test
+    func runtimeTunnelCredentialIsInjectedWithoutPersistingOrEnteringArguments() throws {
+        let policy = try ServiceLaunchPolicy(
+            allowedExecutableRoots: [URL(fileURLWithPath: "/usr/bin", isDirectory: true)],
+            allowedWorkingDirectoryRoots: [URL(fileURLWithPath: "/tmp/work", isDirectory: true)]
+        )
+        let launcher = FakeLauncher(result: .success(FakeManagedProcess(processIdentifier: 22)))
+        let supervisor = ServiceSupervisor(policy: policy, launcher: launcher)
+        try supervisor.register(
+            ServiceDefinition(
+                id: "secure-tunnel",
+                displayName: "Secure MCP Tunnel",
+                executableURL: URL(fileURLWithPath: "/usr/bin/true"),
+                arguments: ["--control-plane.api-key", "env:CONTROL_PLANE_API_KEY"],
+                workingDirectoryURL: URL(fileURLWithPath: "/tmp/work", isDirectory: true)
+            )
+        )
+        let runtime = try ServiceRuntimeEnvironment(
+            values: [
+                "CONTROL_PLANE_API_KEY": "sk-runtime-secret-do-not-log",
+                "CONTROL_PLANE_TUNNEL_ID": "tunnel_test",
+            ],
+            secretKeys: ["CONTROL_PLANE_API_KEY"]
+        )
+
+        try supervisor.start("secure-tunnel", runtimeEnvironment: runtime)
+
+        #expect(supervisor.registeredServices().first?.environment["CONTROL_PLANE_API_KEY"] == nil)
+        #expect(launcher.lastDefinition?.arguments.contains("sk-runtime-secret-do-not-log") == false)
+        #expect(launcher.lastRuntimeEnvironment?.values["CONTROL_PLANE_API_KEY"] == "sk-runtime-secret-do-not-log")
+        #expect(runtime.redactedDescription["CONTROL_PLANE_API_KEY"] == "[REDACTED]")
+        #expect(runtime.redactedDescription["CONTROL_PLANE_TUNNEL_ID"] == "tunnel_test")
+    }
+
+    @Test
+    func runtimeEnvironmentRejectsUnsupportedSecretsAndSensitivePlainValues() {
+        #expect(throws: ServiceSupervisorError.invalidEnvironment) {
+            _ = try ServiceRuntimeEnvironment(values: ["OPENAI_API_KEY": "secret"], secretKeys: [])
+        }
+        #expect(throws: ServiceSupervisorError.invalidEnvironment) {
+            _ = try ServiceRuntimeEnvironment(values: ["OPENAI_API_KEY": "secret"], secretKeys: ["OPENAI_API_KEY"])
+        }
+    }
+
+    @Test
     func failedLaunchProducesExplicitState() throws {
         let policy = try ServiceLaunchPolicy(
             allowedExecutableRoots: [URL(fileURLWithPath: "/usr/bin", isDirectory: true)],
@@ -193,14 +266,19 @@ private final class FakeLauncher: ServiceProcessLaunching {
     let result: Result<FakeManagedProcess, Error>
     private(set) var launchCount = 0
     private(set) var lastDefinition: ServiceDefinition?
+    private(set) var lastRuntimeEnvironment: ServiceRuntimeEnvironment?
 
     init(result: Result<FakeManagedProcess, Error>) {
         self.result = result
     }
 
-    func launch(_ definition: ServiceDefinition) throws -> any ManagedServiceProcess {
+    func launch(
+        _ definition: ServiceDefinition,
+        runtimeEnvironment: ServiceRuntimeEnvironment
+    ) throws -> any ManagedServiceProcess {
         launchCount += 1
         lastDefinition = definition
+        lastRuntimeEnvironment = runtimeEnvironment
         return try result.get()
     }
 }

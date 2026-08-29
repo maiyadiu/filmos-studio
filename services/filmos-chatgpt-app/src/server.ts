@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomUUID, timingSafeEqual } from "node:crypto";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -13,7 +13,17 @@ import { authorizeMediaProxy, EmptyMediaProxyStore, MediaProxyError, type MediaP
 import { createFilmOSMcpServer } from "./mcp.js";
 import { PythonProposalPreviewAdapter, ProposalPreviewError, type ProposalPreviewAdapter } from "./proposal-preview.js";
 
-type Session = { transport: StreamableHTTPServerTransport; grant: ProjectGrant };
+type TunnelContext = { tunneled: boolean; challengeId: string | null };
+type Session = { transport: StreamableHTTPServerTransport; grant: ProjectGrant; tunnel: TunnelContext };
+
+type ExternalObservation = {
+  last_chatgpt_mcp_request_at: string;
+  tool_name: string;
+  request_id: string;
+  project_scope: string;
+  challenge_id: string;
+  result_hash: string | null;
+};
 
 export type FilmOSChatGPTAppOptions = {
   enabled: boolean;
@@ -27,12 +37,14 @@ export type FilmOSChatGPTAppOptions = {
   media?: MediaProxyStore;
   allowedOrigins?: string[];
   proposalPreview?: ProposalPreviewAdapter;
+  secureTunnelProof?: string;
 };
 
 export function createFilmOSChatGPTApp(options: FilmOSChatGPTAppOptions) {
   const app = express();
   const sessions = new Map<string, Session>();
   const observations = new Map<string, { last_read_at: string; last_context_snapshot: { uri: string | null; version: number | null; state_hash: string | null } }>();
+  let externalObservation: ExternalObservation | null = null;
   app.disable("x-powered-by");
   app.use(express.json({ limit: "1mb" }));
   app.use((req, res, next) => {
@@ -51,7 +63,13 @@ export function createFilmOSChatGPTApp(options: FilmOSChatGPTAppOptions) {
     enabled: options.enabled,
     proposal_handoff_enabled: options.proposalHandoffEnabled,
     public_listener: false,
-    external_account_connected: false,
+    external_account_connected: externalObservation !== null,
+    last_chatgpt_mcp_request_at: externalObservation?.last_chatgpt_mcp_request_at ?? null,
+    tool_name: externalObservation?.tool_name ?? null,
+    request_id: externalObservation?.request_id ?? null,
+    project_scope: externalObservation?.project_scope ?? null,
+    challenge_id: externalObservation?.challenge_id ?? null,
+    result_hash: externalObservation?.result_hash ?? null,
   }));
 
   const authenticate = async (req: Request, res: Response): Promise<{ grant: ProjectGrant } | null> => {
@@ -74,10 +92,11 @@ export function createFilmOSChatGPTApp(options: FilmOSChatGPTAppOptions) {
       return session.transport.handleRequest(req, res, req.body);
     }
     if (req.method !== "POST" || !isInitializeRequest(req.body)) return res.status(400).json({ code: "MCP_INITIALIZE_REQUIRED" });
+    const tunnel = secureTunnelContext(req, options.secureTunnelProof);
     let transport: StreamableHTTPServerTransport;
     transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: randomUUID,
-      onsessioninitialized: (id: string) => { sessions.set(id, { transport, grant: authorization.grant }); },
+      onsessioninitialized: (id: string) => { sessions.set(id, { transport, grant: authorization.grant, tunnel }); },
     });
     const server = createFilmOSMcpServer({
       grant: authorization.grant,
@@ -87,10 +106,23 @@ export function createFilmOSChatGPTApp(options: FilmOSChatGPTAppOptions) {
       proposalSigningSecret: options.proposalSigningSecret,
       readToolsEnabled: options.readToolsEnabled,
       widgetsEnabled: options.widgetsEnabled,
-      onRead: (snapshot) => observations.set(authorization.grant.grant_id, {
-        last_read_at: snapshot.read_at,
-        last_context_snapshot: { uri: snapshot.uri, version: snapshot.version, state_hash: snapshot.state_hash },
-      }),
+      liveGate: tunnel.challengeId ? { challengeId: tunnel.challengeId, tunneled: tunnel.tunneled } : undefined,
+      onRead: (snapshot) => {
+        observations.set(authorization.grant.grant_id, {
+          last_read_at: snapshot.read_at,
+          last_context_snapshot: { uri: snapshot.uri, version: snapshot.version, state_hash: snapshot.state_hash },
+        });
+        if (tunnel.tunneled && tunnel.challengeId) {
+          externalObservation = {
+            last_chatgpt_mcp_request_at: snapshot.read_at,
+            tool_name: snapshot.tool_name,
+            request_id: snapshot.request_id,
+            project_scope: authorization.grant.project_id,
+            challenge_id: tunnel.challengeId,
+            result_hash: snapshot.state_hash,
+          };
+        }
+      },
     });
     transport.onclose = () => { if (transport.sessionId) sessions.delete(transport.sessionId); };
     await server.connect(transport);
@@ -112,9 +144,9 @@ export function createFilmOSChatGPTApp(options: FilmOSChatGPTAppOptions) {
     }
     const observation = observations.get(authorization.grant.grant_id);
     const body = {
-      connection: "disconnected",
+      connection: externalObservation ? "connected" : "disconnected",
       local_mcp_ready: true,
-      external_account_connected: false,
+      external_account_connected: externalObservation !== null,
       authorized_project: {
         project_id: authorization.grant.project_id,
         grant_id: authorization.grant.grant_id,
@@ -123,7 +155,13 @@ export function createFilmOSChatGPTApp(options: FilmOSChatGPTAppOptions) {
       last_read_at: observation?.last_read_at ?? null,
       last_context_snapshot: observation?.last_context_snapshot ?? null,
       proposal_handoff_enabled: options.proposalHandoffEnabled,
-      status_code: "BLOCKED_EXTERNAL_ACCOUNT",
+      last_chatgpt_mcp_request_at: externalObservation?.last_chatgpt_mcp_request_at ?? null,
+      tool_name: externalObservation?.tool_name ?? null,
+      request_id: externalObservation?.request_id ?? null,
+      project_scope: externalObservation?.project_scope ?? null,
+      challenge_id: externalObservation?.challenge_id ?? null,
+      result_hash: externalObservation?.result_hash ?? null,
+      status_code: externalObservation ? "CHATGPT_REACHED_FILMOS" : "WAITING_FOR_CHATGPT",
     };
     await options.audit.write(auditRecord({ correlation_id: randomUUID(), action: "handoff.status", grant_id: authorization.grant.grant_id, project_id: authorization.grant.project_id, outcome: "ALLOW", result_size: byteSize(body) }));
     return res.json(body);
@@ -227,6 +265,7 @@ export async function startFromEnvironment(env: NodeJS.ProcessEnv = process.env)
       signingSecret: env.FILMOS_CHATGPT_PROPOSAL_SIGNING_SECRET,
       receiptDirectory: resolve(localDir, "proposal-receipts"),
     }) : undefined,
+    secureTunnelProof: env.FILMOS_SECURE_TUNNEL_PROOF,
   });
   const httpServer = instance.app.listen(port, host);
   return { ...instance, httpServer, host, port };
@@ -238,6 +277,24 @@ function isLoopbackHost(value: string | undefined): boolean {
   if (!value) return false;
   const host = value.startsWith("[") ? value.slice(1, value.indexOf("]")) : value.split(":")[0];
   return host === "127.0.0.1" || host === "localhost" || host === "::1";
+}
+
+function secureTunnelContext(req: Request, expectedProof?: string): TunnelContext {
+  const transport = req.header("x-filmos-transport") ?? "";
+  const proof = req.header("x-filmos-transport-proof") ?? "";
+  const challengeId = req.header("x-filmos-live-gate-challenge") ?? "";
+  const validChallenge = /^live_[A-Za-z0-9_-]{8,96}$/.test(challengeId);
+  return {
+    tunneled: transport === "secure-mcp-tunnel" && safeTextEqual(proof, expectedProof ?? "") && validChallenge,
+    challengeId: validChallenge ? challengeId : null,
+  };
+}
+
+function safeTextEqual(left: string, right: string): boolean {
+  if (!left || !right) return false;
+  const leftBytes = Buffer.from(left);
+  const rightBytes = Buffer.from(right);
+  return leftBytes.byteLength === rightBytes.byteLength && timingSafeEqual(leftBytes, rightBytes);
 }
 
 export function isExecutedAsMain(moduleUrl: string, argvPath: string | undefined): boolean {

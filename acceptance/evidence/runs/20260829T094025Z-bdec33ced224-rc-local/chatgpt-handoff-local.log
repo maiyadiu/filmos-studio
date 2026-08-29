@@ -1,0 +1,53 @@
+
+> @filmos/chatgpt-app@0.1.0 test
+> npm run build:contracts && npm run build:widget && tsx --test --test-concurrency=1 test/*.test.ts
+
+
+> @filmos/chatgpt-app@0.1.0 build:contracts
+> npm --prefix ../../packages/filmos-tool-contracts run build
+
+
+> @filmos/tool-contracts@1.0.0 build
+> npm run generate && tsc -p tsconfig.json
+
+
+> @filmos/tool-contracts@1.0.0 generate
+> node scripts/generate.mjs
+
+
+> @filmos/chatgpt-app@0.1.0 build:widget
+> node scripts/build-widget.mjs
+
+✔ current Tool Contract remains compatible with the frozen v1 ChatGPT installation snapshot (0.69925ms)
+✔ additive tools are backward compatible but removed or narrowed v1 tools require migration (0.563959ms)
+✔ read and widget feature flags independently gate public MCP tools and resources (13.041959ms)
+✔ Project Grant expires, revokes, and never stores the raw token (1.988542ms)
+✔ security boundary redacts secret keys, token values, and absolute paths while reporting injection text (0.89ms)
+✔ only loopback HTTP endpoints are accepted (0.118459ms)
+✔ handoff status is flat, project scoped, audited, and reveals no token or local path (25.520917ms)
+✔ grant revoke only revokes the bearer grant and returns the stable receipt (15.094917ms)
+✔ proposal preview accepts exactly {package}, preserves the Core wrapper, and never applies (5.023666ms)
+✔ proposal preview fails closed when the Core importer is not configured (2.668208ms)
+✔ handoff JSON body limit is 1 MiB and errors never return an Express stack (6.526792ms)
+✔ Golden ChatGPT A: authorized Candidate project is readable through streamable HTTP and writes stay hidden (54.101875ms)
+✔ project scope blocks cross-project fetch and token revocation fails a live session closed (13.669834ms)
+✔ first proven Secure Tunnel read marks ChatGPT reached FilmOS and writes a challenge receipt (12.695625ms)
+✔ a direct localhost client cannot spoof ChatGPT reachability without the ephemeral tunnel proof (10.145208ms)
+✔ Golden ChatGPT B: proposal handoff signs a local package and never applies it (48.270375ms)
+✔ media proxy serves only project-scoped bounded proxy media (7.322208ms)
+✔ Secure MCP Tunnel doctor fails closed without external account credentials (0.214583ms)
+✔ Secure MCP Tunnel disconnect or missing client remains fail closed with no listener (0.492334ms)
+✔ proposal preview child receives only the fixed importer environment (0.07825ms)
+✔ server entrypoint recognizes decoded paths containing spaces and Unicode (0.624042ms)
+✔ ProjectOverviewWidget renders semantic project metrics (1.198292ms)
+✔ ContentUnitProgressWidget renders formal state axes (0.101625ms)
+✔ ShotReviewWidget renders review state and director bindings without an approval action (0.063833ms)
+✔ widget resources use the official ext-apps bridge bundle and no handwritten wildcard initialization (1.475292ms)
+ℹ tests 25
+ℹ suites 0
+ℹ pass 25
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1692.7275

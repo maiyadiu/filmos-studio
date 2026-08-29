@@ -11,6 +11,11 @@ plist="$bundle/Contents/Info.plist"
 binary="$bundle/Contents/MacOS/FilmOSStudioDesktop"
 backend="$bundle/Contents/Helpers/FilmOSBackend"
 web_server="$bundle/Contents/Helpers/FilmOSWeb"
+film_core="$bundle/Contents/Helpers/FilmOSFilmCore"
+chatgpt_mcp="$bundle/Contents/Helpers/FilmOSChatGPTMCP"
+chatgpt_grant="$bundle/Contents/Helpers/FilmOSChatGPTGrant"
+tunnel_client="$bundle/Contents/Helpers/tunnel-client"
+cloudflared="$bundle/Contents/Helpers/cloudflared"
 icon="$bundle/Contents/Resources/FilmOSStudio.icns"
 runtime="$bundle/Contents/Resources/InternalRuntime.json"
 web_root="$bundle/Contents/Resources/Web"
@@ -43,12 +48,22 @@ test "$(/usr/libexec/PlistBuddy -c 'Print :UTExportedTypeDeclarations:1:UTTypeTa
 test -x "$binary"
 test -x "$backend"
 test -x "$web_server"
+test -x "$film_core"
+test -x "$chatgpt_mcp"
+test -x "$chatgpt_grant"
+test -x "$tunnel_client"
+test -x "$cloudflared"
 test -f "$icon"
 test -f "$runtime"
 test -f "$web_root/index.html"
 file "$binary" | grep -q 'Mach-O'
 file "$backend" | grep -q 'Mach-O'
 file "$web_server" | grep -q 'Mach-O'
+file "$film_core" | grep -q 'Mach-O'
+file "$chatgpt_mcp" | grep -q 'Mach-O'
+file "$chatgpt_grant" | grep -q 'Mach-O'
+file "$tunnel_client" | grep -q 'Mach-O'
+file "$cloudflared" | grep -q 'Mach-O'
 
 start_url=$(runtime_value start_url)
 web_health_url=$(runtime_value web_health_url)

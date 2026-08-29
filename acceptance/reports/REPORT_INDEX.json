@@ -2,14 +2,14 @@
   "evidence_status": "DEVELOPMENT_EVIDENCE_DIRTY",
   "raw_sources": [
     {
-      "bytes": 24772,
+      "bytes": 25287,
       "path": "CHANGELOG.md",
-      "sha256": "2f0b076d89c2bdde462a8c5cb0701d1830fa14cc39cc57ccadaeb1bcfe006634"
+      "sha256": "55478dcd36fadcd37ae24166a51173d23051e2a34317381e81ba6d7326fd8637"
     },
     {
       "bytes": 3357,
       "path": "acceptance/MANIFEST.json",
-      "sha256": "f350e81c9c2fbedde412c5ee1b9e57e7666e1eafd4468c5f7bae88fc1488061c"
+      "sha256": "24a2807138961273af9d2423a9ac0dc22a2d24465b788dbab9ac7accc8183def"
     },
     {
       "bytes": 2187,
@@ -47,18 +47,20 @@
       "sha256": "953163a579f8f2ada4c2d778cca31171530bfbd43e14415a7ddcbc2b30a3c685"
     }
   ],
-  "receipt": "acceptance/evidence/runs/20260828T152423Z-40b5c0d7e0ae-rc-local/receipt.json",
-  "receipt_sha256": "d3c787598a832a0ba5d0363daae1433ceb8ddb067e76e038c14f46b02c0e575c",
+  "receipt": "acceptance/evidence/runs/20260829T094648Z-bdec33ced224-rc-local/receipt.json",
+  "receipt_sha256": "f5b3e9b24e8088f9529d8e2205c92a5f2eefbab7bf4757eda4e9007a675dc1b7",
   "reports": [
     {
-      "bytes": 1863,
+      "bytes": 2447,
       "check_ids": [
         "desktop-release-build",
+        "desktop-chatgpt-connection",
+        "no-openai-model-api-billing",
         "performance-local",
         "remote-acceptance-contract"
       ],
       "path": "acceptance/reports/KNOWN_LIMITATIONS.md",
-      "sha256": "3e928625570e00fbeff26c8231e59e1cba13248f8cf9f262e9bcdca608e58507"
+      "sha256": "ecc8e03398d7a3ab5265b63cf2ea22a580bfef14dc5df2aa3eff1ea34394a5ec"
     },
     {
       "bytes": 1625,
@@ -68,7 +70,7 @@
         "desktop-backup-restore"
       ],
       "path": "acceptance/reports/MIGRATION_REPORT.md",
-      "sha256": "a14fe0fd7d5df217a91c24de549eff26db192719a08f7ebaa13bcd39a7c62964"
+      "sha256": "866e96721ec697844ecafb6331f3e41301d5eae69e28af410e0c8bb81cdb5825"
     },
     {
       "bytes": 1381,
@@ -77,43 +79,46 @@
         "rc-recovery"
       ],
       "path": "acceptance/reports/UPSTREAM_COMPATIBILITY_REPORT.md",
-      "sha256": "95bf1868e63c92abc7dc0c14d5d53fe081a3e3491c3d3e48db7510b2ce2a9f00"
+      "sha256": "d6f1e1525cf8a21a31bab0e33fa8d822e82f2ac4f10fa5aa1c1187dedad25e08"
     },
     {
-      "bytes": 2080,
+      "bytes": 2631,
       "check_ids": [
         "desktop-local-auth",
         "desktop-backup-restore",
         "canvas-agent",
         "chatgpt-handoff-local",
         "chatgpt-golden-real",
+        "desktop-chatgpt-connection",
+        "no-openai-model-api-billing",
         "acceptance-privacy"
       ],
       "path": "acceptance/reports/SECURITY_REPORT.md",
-      "sha256": "bd97346bc69b7e5b0af9fc03741709340a159455a220727caaf076e613b8a7be"
+      "sha256": "520077f0c39d7da7468472d64e0ca11ff3154b87f49dfa42852930d92af8c83f"
     },
     {
-      "bytes": 1519,
+      "bytes": 1518,
       "check_ids": [
         "web-production-build",
         "performance-local"
       ],
       "path": "acceptance/reports/PERFORMANCE_REPORT.md",
-      "sha256": "4f4f06ab9cbfb4faa0b12779383049900e7cd8e9e7a4aaa0254254d02776f188"
+      "sha256": "494d7ea403a70feabcb34dfd1b0e2ff4bcc35118c60f51425c93534f4ebb8481"
     },
     {
-      "bytes": 1647,
+      "bytes": 1859,
       "check_ids": [
         "desktop-backup-restore",
         "golden-abc-real-http",
         "acceptance-full-chain",
-        "chatgpt-golden-real"
+        "chatgpt-golden-real",
+        "desktop-chatgpt-connection"
       ],
       "path": "acceptance/reports/GOLDEN_TEST_REPORT.md",
-      "sha256": "e07cf051ea1618ab6deaaedac3ab0ae02bda5eb1b345959f4619e73ef4b441e3"
+      "sha256": "4524559873fea0d1c4f681e9b289fe2465027325642f37691b9123b42206a958"
     }
   ],
   "schema_version": "1.0.0",
-  "source_snapshot_sha256": "25b617719005c8f0ccbfb4110c3dea6c85f280c66557a749ca549f061453a028",
-  "started_from_commit": "40b5c0d7e0aee902767dc23cc51538c9ce8538db"
+  "source_snapshot_sha256": "64a65f6fda5367ae874c6d6323f12e0c89efa2e33bb5566aa7d56b7bc8a547fa",
+  "started_from_commit": "bdec33ced224ea3aedc984aad426d1c20c9fc4f7"
 }

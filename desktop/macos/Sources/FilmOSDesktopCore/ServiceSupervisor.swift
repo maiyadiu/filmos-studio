@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 public struct ServiceID: RawRepresentable, Hashable, Codable, Sendable, ExpressibleByStringLiteral {
@@ -34,6 +35,43 @@ public struct ServiceDefinition: Equatable, Sendable {
         self.arguments = arguments
         self.workingDirectoryURL = workingDirectoryURL
         self.environment = environment
+    }
+}
+
+public struct ServiceRuntimeEnvironment: Equatable, Sendable {
+    public static let empty = try! ServiceRuntimeEnvironment(values: [:], secretKeys: [])
+
+    let values: [String: String]
+    let secretKeys: Set<String>
+
+    public init(values: [String: String], secretKeys: Set<String> = []) throws {
+        let supportedSecretKeys: Set<String> = [
+            "CONTROL_PLANE_API_KEY",
+            "FILMOS_SECURE_TUNNEL_PROOF",
+        ]
+        guard secretKeys.isSubset(of: Set(values.keys)), secretKeys.isSubset(of: supportedSecretKeys) else {
+            throw ServiceSupervisorError.invalidEnvironment
+        }
+        for (key, value) in values {
+            guard
+                key.range(of: "^[A-Z_][A-Z0-9_]*$", options: .regularExpression) != nil,
+                !value.contains("\0"),
+                !value.contains("\n"),
+                !value.contains("\r"),
+                !value.isEmpty,
+                !ServiceLaunchPolicy.looksSensitive(key) || secretKeys.contains(key)
+            else {
+                throw ServiceSupervisorError.invalidEnvironment
+            }
+        }
+        self.values = values
+        self.secretKeys = secretKeys
+    }
+
+    public var redactedDescription: [String: String] {
+        Dictionary(uniqueKeysWithValues: values.map { key, value in
+            (key, secretKeys.contains(key) ? "[REDACTED]" : value)
+        })
     }
 }
 
@@ -115,7 +153,7 @@ public struct ServiceLaunchPolicy: Equatable, Sendable {
         }.standardizedFileURL
     }
 
-    private static func looksSensitive(_ key: String) -> Bool {
+    fileprivate static func looksSensitive(_ key: String) -> Bool {
         let fragments = ["TOKEN", "SECRET", "PASSWORD", "COOKIE", "API_KEY", "AUTHORIZATION"]
         return fragments.contains(where: key.contains)
     }
@@ -139,19 +177,25 @@ public protocol ManagedServiceProcess: AnyObject {
 
 @MainActor
 public protocol ServiceProcessLaunching {
-    func launch(_ definition: ServiceDefinition) throws -> any ManagedServiceProcess
+    func launch(
+        _ definition: ServiceDefinition,
+        runtimeEnvironment: ServiceRuntimeEnvironment
+    ) throws -> any ManagedServiceProcess
 }
 
 @MainActor
 public final class FoundationServiceProcessLauncher: ServiceProcessLaunching {
     public init() {}
 
-    public func launch(_ definition: ServiceDefinition) throws -> any ManagedServiceProcess {
+    public func launch(
+        _ definition: ServiceDefinition,
+        runtimeEnvironment: ServiceRuntimeEnvironment
+    ) throws -> any ManagedServiceProcess {
         let process = Process()
         process.executableURL = definition.executableURL
         process.arguments = definition.arguments
         process.currentDirectoryURL = definition.workingDirectoryURL
-        process.environment = definition.environment
+        process.environment = definition.environment.merging(runtimeEnvironment.values) { _, runtime in runtime }
         try process.run()
         return FoundationManagedServiceProcess(process)
     }
@@ -167,7 +211,18 @@ private final class FoundationManagedServiceProcess: ManagedServiceProcess {
 
     var processIdentifier: Int32 { process.processIdentifier }
     var isRunning: Bool { process.isRunning }
-    func terminate() { process.terminate() }
+    func terminate() {
+        guard process.isRunning else { return }
+        process.terminate()
+        let deadline = Date().addingTimeInterval(2)
+        while process.isRunning, Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.02)
+        }
+        if process.isRunning {
+            _ = Darwin.kill(process.processIdentifier, SIGKILL)
+            process.waitUntilExit()
+        }
+    }
 }
 
 public enum ServiceSupervisorError: Error, Equatable, LocalizedError {
@@ -231,7 +286,10 @@ public final class ServiceSupervisor {
         definitions.values.sorted { $0.id.rawValue < $1.id.rawValue }
     }
 
-    public func start(_ id: ServiceID) throws {
+    public func start(
+        _ id: ServiceID,
+        runtimeEnvironment: ServiceRuntimeEnvironment = .empty
+    ) throws {
         guard let definition = definitions[id] else {
             throw ServiceSupervisorError.unknownService
         }
@@ -243,7 +301,10 @@ public final class ServiceSupervisor {
 
         states[id] = .starting
         do {
-            let process = try launcher.launch(validatedDefinition)
+            let process = try launcher.launch(
+                validatedDefinition,
+                runtimeEnvironment: runtimeEnvironment
+            )
             processes[id] = process
             states[id] = .running(processID: process.processIdentifier)
         } catch {

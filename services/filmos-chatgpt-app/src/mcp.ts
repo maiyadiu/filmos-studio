@@ -20,7 +20,15 @@ export type FilmOSMcpSessionOptions = {
   proposalSigningSecret?: string;
   readToolsEnabled?: boolean;
   widgetsEnabled?: boolean;
-  onRead?: (snapshot: { read_at: string; uri: string | null; version: number | null; state_hash: string | null }) => void;
+  liveGate?: { challengeId: string; tunneled: boolean };
+  onRead?: (snapshot: {
+    read_at: string;
+    uri: string | null;
+    version: number | null;
+    state_hash: string | null;
+    tool_name: string;
+    request_id: string;
+  }) => void;
 };
 
 export function createFilmOSMcpServer(options: FilmOSMcpSessionOptions): McpServer {
@@ -78,14 +86,14 @@ async function callTool(name: string, input: Record<string, unknown>, options: F
     if (name === "search") {
       const results = await options.dataSource.search(String(input.query), options.grant, signal);
       const outputHash = sha256(results);
-      options.onRead?.({ read_at: new Date().toISOString(), uri: null, version: null, state_hash: outputHash });
+      notifyRead(options, correlationId, name, null, null, outputHash);
       await allowedAudit(options, correlationId, name, outputHash, byteSize(results));
       return { content: [{ type: "text" as const, text: JSON.stringify({ results }) }] };
     }
     if (name === "fetch") {
       const result = await options.dataSource.fetch(String(input.id), options.grant, signal);
       const outputHash = sha256(result);
-      options.onRead?.({ read_at: new Date().toISOString(), uri: result.id, version: null, state_hash: outputHash });
+      notifyRead(options, correlationId, name, result.id, null, outputHash);
       await allowedAudit(options, correlationId, name, outputHash, byteSize(result));
       return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
     }
@@ -109,7 +117,7 @@ async function callTool(name: string, input: Record<string, unknown>, options: F
       return { structuredContent: result, content: [{ type: "text" as const, text: "A signed local proposal package is ready. Nothing was applied to FilmOS." }] };
     }
     const payload = await options.dataSource.read(name, input, options.grant, signal);
-    options.onRead?.({ read_at: new Date().toISOString(), uri: payload.uri, version: payload.version, state_hash: payload.state_hash });
+    notifyRead(options, correlationId, name, payload.uri, payload.version, payload.state_hash);
     await allowedAudit(options, correlationId, name, payload.state_hash, byteSize(payload));
     return {
       structuredContent: payload,
@@ -123,7 +131,32 @@ async function callTool(name: string, input: Record<string, unknown>, options: F
 }
 
 async function allowedAudit(options: FilmOSMcpSessionOptions, correlationId: string, action: string, outputHash: string, resultSize: number) {
-  await options.audit.write(auditRecord({ correlation_id: correlationId, action, grant_id: options.grant.grant_id, project_id: options.grant.project_id, outcome: "ALLOW", output_hash: outputHash, result_size: resultSize }));
+  const liveGate = options.liveGate?.tunneled ? {
+    challenge_id: options.liveGate.challengeId,
+    request_id: correlationId,
+    tool_name: action,
+    timestamp: new Date().toISOString(),
+    result_hash: outputHash,
+  } : {};
+  await options.audit.write(auditRecord({ correlation_id: correlationId, action, grant_id: options.grant.grant_id, project_id: options.grant.project_id, outcome: "ALLOW", output_hash: outputHash, result_size: resultSize, ...liveGate }));
+}
+
+function notifyRead(
+  options: FilmOSMcpSessionOptions,
+  requestId: string,
+  toolName: string,
+  uri: string | null,
+  version: number | null,
+  stateHash: string,
+) {
+  options.onRead?.({
+    read_at: new Date().toISOString(),
+    uri,
+    version,
+    state_hash: stateHash,
+    tool_name: toolName,
+    request_id: requestId,
+  });
 }
 
 function byteSize(value: unknown): number { return Buffer.byteLength(JSON.stringify(value)); }

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- 新增 macOS“ChatGPT 连接”管家：首次仅输入 Tunnel ID 与 Runtime Key，密钥只存入 Keychain；由桌面端统一启动 Film Core、20 个只读 MCP 工具、Project Grant 与官方 Secure MCP Tunnel，并提供自动重连、诊断和 External Live Gate Challenge。
+- 锁定 ChatGPT 接入为 `SUBSCRIPTION_ONLY`：MCP 写工具为 0，运行时不接入 OpenAI Responses、Chat Completions、Embeddings、Images 或 Audio 模型 API，并生成独立 `NO-OPENAI-MODEL-API-001` 机器回执。
 - 新增 FilmOS Studio 内部 macOS 桌面工作台：支持双击或程序坞启动、`127.0.0.1` 限定的本地免登录、自有品牌图标、数据目录定位与 `.filmosbackup` 导出。
 - 建立 SQLite 一致性备份与恢复合同，逐文件记录 SHA-256，并排除 API Key、Cookie、CLI 登录凭据、`.settings-key` 和可重建缓存。
 - 新增 `acceptance/` 独立验收体系：固定 `FilmOS_Acceptance_Project` 全链、Golden A/B/C、重启/备份恢复、精准 STALE、Agent/ChatGPT、上游兼容、性能、隐私、报告哈希与可重放 CI；外部验收仓库锁定为 `maiyadiu/filmos-studio`。

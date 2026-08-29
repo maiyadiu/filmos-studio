@@ -66,10 +66,24 @@ CURRENT_CHECKS = (
         ROOT,
         ("01-desktop",),
     ),
+    Check(
+        "no-openai-model-api-billing",
+        "Subscription-only ChatGPT connection with zero OpenAI model API endpoints",
+        (sys.executable, "acceptance/checks/no_openai_model_api_billing.py"),
+        ROOT,
+        ("01-desktop", "13-qa", "14-chatgpt-app"),
+    ),
 )
 
 
 RC_LOCAL_CHECKS = CURRENT_CHECKS + (
+    Check(
+        "desktop-chatgpt-connection",
+        "Desktop-managed Film Core, MCP, Keychain, Secure Tunnel lifecycle and Live Gate",
+        (sys.executable, "acceptance/checks/desktop_chatgpt_connection.py"),
+        ROOT,
+        ("01-desktop", "13-qa", "14-chatgpt-app"),
+    ),
     Check(
         "film-core-environment",
         "Acceptance-owned Film Core Python dependency contract",
@@ -326,9 +340,20 @@ def run_check(check: Check, run_dir: Path, environment: dict[str, str]) -> dict[
         env=environment,
         check=False,
     )
-    log_path.write_bytes(redact_log(process.stdout or b""))
+    redacted = redact_log(process.stdout or b"")
+    log_path.write_bytes(redacted)
+    artifact = None
+    if check.check_id == "no-openai-model-api-billing" and process.returncode == 0:
+        payload = json.loads(redacted.decode("utf-8"))
+        artifact_path = run_dir / "no-openai-model-api-billing-receipt.json"
+        artifact_path.write_bytes(json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2).encode() + b"\n")
+        artifact = {
+            "path": artifact_path.name,
+            "sha256": sha256_file(artifact_path),
+            "bytes": artifact_path.stat().st_size,
+        }
     duration_ms = round((time.monotonic() - started) * 1000, 3)
-    return {
+    result = {
         "check_id": check.check_id,
         "title": check.title,
         "tracks": list(check.tracks),
@@ -341,6 +366,9 @@ def run_check(check: Check, run_dir: Path, environment: dict[str, str]) -> dict[
         "log_sha256": sha256_file(log_path),
         "log_bytes": log_path.stat().st_size,
     }
+    if artifact:
+        result["artifact"] = artifact
+    return result
 
 
 def main() -> int:

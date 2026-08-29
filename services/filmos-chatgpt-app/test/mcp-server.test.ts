@@ -79,3 +79,83 @@ test("project scope blocks cross-project fetch and token revocation fails a live
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 });
+
+test("first proven Secure Tunnel read marks ChatGPT reached FilmOS and writes a challenge receipt", async () => {
+  const grants = new MemoryProjectGrantStore();
+  const issued = await grants.issue(projectA, "chatgpt-live-gate");
+  const audit = new MemoryAuditSink();
+  const proof = "ephemeral-transport-proof-42";
+  const challenge = "live_acceptance_12345678";
+  const instance = createFilmOSChatGPTApp({
+    enabled: true,
+    proposalHandoffEnabled: false,
+    grants,
+    dataSource: new MemoryFilmOSReadDataSource(projects),
+    audit,
+    secureTunnelProof: proof,
+  });
+  const server = instance.app.listen(0, "127.0.0.1");
+  await new Promise<void>((resolve) => server.once("listening", resolve));
+  const port = (server.address() as AddressInfo).port;
+  const client = new Client({ name: "external-live-gate", version: "1.0.0" });
+  const transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`), {
+    requestInit: { headers: {
+      authorization: `Bearer ${issued.token}`,
+      "x-filmos-transport": "secure-mcp-tunnel",
+      "x-filmos-transport-proof": proof,
+      "x-filmos-live-gate-challenge": challenge,
+    } },
+  });
+  try {
+    await client.connect(transport);
+    await client.callTool({ name: "filmos_get_project_context", arguments: {} });
+    const health = await (await fetch(`http://127.0.0.1:${port}/health`)).json() as any;
+    assert.equal(health.external_account_connected, true);
+    assert.equal(health.tool_name, "filmos_get_project_context");
+    assert.equal(health.project_scope, projectA);
+    assert.equal(health.challenge_id, challenge);
+    assert.match(health.request_id, /^[0-9a-f-]{36}$/);
+    assert.match(health.result_hash, /^[0-9a-f]{64}$/);
+    const receipt = audit.records.find((record) => record.challenge_id === challenge);
+    assert.equal(receipt?.tool_name, "filmos_get_project_context");
+    assert.equal(receipt?.request_id, health.request_id);
+    assert.equal(receipt?.result_hash, health.result_hash);
+  } finally {
+    await client.close().catch(() => undefined);
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
+test("a direct localhost client cannot spoof ChatGPT reachability without the ephemeral tunnel proof", async () => {
+  const grants = new MemoryProjectGrantStore();
+  const issued = await grants.issue(projectA, "local-spoof-test");
+  const instance = createFilmOSChatGPTApp({
+    enabled: true,
+    proposalHandoffEnabled: false,
+    grants,
+    dataSource: new MemoryFilmOSReadDataSource(projects),
+    audit: new MemoryAuditSink(),
+    secureTunnelProof: "correct-proof",
+  });
+  const server = instance.app.listen(0, "127.0.0.1");
+  await new Promise<void>((resolve) => server.once("listening", resolve));
+  const port = (server.address() as AddressInfo).port;
+  const client = new Client({ name: "local-spoof", version: "1.0.0" });
+  const transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`), {
+    requestInit: { headers: {
+      authorization: `Bearer ${issued.token}`,
+      "x-filmos-transport": "secure-mcp-tunnel",
+      "x-filmos-transport-proof": "wrong-proof",
+      "x-filmos-live-gate-challenge": "live_spoof_12345678",
+    } },
+  });
+  try {
+    await client.connect(transport);
+    await client.callTool({ name: "filmos_get_project_context", arguments: {} });
+    const health = await (await fetch(`http://127.0.0.1:${port}/health`)).json() as any;
+    assert.equal(health.external_account_connected, false);
+  } finally {
+    await client.close().catch(() => undefined);
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});

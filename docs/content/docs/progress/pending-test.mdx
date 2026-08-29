@@ -5,6 +5,15 @@ description: 影策已实现功能的手工验证清单与未确认边界
 
 # 待测试
 
+## FilmOS ChatGPT 连接管家
+
+- [x] Runtime Key 仅通过 macOS Keychain 保存，不进入参数、偏好设置、日志、诊断或 Acceptance Artifact。
+- [x] Film Core、FilmOS MCP、Project Grant 与官方 Tunnel Client 由同一 `ServiceSupervisor` 管理，支持启动、有界重连和 App 退出清理。
+- [x] MCP 继续暴露 20 个只读工具、0 个写工具；`NO-OPENAI-MODEL-API-001` 禁止所有 OpenAI 模型推理 API 路径。
+- [x] Tunnel 连通与 ChatGPT 真正读到 FilmOS 分轴记录；只有带短期 Transport Proof 的真实 MCP 读取才能记录 Challenge、Request ID、Tool、Project Scope 和 Result Hash。
+- [ ] 在已关联 Tunnel 权限的 OpenAI 账号中完成首次 Runtime Key 录入，确认界面到达 `WAITING_FOR_CHATGPT`。
+- [ ] 由外部 ChatGPT 经 Secure MCP Tunnel 完成 Acceptance Project 的真实只读 Live Gate；在收到外部回执前不标记 `CHATGPT_REACHED_FILMOS`。
+
 ## FilmOS macOS 本地数据与备份
 
 - [x] 自包含 App 不依赖源码目录、Downloads 访问权限或 Bun，内置后端和 Web 服务只监听 `127.0.0.1`。

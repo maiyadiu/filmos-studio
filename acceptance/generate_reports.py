@@ -18,6 +18,8 @@ REPORT_SPECS = {
         "Known Limitations",
         (
             "desktop-release-build",
+            "desktop-chatgpt-connection",
+            "no-openai-model-api-billing",
             "performance-local",
             "remote-acceptance-contract",
         ),
@@ -38,6 +40,8 @@ REPORT_SPECS = {
             "canvas-agent",
             "chatgpt-handoff-local",
             "chatgpt-golden-real",
+            "desktop-chatgpt-connection",
+            "no-openai-model-api-billing",
             "acceptance-privacy",
         ),
     ),
@@ -52,6 +56,7 @@ REPORT_SPECS = {
             "golden-abc-real-http",
             "acceptance-full-chain",
             "chatgpt-golden-real",
+            "desktop-chatgpt-connection",
         ),
     ),
 }
@@ -192,6 +197,8 @@ def report_notes(
             "the Local-first chain uses `LOCAL_MANUAL_CANDIDATE_IMPORT`.\n"
             "- External ChatGPT account acknowledgement and secure tunnel proof are not in "
             "the Local suite.\n"
+            "- `NO-OPENAI-MODEL-API-001` proves the checked-in runtime has no model API "
+            "endpoint path; the final external Live Gate must add its own time-bounded receipt.\n"
             "- Real user database migration and real rollback remain outside the synthetic "
             "recovery drill.\n"
             "- The app is an internal unsigned macOS build; signing, notarization and public "
@@ -217,7 +224,9 @@ def report_notes(
         "SECURITY_REPORT.md": (
             "The covered checks enforce loopback-only desktop auth, human-only approval, "
             "credential exclusion from backup/evidence, ChatGPT preview boundaries and a "
-            "redacted evidence package. Passing local checks does not prove public deployment "
+            "redacted evidence package. Runtime Key is Keychain-only, Tunnel and ChatGPT "
+            "reachability remain separate states, and model API endpoint use is blocked. "
+            "Passing local checks does not prove public deployment "
             "security or Apple notarization."
         ),
         "PERFORMANCE_REPORT.md": (

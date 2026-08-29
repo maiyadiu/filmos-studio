@@ -2,12 +2,12 @@
   "schema_version": "1.2.0",
   "acceptance_spec": {
     "path": "acceptance/合同.json",
-    "version": "1.0.0",
-    "sha256": "a80bbc5de6bb4953cc3424db73573dbe483522256d54aa90cd316a7c15180b3d"
+    "version": "1.1.0",
+    "sha256": "74fbe9a2053109890f52e4aa709fbf28086984ac4660ab5cb725d9597d3e5cda"
   },
   "evidence_index": {
     "path": "acceptance/EVIDENCE_INDEX.json",
-    "sha256": "1e8f3054205bf73897113632bef586e89e0a8c0fadd6ff62137b85d43959bc7f"
+    "sha256": "5eff25f12ce73c30ee426399390fe495af2f570cddd8ff9f56768bce013dac09"
   },
   "golden_project": {
     "path": "acceptance/FilmOS_Acceptance_Project/项目.json",
