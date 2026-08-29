@@ -38,6 +38,14 @@ export class CodexAppServerProcessManager {
         return { account, limits };
     }
 
+    async startChatGPTLogin() {
+        return await (await this.client()).startChatGPTLogin();
+    }
+
+    async logoutAccount() {
+        return await (await this.client()).logoutAccount();
+    }
+
     async restart() {
         const existing = this.clientPromise ? await this.clientPromise.catch(() => undefined) : undefined;
         this.clientPromise = undefined;

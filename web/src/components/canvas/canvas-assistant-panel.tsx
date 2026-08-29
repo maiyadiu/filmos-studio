@@ -26,6 +26,9 @@ import { VoiceRecordingButton } from "@/components/conversation/voice-recording-
 import { ModelLogo } from "@/components/model-logo";
 import { AgentChatEmptyState, AgentPanelChrome } from "./canvas-agent-panel-chrome";
 import { CanvasLocalAgentPanel } from "./canvas-local-agent-panel";
+import { CanvasChatGPTHostedPanel } from "./canvas-chatgpt-hosted-panel";
+import { isModelApiBrainProfile, normalizeBrainProfileId } from "@/film/agent/brain-profiles";
+import { assertExplicitModelRuntimeSelection } from "@/film/agent/model-api-billing-guard";
 import { NODE_DEFAULT_SIZE } from "@/constant/canvas";
 import { CanvasNodeType, type CanvasAssistantMessage, type CanvasAssistantPendingBackendSession, type CanvasAssistantReference, type CanvasAssistantSession, type CanvasNodeData } from "@/types/canvas";
 import { useCanvasAgentStore } from "@/stores/canvas/use-canvas-agent-store";
@@ -366,6 +369,10 @@ export function CanvasAssistantPanel({
     const updateConfig = useConfigStore((state) => state.updateConfig);
     const confirmTools = useCanvasAgentStore((state) => state.confirmTools);
     const setAgentState = useCanvasAgentStore((state) => state.setAgentState);
+    const codexConnected = useCanvasAgentStore((state) => state.connected);
+    const codexEnabled = useCanvasAgentStore((state) => state.enabled);
+    const activeProfile = normalizeBrainProfileId(agentMode);
+    const modelRuntimeActive = isModelApiBrainProfile(activeProfile) || activeProfile === "local.model";
     const [view, setView] = useState<OnlineAgentTab>("chat");
     const [prompt, setPrompt] = useState("");
     const [cinematicEntryActive, setCinematicEntryActive] = useState(cinematicEntry);
@@ -388,6 +395,7 @@ export function CanvasAssistantPanel({
     const pendingToolContextRef = useRef(new Map<string, PendingOnlineToolContext>());
     const cinematicSessionControllersRef = useRef(new Map<string, AbortController>());
     const generationConsumerControllerRef = useRef(new AbortController());
+    const previousProfileRef = useRef(activeProfile);
 
     useEffect(() => {
         let cancelled = false;
@@ -404,13 +412,30 @@ export function CanvasAssistantPanel({
     }, []);
 
     useEffect(() => {
+        const previous = previousProfileRef.current;
+        if (previous === activeProfile) return;
+        const store = useCanvasAgentStore.getState();
+        store.saveProfileSessions(`${projectId}:${previous}`, localSessionsRef.current, localActiveSessionIdRef.current);
+        const restored = store.profileSessions[`${projectId}:${activeProfile}`];
+        const nextSessions = restored?.sessions.length ? restored.sessions : isModelApiBrainProfile(activeProfile) ? (sessions.length ? sessions : [createSession()]) : [createSession()];
+        const nextActive = restored?.activeSessionId || nextSessions[0]?.id || null;
+        localSessionsRef.current = nextSessions;
+        setLocalSessions(nextSessions);
+        setLocalActiveSessionId(nextActive);
+        setView("chat");
+        previousProfileRef.current = activeProfile;
+    }, [activeProfile, projectId, sessions]);
+
+    useEffect(() => {
+        if (!modelRuntimeActive) return;
         if (!sessions.length) return;
+        if (useCanvasAgentStore.getState().profileSessions[`${projectId}:${activeProfile}`]) return;
         if (sessions === localSessions && activeSessionId === localActiveSessionId) return;
         applyingExternalSessionsRef.current = true;
         localSessionsRef.current = sessions;
         setLocalSessions(sessions);
         setLocalActiveSessionId(activeSessionId);
-    }, [activeSessionId, sessions]);
+    }, [activeProfile, activeSessionId, localActiveSessionId, localSessions, modelRuntimeActive, projectId, sessions]);
 
     useEffect(() => {
         snapshotRef.current = snapshot;
@@ -432,8 +457,11 @@ export function CanvasAssistantPanel({
             return;
         }
         if (sessions === localSessions && activeSessionId === localActiveSessionId) return;
-        onSessionsChange(localSessions, localActiveSessionId);
-    }, [activeSessionId, localActiveSessionId, localSessions, onSessionsChange, sessions]);
+        if (modelRuntimeActive) {
+            useCanvasAgentStore.getState().saveProfileSessions(`${projectId}:${activeProfile}`, localSessions, localActiveSessionId);
+            onSessionsChange(localSessions, localActiveSessionId);
+        }
+    }, [activeProfile, activeSessionId, localActiveSessionId, localSessions, modelRuntimeActive, onSessionsChange, projectId, sessions]);
 
     const safeSessions = localSessions.length ? localSessions : [createSession()];
     const activeSession = useMemo(() => safeSessions.find((session) => session.id === localActiveSessionId) || safeSessions[0] || null, [localActiveSessionId, safeSessions]);
@@ -448,10 +476,10 @@ export function CanvasAssistantPanel({
     const iconButtonStyle = { color: theme.node.muted };
 
     useEffect(() => {
-        if (agentMode !== "online" || view !== "chat") return;
+        if (!modelRuntimeActive || view !== "chat") return;
         const frame = requestAnimationFrame(() => chatListRef.current?.scrollTo({ top: chatListRef.current.scrollHeight }));
         return () => cancelAnimationFrame(frame);
-    }, [agentBusy, agentMode, localActiveSessionId, messages, view]);
+    }, [agentBusy, localActiveSessionId, messages, modelRuntimeActive, view]);
 
     useEffect(() => {
         setRemovedReferenceIds(new Set());
@@ -671,7 +699,7 @@ export function CanvasAssistantPanel({
             const messages = await buildToolAgentMessages(snapshotRef.current, history, userMessage, composerSkills);
             addOnlineLog(`Agent Tool Loop ${loop.step} 开始`, { toolChoice: "required" });
             let streamed = "";
-            const result = await requestOnlineAgentModel({ ...requestConfig, systemPrompt: "" }, messages, "required", userMessage.text, (text) => {
+            const result = await requestOnlineAgentModel(activeProfile, { ...requestConfig, systemPrompt: "" }, messages, "required", userMessage.text, (text) => {
                 streamed = text;
                 if (text.trim()) upsertMessage(sessionId, { id: assistantId, role: "assistant", text });
             }, canvasAgentPromptCacheKey(sessionId));
@@ -730,7 +758,7 @@ export function CanvasAssistantPanel({
         }
         const requestConfig = { ...effectiveConfig, model: effectiveConfig.textModel || effectiveConfig.model };
         let streamed = "";
-        const next = await requestOnlineAgentModel({ ...requestConfig, systemPrompt: "" }, nextMessages, "auto", "继续处理画布工具结果", (text) => {
+        const next = await requestOnlineAgentModel(activeProfile, { ...requestConfig, systemPrompt: "" }, nextMessages, "auto", "继续处理画布工具结果", (text) => {
             streamed = text;
             if (text.trim()) upsertMessage(sessionId, { id: assistantId, role: "assistant", text });
         }, canvasAgentPromptCacheKey(sessionId));
@@ -1180,6 +1208,27 @@ export function CanvasAssistantPanel({
         </>
     );
 
+    const changeBrainProfile = (nextMode: CanvasAgentMode) => {
+        const next = normalizeBrainProfileId(nextMode);
+        if (isModelApiBrainProfile(next) && !isModelApiBrainProfile(activeProfile)) {
+            Modal.confirm({
+                title: "切换到 API 计费连接？",
+                content: "只有你明确选择后才会调用当前模型/Channel，请求可能产生独立 API 费用。Codex 或 ChatGPT 订阅失败时不会自动切换到这里。",
+                okText: "确认使用 API",
+                cancelText: "取消",
+                onOk: () => onAgentModeChange(next),
+            });
+            return;
+        }
+        onAgentModeChange(next);
+    };
+
+    const connectionStatus = activeProfile === "codex.subscription"
+        ? codexConnected ? "已连接" : codexEnabled ? "连接中" : "未连接"
+        : activeProfile === "chatgpt.subscription.host" ? "Host 协作"
+        : activeProfile === "local.model" ? "本地"
+        : isAiConfigReady({ ...effectiveConfig, model: effectiveConfig.textModel || effectiveConfig.model }, effectiveConfig.textModel || effectiveConfig.model) ? "已配置" : "待配置";
+
     return (
         <motion.aside
             className="pointer-events-auto relative flex h-full w-full flex-col overflow-hidden rounded-[var(--panel-radius)]"
@@ -1199,19 +1248,20 @@ export function CanvasAssistantPanel({
                 context={contextSummary}
                 referenceCount={selectedReferences.length}
                 confirmTools={confirmTools}
-                canUndo={agentMode === "online" ? canUndoOps : false}
-                undoCount={agentMode === "online" ? undoOpsCount : 0}
-                onModeChange={onAgentModeChange}
+                canUndo={modelRuntimeActive ? canUndoOps : false}
+                undoCount={modelRuntimeActive ? undoOpsCount : 0}
+                onModeChange={changeBrainProfile}
                 onConfirmToolsChange={(confirmTools) => setAgentState({ confirmTools })}
                 onUndo={undoLastOnlineBatch}
                 onCollapse={collapse}
-                historyCount={agentMode === "online" ? historySessions.length : 0}
-                historyActive={agentMode === "online" && view === "history"}
-                onOpenHistory={agentMode === "online" ? () => setView((current) => current === "history" ? "chat" : "history") : undefined}
-                onNewChat={agentMode === "online" ? () => { startChatSession(); setView("chat"); } : undefined}
+                historyCount={modelRuntimeActive ? historySessions.length : 0}
+                historyActive={modelRuntimeActive && view === "history"}
+                onOpenHistory={modelRuntimeActive ? () => setView((current) => current === "history" ? "chat" : "history") : undefined}
+                onNewChat={modelRuntimeActive ? () => { startChatSession(); setView("chat"); } : undefined}
                 newChatDisabled={false}
+                connectionStatus={connectionStatus}
             />
-            {agentMode === "local" ? <CanvasLocalAgentPanel embedded snapshot={snapshot} canUndoOps={canUndoOps} undoOpsCount={undoOpsCount} onApplyOps={onApplyOps} onUndoOps={onUndoOps} autoConnect={autoConnectLocal} /> : onlineContent}
+            {activeProfile === "codex.subscription" ? <CanvasLocalAgentPanel embedded snapshot={snapshot} canUndoOps={canUndoOps} undoOpsCount={undoOpsCount} onApplyOps={onApplyOps} onUndoOps={onUndoOps} autoConnect={autoConnectLocal} /> : activeProfile === "chatgpt.subscription.host" ? <CanvasChatGPTHostedPanel theme={theme} projectId={projectId} /> : onlineContent}
         </motion.aside>
     );
 }
@@ -1649,7 +1699,8 @@ function toolCallToResponseInput(call: ResponseToolCall): ResponseInputMessage {
     return { type: "function_call", call_id: call.id, name: call.function.name, arguments: call.function.arguments, ...(call.thoughtSignature ? { thoughtSignature: call.thoughtSignature } : {}) };
 }
 
-async function requestOnlineAgentModel(config: AiConfig, messages: ResponseInputMessage[], toolChoice: "auto" | "required", prompt: string, onDelta: (text: string) => void, promptCacheKey?: string) {
+async function requestOnlineAgentModel(activeProfile: CanvasAgentMode, config: AiConfig, messages: ResponseInputMessage[], toolChoice: "auto" | "required", prompt: string, onDelta: (text: string) => void, promptCacheKey?: string) {
+    assertExplicitModelRuntimeSelection(activeProfile);
     if (backendModelRuntimeRequired(config)) {
         const result = await runBackendToolGenerationTask({ prompt, config, messages, tools: ONLINE_AGENT_TOOLS, toolChoice });
         if (result.content.trim()) onDelta(result.content);

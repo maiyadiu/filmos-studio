@@ -1,6 +1,7 @@
 import { create } from "zustand";
 
 import type { CanvasAgentOp } from "@/lib/canvas/canvas-agent-ops";
+import type { CanvasAssistantSession } from "@/types/canvas";
 
 export type AgentChatRole = "user" | "assistant" | "system" | "tool" | "error";
 export type AgentAttachment = { id: string; name: string; type: string; size: number; url: string; dataUrl: string };
@@ -29,7 +30,9 @@ type CanvasAgentStore = {
     activity: string;
     connectError: string;
     pendingTool: AgentPendingToolCall | null;
-    setAgentState: (patch: Partial<Omit<CanvasAgentStore, "setAgentState" | "addMessage" | "addEventLog" | "clearEventLogs">>) => void;
+    profileSessions: Record<string, { sessions: CanvasAssistantSession[]; activeSessionId: string | null }>;
+    setAgentState: (patch: Partial<Omit<CanvasAgentStore, "setAgentState" | "addMessage" | "addEventLog" | "clearEventLogs" | "saveProfileSessions">>) => void;
+    saveProfileSessions: (key: string, sessions: CanvasAssistantSession[], activeSessionId: string | null) => void;
     addMessage: (item: AgentChatItem) => void;
     addEventLog: (item: AgentEventLog) => void;
     clearEventLogs: () => void;
@@ -94,11 +97,13 @@ export const useCanvasAgentStore = create<CanvasAgentStore>((set) => ({
     activity: "就绪",
     connectError: "",
     pendingTool: null,
+    profileSessions: {},
     setAgentState: (patch) => {
         if (typeof patch.enabled === "boolean") writeCanvasAgentEnabledPreference(patch.enabled);
         set(patch);
     },
     addMessage: (item) => set((state) => ({ messages: [...state.messages.slice(-120), item] })),
+    saveProfileSessions: (key, sessions, activeSessionId) => set((state) => ({ profileSessions: { ...state.profileSessions, [key]: { sessions, activeSessionId } } })),
     addEventLog: (item) => set((state) => ({ eventLogs: [...state.eventLogs.slice(-160), item] })),
     clearEventLogs: () => set({ eventLogs: [] }),
 }));

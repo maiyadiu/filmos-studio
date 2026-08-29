@@ -1,0 +1,56 @@
+{
+  "schema_version": "1",
+  "work_package": "WP-05",
+  "baseline_commit": "9267a5f198182bfa16403723e865cf815983ef13",
+  "observed_at": "2026-08-29T14:18:00Z",
+  "checks": [
+    {
+      "command": "bun test src/film/agent/brain-selector.test.mjs src/film/agent/model-api-billing-guard.test.mjs && bun run typecheck",
+      "cwd": "web",
+      "status": "PASS",
+      "tests": 5,
+      "failures": 0
+    },
+    {
+      "command": "npm run build && npx tsx --test --test-concurrency=1 test/codex-app-server-process-manager.test.ts test/codex-app-server-adapter.test.ts test/codex-approval-coordinator.test.ts test/internal-canvas-mcp-mode.test.ts",
+      "cwd": "canvas-agent",
+      "status": "PASS",
+      "tests": 14,
+      "failures": 0
+    },
+    {
+      "command": "swift build --product FilmOSStudioDesktop",
+      "cwd": "desktop/macos",
+      "status": "PASS",
+      "failures": 0
+    }
+  ],
+  "source_sha256": {
+    "web/src/film/agent/brain-profiles.ts": "7d9d60905f5705ab65660a1c20e748d3efe68b2761d430dfd0c2483ab7020f93",
+    "web/src/film/agent/model-api-billing-guard.ts": "ad8cf4c04af1256ee881c9f0a5ff928cde0256883464a3721e03224917a41156",
+    "web/src/components/canvas/canvas-agent-panel-chrome.tsx": "e5ed1e4ae3a84c42b0ef19c449aaf20c6d3283789b7e6c399fddf9117ee27f3d",
+    "web/src/components/canvas/canvas-assistant-panel.tsx": "c80187679af5ed187c4e11abfa608fa1d4efdd7357cf6f0066effac8c8d6b03d",
+    "web/src/components/canvas/canvas-chatgpt-hosted-panel.tsx": "983deead665aedd6b06872b6c4248d557ab5ee3bf9f181cb9d5132d015c50905",
+    "web/src/components/canvas/canvas-local-agent-panel.tsx": "c804ad1d5b2be7901aedaf979642084329600cdf8325e5ac71e403d8af67086e",
+    "canvas-agent/src/brains/adapters/codex-app-server-client.ts": "ea489f203ec4337cd3d3ac5ac82446f876783b9a26fb557bed678567941e285f",
+    "canvas-agent/src/brains/adapters/codex-app-server-process-manager.ts": "973f892d5ccd092e897098ca7dc8d2e8fc114797212d15753020dc746ce84fdd",
+    "desktop/macos/Sources/FilmOSStudioDesktop/main.swift": "64e30145bbef2560c67ba56d2c53c82f6beb1c0fa4c51703bae68a57fff61b03"
+  },
+  "golden_case_ids": [
+    "AGENT-BRAIN-SELECTOR-001",
+    "AGENT-SESSION-ISOLATION-001",
+    "AGENT-NO-SILENT-API-FALLBACK-001",
+    "AGENT-CODEX-ACCOUNT-NATIVE-001",
+    "AGENT-CHATGPT-HOSTED-TIMELINE-001"
+  ],
+  "assertions": {
+    "single_native_panel_entry": true,
+    "six_truthful_brain_profiles": true,
+    "project_and_profile_session_isolation": true,
+    "explicit_api_billing_confirmation": true,
+    "subscription_profiles_never_reach_model_api": true,
+    "codex_account_plan_quota_and_login_use_official_app_server_rpc": true,
+    "chatgpt_profile_is_hosted_handoff_not_fake_streaming_chat": true,
+    "desktop_connection_action_is_main_frame_and_loopback_origin_scoped": true
+  }
+}

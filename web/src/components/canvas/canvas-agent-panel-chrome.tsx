@@ -1,11 +1,12 @@
-import { Button, Switch, Tooltip } from "antd";
-import { BookOpenCheck, BookOpenText, Bot, Clapperboard, Focus, Globe2, History, LayoutTemplate, Laptop, PanelRightClose, PanelsTopLeft, Plus, RotateCcw, Workflow } from "lucide-react";
+import { Button, Select, Switch, Tooltip } from "antd";
+import { BookOpenCheck, BookOpenText, Bot, Clapperboard, Focus, History, LayoutTemplate, PanelRightClose, PanelsTopLeft, Plus, RotateCcw, Workflow } from "lucide-react";
 import { useNavigate } from "react-router";
 
 import type { CanvasContextSummary } from "@/lib/canvas/canvas-context-summary";
 import type { CanvasTheme } from "@/lib/canvas-theme";
 import { useUserStore } from "@/stores/use-user-store";
 import type { CanvasAgentMode } from "./canvas-agent-chat-ui";
+import { BRAIN_PROFILE_PRESENTATIONS, brainProfilePresentation, normalizeBrainProfileId } from "@/film/agent/brain-profiles";
 
 export function AgentPanelChrome({
     theme,
@@ -24,6 +25,7 @@ export function AgentPanelChrome({
     onOpenHistory,
     onNewChat,
     newChatDisabled = false,
+    connectionStatus = "就绪",
 }: {
     theme: CanvasTheme;
     mode: CanvasAgentMode;
@@ -41,6 +43,7 @@ export function AgentPanelChrome({
     onOpenHistory?: () => void;
     onNewChat?: () => void;
     newChatDisabled?: boolean;
+    connectionStatus?: string;
 }) {
     const navigate = useNavigate();
 
@@ -84,7 +87,7 @@ export function AgentPanelChrome({
                 {context.chapterLabel ? <span className="inline-flex min-w-0 items-center gap-1"><BookOpenText className="size-3 shrink-0" /><span className="max-w-32 truncate">{context.chapterLabel}{context.shotLabel ? ` · ${context.shotLabel}` : ""}</span></span> : null}
                 {referenceCount ? <span>{referenceCount} 个参考</span> : null}
                 <div className="ml-auto flex shrink-0 items-center gap-1.5">
-                    <AgentModeSwitch value={mode} theme={theme} onChange={onModeChange} />
+                    <BrainSelector value={mode} theme={theme} status={connectionStatus} onChange={onModeChange} />
                     <Tooltip title={undoCount ? `撤销最近一批 Agent 写回，可撤销 ${undoCount} 批` : "没有可撤销的 Agent 写回"}>
                         <Button type="text" shape="circle" className="!h-6 !w-6 !min-w-6" disabled={!canUndo} style={{ color: theme.node.muted }} icon={<RotateCcw className="size-3" />} onClick={onUndo} aria-label="撤销最近一批 Agent 写回" />
                     </Tooltip>
@@ -98,19 +101,25 @@ export function AgentPanelChrome({
     );
 }
 
-function AgentModeSwitch({ value, theme, onChange }: { value: CanvasAgentMode; theme: CanvasTheme; onChange: (value: CanvasAgentMode) => void }) {
+function BrainSelector({ value, theme, status, onChange }: { value: CanvasAgentMode; theme: CanvasTheme; status: string; onChange: (value: CanvasAgentMode) => void }) {
+    const current = brainProfilePresentation(value);
     return (
-        <div className="inline-flex h-7 shrink-0 items-center rounded-full p-0.5 text-[var(--fs-label)]" style={{ background: `${theme.node.text}08`, boxShadow: `inset 0 1px 0 ${theme.node.text}08` }} role="group" aria-label="Agent 运行位置">
-            {(["online", "local"] as const).map((item) => {
-                const active = value === item;
-                const Icon = item === "online" ? Globe2 : Laptop;
-                return (
-                    <button key={item} type="button" className="inline-flex h-6 items-center gap-1 rounded-full px-2 transition-[background-color,color,transform] duration-200 active:scale-95" style={{ background: active ? theme.node.fill : "transparent", color: active ? theme.node.text : theme.node.muted, boxShadow: active ? `0 4px 12px ${theme.spatial.shadow}` : "none" }} onClick={() => onChange(item)} aria-pressed={active}>
-                        <Icon className="size-3" />
-                        {item === "online" ? "网站" : "本机"}
-                    </button>
-                );
-            })}
+        <div className="flex h-7 shrink-0 items-center gap-1" aria-label="Agent 大脑与连接">
+            <Select
+                size="small"
+                variant="borderless"
+                value={normalizeBrainProfileId(value)}
+                popupMatchSelectWidth={250}
+                className="min-w-[106px]"
+                aria-label="选择 Agent 大脑"
+                onChange={(next) => onChange(next as CanvasAgentMode)}
+                options={BRAIN_PROFILE_PRESENTATIONS.map((profile) => ({
+                    value: profile.id,
+                    label: <span className="flex items-center justify-between gap-3"><span>{profile.label}</span><span className="text-[var(--fs-tiny)] opacity-50">{profile.detail}</span></span>,
+                }))}
+            />
+            <span className="rounded-full px-1.5 py-0.5 text-[var(--fs-tiny)]" style={{ color: theme.node.muted, background: `${theme.node.text}08` }}>{current.billing}</span>
+            <span className="max-w-16 truncate text-[var(--fs-tiny)]" style={{ color: theme.node.muted }} title={status}>{status}</span>
         </div>
     );
 }

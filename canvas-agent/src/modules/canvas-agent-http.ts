@@ -3,11 +3,14 @@ import type { NextFunction, Request, RequestHandler, Response } from "express";
 import {
     archiveCodexThread,
     listCodexThreads,
+    logoutCodexAccount,
+    readCodexAccountStatus,
     readCodexThread,
     resumeCodexThread,
     runClaudeTurn,
     runCodexTurn,
     startCodexThread,
+    startCodexChatGPTLogin,
     summarizeCodexThread,
     verifyCodexThreadWorkspace,
     withAgentPrompt,
@@ -90,6 +93,16 @@ export function createCanvasAgentHttpModule(
             const workspace = ensureCanvasWorkspace(config, queryValue(req, "canvasId"));
             res.json({ ok: true, workspace });
         }, { queryKeys: ["canvasId"] }),
+        canvasRoute("GET", "/agent/codex/account", async (_req, res) => {
+            res.json({ ok: true, ...(await readCodexAccountStatus()) });
+        }),
+        canvasRoute("POST", "/agent/codex/account/login", async (_req, res) => {
+            res.json({ ok: true, login: await startCodexChatGPTLogin() });
+        }),
+        canvasRoute("POST", "/agent/codex/account/logout", async (_req, res) => {
+            await logoutCodexAccount();
+            res.json({ ok: true });
+        }),
         canvasRoute("GET", "/agent/codex/threads", async (req, res) => {
             const workspace = ensureCanvasWorkspace(config, queryValue(req, "canvasId"));
             const result = await listCodexThreads(emit, {

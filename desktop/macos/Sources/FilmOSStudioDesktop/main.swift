@@ -294,8 +294,9 @@ private enum DesktopWorkbenchError: Error, LocalizedError {
 }
 
 @MainActor
-private final class WorkbenchWindow: NSObject, @preconcurrency WKNavigationDelegate, @preconcurrency WKUIDelegate {
+private final class WorkbenchWindow: NSObject, @preconcurrency WKNavigationDelegate, @preconcurrency WKUIDelegate, @preconcurrency WKScriptMessageHandler {
     let window: NSWindow
+    var onOpenChatGPTConnection: (() -> Void)?
 
     private let webView: WKWebView
     private let overlay = NSVisualEffectView()
@@ -325,6 +326,7 @@ private final class WorkbenchWindow: NSObject, @preconcurrency WKNavigationDeleg
 
         super.init()
 
+        webConfiguration.userContentController.add(self, name: "filmosDesktop")
         webView.navigationDelegate = self
         webView.uiDelegate = self
         webView.allowsBackForwardNavigationGestures = true
@@ -421,6 +423,14 @@ private final class WorkbenchWindow: NSObject, @preconcurrency WKNavigationDeleg
         return normalized.isEmpty ? nil : normalized
     }
 
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard message.name == "filmosDesktop", message.frameInfo.isMainFrame,
+              ["127.0.0.1", "localhost"].contains(message.frameInfo.securityOrigin.host),
+              let body = message.body as? [String: Any], body.count == 1,
+              body["action"] as? String == "openChatGPTConnection" else { return }
+        onOpenChatGPTConnection?()
+    }
+
     func flushForBackup() async throws {
         _ = try await webView.callAsyncJavaScript(
             """
@@ -482,6 +492,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         installMainMenu()
         let workbenchWindow = WorkbenchWindow()
+        workbenchWindow.onOpenChatGPTConnection = { [weak self] in self?.openChatGPTConnection() }
         self.workbenchWindow = workbenchWindow
         workbenchWindow.show()
         startWorkbench()

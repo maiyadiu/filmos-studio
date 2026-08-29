@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { App, Button, Segmented, Tooltip } from "antd";
 import copyToClipboard from "copy-to-clipboard";
-import { Copy, FolderOpen, History, LoaderCircle, MessageSquareText, PlugZap, Plus, RefreshCw, RotateCcw, Terminal, Trash2 } from "lucide-react";
+import { Copy, FolderOpen, History, LoaderCircle, LogIn, LogOut, MessageSquareText, PlugZap, Plus, RefreshCw, RotateCcw, Terminal, Trash2 } from "lucide-react";
 import { motion } from "motion/react";
 
 import { canvasThemes } from "@/lib/canvas-theme";
@@ -56,6 +56,11 @@ type AgentLogContext = { connected: boolean; enabled: boolean; activity: string;
 type AgentWorkspace = { canvasId: string; workspacePath: string; activeThreadId?: string };
 type AgentThreadsResponse = { ok?: boolean; workspace?: AgentWorkspace; data?: AgentThreadSummary[] };
 type AgentThreadResponse = { ok?: boolean; workspace?: AgentWorkspace; thread?: AgentThreadSummary; messages?: AgentChatItem[] };
+type CodexAccountStatus = {
+    account?: { account?: { type?: string; email?: string | null; planType?: string } | null; requiresOpenaiAuth?: boolean };
+    limits?: { rateLimits?: { primary?: { usedPercent?: number; resetsAt?: number } } };
+};
+type CodexLoginResponse = { login?: { type?: string; authUrl?: string; verificationUrl?: string; userCode?: string } };
 
 export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
     snapshot,
@@ -106,6 +111,8 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
         clearEventLogs,
     } = useCanvasAgentStore();
     const [resizing, setResizing] = useState(false);
+    const [accountStatus, setAccountStatus] = useState<CodexAccountStatus | null>(null);
+    const [accountBusy, setAccountBusy] = useState(false);
     const listRef = useRef<HTMLDivElement>(null);
     // 供 Agent 输入框「@」插入的画布节点引用候选（active 标记为可用，供「@」菜单列出），与「/」弹出的已加入技能候选
     const composerReferences = useMemo(() => buildCanvasResourceReferences(snapshot.nodes, snapshot.connections).map((item) => ({ ...item, active: true })), [snapshot]);
@@ -194,6 +201,14 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
             setAgentState({ loadingThreads: false });
         }
     }, [setAgentState]);
+    const loadAccountStatus = useCallback(async () => {
+        if (!connectedRef.current && !useCanvasAgentStore.getState().connected) return;
+        try {
+            setAccountStatus(await fetchAgentJson<CodexAccountStatus>("/agent/codex/account"));
+        } catch (error) {
+            addEventLog("读取 Codex 账户失败", error);
+        }
+    }, []);
 
     useEffect(() => {
         snapshotRef.current = snapshot;
@@ -309,8 +324,8 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
     }, [enabled, loadThreads, message, setAgentState, syncState]);
 
     useEffect(() => {
-        if (connected) void loadThreads();
-    }, [connected, loadThreads, snapshot.projectId]);
+        if (connected) void Promise.all([loadThreads(), loadAccountStatus()]);
+    }, [connected, loadAccountStatus, loadThreads, snapshot.projectId]);
 
     useEffect(() => {
         if (activeTab === "history" && connected) void loadThreads();
@@ -537,6 +552,35 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
         setAgentState(canvasAgentConnectionStartingPatch());
     };
 
+    const loginCodexAccount = async () => {
+        setAccountBusy(true);
+        try {
+            const result = await fetchAgentJson<CodexLoginResponse>("/agent/codex/account/login", { method: "POST" });
+            const url = result.login?.authUrl || result.login?.verificationUrl;
+            if (!url) throw new Error("Codex app-server 没有返回登录地址");
+            window.open(url, "_blank", "noopener,noreferrer");
+            const code = result.login?.userCode ? `，授权码 ${result.login.userCode}` : "";
+            message.info(`已打开 Codex 订阅登录${code}，完成后点击刷新。`);
+        } catch (error) {
+            message.error(error instanceof Error ? error.message : "Codex 登录启动失败");
+        } finally {
+            setAccountBusy(false);
+        }
+    };
+
+    const logoutCodexAccount = async () => {
+        setAccountBusy(true);
+        try {
+            await fetchAgentJson("/agent/codex/account/logout", { method: "POST" });
+            await loadAccountStatus();
+            message.success("Codex 订阅账户已退出");
+        } catch (error) {
+            message.error(error instanceof Error ? error.message : "Codex 退出失败");
+        } finally {
+            setAccountBusy(false);
+        }
+    };
+
     useEffect(() => {
         if (!autoConnect || autoConnectRef.current || enabled || connected) return;
         autoConnectRef.current = true;
@@ -688,6 +732,16 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
                     <Button type="text" shape="circle" className="!h-7 !w-7 !min-w-7" disabled={!connected || loadingThreads} style={{ color: theme.node.muted }} icon={<Plus className="size-3.5" />} onClick={() => void startNewThread()} aria-label="新建对话" />
                 </Tooltip>
             </div>
+            {connected ? (
+                <CodexAccountBar
+                    status={accountStatus}
+                    busy={accountBusy}
+                    theme={theme}
+                    onRefresh={() => void loadAccountStatus()}
+                    onLogin={() => void loginCodexAccount()}
+                    onLogout={() => void logoutCodexAccount()}
+                />
+            ) : null}
 
             {activeTab === "history" ? (
                 <AgentHistoryView
@@ -783,6 +837,40 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
         </motion.div>
     );
 });
+
+function CodexAccountBar({
+    status,
+    busy,
+    theme,
+    onRefresh,
+    onLogin,
+    onLogout,
+}: {
+    status: CodexAccountStatus | null;
+    busy: boolean;
+    theme: (typeof canvasThemes)[keyof typeof canvasThemes];
+    onRefresh: () => void;
+    onLogin: () => void;
+    onLogout: () => void;
+}) {
+    const account = status?.account?.account;
+    const isSubscription = account?.type === "chatgpt";
+    const used = status?.limits?.rateLimits?.primary?.usedPercent;
+    const quota = typeof used === "number" ? `剩余 ${Math.max(0, 100 - used).toFixed(0)}%` : "额度待读取";
+    return (
+        <div className="mx-3 mb-2 flex min-h-8 shrink-0 items-center gap-2 rounded-md px-2.5 py-1.5 text-[var(--fs-label)]" style={{ background: theme.spatial.surface, color: theme.node.muted }}>
+            <span className="min-w-0 flex-1 truncate" title={account?.email || undefined}>
+                {isSubscription ? `ChatGPT ${account.planType || "订阅"} · ${quota}` : "Codex 订阅未登录"}
+            </span>
+            <Button type="text" size="small" className="!h-6 !min-w-6 !px-1" disabled={busy} icon={<RefreshCw className={`size-3 ${busy ? "animate-spin" : ""}`} />} onClick={onRefresh} aria-label="刷新 Codex 账户" />
+            {isSubscription ? (
+                <Button type="text" size="small" className="!h-6 !px-1" disabled={busy} icon={<LogOut className="size-3" />} onClick={onLogout}>退出</Button>
+            ) : (
+                <Button type="text" size="small" className="!h-6 !px-1" disabled={busy} icon={<LogIn className="size-3" />} onClick={onLogin}>登录</Button>
+            )}
+        </div>
+    );
+}
 
 function AgentLogView({
     logs,

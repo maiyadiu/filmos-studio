@@ -37,6 +37,18 @@ export function withAgentPrompt(prompt: string) {
     return prompt.trim() ? `${AGENT_PROMPT}\n\n用户请求：${prompt}` : "";
 }
 
+export async function readCodexAccountStatus() {
+    return await codexProcessManager.probe();
+}
+
+export async function startCodexChatGPTLogin() {
+    return await codexProcessManager.startChatGPTLogin();
+}
+
+export async function logoutCodexAccount() {
+    return await codexProcessManager.logoutAccount();
+}
+
 export async function runCodexTurn(prompt: string, emit: AgentEmit, attachments: AgentAttachment[] = [], options: CodexRunOptions = {}) {
     if (!prompt.trim()) return;
     const queueKey = options.threadId || options.sessionId || options.cwd || "legacy-codex-session";

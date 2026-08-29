@@ -474,10 +474,10 @@ function InfiniteCanvasPage() {
     useEffect(() => {
         if (!projectLoaded || !codexAutoConnect) return;
         if (codexCompactAgent) {
-            setAgentMode("local");
+            setAgentMode("codex.subscription");
             return;
         }
-        openAgent("local");
+        openAgent("codex.subscription");
     }, [codexAutoConnect, codexCompactAgent, openAgent, projectLoaded, setAgentMode]);
 
     // 沉浸专注进入时收起智能体与小地图、重置 Dock 唤出态；仅响应「进入」瞬间，避免关闭专注内主动唤出的面板。
@@ -1915,8 +1915,8 @@ function InfiniteCanvasPage() {
             onCreatePipeline={createShortDramaPipeline}
             onOpenAgent={() => {
                 setCinematicAgentEntry(true);
-                setAgentMode("online");
-                openAgent("online");
+                setAgentMode("openai.api");
+                openAgent("openai.api");
             }}
             onUpload={() => handleUploadRequest()}
             onAddText={() => createNode(CanvasNodeType.Text)}

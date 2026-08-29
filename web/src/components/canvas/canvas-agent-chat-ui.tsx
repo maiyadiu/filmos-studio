@@ -10,9 +10,10 @@ import { AIMessageMarkdown } from "@/components/ai/ai-message-markdown";
 import { CanvasResourceMentionTextarea } from "./canvas-resource-mention-textarea";
 import type { CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
 import type { Skill } from "@/services/api/skills";
+import type { CanvasAgentMode } from "@/film/agent/brain-profiles";
 
 export type CanvasAgentChatAttachment = { id: string; name: string; url: string };
-export type CanvasAgentMode = "online" | "local";
+export type { CanvasAgentMode };
 export type CanvasAgentChatMessage = {
     id: string;
     role: "user" | "assistant" | "system" | "tool" | "error";

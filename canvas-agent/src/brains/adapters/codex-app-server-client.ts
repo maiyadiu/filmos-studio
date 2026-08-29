@@ -69,6 +69,19 @@ export class CodexAppServerClient {
         return await this.request("account/rateLimits/read", undefined);
     }
 
+    async startChatGPTLogin() {
+        return await this.request("account/login/start", {
+            type: "chatgpt",
+            codexStreamlinedLogin: true,
+            useHostedLoginSuccessPage: true,
+            appBrand: "codex",
+        });
+    }
+
+    async logoutAccount() {
+        return await this.request("account/logout", undefined);
+    }
+
     async startThread(cwd: string | undefined, config: Json, binding?: CodexThreadBinding) {
         const result = await this.request("thread/start", {
             approvalPolicy: "on-request",
