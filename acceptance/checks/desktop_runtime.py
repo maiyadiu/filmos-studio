@@ -77,6 +77,20 @@ def free_port() -> int:
         return int(server.getsockname()[1])
 
 
+def request_app_termination(process: subprocess.Popen[bytes]) -> None:
+    script = (
+        'ObjC.import("AppKit"); '
+        f'const app = $.NSRunningApplication.runningApplicationWithProcessIdentifier({process.pid}); '
+        'if (app) app.terminate;'
+    )
+    subprocess.run(
+        ("osascript", "-l", "JavaScript", "-e", script),
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+
 def main() -> None:
     web_port = free_port()
     backend_port = free_port()
@@ -94,6 +108,9 @@ def main() -> None:
             "FILMOS_DESKTOP_APPLICATION_SUPPORT_DIRECTORY_NAME": support_name,
             "FILMOS_EXPECTED_APPLICATION_SUPPORT_DIRECTORY_NAME": support_name,
         })
+        tunnel_archive_cache = ROOT / ".local" / "cache" / "tunnel-client" / "tunnel-client-v0.0.13-darwin-arm64.zip"
+        if tunnel_archive_cache.is_file():
+            environment["FILMOS_TUNNEL_CLIENT_ARCHIVE_CACHE"] = str(tunnel_archive_cache)
         build_output = run(("desktop/macos/scripts/build-unsigned-app", str(bundle)), environment)
         verify_output = run(("desktop/macos/scripts/verify-unsigned-app", str(bundle)), environment)
         runtime = json.loads((bundle / "Contents/Resources/InternalRuntime.json").read_text(encoding="utf-8"))
@@ -138,12 +155,16 @@ def main() -> None:
                 raise RuntimeError("desktop backend data directory was not created in Application Support")
         finally:
             if process is not None:
-                process.terminate()
+                request_app_termination(process)
                 try:
                     process.wait(timeout=15)
                 except subprocess.TimeoutExpired:
-                    process.kill()
-                    process.wait(timeout=5)
+                    process.terminate()
+                    try:
+                        process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        process.wait(timeout=5)
                 wait_for(lambda: not any(port_open(port) for port in ports), 15, "desktop-owned services did not stop")
             shutil.rmtree(support_directory, ignore_errors=True)
 

@@ -20,6 +20,8 @@ REPORT_SPECS = {
             "desktop-release-build",
             "desktop-chatgpt-connection",
             "no-openai-model-api-billing",
+            "agent-native-multibrain",
+            "mcp-actual-tool-count",
             "performance-local",
             "remote-acceptance-contract",
         ),
@@ -42,6 +44,8 @@ REPORT_SPECS = {
             "chatgpt-golden-real",
             "desktop-chatgpt-connection",
             "no-openai-model-api-billing",
+            "agent-native-multibrain",
+            "mcp-actual-tool-count",
             "acceptance-privacy",
         ),
     ),
@@ -57,6 +61,9 @@ REPORT_SPECS = {
             "acceptance-full-chain",
             "chatgpt-golden-real",
             "desktop-chatgpt-connection",
+            "agent-native-multibrain",
+            "mcp-actual-tool-count",
+            "no-openai-model-api-billing",
         ),
     ),
 }
@@ -70,6 +77,7 @@ RAW_SOURCES = (
     "tests/film-rc/rc-recovery-receipt.json",
     "services/filmos-chatgpt-app/evidence/real-golden-receipt.json",
     "services/filmos-chatgpt-app/evidence/external-account-blocked.json",
+    "acceptance/evidence/runs/20260829T153743Z-bbedc297c1b2-rc-real-agent/codex-subscription-real-receipt.json",
 )
 
 
@@ -191,8 +199,10 @@ def report_notes(
     )
     notes = {
         "KNOWN_LIMITATIONS.md": (
-            "- Current evidence is development-only because the source worktree was "
-            f"{'dirty' if dirty else 'clean'} at run start.\n"
+            "- Current evidence was generated from a "
+            f"{'dirty development' if dirty else 'clean fixed-commit'} source worktree.\n"
+            "- Real Codex Subscription evidence is a separate receipt because it requires "
+            "managed account authorization; the report index hashes that raw receipt as a source.\n"
             "- Real Provider CLI generation remains a separate authorized external drill; "
             "the Local-first chain uses `LOCAL_MANUAL_CANDIDATE_IMPORT`.\n"
             "- External ChatGPT account acknowledgement and secure tunnel proof are not in "

@@ -117,6 +117,30 @@ class FrozenUpstreamBootstrapTest(unittest.TestCase):
             self.candidate_commit,
         )
 
+    def test_verified_local_object_cache_avoids_network_without_using_tracking_refs(self) -> None:
+        destination = self.root / "cached-upstream.git"
+        offline_contract = {
+            **self.contract,
+            "repository_url": "https://invalid.example.invalid/never-fetch.git",
+        }
+
+        receipt = prepare_frozen_upstream(
+            destination,
+            contract=offline_contract,
+            local_object_repository=self.source,
+        )
+
+        self.assertEqual(receipt["fetch_strategy"], "exact_commit_verified_local_object_cache")
+        self.assertEqual(receipt["fetch_attempts"], 0)
+        self.assertEqual(
+            self.git("rev-parse", f"{LOCAL_STABLE_REF}^{{commit}}", cwd=destination),
+            self.stable_commit,
+        )
+        self.assertEqual(
+            self.git("rev-parse", f"{LOCAL_CANDIDATE_REF}^{{commit}}", cwd=destination),
+            self.candidate_commit,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

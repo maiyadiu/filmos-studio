@@ -119,7 +119,7 @@ mkdir -p "$bundle/Contents/MacOS" "$bundle/Contents/Helpers" "$bundle/Contents/R
     "$package_dir/runtime/film-core-launcher.py" >/dev/null
 test -x "$staging/pyinstaller-dist/FilmOSFilmCore"
 
-tunnel_archive_cache="$workspace_root/.local/final-external-gates/bdec33ce/chatgpt-handoff-external/tunnel-client-download/tunnel-client-v0.0.13-darwin-arm64.zip"
+tunnel_archive_cache=${FILMOS_TUNNEL_CLIENT_ARCHIVE_CACHE:-"$workspace_root/.local/final-external-gates/bdec33ce/chatgpt-handoff-external/tunnel-client-download/tunnel-client-v0.0.13-darwin-arm64.zip"}
 if [ -f "$tunnel_archive_cache" ] && [ "$(uname -m)" = "arm64" ]; then
     FILMOS_TUNNEL_CLIENT_ARCHIVE_CACHE="$tunnel_archive_cache" \
         "$package_dir/scripts/install-tunnel-client" "$staging/tunnel-client-runtime"
@@ -177,7 +177,7 @@ install -m 0644 "$staging/InternalRuntime.json" "$bundle/Contents/Resources/Inte
 /usr/bin/plutil -lint "$bundle/Contents/Info.plist" >/dev/null
 runtime="$bundle/Contents/Resources/InternalRuntime.json"
 test "$(/usr/bin/plutil -extract schema_version raw -o - "$runtime")" = "2"
-test "$(/usr/bin/plutil -extract application_support_directory_name raw -o - "$runtime")" = "FilmOS Studio"
+test "$(/usr/bin/plutil -extract application_support_directory_name raw -o - "$runtime")" = "$application_support_directory_name"
 test -n "$(/usr/bin/plutil -extract start_url raw -o - "$runtime")"
 mv "$bundle" "$destination"
 

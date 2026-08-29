@@ -1,0 +1,551 @@
+{
+  "branch": "fix/agent-native-multibrain-v11-final",
+  "clean_worktree": true,
+  "film_core_python_ready": true,
+  "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+  "python": "3.14.0",
+  "receipt_sha256": "99518dbd7b4d4e76454f8c26507fc92cba7710e4ddfa2cb6023a04c27ea58c81",
+  "results": [
+    {
+      "check_id": "desktop-brand",
+      "command": [
+        "$REPO/.local/acceptance-venv/bin/python",
+        "acceptance/checks/desktop_brand.py"
+      ],
+      "cwd": ".",
+      "duration_ms": 42.861,
+      "exit_code": 0,
+      "log": "desktop-brand.log",
+      "log_bytes": 179,
+      "log_sha256": "332c79720172c31179237fd2ae188a171410b345b5c6e6ecee4a575b48212137",
+      "status": "PASSED",
+      "title": "FilmOS desktop icon and visible brand contract",
+      "tracks": [
+        "01-desktop",
+        "03-project-ui"
+      ]
+    },
+    {
+      "check_id": "desktop-local-auth",
+      "command": [
+        "go",
+        "test",
+        "./internal/service",
+        "./internal/handler",
+        "./cmd/server",
+        "./cmd/desktop-web"
+      ],
+      "cwd": "backend",
+      "duration_ms": 347.394,
+      "exit_code": 0,
+      "log": "desktop-local-auth.log",
+      "log_bytes": 213,
+      "log_sha256": "137fcdeb49b0fb797238e08683c3229a0c3be3f87bbb1a8e6eb9be0298827fbf",
+      "status": "PASSED",
+      "title": "Loopback-only desktop local authentication and self-contained web service",
+      "tracks": [
+        "01-desktop",
+        "02-film-core"
+      ]
+    },
+    {
+      "check_id": "web-typecheck",
+      "command": [
+        "bun",
+        "run",
+        "typecheck"
+      ],
+      "cwd": "web",
+      "duration_ms": 321.168,
+      "exit_code": 0,
+      "log": "web-typecheck.log",
+      "log_bytes": 15,
+      "log_sha256": "8366207267355d3e3d5bf3bf6e8c94c5f93f6078c34f08973fa2b38cdda6cc92",
+      "status": "PASSED",
+      "title": "Web TypeScript contract",
+      "tracks": [
+        "03-project-ui",
+        "14-chatgpt-app"
+      ]
+    },
+    {
+      "check_id": "web-production-build",
+      "command": [
+        "bun",
+        "run",
+        "build"
+      ],
+      "cwd": "web",
+      "duration_ms": 3848.558,
+      "exit_code": 0,
+      "log": "web-production-build.log",
+      "log_bytes": 87650,
+      "log_sha256": "b63d77e2af316993aae09ad656b196d2536ca5d7b3b5a8aec559a7ce88916ebb",
+      "status": "PASSED",
+      "title": "Web production build",
+      "tracks": [
+        "03-project-ui",
+        "14-chatgpt-app"
+      ]
+    },
+    {
+      "check_id": "desktop-release-build",
+      "command": [
+        "$REPO/.local/acceptance-venv/bin/python",
+        "acceptance/checks/desktop_release.py"
+      ],
+      "cwd": ".",
+      "duration_ms": 1932.56,
+      "exit_code": 0,
+      "log": "desktop-release-build.log",
+      "log_bytes": 486,
+      "log_sha256": "7e6a76778521f4a108bd608c785a8f98aede372628050529657abefd6fe167a6",
+      "status": "PASSED",
+      "title": "Pinned Swift 6 formal Desktop release build contract",
+      "tracks": [
+        "01-desktop"
+      ]
+    },
+    {
+      "artifact": {
+        "bytes": 1003,
+        "path": "no-openai-model-api-billing-receipt.json",
+        "sha256": "62d816776ad6b09a5d0033f0e4d213412a0ae478a263e28ac7db68c5da2f1711"
+      },
+      "check_id": "no-openai-model-api-billing",
+      "command": [
+        "$REPO/.local/acceptance-venv/bin/python",
+        "acceptance/checks/no_openai_model_api_billing.py"
+      ],
+      "cwd": ".",
+      "duration_ms": 22.685,
+      "exit_code": 0,
+      "log": "no-openai-model-api-billing.log",
+      "log_bytes": 901,
+      "log_sha256": "91f656d2a565950058dcc6a607e7518818363266d2d867569775c77954a0d263",
+      "status": "PASSED",
+      "title": "Subscription-only ChatGPT connection with zero OpenAI model API endpoints",
+      "tracks": [
+        "01-desktop",
+        "13-qa",
+        "14-chatgpt-app"
+      ]
+    },
+    {
+      "artifact": {
+        "bytes": 807,
+        "path": "agent-native-multibrain-receipt.json",
+        "sha256": "669bf8700bb1cc242a92e154d8fc1515d11f120d0774306d1ff2d3508cf537a4"
+      },
+      "check_id": "agent-native-multibrain",
+      "command": [
+        "$REPO/.local/acceptance-venv/bin/python",
+        "acceptance/checks/agent_native_multibrain.py"
+      ],
+      "cwd": ".",
+      "duration_ms": 39.116,
+      "exit_code": 0,
+      "log": "agent-native-multibrain.log",
+      "log_bytes": 739,
+      "log_sha256": "fd7476a01b54523c78f56b6d6f3d8027a2a8e2327e1e454cbbf6d3db4ac92e03",
+      "status": "PASSED",
+      "title": "Inherited native multi-brain architecture and Gate A-J contract",
+      "tracks": [
+        "08-agent",
+        "13-qa",
+        "14-chatgpt-app"
+      ]
+    },
+    {
+      "artifact": {
+        "bytes": 1200,
+        "path": "mcp-actual-tool-count-receipt.json",
+        "sha256": "f036bc45c03e99f4759173eab22a202bf778d60b00c5194896c8069b8caef55f"
+      },
+      "check_id": "mcp-actual-tool-count",
+      "command": [
+        "npx",
+        "tsx",
+        "scripts/mcp-manifest-receipt.ts"
+      ],
+      "cwd": "services/filmos-chatgpt-app",
+      "duration_ms": 687.585,
+      "exit_code": 0,
+      "log": "mcp-actual-tool-count.log",
+      "log_bytes": 1200,
+      "log_sha256": "bfd86953bd3ce3c78ac55d0cb58cf9216ff40921c9bc4c89b6aac2babe23ed5c",
+      "status": "PASSED",
+      "title": "Actual Streamable HTTP MCP listTools and dynamic risk inventory",
+      "tracks": [
+        "08-agent",
+        "13-qa",
+        "14-chatgpt-app"
+      ]
+    },
+    {
+      "check_id": "desktop-chatgpt-connection",
+      "command": [
+        "$REPO/.local/acceptance-venv/bin/python",
+        "acceptance/checks/desktop_chatgpt_connection.py"
+      ],
+      "cwd": ".",
+      "duration_ms": 6049.456,
+      "exit_code": 0,
+      "log": "desktop-chatgpt-connection.log",
+      "log_bytes": 13485,
+      "log_sha256": "89bde4a9ab14ebde457178c4b22edc45b964f3f7cd9334752de3d55e23ed145d",
+      "status": "PASSED",
+      "title": "Desktop-managed Film Core, MCP, Keychain, Secure Tunnel lifecycle and Live Gate",
+      "tracks": [
+        "01-desktop",
+        "13-qa",
+        "14-chatgpt-app"
+      ]
+    },
+    {
+      "check_id": "film-core-environment",
+      "command": [
+        "$REPO/.local/acceptance-venv/bin/python",
+        "acceptance/checks/film_core_environment.py"
+      ],
+      "cwd": ".",
+      "duration_ms": 252.539,
+      "exit_code": 0,
+      "log": "film-core-environment.log",
+      "log_bytes": 188,
+      "log_sha256": "36a2d865e2356c71b941920a35b37c7a34bd98bec0b3ca4fd0ae7464873567ea",
+      "status": "PASSED",
+      "title": "Acceptance-owned Film Core Python dependency contract",
+      "tracks": [
+        "02-film-core",
+        "08-agent",
+        "13-qa",
+        "14-chatgpt-app"
+      ]
+    },
+    {
+      "check_id": "desktop-runtime",
+      "command": [
+        "$REPO/.local/acceptance-venv/bin/python",
+        "acceptance/checks/desktop_runtime.py"
+      ],
+      "cwd": ".",
+      "duration_ms": 2162318.776,
+      "exit_code": 1,
+      "log": "desktop-runtime.log",
+      "log_bytes": 268309,
+      "log_sha256": "320a61b63019fb8d6319fce1a9310653ff4d1f712fbe3c26b23cea9a59affbef",
+      "status": "FAILED",
+      "title": "Double-click lifecycle, loopback services and cookie-free local session",
+      "tracks": [
+        "01-desktop",
+        "03-project-ui"
+      ]
+    },
+    {
+      "check_id": "desktop-backup-restore",
+      "command": [
+        "$REPO/.local/acceptance-venv/bin/python",
+        "acceptance/checks/desktop_backup_restore.py"
+      ],
+      "cwd": ".",
+      "duration_ms": 6533.022,
+      "exit_code": 0,
+      "log": "desktop-backup-restore.log",
+      "log_bytes": 282,
+      "log_sha256": "b2d2f16782af6cd4d468c620a14620eea74efbb151ec815420aa0a0840695fb5",
+      "status": "PASSED",
+      "title": "Local data export, manifest verification and clean restart restore",
+      "tracks": [
+        "01-desktop",
+        "02-film-core",
+        "13-qa"
+      ]
+    },
+    {
+      "check_id": "film-contracts",
+      "command": [
+        "$REPO/.local/acceptance-venv/bin/python",
+        "tests/film-contract/validate_contracts.py"
+      ],
+      "cwd": ".",
+      "duration_ms": 30.552,
+      "exit_code": 0,
+      "log": "film-contracts.log",
+      "log_bytes": 72,
+      "log_sha256": "2b6d47cf7ec89b96d2b7d4c8d0dcb2ffb4b3f6e3e79d2cb83e229b8a073f82c1",
+      "status": "PASSED",
+      "title": "Film contract validation",
+      "tracks": [
+        "02-film-core",
+        "13-qa"
+      ]
+    },
+    {
+      "check_id": "golden-abc-real-http",
+      "command": [
+        "$REPO/.local/acceptance-venv/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "tests/film-golden/test_golden_a_real.py",
+        "tests/film-golden/test_golden_b_real.py",
+        "tests/film-golden/test_golden_c_real.py"
+      ],
+      "cwd": ".",
+      "duration_ms": 4806.03,
+      "exit_code": 0,
+      "log": "golden-abc-real-http.log",
+      "log_bytes": 99,
+      "log_sha256": "715d4d42d55303fed0b07263154ae8b3fa0d91c77a5a11a5fcc11794c8377894",
+      "status": "PASSED",
+      "title": "Golden A/B/C real temporary Film Core HTTP chain",
+      "tracks": [
+        "02-film-core",
+        "04-story",
+        "05-production-canvas",
+        "06-assets",
+        "07-prompt",
+        "09-director",
+        "10-providers",
+        "13-qa"
+      ]
+    },
+    {
+      "check_id": "acceptance-full-chain",
+      "command": [
+        "$REPO/.local/acceptance-venv/bin/python",
+        "acceptance/checks/full_chain.py"
+      ],
+      "cwd": ".",
+      "duration_ms": 1143.61,
+      "exit_code": 0,
+      "log": "acceptance-full-chain.log",
+      "log_bytes": 4396,
+      "log_sha256": "1f20d6d53de0b410cf16d4f741535cf673e715bbf897658683ae11643a9b3052",
+      "status": "PASSED",
+      "title": "Fixed FilmOS Acceptance Project full Local-first chain",
+      "tracks": [
+        "02-film-core",
+        "04-story",
+        "05-production-canvas",
+        "06-assets",
+        "07-prompt",
+        "09-director",
+        "10-providers",
+        "13-qa"
+      ]
+    },
+    {
+      "check_id": "performance-local",
+      "command": [
+        "$REPO/.local/acceptance-venv/bin/python",
+        "acceptance/checks/performance.py"
+      ],
+      "cwd": ".",
+      "duration_ms": 1015.995,
+      "exit_code": 0,
+      "log": "performance-local.log",
+      "log_bytes": 2479,
+      "log_sha256": "7249c8ee51a956ef303884be9e3eb39b3d4d421e2f472048506b9d3f82d5337b",
+      "status": "PASSED",
+      "title": "Film Core, Web bundle, Remote and Agent reproducible budgets",
+      "tracks": [
+        "02-film-core",
+        "03-project-ui",
+        "08-agent",
+        "12-remote",
+        "13-qa"
+      ]
+    },
+    {
+      "check_id": "rc-recovery",
+      "command": [
+        "scripts/recovery/RC恢复演练",
+        "--synthetic"
+      ],
+      "cwd": ".",
+      "duration_ms": 613907.227,
+      "exit_code": 1,
+      "log": "rc-recovery.log",
+      "log_bytes": 998,
+      "log_sha256": "7b21b5ba4547fae182355d06fbf673fdc544aba92b5d177027050bb17f767512",
+      "status": "FAILED",
+      "title": "Unified restart, migration, source integrity and rollback drill",
+      "tracks": [
+        "02-film-core",
+        "08-agent",
+        "11-migration",
+        "12-remote",
+        "13-qa"
+      ]
+    },
+    {
+      "check_id": "canvas-agent",
+      "command": [
+        "npm",
+        "test"
+      ],
+      "cwd": "canvas-agent",
+      "duration_ms": 45794.473,
+      "exit_code": 0,
+      "log": "canvas-agent.log",
+      "log_bytes": 39883,
+      "log_sha256": "1c4a020366255ef3df2646fa7c14f3bed48fe33ff0eddec286f8808c2c582d19",
+      "status": "PASSED",
+      "title": "Codex Agent regression and build",
+      "tracks": [
+        "08-agent",
+        "13-qa"
+      ]
+    },
+    {
+      "check_id": "chatgpt-handoff-local",
+      "command": [
+        "npm",
+        "test"
+      ],
+      "cwd": "services/filmos-chatgpt-app",
+      "duration_ms": 2542.66,
+      "exit_code": 0,
+      "log": "chatgpt-handoff-local.log",
+      "log_bytes": 3190,
+      "log_sha256": "d94b2ac74c5d9ff35a838d4c1bb6ce03eec9dc3ccd32fbd5bfe53bbd2cf0737e",
+      "status": "PASSED",
+      "title": "ChatGPT MCP, Widget and local handoff regression",
+      "tracks": [
+        "13-qa",
+        "14-chatgpt-app"
+      ]
+    },
+    {
+      "check_id": "chatgpt-golden-real",
+      "command": [
+        "npm",
+        "run",
+        "test:golden-real"
+      ],
+      "cwd": "services/filmos-chatgpt-app",
+      "duration_ms": 3732.441,
+      "exit_code": 0,
+      "log": "chatgpt-golden-real.log",
+      "log_bytes": 1452,
+      "log_sha256": "d1f28256763a41e127bc3fe01ef76a432314806c24ce087fdae5605beab37bfa",
+      "status": "PASSED",
+      "title": "Real Film Core to MCP, Widget and proposal CLI Golden",
+      "tracks": [
+        "13-qa",
+        "14-chatgpt-app"
+      ]
+    },
+    {
+      "check_id": "upstream-compatibility",
+      "command": [
+        "$REPO/.local/acceptance-venv/bin/python",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "scripts/upstream/tests",
+        "-v"
+      ],
+      "cwd": ".",
+      "duration_ms": 3928.531,
+      "exit_code": 0,
+      "log": "upstream-compatibility.log",
+      "log_bytes": 1302,
+      "log_sha256": "6e625b10ec80f213d230eab4fc79dbefb72ac5e9eb56f0e4f1179d88fb8cb6d1",
+      "status": "PASSED",
+      "title": "Pinned upstream compatibility and rollback tests",
+      "tracks": [
+        "00-upstream",
+        "11-migration",
+        "13-qa"
+      ]
+    },
+    {
+      "check_id": "remote-acceptance-contract",
+      "command": [
+        "$REPO/.local/acceptance-venv/bin/python",
+        "acceptance/checks/remote_contract.py"
+      ],
+      "cwd": ".",
+      "duration_ms": 43.731,
+      "exit_code": 0,
+      "log": "remote-acceptance-contract.log",
+      "log_bytes": 317,
+      "log_sha256": "153a86f8d976d712547c59ad7d9e0980986683010ffffe64b5cb2bb59f189663",
+      "status": "PASSED",
+      "title": "Stable Acceptance manifest and exclusive maiyadiu/filmos-studio remote contract",
+      "tracks": [
+        "12-remote",
+        "13-qa"
+      ]
+    },
+    {
+      "check_id": "acceptance-reports",
+      "command": [
+        "$REPO/.local/acceptance-venv/bin/python",
+        "acceptance/checks/reports.py"
+      ],
+      "cwd": ".",
+      "duration_ms": 29.134,
+      "exit_code": 1,
+      "log": "acceptance-reports.log",
+      "log_bytes": 363,
+      "log_sha256": "d55c3477ff255898dc8babdddc2b9dff6b52671ca76e7d25ece17f143009cfa5",
+      "status": "FAILED",
+      "title": "Hashed Acceptance reports bound to original receipts and raw sources",
+      "tracks": [
+        "00-upstream",
+        "02-film-core",
+        "11-migration",
+        "12-remote",
+        "13-qa"
+      ]
+    },
+    {
+      "check_id": "evidence-index-contract",
+      "command": [
+        "$REPO/.local/acceptance-venv/bin/python",
+        "acceptance/checks/evidence_index.py"
+      ],
+      "cwd": ".",
+      "duration_ms": 32.367,
+      "exit_code": 0,
+      "log": "evidence-index-contract.log",
+      "log_bytes": 138,
+      "log_sha256": "a82dbeaef4a6f0b6017d12aff13f7629bce76585b0b925551c8e23c82c0716dc",
+      "status": "PASSED",
+      "title": "Stable Track evidence contract without runtime or release identity",
+      "tracks": [
+        "13-qa"
+      ]
+    },
+    {
+      "check_id": "acceptance-privacy",
+      "command": [
+        "$REPO/.local/acceptance-venv/bin/python",
+        "acceptance/checks/privacy.py"
+      ],
+      "cwd": ".",
+      "duration_ms": 62.013,
+      "exit_code": 0,
+      "log": "acceptance-privacy.log",
+      "log_bytes": 60,
+      "log_sha256": "eb6fca2fb40ca248f25e773dd0fd8b539f8eda5ffa75eb8ef01728ba7584b557",
+      "status": "PASSED",
+      "title": "Acceptance evidence privacy and secret scan",
+      "tracks": [
+        "13-qa"
+      ]
+    }
+  ],
+  "run_id": "20260829T154044Z-849d2f529e39-rc-local",
+  "schema_version": "1.0.0",
+  "source_snapshot_sha256": "ba166d422fedfbaec72e12979e0281c55abfbe90990f7bbf1d6066a566b9ffa7",
+  "started_from_commit": "849d2f529e39a625ad10210a45a79f5085032037",
+  "status": "FAILED",
+  "suite": "rc-local",
+  "worktree_porcelain": ""
+}
