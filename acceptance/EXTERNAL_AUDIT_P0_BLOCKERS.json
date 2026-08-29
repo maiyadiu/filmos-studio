@@ -1,0 +1,73 @@
+{
+  "schema_version": "1.0.0",
+  "audit_id": "FILMOS-EXTERNAL-AUDIT-P0-20260830",
+  "repository": "maiyadiu/filmos-studio",
+  "base_commit": "643a993a66b5eacd0f534bd78670bdb766d5dcb2",
+  "base_tree": "0892a85283ffb5cb3952b7655679fcc1e42ee92e",
+  "source_architecture_audit": "BLOCKED_FOR_RC1",
+  "blockers": [
+    {
+      "id": "P0-1",
+      "title": "Enabled brain profiles are not composed into one production runtime",
+      "evidence": [
+        "canvas-agent/src/brains/generic-agent-runtime.ts",
+        "web/src/components/canvas/canvas-assistant-panel.tsx"
+      ],
+      "required_resolution": "Every enabled profile has a registered production adapter and creates a session through the generic runtime."
+    },
+    {
+      "id": "P0-2",
+      "title": "Canonical Tool Broker is not the production execution boundary",
+      "evidence": [
+        "canvas-agent/src/modules/canvas-agent-http.ts",
+        "canvas-agent/src/brains/tool-broker.ts"
+      ],
+      "required_resolution": "New multi-brain and gated MCP tool calls pass grant, context, policy, confirmation, provider, postcondition, and audit through one broker."
+    },
+    {
+      "id": "P0-3",
+      "title": "Tool schemas have multiple manually maintained truth sources",
+      "evidence": [
+        "canvas-agent/src/schemas.ts",
+        "canvas-agent/src/film/contracts.ts",
+        "canvas-agent/src/brains/tool-manifest.ts",
+        "web/src/film/agent/model-api-tool-manifest.ts"
+      ],
+      "required_resolution": "Generate MCP and model-runtime contracts from the canonical schemas and risk metadata, with drift checks."
+    },
+    {
+      "id": "P0-4",
+      "title": "ChatGPT Host lacks scoped live workbench context and native composer handoff",
+      "evidence": [
+        "services/filmos-chatgpt-app/src/mcp.ts",
+        "web/src/components/canvas/canvas-chatgpt-hosted-panel.tsx"
+      ],
+      "required_resolution": "Expose TTL-bound read-only live context and pending handoff tools, and submit handoff from the existing Agent composer."
+    },
+    {
+      "id": "P0-5",
+      "title": "Candidate application does not atomically activate the complete runtime",
+      "evidence": [
+        "canvas-agent/src/brains/feature-flags.ts",
+        "web/src/film/agent/feature-flags.ts"
+      ],
+      "required_resolution": "Add a fail-closed candidate runtime profile and black-box activation gate while preserving integration defaults off."
+    },
+    {
+      "id": "P0-6",
+      "title": "Real Codex gate proves read context but not a controlled write",
+      "evidence": [
+        "acceptance/evidence/runs/20260829T153743Z-bbedc297c1b2-rc-real-agent/codex-subscription-real-receipt.json"
+      ],
+      "required_resolution": "Prove reject, approve, postcondition, restart recovery, audit attribution, and replay prevention on the disposable acceptance project without paid generation."
+    }
+  ],
+  "forbidden_shortcuts": [
+    "mock_only_production_adapters",
+    "static_string_completion_gate",
+    "legacy_direct_write_bypass",
+    "silent_api_fallback",
+    "paid_generation",
+    "rc1_tag_creation"
+  ]
+}
