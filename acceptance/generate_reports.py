@@ -78,6 +78,10 @@ RAW_SOURCES = (
     "services/filmos-chatgpt-app/evidence/real-golden-receipt.json",
     "services/filmos-chatgpt-app/evidence/external-account-blocked.json",
     "acceptance/evidence/runs/20260829T153743Z-bbedc297c1b2-rc-real-agent/codex-subscription-real-receipt.json",
+    "implementation/agent-native-multibrain/evidence/WP-09.json",
+    "implementation/agent-native-multibrain/evidence/UI-01.json",
+    "output/playwright/agent-native-multibrain.png",
+    "output/playwright/chatgpt-host-boundary.png",
 )
 
 

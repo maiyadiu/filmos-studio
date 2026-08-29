@@ -1,0 +1,44 @@
+{
+  "schema_version": "1.0.0",
+  "gate_id": "MCP-ACTUAL-TOOL-COUNT-001",
+  "status": "PASSED",
+  "source": "REAL_STREAMABLE_HTTP_MCP_LIST_TOOLS",
+  "profile_id": "chatgpt.subscription.host.pro_readonly",
+  "billing_mode": "subscription_host_no_extra_model_api",
+  "tool_names": [
+    "fetch",
+    "filmos_get_asset_version",
+    "filmos_get_blockers",
+    "filmos_get_content_unit_context",
+    "filmos_get_continuity_report",
+    "filmos_get_generation_attempts",
+    "filmos_get_project_context",
+    "filmos_get_recent_changes",
+    "filmos_get_review_queue",
+    "filmos_get_scene_twin_summary",
+    "filmos_get_shot_context",
+    "filmos_prepare_proposal_export",
+    "filmos_render_asset_version",
+    "filmos_render_content_unit_progress",
+    "filmos_render_project_overview",
+    "filmos_render_proposal_export",
+    "filmos_render_review_queue",
+    "filmos_render_scene_twin",
+    "filmos_render_shot_review",
+    "search"
+  ],
+  "actual_tool_count": 20,
+  "calculated_risk_counts": {
+    "read": 20,
+    "write": 0,
+    "destructive": 0,
+    "paid": 0
+  },
+  "desktop_health_risk_counts": {
+    "read": 20,
+    "write": 0,
+    "destructive": 0,
+    "paid": 0
+  },
+  "exact_match": true
+}

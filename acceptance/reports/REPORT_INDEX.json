@@ -1,5 +1,5 @@
 {
-  "evidence_status": "DEVELOPMENT_EVIDENCE_DIRTY",
+  "evidence_status": "CLEAN_LOCAL_EVIDENCE_NOT_FROZEN",
   "raw_sources": [
     {
       "bytes": 25287,
@@ -9,7 +9,7 @@
     {
       "bytes": 3357,
       "path": "acceptance/MANIFEST.json",
-      "sha256": "24a2807138961273af9d2423a9ac0dc22a2d24465b788dbab9ac7accc8183def"
+      "sha256": "bbe80f270b5c7f0abecff70b88c6059486e8e5b207d215955c054d32c70ce9cf"
     },
     {
       "bytes": 2187,
@@ -45,44 +45,71 @@
       "bytes": 625,
       "path": "services/filmos-chatgpt-app/evidence/external-account-blocked.json",
       "sha256": "953163a579f8f2ada4c2d778cca31171530bfbd43e14415a7ddcbc2b30a3c685"
+    },
+    {
+      "bytes": 1730,
+      "path": "acceptance/evidence/runs/20260829T153743Z-bbedc297c1b2-rc-real-agent/codex-subscription-real-receipt.json",
+      "sha256": "149a7fb50efe313670962e885d1644d63f4d25ce04556e58ede0750953beeaf2"
+    },
+    {
+      "bytes": 3141,
+      "path": "implementation/agent-native-multibrain/evidence/WP-09.json",
+      "sha256": "6aa4aa238e13a7c4925252e6691990122f0b9c8702325f0fc82312c500bfa097"
+    },
+    {
+      "bytes": 1620,
+      "path": "implementation/agent-native-multibrain/evidence/UI-01.json",
+      "sha256": "b17c8abc824bcfa563772a8702fae35ec49716bb4fb45ac90fac3cd443720478"
+    },
+    {
+      "bytes": 103828,
+      "path": "output/playwright/agent-native-multibrain.png",
+      "sha256": "940916192b5faf4ce3a979060e925ad6c02c22f7d18779b9b2df71a8b8a62845"
+    },
+    {
+      "bytes": 116663,
+      "path": "output/playwright/chatgpt-host-boundary.png",
+      "sha256": "ecaa6419e92c8245b06d00364c707aa88c9d29b973f8bbc9a0aa7726a2648073"
     }
   ],
-  "receipt": "acceptance/evidence/runs/20260829T094648Z-bdec33ced224-rc-local/receipt.json",
-  "receipt_sha256": "f5b3e9b24e8088f9529d8e2205c92a5f2eefbab7bf4757eda4e9007a675dc1b7",
+  "receipt": "acceptance/evidence/runs/20260829T174957Z-0b6a11cfbe92-rc-local/receipt.json",
+  "receipt_sha256": "858fc68c380dc3d1bcc2d6e02e017d8034c0d840a0c85c60c427c31aa74ac4ca",
   "reports": [
     {
-      "bytes": 2447,
+      "bytes": 3007,
       "check_ids": [
         "desktop-release-build",
         "desktop-chatgpt-connection",
         "no-openai-model-api-billing",
+        "agent-native-multibrain",
+        "mcp-actual-tool-count",
         "performance-local",
         "remote-acceptance-contract"
       ],
       "path": "acceptance/reports/KNOWN_LIMITATIONS.md",
-      "sha256": "ecc8e03398d7a3ab5265b63cf2ea22a580bfef14dc5df2aa3eff1ea34394a5ec"
+      "sha256": "268b35982446a7096970de466f715213578a0374258b1da51cb1ab298c48927d"
     },
     {
-      "bytes": 1625,
+      "bytes": 1630,
       "check_ids": [
         "rc-recovery",
         "upstream-compatibility",
         "desktop-backup-restore"
       ],
       "path": "acceptance/reports/MIGRATION_REPORT.md",
-      "sha256": "866e96721ec697844ecafb6331f3e41301d5eae69e28af410e0c8bb81cdb5825"
+      "sha256": "275352f5137bc85530146ad8d32d1a5ba216beb5c7d731c6372a89583840d25d"
     },
     {
-      "bytes": 1381,
+      "bytes": 1386,
       "check_ids": [
         "upstream-compatibility",
         "rc-recovery"
       ],
       "path": "acceptance/reports/UPSTREAM_COMPATIBILITY_REPORT.md",
-      "sha256": "d6f1e1525cf8a21a31bab0e33fa8d822e82f2ac4f10fa5aa1c1187dedad25e08"
+      "sha256": "472abcddd4fb3ec1c47f06dc1f4ab70376dae202354c4403385fb00fda9cb3b0"
     },
     {
-      "bytes": 2631,
+      "bytes": 3044,
       "check_ids": [
         "desktop-local-auth",
         "desktop-backup-restore",
@@ -91,34 +118,39 @@
         "chatgpt-golden-real",
         "desktop-chatgpt-connection",
         "no-openai-model-api-billing",
+        "agent-native-multibrain",
+        "mcp-actual-tool-count",
         "acceptance-privacy"
       ],
       "path": "acceptance/reports/SECURITY_REPORT.md",
-      "sha256": "520077f0c39d7da7468472d64e0ca11ff3154b87f49dfa42852930d92af8c83f"
+      "sha256": "19f805c9ebd9a6982b2e95cd6597a2e74799b17466a6b1984432d7cb5194a583"
     },
     {
-      "bytes": 1518,
+      "bytes": 1524,
       "check_ids": [
         "web-production-build",
         "performance-local"
       ],
       "path": "acceptance/reports/PERFORMANCE_REPORT.md",
-      "sha256": "494d7ea403a70feabcb34dfd1b0e2ff4bcc35118c60f51425c93534f4ebb8481"
+      "sha256": "8daf5003fdd27a7a28785633aea83e9a748de32fd77be4479580adeac5538b89"
     },
     {
-      "bytes": 1859,
+      "bytes": 2486,
       "check_ids": [
         "desktop-backup-restore",
         "golden-abc-real-http",
         "acceptance-full-chain",
         "chatgpt-golden-real",
-        "desktop-chatgpt-connection"
+        "desktop-chatgpt-connection",
+        "agent-native-multibrain",
+        "mcp-actual-tool-count",
+        "no-openai-model-api-billing"
       ],
       "path": "acceptance/reports/GOLDEN_TEST_REPORT.md",
-      "sha256": "4524559873fea0d1c4f681e9b289fe2465027325642f37691b9123b42206a958"
+      "sha256": "c2903e1b4f8a81add8b305422056b8b0c3555b168d1c6cf22780a203f7dea724"
     }
   ],
   "schema_version": "1.0.0",
-  "source_snapshot_sha256": "64a65f6fda5367ae874c6d6323f12e0c89efa2e33bb5566aa7d56b7bc8a547fa",
-  "started_from_commit": "bdec33ced224ea3aedc984aad426d1c20c9fc4f7"
+  "source_snapshot_sha256": "6151f72e376995a57410835d7ca5c0e7336ae0f3c3b4d18366ba5c78d1f7fdd0",
+  "started_from_commit": "0b6a11cfbe92e84b901e62fcec24ff79d3b6a158"
 }

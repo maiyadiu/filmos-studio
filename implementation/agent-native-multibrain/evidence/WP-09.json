@@ -1,0 +1,81 @@
+{
+  "schema_version": "1",
+  "work_package": "WP-09",
+  "baseline_commit": "9267a5f198182bfa16403723e865cf815983ef13",
+  "source_commit": "0b6a11cfbe92e84b901e62fcec24ff79d3b6a158",
+  "observed_at": "2026-08-30T02:06:02+08:00",
+  "rc_local_receipt": {
+    "path": "acceptance/evidence/runs/20260829T174957Z-0b6a11cfbe92-rc-local/receipt.json",
+    "file_sha256": "312f94cef8d150f6c0e5e569357d55d83c9d2a642e2573b315e0d130e2c355b5",
+    "receipt_sha256": "858fc68c380dc3d1bcc2d6e02e017d8034c0d840a0c85c60c427c31aa74ac4ca",
+    "clean_worktree": true,
+    "checks_passed": 24,
+    "checks_failed": 1,
+    "expected_report_rebind_only": true
+  },
+  "codex_subscription_real_receipt": {
+    "path": "acceptance/evidence/runs/20260829T153743Z-bbedc297c1b2-rc-real-agent/receipt.json",
+    "file_sha256": "09bca42b41d213892d0d23cd4df507026a1b480a26b1775ce343b264d202921e",
+    "receipt_sha256": "cc0d50e8d37feff079a1eecefd443b458d7cb678fb7fb8404412967abda4ae29",
+    "status": "PASSED_REAL_SUBSCRIPTION_READ_PREVIEW",
+    "openai_api_key_present": false,
+    "model_api_requests_observed": 0,
+    "actual_mcp_tools_called": [
+      "workbench_get_context"
+    ],
+    "provider_thread_preserved_after_restart": true,
+    "formal_write_executed": false
+  },
+  "mcp_actual_manifest": {
+    "gate_id": "MCP-ACTUAL-TOOL-COUNT-001",
+    "actual_tool_count": 20,
+    "risk_counts": {
+      "read": 20,
+      "write": 0,
+      "destructive": 0,
+      "paid": 0
+    },
+    "health_exact_match": true
+  },
+  "ui_screenshots": [
+    {
+      "path": "output/playwright/agent-native-multibrain.png",
+      "sha256": "940916192b5faf4ce3a979060e925ad6c02c22f7d18779b9b2df71a8b8a62845",
+      "scope": "native Agent panel and complete Brain selector"
+    },
+    {
+      "path": "output/playwright/chatgpt-host-boundary.png",
+      "sha256": "ecaa6419e92c8245b06d00364c707aa88c9d29b973f8bbc9a0aa7726a2648073",
+      "scope": "ChatGPT Host boundary, connection and Proposal-only state"
+    }
+  ],
+  "gate_results": {
+    "A": "PASSED_RC_LOCAL_FOUNDATION",
+    "B": "PASSED_REAL_MCP_LIST_TOOLS",
+    "C": "PASSED_MULTI_PROJECT_MULTI_SESSION_AUTOMATION",
+    "D": "PASSED_NO_TEST_PROJECT_FALLBACK",
+    "E": "PASSED_REAL_CODEX_SUBSCRIPTION_READ_PREVIEW",
+    "F": "PASSED_API_RETENTION_EXPLICIT_SELECTION_ONLY",
+    "G": "BLOCKED_EXTERNAL_ACCOUNT",
+    "H": "PASSED_NO_OPENAI_MODEL_API_BILLING",
+    "I": "PASSED_SINGLE_SOURCE_CONTRACT",
+    "J": "PASS_WITH_LIMITATIONS"
+  },
+  "chatgpt_external_gate": {
+    "path": "services/filmos-chatgpt-app/evidence/external-account-blocked.json",
+    "file_sha256": "953163a579f8f2ada4c2d778cca31171530bfbd43e14415a7ddcbc2b30a3c685",
+    "status": "BLOCKED_EXTERNAL_ACCOUNT",
+    "mock_used_as_real_gate": false
+  },
+  "assertions": {
+    "fixed_baseline_is_ancestor": true,
+    "main_modified_by_task": false,
+    "rc1_tag_created": false,
+    "api_channels_preserved": true,
+    "silent_subscription_to_api_fallback": false,
+    "dreamina_p0_race_test_passed": true,
+    "desktop_double_click_runtime_passed": true,
+    "frozen_upstream_recovery_passed_without_tracking_ref": true,
+    "acceptance_privacy_passed": true
+  }
+}

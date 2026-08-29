@@ -1,0 +1,53 @@
+{
+  "schema_version": "1",
+  "evidence_id": "UI-01",
+  "baseline_commit": "9267a5f198182bfa16403723e865cf815983ef13",
+  "source_commit": "0b6a11cfbe92e84b901e62fcec24ff79d3b6a158",
+  "observed_at": "2026-08-30T02:47:36+08:00",
+  "runtime": {
+    "kind": "unsigned_desktop_local_isolated",
+    "auth_mode": "desktop_local",
+    "viewport_css_pixels": [1600, 1000],
+    "whole_desktop_captured": false,
+    "temporary_data_removed_after_capture": true
+  },
+  "screenshots": [
+    {
+      "path": "output/playwright/agent-native-multibrain.png",
+      "sha256": "940916192b5faf4ce3a979060e925ad6c02c22f7d18779b9b2df71a8b8a62845",
+      "bytes": 103828,
+      "observed_labels": [
+        "Codex",
+        "订阅 · 原生",
+        "ChatGPT",
+        "订阅 · Host 协作",
+        "OpenAI",
+        "Claude",
+        "DeepSeek",
+        "API 计费",
+        "Local",
+        "本地"
+      ]
+    },
+    {
+      "path": "output/playwright/chatgpt-host-boundary.png",
+      "sha256": "ecaa6419e92c8245b06d00364c707aa88c9d29b973f8bbc9a0aa7726a2648073",
+      "bytes": 116663,
+      "observed_labels": [
+        "ChatGPT Host 协作",
+        "Secure MCP / Grant",
+        "ChatGPT 真实读取",
+        "MCP 实际清单",
+        "Proposal / Review Draft",
+        "当前只读，不直接 Apply"
+      ]
+    }
+  ],
+  "assertions": {
+    "existing_yingce_agent_panel_is_only_primary_ui": true,
+    "brain_and_connection_are_visible": true,
+    "billing_semantics_are_visible": true,
+    "host_handoff_is_not_presented_as_embedded_streaming_chat": true,
+    "credentials_or_private_absolute_paths_visible": false
+  }
+}

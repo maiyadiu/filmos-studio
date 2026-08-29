@@ -1,24 +1,27 @@
 # Known Limitations
 
-- Evidence status: `DEVELOPMENT_EVIDENCE_DIRTY`
-- Receipt: `acceptance/evidence/runs/20260829T094648Z-bdec33ced224-rc-local/receipt.json`
-- Receipt SHA-256: `f5b3e9b24e8088f9529d8e2205c92a5f2eefbab7bf4757eda4e9007a675dc1b7`
-- Started from Commit: `bdec33ced224ea3aedc984aad426d1c20c9fc4f7`
-- Source snapshot SHA-256: `64a65f6fda5367ae874c6d6323f12e0c89efa2e33bb5566aa7d56b7bc8a547fa`
+- Evidence status: `CLEAN_LOCAL_EVIDENCE_NOT_FROZEN`
+- Receipt: `acceptance/evidence/runs/20260829T174957Z-0b6a11cfbe92-rc-local/receipt.json`
+- Receipt SHA-256: `858fc68c380dc3d1bcc2d6e02e017d8034c0d840a0c85c60c427c31aa74ac4ca`
+- Started from Commit: `0b6a11cfbe92e84b901e62fcec24ff79d3b6a158`
+- Source snapshot SHA-256: `6151f72e376995a57410835d7ca5c0e7336ae0f3c3b4d18366ba5c78d1f7fdd0`
 
 ## Machine evidence
 
 | Check | Status | Raw log | SHA-256 |
 | --- | --- | --- | --- |
-| `desktop-release-build` | `PASSED` | `acceptance/evidence/runs/20260829T094648Z-bdec33ced224-rc-local/desktop-release-build.log` | `2cb7befeb77c95145fcc77697761537aa99694a2e30b5bd7f68367140748576c` |
-| `desktop-chatgpt-connection` | `PASSED` | `acceptance/evidence/runs/20260829T094648Z-bdec33ced224-rc-local/desktop-chatgpt-connection.log` | `380d6d7ee57e015f65e5bbb65b7459bd95c2a93ea09631e58a932c7efafe70f4` |
-| `no-openai-model-api-billing` | `PASSED` | `acceptance/evidence/runs/20260829T094648Z-bdec33ced224-rc-local/no-openai-model-api-billing.log` | `fdf14aa2cda0a10642df9d6b61bac61d1e821f67da2a5eb070e1b8ccf30fb256` |
-| `performance-local` | `PASSED` | `acceptance/evidence/runs/20260829T094648Z-bdec33ced224-rc-local/performance-local.log` | `ea29a142426f8fa2d48ed11f007f3c5863c86ef267b90274d26b88cb72de4955` |
-| `remote-acceptance-contract` | `PASSED` | `acceptance/evidence/runs/20260829T094648Z-bdec33ced224-rc-local/remote-acceptance-contract.log` | `153a86f8d976d712547c59ad7d9e0980986683010ffffe64b5cb2bb59f189663` |
+| `desktop-release-build` | `PASSED` | `acceptance/evidence/runs/20260829T174957Z-0b6a11cfbe92-rc-local/desktop-release-build.log` | `5cd9f0f313f3e10582bf86f2cac34593d8eb510d83e0641998112554f737d724` |
+| `desktop-chatgpt-connection` | `PASSED` | `acceptance/evidence/runs/20260829T174957Z-0b6a11cfbe92-rc-local/desktop-chatgpt-connection.log` | `73545f98e80242efa713fde6c3f247daccc2664549ab8329c2b74083b2d579a9` |
+| `no-openai-model-api-billing` | `PASSED` | `acceptance/evidence/runs/20260829T174957Z-0b6a11cfbe92-rc-local/no-openai-model-api-billing.log` | `d21231d5523ed06fe363b1a69ab21c22ed942f73bc3a39f8ea2e87ffba3f938f` |
+| `agent-native-multibrain` | `PASSED` | `acceptance/evidence/runs/20260829T174957Z-0b6a11cfbe92-rc-local/agent-native-multibrain.log` | `fd7476a01b54523c78f56b6d6f3d8027a2a8e2327e1e454cbbf6d3db4ac92e03` |
+| `mcp-actual-tool-count` | `PASSED` | `acceptance/evidence/runs/20260829T174957Z-0b6a11cfbe92-rc-local/mcp-actual-tool-count.log` | `bfd86953bd3ce3c78ac55d0cb58cf9216ff40921c9bc4c89b6aac2babe23ed5c` |
+| `performance-local` | `PASSED` | `acceptance/evidence/runs/20260829T174957Z-0b6a11cfbe92-rc-local/performance-local.log` | `ad27c283967d3e60852932a0ac923bb3ba627ca3ab7ae162b2e93b0e519f586a` |
+| `remote-acceptance-contract` | `PASSED` | `acceptance/evidence/runs/20260829T174957Z-0b6a11cfbe92-rc-local/remote-acceptance-contract.log` | `153a86f8d976d712547c59ad7d9e0980986683010ffffe64b5cb2bb59f189663` |
 
 ## Scope and boundary
 
-- Current evidence is development-only because the source worktree was dirty at run start.
+- Current evidence was generated from a clean fixed-commit source worktree.
+- Real Codex Subscription evidence is a separate receipt because it requires managed account authorization; the report index hashes that raw receipt as a source.
 - Real Provider CLI generation remains a separate authorized external drill; the Local-first chain uses `LOCAL_MANUAL_CANDIDATE_IMPORT`.
 - External ChatGPT account acknowledgement and secure tunnel proof are not in the Local suite.
 - `NO-OPENAI-MODEL-API-001` proves the checked-in runtime has no model API endpoint path; the final external Live Gate must add its own time-bounded receipt.

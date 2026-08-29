@@ -1,0 +1,7 @@
+Traceback (most recent call last):
+  File "$REPO/acceptance/checks/reports.py", line 74, in <module>
+    raise SystemExit(main())
+                     ~~~~^^
+  File "$REPO/acceptance/checks/reports.py", line 49, in main
+    raise RuntimeError(f"report artifact hash mismatch: {item['path']}")
+RuntimeError: report artifact hash mismatch: acceptance/MANIFEST.json
