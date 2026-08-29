@@ -8,7 +8,8 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-BASELINE = "9267a5f198182bfa16403723e865cf815983ef13"
+BASELINE = "643a993a66b5eacd0f534bd78670bdb766d5dcb2"
+PRODUCTION_RECEIPT_PREFIX = "FILMOS_PRODUCTION_RUNTIME_RECEIPT "
 
 
 def text(relative: str) -> str:
@@ -18,6 +19,23 @@ def text(relative: str) -> str:
 def require(condition: bool, code: str) -> None:
     if not condition:
         raise RuntimeError(code)
+
+
+def production_composition_receipt() -> dict:
+    result = subprocess.run(
+        ("npx", "tsx", "--test", "test/production-runtime-gate.test.ts"),
+        cwd=ROOT / "canvas-agent",
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        check=False,
+    )
+    require(result.returncode == 0, "PRODUCTION_COMPOSITION_TEST_FAILED\n" + result.stdout[-8000:])
+    lines = [line.split(PRODUCTION_RECEIPT_PREFIX, 1)[1] for line in result.stdout.splitlines() if PRODUCTION_RECEIPT_PREFIX in line]
+    require(len(lines) == 1, "PRODUCTION_COMPOSITION_RECEIPT_MISSING")
+    receipt = json.loads(lines[0])
+    require(receipt.get("status") == "PASSED", "PRODUCTION_COMPOSITION_NOT_PASSED")
+    return receipt
 
 
 def main() -> int:
@@ -38,6 +56,8 @@ def main() -> int:
     api_adapter = text("canvas-agent/src/brains/adapters/model-api-brain-adapter.ts")
     hosted_adapter = text("canvas-agent/src/brains/adapters/chatgpt-hosted-adapter.ts")
     tool_manifest = text("canvas-agent/src/brains/tool-manifest.ts")
+    generated_tool_contract = json.loads(text("packages/filmos-agent-tool-contracts/generated/canonical-tools.json"))
+    generated_tool_names = {item["name"] for item in generated_tool_contract["tools"]}
     tool_broker = text("canvas-agent/src/brains/tool-broker.ts")
     mcp_server = text("canvas-agent/src/mcp-server.ts")
     canvas_http = text("canvas-agent/src/modules/canvas-agent-http.ts")
@@ -50,8 +70,10 @@ def main() -> int:
         "anthropic.api",
         "deepseek.api",
         "local.model",
+        "human.only",
     )
-    require(all(profile in profiles and profile in web_profiles for profile in required_profiles), "BRAIN_PROFILE_SET_INCOMPLETE")
+    require(all(profile in profiles for profile in required_profiles), "BRAIN_PROFILE_SET_INCOMPLETE")
+    require(all(profile in web_profiles for profile in required_profiles if profile != "human.only"), "VISIBLE_BRAIN_PROFILE_SET_INCOMPLETE")
     declared_flags = set(re.findall(r'"(film\.agent_[a-z_]+)"', flags.split("] as const", 1)[0]))
     require(declared_flags == {
         "film.agent_native_brain_selector",
@@ -82,7 +104,8 @@ def main() -> int:
     require("class CanonicalAgentToolBroker" in tool_broker, "SINGLE_TOOL_BROKER_MISSING")
     require("class AgentSessionManager" in manager and "permissionGrantId" in manager, "SESSION_GRANT_BINDING_MISSING")
     require("mcpAnnotationsForRisk" in mcp_server, "CANONICAL_MCP_RISK_ANNOTATIONS_MISSING")
-    require("workbench_get_context" in tool_manifest and "film_command_apply" in tool_manifest, "WORKBENCH_TOOL_SURFACE_INCOMPLETE")
+    require("canonicalAgentToolsByName" in tool_manifest, "CANONICAL_TOOL_CONTRACT_NOT_CONSUMED")
+    require({"workbench_get_context", "film_command_apply"}.issubset(generated_tool_names), "WORKBENCH_TOOL_SURFACE_INCOMPLETE")
     require('/agent/codex/turn' in canvas_http and '/agent/sessions/:sessionId/turns' in canvas_http, "LEGACY_OR_GENERIC_ROUTE_MISSING")
 
     source_roots = (ROOT / "canvas-agent/src", ROOT / "web/src/film/agent")
@@ -111,6 +134,19 @@ def main() -> int:
     )
     require(all((ROOT / item).is_file() for item in tests), "AGENT_ACCEPTANCE_TEST_MATRIX_INCOMPLETE")
 
+    production = production_composition_receipt()
+    expected_profiles = set(required_profiles)
+    require(set(production["enabled_profile_ids"]) == expected_profiles, "PRODUCTION_ENABLED_PROFILE_DRIFT")
+    require(set(production["adapter_profile_ids"]) == expected_profiles, "PRODUCTION_ADAPTER_REGISTRY_INCOMPLETE")
+    require(production["instrumentation"] == {
+        "broker_request_count": 7,
+        "broker_confirmation_count": 1,
+        "broker_execute_count": 7,
+        "legacy_direct_execute_count": 0,
+    }, "PRODUCTION_BROKER_INSTRUMENTATION_MISMATCH")
+    require(production["controlled_write_execute_count"] == 1, "PRODUCTION_CONTROLLED_WRITE_COUNT_MISMATCH")
+    require(production["duplicate_confirmation_replay_blocked"] is True, "PRODUCTION_CONFIRMATION_REPLAY_NOT_BLOCKED")
+
     receipt = {
         "schema_version": "1.0.0",
         "gate_id": "AGENT-NATIVE-MULTIBRAIN-CONTRACT-001",
@@ -121,6 +157,7 @@ def main() -> int:
         "test_contract_count": len(tests),
         "duplicate_runtime_sources_detected": 0,
         "test_project_fallbacks_detected": forbidden_fallbacks,
+        "production_composition": production,
         "gates": {
             "A": "COVERED_BY_RC_LOCAL",
             "B": "COVERED_BY_MCP_ACTUAL_TOOL_COUNT",

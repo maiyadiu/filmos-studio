@@ -16,9 +16,15 @@ def require(condition: bool, code: str) -> None:
         raise RuntimeError(code)
 
 
+def run_contract_command(*command: str) -> None:
+    result = subprocess.run(command, cwd=PACKAGE, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False)
+    if result.returncode:
+        raise RuntimeError(f"CANONICAL_AGENT_TOOL_CONTRACT_COMMAND_FAILED:{' '.join(command)}\n{result.stdout[-8000:]}")
+
+
 def main() -> int:
-    subprocess.run(("npm", "run", "check"), cwd=PACKAGE, check=True)
-    subprocess.run(("npm", "test"), cwd=PACKAGE, check=True)
+    run_contract_command("npm", "run", "check")
+    run_contract_command("npm", "test")
     contract_path = PACKAGE / "generated" / "canonical-tools.json"
     contract = json.loads(contract_path.read_text(encoding="utf-8"))
     tools = contract["tools"]

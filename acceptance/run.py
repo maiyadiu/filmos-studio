@@ -79,10 +79,17 @@ CURRENT_CHECKS = (
 RC_LOCAL_CHECKS = CURRENT_CHECKS + (
     Check(
         "agent-native-multibrain",
-        "Inherited native multi-brain architecture and Gate A-J contract",
+        "Native multi-brain production composition, adapter registry and broker instrumentation",
         (sys.executable, "acceptance/checks/agent_native_multibrain.py"),
         ROOT,
         ("08-agent", "13-qa", "14-chatgpt-app"),
+    ),
+    Check(
+        "agent-codex-controlled-write",
+        "Real Codex subscription reject, approve, restart and replay-safe controlled write evidence",
+        (sys.executable, "acceptance/checks/agent_codex_controlled_write.py"),
+        ROOT,
+        ("08-agent", "13-qa"),
     ),
     Check(
         "agent-tool-contract-single-source",
@@ -90,6 +97,13 @@ RC_LOCAL_CHECKS = CURRENT_CHECKS + (
         (sys.executable, "acceptance/checks/agent_tool_contract_single_source.py"),
         ROOT,
         ("08-agent", "13-qa", "14-chatgpt-app"),
+    ),
+    Check(
+        "agent-candidate-activation",
+        "Packaged Candidate App atomically activates all ten Agent dependencies",
+        (sys.executable, "acceptance/checks/agent_candidate_activation.py"),
+        ROOT,
+        ("01-desktop", "08-agent", "13-qa"),
     ),
     Check(
         "mcp-actual-tool-count",
@@ -242,7 +256,9 @@ REAL_AGENT_CHECKS = (
 CHECK_ARTIFACT_NAMES = {
     "no-openai-model-api-billing": "no-openai-model-api-billing-receipt.json",
     "agent-native-multibrain": "agent-native-multibrain-receipt.json",
+    "agent-codex-controlled-write": "agent-codex-controlled-write-receipt.json",
     "agent-tool-contract-single-source": "agent-tool-contract-single-source-receipt.json",
+    "agent-candidate-activation": "agent-candidate-activation-receipt.json",
     "mcp-actual-tool-count": "mcp-actual-tool-count-receipt.json",
     "codex-subscription-real": "codex-subscription-real-receipt.json",
 }

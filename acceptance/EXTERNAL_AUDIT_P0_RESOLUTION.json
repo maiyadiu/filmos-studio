@@ -1,0 +1,110 @@
+{
+  "schema_version": "1.0.0",
+  "contract_kind": "FILMOS_EXTERNAL_AUDIT_P0_RESOLUTION",
+  "repository": "maiyadiu/filmos-studio",
+  "fixed_base_commit": "643a993a66b5eacd0f534bd78670bdb766d5dcb2",
+  "source_architecture_audit": "READY_FOR_EXTERNAL_REVIEW",
+  "resolutions": [
+    {
+      "id": "P0-1",
+      "status": "PASSED",
+      "source_paths": [
+        "canvas-agent/src/brains/adapter-factory.ts",
+        "canvas-agent/src/brains/runtime-composition-root.ts",
+        "canvas-agent/src/brains/generic-agent-runtime.ts"
+      ],
+      "automated_tests": [
+        "canvas-agent/test/brain-runtime-composition.test.ts",
+        "canvas-agent/test/production-runtime-gate.test.ts",
+        "acceptance/checks/agent_native_multibrain.py"
+      ],
+      "golden_case_ids": [
+        "AGENT-NATIVE-MULTIBRAIN-CONTRACT-001",
+        "AGENT-PRODUCTION-COMPOSITION-001"
+      ]
+    },
+    {
+      "id": "P0-2",
+      "status": "PASSED",
+      "source_paths": [
+        "canvas-agent/src/brains/tool-broker.ts",
+        "canvas-agent/src/brains/tool-providers.ts",
+        "canvas-agent/src/modules/canvas-agent-http.ts"
+      ],
+      "automated_tests": [
+        "canvas-agent/test/production-tool-broker.test.ts",
+        "canvas-agent/test/production-runtime-gate.test.ts"
+      ],
+      "golden_case_ids": [
+        "AGENT-TOOL-BROKER-001",
+        "AGENT-PRODUCTION-COMPOSITION-001"
+      ]
+    },
+    {
+      "id": "P0-3",
+      "status": "PASSED",
+      "source_paths": [
+        "packages/filmos-agent-tool-contracts",
+        "canvas-agent/src/brains/tool-manifest-source.ts"
+      ],
+      "automated_tests": [
+        "acceptance/checks/agent_tool_contract_single_source.py"
+      ],
+      "golden_case_ids": [
+        "AGENT-TOOL-CONTRACT-SINGLE-SOURCE-001"
+      ]
+    },
+    {
+      "id": "P0-4",
+      "status": "PASSED_CONTRACT_EXTERNAL_ACCOUNT_PENDING",
+      "source_paths": [
+        "services/filmos-chatgpt-app/src/host-context.ts",
+        "services/filmos-chatgpt-app/src/mcp.ts",
+        "web/src/film/agent/browser-runtime-handler.ts"
+      ],
+      "automated_tests": [
+        "services/filmos-chatgpt-app/test/live-host-context.test.ts"
+      ],
+      "golden_case_ids": [
+        "CHATGPT-LIVE-WORKBENCH-CONTEXT-001",
+        "CHATGPT-HANDOFF-EXTERNAL-001"
+      ],
+      "external_live_gate": "BLOCKED_EXTERNAL_ACCOUNT"
+    },
+    {
+      "id": "P0-5",
+      "status": "PASSED",
+      "source_paths": [
+        "config/agent-runtime-profiles.json",
+        "scripts/agent_runtime_profile.py",
+        "desktop/macos/scripts/build-unsigned-app"
+      ],
+      "automated_tests": [
+        "acceptance/checks/agent_candidate_activation.py"
+      ],
+      "golden_case_ids": [
+        "AGENT-CANDIDATE-ACTIVATION-001"
+      ]
+    },
+    {
+      "id": "P0-6",
+      "status": "PASSED",
+      "source_paths": [
+        "acceptance/checks/agent_codex_controlled_write.py",
+        "acceptance/evidence/runs/agent-codex-subscription-controlled-write-001"
+      ],
+      "automated_tests": [
+        "acceptance/checks/agent_codex_controlled_write.py",
+        "canvas-agent/test/production-runtime-gate.test.ts"
+      ],
+      "golden_case_ids": [
+        "AGENT-CODEX-SUBSCRIPTION-CONTROLLED-WRITE-001"
+      ]
+    }
+  ],
+  "integration_defaults": "ALL_TEN_FLAGS_FALSE",
+  "candidate_profile": "ALL_TEN_FLAGS_TRUE_FAIL_CLOSED",
+  "paid_generation_executed": false,
+  "main_modified": false,
+  "rc1_tag_created": false
+}

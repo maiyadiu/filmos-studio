@@ -269,12 +269,14 @@
       "track_id": "08-agent",
       "source_paths": [
         "packages/filmos-agent-contracts",
+        "packages/filmos-agent-tool-contracts",
         "canvas-agent",
         "canvas-agent/src/brains",
         "web/src/film/agent",
         "web/src/film/sync",
         "implementation/agent-native-multibrain",
         "implementation/tracks/08-agent-native-correction",
+        "acceptance/checks/agent_codex_controlled_write.py",
         "tests/film-beta/performance_surface.ts"
       ],
       "automated_tests": [
@@ -283,6 +285,9 @@
         "cd canvas-agent && npm test",
         "cd canvas-agent && npm run build",
         "python3 acceptance/checks/agent_native_multibrain.py",
+        "python3 acceptance/checks/agent_tool_contract_single_source.py",
+        "python3 acceptance/checks/agent_candidate_activation.py",
+        "python3 acceptance/checks/agent_codex_controlled_write.py",
         "cd services/filmos-chatgpt-app && npx tsx scripts/mcp-manifest-receipt.ts",
         "acceptance/run_real_agent",
         "cd canvas-agent && npx tsx --test test/agent-feature-flags.test.ts test/agent-session-migration.test.ts test/agent-rollback.test.ts",
@@ -300,12 +305,19 @@
         "AGENT-NO-API-FALLBACK-001",
         "AGENT-SESSION-RECOVERY-001",
         "AGENT-NATIVE-MULTIBRAIN-CONTRACT-001",
+        "AGENT-PRODUCTION-COMPOSITION-001",
+        "AGENT-TOOL-CONTRACT-SINGLE-SOURCE-001",
+        "AGENT-CANDIDATE-ACTIVATION-001",
+        "AGENT-CODEX-SUBSCRIPTION-CONTROLLED-WRITE-001",
         "MCP-ACTUAL-TOOL-COUNT-001",
         "PERFORMANCE-LOCAL-001"
       ],
       "required_local_check_ids": [
         "film-core-environment",
         "agent-native-multibrain",
+        "agent-tool-contract-single-source",
+        "agent-candidate-activation",
+        "agent-codex-controlled-write",
         "canvas-agent",
         "mcp-actual-tool-count",
         "performance-local",
@@ -314,6 +326,10 @@
       "required_final_check_ids": [
         "film-core-environment",
         "canvas-agent",
+        "agent-native-multibrain",
+        "agent-tool-contract-single-source",
+        "agent-candidate-activation",
+        "agent-codex-controlled-write",
         "codex-subscription-real",
         "rc-recovery",
         "codex-agent-runtime",
@@ -455,6 +471,9 @@
         "python3 acceptance/checks/reports.py",
         "python3 acceptance/checks/no_openai_model_api_billing.py",
         "python3 acceptance/checks/agent_native_multibrain.py",
+        "python3 acceptance/checks/agent_tool_contract_single_source.py",
+        "python3 acceptance/checks/agent_candidate_activation.py",
+        "python3 acceptance/checks/agent_codex_controlled_write.py",
         "cd services/filmos-chatgpt-app && npx tsx scripts/mcp-manifest-receipt.ts",
         "acceptance/run_real_agent",
         "python3 acceptance/run.py --suite rc-local",
@@ -473,11 +492,18 @@
         "DESKTOP-CHATGPT-CONNECTION-001",
         "NO-OPENAI-MODEL-API-001",
         "AGENT-NATIVE-MULTIBRAIN-CONTRACT-001",
+        "AGENT-PRODUCTION-COMPOSITION-001",
+        "AGENT-TOOL-CONTRACT-SINGLE-SOURCE-001",
+        "AGENT-CANDIDATE-ACTIVATION-001",
+        "AGENT-CODEX-SUBSCRIPTION-CONTROLLED-WRITE-001",
         "MCP-ACTUAL-TOOL-COUNT-001"
       ],
       "required_local_check_ids": [
         "acceptance-full-chain",
         "agent-native-multibrain",
+        "agent-tool-contract-single-source",
+        "agent-candidate-activation",
+        "agent-codex-controlled-write",
         "acceptance-privacy",
         "acceptance-reports",
         "canvas-agent",
@@ -499,6 +525,10 @@
       "required_final_check_ids": [
         "film-core-environment",
         "codex-subscription-real",
+        "agent-native-multibrain",
+        "agent-tool-contract-single-source",
+        "agent-candidate-activation",
+        "agent-codex-controlled-write",
         "acceptance-full-chain",
         "restart-recovery",
         "precise-stale",
@@ -524,7 +554,9 @@
         "desktop/macos/Sources/FilmOSStudioDesktop/ChatGPTConnectionWindow.swift",
         "acceptance/checks/no_openai_model_api_billing.py",
         "plugins/filmos-chatgpt",
-        "web/src/film/chatgpt"
+        "web/src/film/chatgpt",
+        "web/src/film/agent/browser-runtime-handler.ts",
+        "services/filmos-chatgpt-app/src/host-context.ts"
       ],
       "automated_tests": [
         "python3 acceptance/checks/film_core_environment.py",
@@ -540,6 +572,7 @@
         "CHATGPT-HANDOFF-EXTERNAL-001",
         "DESKTOP-CHATGPT-CONNECTION-001",
         "NO-OPENAI-MODEL-API-001",
+        "CHATGPT-LIVE-WORKBENCH-CONTEXT-001",
         "MCP-ACTUAL-TOOL-COUNT-001"
       ],
       "required_local_check_ids": [

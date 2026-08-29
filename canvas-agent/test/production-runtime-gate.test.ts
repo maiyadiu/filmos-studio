@@ -109,9 +109,19 @@ test("production GenericAgentRuntime composes every profile and routes sessions 
             approved: true,
         });
         assert.equal((await pending).status, "completed");
+        await assert.rejects(
+            runtime.decideConfirmation({
+                confirmationId: confirmation.id,
+                sessionId: local.id,
+                actorId: "acceptance-human",
+                approved: true,
+            }),
+            /AGENT_CONFIRMATION_WAITER_NOT_FOUND/,
+        );
         assert.equal(snapshot.nodes.length, 1);
         assert.equal(executions.filter((item) => item.name === "canvas_create_text_node").length, 1);
-        assert.deepEqual(runtime.instrumentation.snapshot(), {
+        const instrumentation = runtime.instrumentation.snapshot();
+        assert.deepEqual(instrumentation, {
             broker_request_count: 7,
             broker_confirmation_count: 1,
             broker_execute_count: 7,
@@ -121,6 +131,20 @@ test("production GenericAgentRuntime composes every profile and routes sessions 
         assert.equal(runtime.audit.records.at(-1)?.appliedBy?.actorId, "acceptance-human");
         assert.equal(browserRequests.some((item) => item.profileId === "openai.api"), true);
         assert.equal(browserRequests.some((item) => item.profileId === "local.model"), true);
+        console.log(`FILMOS_PRODUCTION_RUNTIME_RECEIPT ${JSON.stringify({
+            gate_id: "AGENT-PRODUCTION-COMPOSITION-001",
+            status: "PASSED",
+            enabled_profile_ids: runtime.composition.enabledProfileIds,
+            adapter_profile_ids: runtime.composition.adapterProfileIds,
+            session_profile_ids: Array.from(sessions.keys()),
+            instrumentation,
+            controlled_write_node_count: snapshot.nodes.length,
+            controlled_write_execute_count: executions.filter((item) => item.name === "canvas_create_text_node").length,
+            canonical_confirmation_count: 1,
+            duplicate_confirmation_replay_blocked: true,
+            proposed_by: runtime.audit.records.at(-1)?.proposedBy.profileId,
+            applied_by: runtime.audit.records.at(-1)?.appliedBy?.actorId,
+        })}`);
     } finally {
         await runtime.dispose();
     }
