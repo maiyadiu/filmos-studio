@@ -1,0 +1,25 @@
+capability,current_source,decision,target,rollback_boundary
+Native Agent Panel,web/src/components/canvas,EXTEND,Single Brain Selector and Session UI,feature flag restores legacy panel
+Canvas Agent chat UI,web/src/components/canvas/canvas-agent-chat-ui.tsx,REUSE,Shared embedded chat renderer,no data migration
+Codex app-server client,canvas-agent/src/agents.ts,EXTEND,CodexSubscriptionAdapter and process manager,compat exports remain
+Codex global queue/thread,canvas-agent/src/agents.ts,REMOVE_AFTER_MIGRATION,Per-session queue and providerThreadId,legacy routes map to default session
+Canvas-only MCP boolean,canvas-agent/src/mcp-server.ts,REMOVE_AFTER_MIGRATION,Explicit AgentToolSurfaceId,canvas_legacy preserves upstream behavior
+Film Gateway,canvas-agent/src/film,REUSE,FilmCoreToolProvider behind broker,no direct database write added
+Project tools,canvas-agent/src/schemas.ts,EXTEND,HostProjectToolProvider and context broker,legacy names retained
+Tool schemas,web and canvas-agent,EXTEND,Canonical Agent Tool Manifest,compat converter remains
+Agent mode online/local,web/src/stores/canvas/use-canvas-agent-store.ts,REMOVE_AFTER_MIGRATION,activeBrainProfileId plus sessions,compat preference reader
+Online model channels,web/src/services and config store,REUSE,ModelApiBrainAdapter,API settings unchanged
+ChatGPT Tunnel manager,desktop/macos ChatGPTConnectionManager.swift,REUSE,ChatGPT Host Transport Controller,same Keychain and state machine
+ChatGPT desktop runtime,desktop/macos DesktopChatGPTRuntime.swift,EXTEND,Global connection plus project host sessions,old preferences migrate idempotently
+ChatGPT connection window,desktop/macos ChatGPTConnectionWindow.swift,REUSE,Settings and diagnostics only,no chat history added
+ChatGPT MCP,services/filmos-chatgpt-app,EXTEND,Grant scoped observation and runtime manifest,same MCP server and proposal signing
+Project Grant,services/filmos-chatgpt-app/src/grants.ts,EXTEND,Session/project isolation and revoke,existing grant files remain readable
+Tool contracts,packages/filmos-tool-contracts,REUSE,ChatGPT public tool surface,new agent contracts are separate
+Agent contracts,none,BUILD,packages/filmos-agent-contracts,package can be ignored by legacy flag
+Brain Registry,none,BUILD,Single registry in canvas-agent,no parallel product UI
+Session Store,global UI/runtime state,BUILD,Project canvas profile scoped sessions,new store can be ignored on rollback
+Context Broker,ad hoc route/canvas reads,BUILD,Stable receipt with revision/hash,read only in first phase
+Visual Context,existing attachments and canvas export,EXTEND,Viewport and selected media references,existing attachment limits retained
+Tool Broker and Policy,distributed handlers,BUILD,Single validation confirmation audit path,Film Gateway remains final write boundary
+NO API Billing,acceptance static scan,EXTEND,Profile selection and per-turn audit,static scan retained
+External Live Gate,acceptance and Track 14,REUSE,Hosted Adapter final external evidence,no mock claim
