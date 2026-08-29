@@ -20,6 +20,10 @@ import {
     BrowserModelRuntimePort,
     type BrowserRuntimeTransport,
 } from "./browser-runtime-port.js";
+import { AgentPolicyGateway } from "./policy-gateway.js";
+import { CanonicalAgentToolBroker, type AgentBrokerOutcome } from "./tool-broker.js";
+import { AgentRuntimeInstrumentation } from "./instrumentation.js";
+import { registerProductionToolProviders, type CanonicalCanvasToolExecutor } from "./tool-providers.js";
 
 type GenericAgentRuntimeOptions = {
     store?: BrainSessionStore;
@@ -27,6 +31,14 @@ type GenericAgentRuntimeOptions = {
     grants?: AgentPermissionGrantStore;
     tools?: CanonicalAgentToolManifest;
     browserRuntime: BrowserRuntimeTransport;
+    canvasToolExecutor: CanonicalCanvasToolExecutor;
+};
+
+type ConfirmationWaiter = {
+    sessionId: string;
+    resolve(outcome: AgentBrokerOutcome): void;
+    reject(error: Error): void;
+    timer: NodeJS.Timeout;
 };
 
 export class GenericAgentRuntime {
@@ -39,7 +51,12 @@ export class GenericAgentRuntime {
     readonly audit = new MemoryAgentAuditSink();
     readonly manager: AgentSessionManager;
     readonly composition: { enabledProfileIds: string[]; adapterProfileIds: string[] };
+    readonly instrumentation = new AgentRuntimeInstrumentation();
+    readonly policy: AgentPolicyGateway;
+    readonly broker: CanonicalAgentToolBroker;
     private readonly hydratedSessions = new Set<string>();
+    private readonly activeTurns = new Map<string, string>();
+    private readonly confirmationWaiters = new Map<string, ConfirmationWaiter>();
     private readonly actorId: string;
 
     constructor(
@@ -71,8 +88,17 @@ export class GenericAgentRuntime {
             this.audit,
             new JsonlAgentAuditSink(path.join(CONFIG_DIR, "agent-audit.v1.jsonl")),
         ]);
+        this.policy = new AgentPolicyGateway(this.grants, this.contexts);
+        this.broker = new CanonicalAgentToolBroker(this.tools, this.grants, this.confirmations, this.policy, audit, this.instrumentation);
+        registerProductionToolProviders({
+            broker: this.broker,
+            manifest: this.tools,
+            canvas: options.canvasToolExecutor,
+            snapshot: this.snapshot,
+            browserRuntime: options.browserRuntime,
+        });
         this.manager = new AgentSessionManager(this.registry, this.store, this.grants, this.confirmations, this.contexts, () => new Date(), this.tools, audit);
-        void emit;
+        this.emit = emit;
     }
 
     async listConnections() {
@@ -118,17 +144,109 @@ export class GenericAgentRuntime {
             this.hydratedSessions.add(sessionId);
         }
         const captured = await this.captureContext(sessionId);
-        const result = await this.manager.sendTurn(sessionId, {
-            turnId: input.turnId,
-            prompt: input.prompt,
-            context: captured.context,
-            ...(input.localImagePaths?.length ? { localImagePaths: [...input.localImagePaths] } : {}),
-            ...(input.localSkills?.length ? { localSkills: input.localSkills.map((skill) => ({ ...skill })) } : {}),
-        }, async (event) => emit("agent_event", event));
-        return { session: await this.store.getSession(sessionId), contextReceiptId: captured.receipt.receiptId, result };
+        this.activeTurns.set(sessionId, input.turnId);
+        try {
+            const result = await this.manager.sendTurn(sessionId, {
+                turnId: input.turnId,
+                prompt: input.prompt,
+                context: captured.context,
+                ...(input.localImagePaths?.length ? { localImagePaths: [...input.localImagePaths] } : {}),
+                ...(input.localSkills?.length ? { localSkills: input.localSkills.map((skill) => ({ ...skill })) } : {}),
+            }, async (event) => emit("agent_event", event));
+            return { session: await this.store.getSession(sessionId), contextReceiptId: captured.receipt.receiptId, result };
+        } finally {
+            this.activeTurns.delete(sessionId);
+        }
+    }
+
+    async requestTool(input: { sessionId: string; turnId?: string; toolName: string; toolInput: Record<string, unknown>; ordinaryConfirmationEnabled?: boolean }) {
+        const session = await this.store.getSession(input.sessionId);
+        if (!session) throw new Error("BRAIN_SESSION_NOT_FOUND");
+        const contextReceiptId = session.lastContextReceiptId;
+        if (!contextReceiptId) throw new Error("AGENT_CONTEXT_NOT_BOUND_TO_SESSION");
+        const profile = this.registry.getProfile(session.brainProfileId);
+        const turnId = input.turnId || this.activeTurns.get(session.id);
+        if (!turnId) throw new Error("AGENT_ACTIVE_TURN_REQUIRED");
+        const outcome = await this.broker.request({
+            profile,
+            session,
+            turnId,
+            toolName: input.toolName,
+            input: input.toolInput,
+            contextReceiptId,
+            currentContext: this.snapshot(),
+            ordinaryConfirmationEnabled: input.ordinaryConfirmationEnabled,
+        });
+        await this.emitBrokerOutcome(outcome, session.id, turnId);
+        if (outcome.status === "completed") return outcome;
+        await this.store.updateSession(session.id, { status: "awaiting_confirmation", updatedAt: new Date().toISOString() });
+        return await new Promise<AgentBrokerOutcome>((resolve, reject) => {
+            const timer = setTimeout(() => {
+                this.confirmationWaiters.delete(outcome.confirmation.id);
+                reject(new Error("AGENT_CONFIRMATION_EXPIRED"));
+            }, 5 * 60_000);
+            timer.unref();
+            this.confirmationWaiters.set(outcome.confirmation.id, { sessionId: session.id, resolve, reject, timer });
+        });
+    }
+
+    async decideConfirmation(input: { confirmationId: string; sessionId: string; actorId: string; approved: boolean }) {
+        const waiter = this.confirmationWaiters.get(input.confirmationId);
+        if (!waiter || waiter.sessionId !== input.sessionId) throw new Error("AGENT_CONFIRMATION_WAITER_NOT_FOUND");
+        const session = await this.store.getSession(input.sessionId);
+        if (!session) throw new Error("BRAIN_SESSION_NOT_FOUND");
+        const profile = this.registry.getProfile(session.brainProfileId);
+        this.confirmations.decide(input.confirmationId, {
+            sessionId: input.sessionId,
+            actorId: input.actorId,
+            approved: input.approved,
+        });
+        try {
+            const outcome = await this.broker.executeConfirmed({
+                confirmationId: input.confirmationId,
+                profile,
+                session,
+                currentContext: this.snapshot(),
+            });
+            await this.emitBrokerOutcome(outcome, session.id, this.activeTurns.get(session.id) || "confirmation");
+            waiter.resolve(outcome);
+            await this.store.updateSession(session.id, { status: "running", updatedAt: new Date().toISOString() });
+            return outcome;
+        } catch (error) {
+            const failure = input.approved ? error : new Error("AGENT_TOOL_REJECTED_BY_HUMAN");
+            waiter.reject(failure instanceof Error ? failure : new Error(String(failure)));
+            await this.store.updateSession(session.id, { status: "running", updatedAt: new Date().toISOString() });
+            if (input.approved) throw error;
+            return { status: "rejected", confirmationId: input.confirmationId } as const;
+        } finally {
+            clearTimeout(waiter.timer);
+            this.confirmationWaiters.delete(input.confirmationId);
+        }
+    }
+
+    diagnostics() {
+        return { composition: this.composition, counters: this.instrumentation.snapshot() };
+    }
+
+    private readonly emit: AgentEmit;
+
+    private async emitBrokerOutcome(outcome: AgentBrokerOutcome, sessionId: string, turnId: string) {
+        const at = new Date().toISOString();
+        if (outcome.status === "confirmation_required") {
+            this.emit("agent_event", { type: "tool.proposed", sessionId, turnId, request: outcome.request, at });
+            this.emit("agent_event", { type: "confirmation.required", sessionId, turnId, confirmation: outcome.confirmation, at });
+            return;
+        }
+        this.emit("agent_event", { type: "tool.completed", sessionId, turnId, result: outcome.result, at });
     }
 
     async dispose() {
+        for (const waiter of this.confirmationWaiters.values()) {
+            clearTimeout(waiter.timer);
+            waiter.reject(new Error("AGENT_RUNTIME_DISPOSED"));
+        }
+        this.confirmationWaiters.clear();
+        this.activeTurns.clear();
         this.hydratedSessions.clear();
     }
 }

@@ -14,6 +14,7 @@ import type { WorkbenchContextSnapshot } from "./context-broker.js";
 import { AgentPermissionGrantStore } from "./permission-grants.js";
 import { AgentPolicyGateway } from "./policy-gateway.js";
 import { CanonicalAgentToolManifest } from "./tool-manifest.js";
+import { AgentRuntimeInstrumentation } from "./instrumentation.js";
 
 export type CanonicalAgentToolProvider = {
     execute(input: {
@@ -57,6 +58,7 @@ export class CanonicalAgentToolBroker {
         private readonly confirmations: AgentConfirmationStore,
         private readonly policy: AgentPolicyGateway,
         private readonly audit: AgentAuditSink,
+        private readonly instrumentation = new AgentRuntimeInstrumentation(),
     ) {}
 
     register(toolName: string, provider: CanonicalAgentToolProvider) {
@@ -66,6 +68,7 @@ export class CanonicalAgentToolBroker {
     }
 
     async request(input: ProposalInput): Promise<AgentBrokerOutcome> {
+        this.instrumentation.brokerRequest();
         const manifest = this.manifest.get(input.toolName);
         const request: AgentToolRequest = {
             requestId: crypto.randomUUID(),
@@ -102,6 +105,7 @@ export class CanonicalAgentToolBroker {
             ...(manifest.mayCreateCharges ? { costPreview: { note: "该动作可能产生额外 Provider/API 费用；执行前必须人工确认。" } } : {}),
         });
         this.pending.set(confirmation.id, { ...input, request, manifest });
+        this.instrumentation.brokerConfirmation();
         await this.audit.append(agentAuditRecord({ request, manifest, profile: input.profile, session: input.session, outcome: "confirmation_required", confirmationId: confirmation.id }));
         return { status: "confirmation_required", request, confirmation };
     }
@@ -152,6 +156,7 @@ export class CanonicalAgentToolBroker {
             const provider = this.providers.get(input.manifest.name);
             if (!provider) throw new Error(`AGENT_TOOL_PROVIDER_UNAVAILABLE:${input.manifest.name}`);
             this.consumedRequestIds.add(input.request.requestId);
+            this.instrumentation.brokerExecute();
             const executed = await provider.execute({ request: input.request, manifest: input.manifest, session: input.session, profile: input.profile });
             if (!["read", "draft"].includes(input.manifest.risk) && !executed.postcondition) throw new Error("AGENT_TOOL_POSTCONDITION_REQUIRED");
             if (executed.postcondition && provider.verifyPostcondition && !await provider.verifyPostcondition({ request: input.request, postcondition: executed.postcondition, session: input.session })) {

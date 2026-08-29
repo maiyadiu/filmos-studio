@@ -66,6 +66,7 @@ export function createCanvasAgentHttpModule(
                 grants: permissionGrants,
                 tools: canonicalTools,
                 browserRuntime: options.browserRuntimeTransport ?? requireBrowserRuntimeTransport(session),
+                canvasToolExecutor: session,
                 ...(options.brainSessionStore ? { store: options.brainSessionStore } : {}),
             },
         ) : undefined;
@@ -111,10 +112,23 @@ export function createCanvasAgentHttpModule(
         }, { queryKeys: ["clientId"] }),
         canvasRoute("POST", "/api/tools", async (req, res) => {
             const body = jsonRecord(req);
-            validateAgentGrantHeaders(req, permissionGrants, String(body.name || ""));
-            const result = body.name === "workbench_get_context"
+            const toolName = requiredBodyString(body, "name");
+            const grant = validateAgentGrantHeaders(req, permissionGrants, toolName, generic !== undefined && process.env.FILMOS_AGENT_GATEWAY_ENABLED === "true");
+            if (generic && process.env.FILMOS_AGENT_GATEWAY_ENABLED === "true") {
+                if (!grant) throw new Error("AGENT_GRANT_REQUIRED");
+                const outcome = await generic.requestTool({
+                    sessionId: grant.sessionId,
+                    toolName,
+                    toolInput: body.input && typeof body.input === "object" && !Array.isArray(body.input) ? body.input as Record<string, unknown> : {},
+                });
+                if (outcome.status !== "completed") throw new Error("AGENT_TOOL_OUTCOME_INCOMPLETE");
+                res.json({ ok: true, result: outcome.result.output, broker: { requestId: outcome.request.requestId, outcome: outcome.result.outcome } });
+                return;
+            }
+            generic?.instrumentation.legacyDirectExecute();
+            const result = toolName === "workbench_get_context"
                 ? { ...session.workbenchContext(), contextReceiptId: liveContextReceipt(session) }
-                : await session.callTool(body.name, body.input || {});
+                : await session.callTool(toolName, body.input || {});
             res.json({ ok: true, result });
         }),
         canvasRoute("GET", "/agent/context", (_req, res) => {
@@ -190,6 +204,7 @@ export function createCanvasAgentHttpModule(
             res.json({ ok: true });
         }),
         canvasRoute("POST", "/agent/codex/turn", (req, res) => {
+            if (generic) throw new Error("LEGACY_AGENT_DIRECT_TURN_DISABLED");
             const body = jsonRecord(req);
             const attachments = Array.isArray(body.attachments)
                 ? body.attachments as AgentAttachment[]
@@ -235,11 +250,22 @@ export function createCanvasAgentHttpModule(
             runClaudeTurn(withAgentPrompt(String(body.prompt || "")), emit);
             res.json({ ok: true });
         }),
-        canvasRoute("POST", "/agent/confirmations/:confirmationId/decision", (req, res) => {
+        canvasRoute("POST", "/agent/confirmations/:confirmationId/decision", async (req, res) => {
             const body = jsonRecord(req);
+            const sessionId = requiredBodyString(body, "sessionId");
+            if (generic && await generic.store.getSession(sessionId)) {
+                const outcome = await generic.decideConfirmation({
+                    confirmationId: routeParam(req.params.confirmationId),
+                    sessionId,
+                    actorId: String(body.actorId || config.ownerId || "local-owner"),
+                    approved: body.approved === true,
+                });
+                res.json({ ok: true, outcome });
+                return;
+            }
             const confirmation = approvals.decide({
                 confirmationId: routeParam(req.params.confirmationId),
-                sessionId: String(body.sessionId || ""),
+                sessionId,
                 actorId: String(body.actorId || config.ownerId || "local-owner"),
                 approved: body.approved === true,
                 ...(body.content && typeof body.content === "object" && !Array.isArray(body.content) ? { content: body.content as Record<string, unknown> } : {}),
@@ -339,6 +365,21 @@ function createGenericAgentRoutes(generic: GenericAgentRuntime, config: LocalRun
                 await Promise.all([removeAttachmentFiles(localImagePaths), removeSkillDirectories(preparedSkills.directories)]);
             }
         }),
+        canvasRoute("POST", "/agent/sessions/:sessionId/tools", async (req, res) => {
+            const body = jsonRecord(req);
+            const outcome = await generic.requestTool({
+                sessionId: routeParam(req.params.sessionId),
+                turnId: requiredBodyString(body, "turnId"),
+                toolName: requiredBodyString(body, "toolName"),
+                toolInput: body.input && typeof body.input === "object" && !Array.isArray(body.input) ? body.input as Record<string, unknown> : {},
+                ...(typeof body.ordinaryConfirmationEnabled === "boolean" ? { ordinaryConfirmationEnabled: body.ordinaryConfirmationEnabled } : {}),
+            });
+            if (outcome.status !== "completed") throw new Error("AGENT_TOOL_OUTCOME_INCOMPLETE");
+            res.json({ ok: true, outcome });
+        }),
+        canvasRoute("GET", "/agent/diagnostics", async (_req, res) => {
+            res.json({ ok: true, ...generic.diagnostics() });
+        }),
         canvasRoute("POST", "/agent/sessions/:sessionId/turns/:turnId/cancel", async (req, res) => {
             assertEmptyBody(req);
             const sessionId = routeParam(req.params.sessionId);
@@ -374,10 +415,13 @@ function liveContextReceipt(session: CanvasAgentSession) {
     return `workbench:${String(context.canvasStateHash || context.stateHash || "unavailable")}:${String(context.canvasRevision || context.revision || 0)}`;
 }
 
-function validateAgentGrantHeaders(req: Request, grants: AgentPermissionGrantStore, toolName: string) {
+function validateAgentGrantHeaders(req: Request, grants: AgentPermissionGrantStore, toolName: string, required = false) {
     const grantId = header(req, "x-filmos-agent-grant-id");
-    if (!grantId) return;
-    grants.validate(grantId, {
+    if (!grantId) {
+        if (required) throw new Error("AGENT_GRANT_REQUIRED");
+        return undefined;
+    }
+    return grants.validate(grantId, {
         sessionId: requiredHeader(req, "x-filmos-agent-session-id"),
         connectionId: requiredHeader(req, "x-filmos-agent-connection-id"),
         projectId: requiredHeader(req, "x-filmos-agent-project-id"),

@@ -7,6 +7,7 @@ import { type ToolName } from "./schemas.js";
 import { compactCanvasState, compactNode, isToolName, nextCanvasX, parseToolInput } from "./tools.js";
 import type { CanvasNode, CanvasNodeType, CanvasSnapshot } from "./types.js";
 import type { BrowserRuntimeRequest, BrowserRuntimeTransport } from "./brains/browser-runtime-port.js";
+import type { CanonicalToolExecutionMetadata } from "./brains/tool-providers.js";
 
 type PendingRequest = { clientId: string; recoverable: boolean; resolve: (value: unknown) => void; reject: (error: Error) => void };
 type CanvasClient = { response: ServerResponse; timer: NodeJS.Timeout; runtimeSessionId?: string };
@@ -162,7 +163,7 @@ export class CanvasSession implements BrowserRuntimeTransport {
         this.pending.clear();
     }
 
-    async callTool(name: unknown, rawInput: unknown) {
+    async callTool(name: unknown, rawInput: unknown, metadata?: CanonicalToolExecutionMetadata) {
         if (!isToolName(name)) throw new Error(`未知工具：${String(name)}`);
         let tool: ToolName = name;
         let input = parseToolInput(tool, rawInput) as Record<string, unknown>;
@@ -171,7 +172,7 @@ export class CanvasSession implements BrowserRuntimeTransport {
             if (!this.clients.size || !this.canvasState) throw new Error("当前没有已连接画布");
             if (!input.projectId && this.canvasState.domainProjectId) input.projectId = this.canvasState.domainProjectId;
             if (!input.projectId) throw new Error("当前画布没有关联短剧项目");
-            return await this.requestCanvasTool(tool, input);
+            return await this.requestCanvasTool(tool, input, metadata);
         }
         const readTool = ["canvas_get_state", "canvas_get_context", "canvas_find_nodes", "canvas_get_node", "canvas_get_connection", "canvas_get_generation_tasks", "canvas_get_resources", "canvas_validate_ops", "canvas_get_selection", "canvas_export_snapshot"].includes(tool);
         if (readTool && (!this.clients.size || !this.canvasState)) throw new Error("当前没有已连接画布");
@@ -285,11 +286,11 @@ export class CanvasSession implements BrowserRuntimeTransport {
         }
         const validation = validateCanvasOps(this.canvasState, (input as { ops: unknown[] }).ops);
         if (!validation.ok) throw new Error(`画布操作校验失败：${validation.issues.filter((item) => item.severity === "error").map((item) => item.message).join("；")}`);
-        return await this.requestCanvasTool(tool, input);
+        return await this.requestCanvasTool(tool, input, metadata);
     }
 
-    private async requestCanvasTool(name: ToolName, input: Record<string, unknown>) {
-        return await this.requestBrowser("tool_call", { name, input }, hasGenerationContinuation(name, input));
+    private async requestCanvasTool(name: ToolName, input: Record<string, unknown>, metadata?: CanonicalToolExecutionMetadata) {
+        return await this.requestBrowser("tool_call", { name, input, ...(metadata ?? {}) }, hasGenerationContinuation(name, input));
     }
 
     private async requestBrowser(eventType: string, payload: Record<string, unknown>, recoverable = false) {
