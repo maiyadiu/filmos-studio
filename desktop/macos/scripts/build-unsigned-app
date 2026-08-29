@@ -76,6 +76,10 @@ mkdir -p "$bundle/Contents/MacOS" "$bundle/Contents/Helpers" "$bundle/Contents/R
 
 (
     cd "$workspace_root/services/filmos-chatgpt-app"
+    # The linked package's dist/ directory is generated and intentionally not
+    # committed. Build it here so a clean clone has the same inputs as a local
+    # developer checkout before Bun resolves @filmos/tool-contracts.
+    npm run build:contracts
     npm run build:widget
     "$bun_executable" build --compile src/server.ts --outfile "$staging/FilmOSChatGPTMCP"
     "$bun_executable" build --compile src/grant-cli.ts --outfile "$staging/FilmOSChatGPTGrant"

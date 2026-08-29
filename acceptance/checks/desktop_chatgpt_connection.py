@@ -38,6 +38,12 @@ def main() -> None:
     for helper in ("FilmOSFilmCore", "FilmOSChatGPTMCP", "FilmOSChatGPTGrant", "tunnel-client", "cloudflared"):
         if helper not in build_script:
             raise RuntimeError(f"desktop bundle is missing ChatGPT helper contract: {helper}")
+    contract_build = build_script.find("npm run build:contracts")
+    mcp_compile = build_script.find("bun_executable\" build --compile src/server.ts")
+    if contract_build < 0 or mcp_compile < 0 or contract_build > mcp_compile:
+        raise RuntimeError(
+            "desktop bundle must generate @filmos/tool-contracts before compiling the MCP helper"
+        )
     for state in (
         "NOT_CONFIGURED", "LOCAL_SERVICES_STARTING", "LOCAL_SERVICES_READY",
         "TUNNEL_STARTING", "TUNNEL_CONNECTED", "TUNNEL_RECONNECTING",
@@ -70,6 +76,7 @@ def main() -> None:
         "keychain_only_runtime_key": True,
         "bounded_reconnect": [1, 2, 5, 10, 30],
         "owned_process_shutdown": True,
+        "clean_clone_contract_build": True,
         "read_tools": 20,
         "write_tools": 0,
         "bundled_helpers": ["FilmOSFilmCore", "FilmOSChatGPTMCP", "FilmOSChatGPTGrant", "tunnel-client", "cloudflared"],
