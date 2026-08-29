@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
@@ -239,6 +240,10 @@ function isLoopbackHost(value: string | undefined): boolean {
   return host === "127.0.0.1" || host === "localhost" || host === "::1";
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+export function isExecutedAsMain(moduleUrl: string, argvPath: string | undefined): boolean {
+  return Boolean(argvPath) && fileURLToPath(moduleUrl) === resolve(argvPath!);
+}
+
+if (isExecutedAsMain(import.meta.url, process.argv[1])) {
   startFromEnvironment().then(({ host, port }) => process.stdout.write(`FilmOS ChatGPT local MCP: http://${host}:${port}/mcp\n`)).catch((error) => { process.stderr.write(`${error instanceof Error ? error.message : error}\n`); process.exitCode = 1; });
 }
