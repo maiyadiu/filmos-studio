@@ -23,7 +23,7 @@ import type { AgentAttachment } from "../types.js";
 
 export type CanvasAgentSession = Pick<
     CanvasSession,
-    "health" | "openEvents" | "updateState" | "resolveResult" | "emitAll" | "callTool" | "closeRuntimeSession" | "dispose"
+    "health" | "workbenchContext" | "openEvents" | "updateState" | "resolveResult" | "emitAll" | "callTool" | "closeRuntimeSession" | "dispose"
 >;
 
 export function createCanvasAgentHttpModule(
@@ -58,6 +58,9 @@ export function createCanvasAgentHttpModule(
         canvasRoute("POST", "/api/tools", async (req, res) => {
             const body = jsonRecord(req);
             res.json({ ok: true, result: await session.callTool(body.name, body.input || {}) });
+        }),
+        canvasRoute("GET", "/agent/context", (_req, res) => {
+            res.json({ ok: true, context: session.workbenchContext() });
         }),
         canvasRoute("GET", "/agent/codex/workspace", (req, res) => {
             const workspace = ensureCanvasWorkspace(config, queryValue(req, "canvasId"));

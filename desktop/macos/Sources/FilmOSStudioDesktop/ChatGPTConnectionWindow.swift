@@ -6,7 +6,7 @@ final class ChatGPTConnectionWindow: NSObject {
     let window: NSWindow
 
     private let manager: ChatGPTConnectionManager
-    private let projectID: () -> String
+    private let projectID: () async -> String?
     private let tunnelIDField = NSTextField()
     private let runtimeKeyField = NSSecureTextField()
     private let stateLabel = NSTextField(labelWithString: "NOT_CONFIGURED")
@@ -21,7 +21,7 @@ final class ChatGPTConnectionWindow: NSObject {
     private let reconnectButton = NSButton(title: "重新连接", target: nil, action: nil)
     private let prepareButton = NSButton(title: "准备 ChatGPT Live Gate", target: nil, action: nil)
 
-    init(manager: ChatGPTConnectionManager, projectID: @escaping () -> String) {
+    init(manager: ChatGPTConnectionManager, projectID: @escaping () async -> String?) {
         self.manager = manager
         self.projectID = projectID
         let content = NSView()
@@ -137,7 +137,10 @@ final class ChatGPTConnectionWindow: NSObject {
             guard let self else { return }
             defer { self.setBusy(false); self.runtimeKeyField.stringValue = "" }
             do {
-                try await self.manager.connect(tunnelID: tunnelID, runtimeKey: runtimeKey, projectID: self.projectID())
+                guard let projectID = await self.projectID(), !projectID.isEmpty else {
+                    throw ChatGPTConnectionError.projectRequired
+                }
+                try await self.manager.connect(tunnelID: tunnelID, runtimeKey: runtimeKey, projectID: projectID)
             } catch { self.presentError(error) }
         }
     }

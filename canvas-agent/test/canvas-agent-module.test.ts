@@ -400,6 +400,7 @@ function fixtureConfig(): LocalRuntimeConfig {
 function sessionFixture(calls: Array<string | { name: string; value?: unknown }>) {
     return {
         health: () => ({ ok: true, hasCanvas: false, clients: 0 }),
+        workbenchContext: () => ({ schemaVersion: "1" as const, projectId: "canvas-1", domainProjectId: "project-1", canvasId: "canvas-1", selectedNodeIds: [], visibleNodeIds: [], assetVersionIds: [], canvasRevision: 0, canvasStateHash: "hash" }),
         openEvents: (url: URL, res: { status(code: number): unknown; end(): void }) => {
             calls.push({
                 name: "events",

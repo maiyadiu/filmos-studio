@@ -17,3 +17,12 @@
 - 自动测试：`brain-registry.test.ts`、`agent-session-manager.test.ts`、`agent-context-pack.test.ts`、`agent-permission-grant.test.ts`、`agent-confirmation.test.ts`
 - 机器收据：`../../agent-native-multibrain/evidence/WP-01.json`
 - 结论：Mock Codex/API/Hosted 在同一 Registry 建立三份隔离 Session；订阅探测失败不会触发 API Adapter；收据、Grant 和 Confirmation 均按 Session fail closed。
+
+## WP-02
+
+- Web Context：`web/src/film/agent/workbench-context.ts`
+- Runtime Context：`canvas-agent/src/canvas-session.ts`、`modules/canvas-agent-http.ts`
+- Desktop Bridge：`desktop/macos/Sources/FilmOSStudioDesktop/main.swift`
+- 自动测试：`workbench-context.test.mjs`、`workbench-context.test.ts`、`canvas-agent-module.test.ts`
+- 机器收据：`../../agent-native-multibrain/evidence/WP-02.json`
+- 结论：Host Project、Film Project、Unit/Scene/DirectorUnit/Shot、选区、可视节点、资产版本和 Canvas revision/hash 使用同一显式上下文；`host-project-1` 已从正式桌面连接路径移除，缺少 Film Project 时不猜测。

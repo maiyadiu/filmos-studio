@@ -16,10 +16,19 @@ export type CanvasAgentOp =
 export type CanvasAgentSnapshot = {
     projectId: string;
     domainProjectId?: string;
+    contentUnitId?: string;
+    sceneId?: string;
+    directorUnitId?: string;
+    shotId?: string;
     title: string;
     nodes: CanvasNodeData[];
     connections: CanvasConnection[];
     selectedNodeIds: string[];
+    visibleNodeIds?: string[];
+    assetVersionIds?: string[];
+    activePanel?: string;
+    filmExpectedVersion?: number;
+    filmContentHash?: string;
     viewport: ViewportTransform;
     revision?: number;
     stateHash?: string;

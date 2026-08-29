@@ -19,6 +19,31 @@ export class CanvasSession {
         return { ok: true, hasCanvas: Boolean(this.canvasState), clients: this.clients.size };
     }
 
+    workbenchContext() {
+        if (!this.canvasState) throw new Error("当前没有已连接画布");
+        const state = this.canvasState;
+        if (!state.projectId) throw new Error("当前画布缺少明确的 Host Project 映射");
+        return {
+            schemaVersion: "1" as const,
+            projectId: state.projectId,
+            ...(state.domainProjectId ? { domainProjectId: state.domainProjectId } : {}),
+            ...(state.contentUnitId ? { contentUnitId: state.contentUnitId } : {}),
+            ...(state.sceneId ? { sceneId: state.sceneId } : {}),
+            ...(state.directorUnitId ? { directorUnitId: state.directorUnitId } : {}),
+            ...(state.shotId ? { shotId: state.shotId } : {}),
+            canvasId: state.projectId,
+            title: state.title,
+            selectedNodeIds: [...(state.selectedNodeIds || [])],
+            visibleNodeIds: [...(state.visibleNodeIds || [])],
+            assetVersionIds: [...(state.assetVersionIds || [])],
+            canvasRevision: state.revision ?? 0,
+            canvasStateHash: hashState(state),
+            ...(state.filmExpectedVersion !== undefined ? { filmExpectedVersion: state.filmExpectedVersion } : {}),
+            ...(state.filmContentHash ? { filmContentHash: state.filmContentHash } : {}),
+            ...(state.activePanel ? { activePanel: state.activePanel } : {}),
+        };
+    }
+
     openEvents(url: URL, res: ServerResponse, runtimeSessionId?: string) {
         const clientId = url.searchParams.get("clientId") || crypto.randomUUID();
         res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" });

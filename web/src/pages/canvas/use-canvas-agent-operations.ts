@@ -7,6 +7,7 @@ import { subscribeGenerationTasks, type GenerationTask } from "@/services/api/ta
 import { persistCanvasAgentGenerationContinuationEffect } from "@/services/canvas-generation-consumer";
 import { consumeGenerationTaskAgent } from "@/services/project-asset-sync";
 import type { CanvasConnection, CanvasNodeData, ContextMenuState, ViewportTransform } from "@/types/canvas";
+import { applyWorkbenchContext, buildWorkbenchContext, publishWorkbenchContext } from "@/film/agent/workbench-context";
 
 export type CanvasAgentGenerationContext = { conversationId?: string; messageId?: string; source?: "online" | "local" };
 type CanvasAgentRetryContext = GenerationRetryContext;
@@ -34,6 +35,9 @@ type UseCanvasAgentOperationsOptions = {
     connections: CanvasConnection[];
     selectedNodeIds: Set<string>;
     viewport: ViewportTransform;
+    viewportSize: { width: number; height: number };
+    filmExpectedVersion?: number;
+    filmContentHash?: string;
     nodesRef: { current: CanvasNodeData[] };
     connectionsRef: { current: CanvasConnection[] };
     selectedNodeIdsRef: { current: Set<string> };
@@ -218,6 +222,9 @@ export function useCanvasAgentOperations({
     connections,
     selectedNodeIds,
     viewport,
+    viewportSize,
+    filmExpectedVersion,
+    filmContentHash,
     nodesRef,
     connectionsRef,
     selectedNodeIdsRef,
@@ -234,10 +241,13 @@ export function useCanvasAgentOperations({
     const undoStackRef = useRef<CanvasAgentUndoBatch[]>([]);
     const [undoOpsCount, setUndoOpsCount] = useState(0);
     const [lastAgentChange, setLastAgentChange] = useState<CanvasAgentChange | null>(null);
+    const workbenchContext = useMemo(() => buildWorkbenchContext({ projectId, domainProjectId, title: projectTitle, nodes, selectedNodeIds, viewport, viewportSize, filmExpectedVersion, filmContentHash, activePanel: "canvas" }), [domainProjectId, filmContentHash, filmExpectedVersion, nodes, projectId, projectTitle, selectedNodeIds, viewport, viewportSize]);
     const snapshot = useMemo<CanvasAgentSnapshot>(
-        () => ({ projectId, domainProjectId, title: projectTitle, nodes, connections, selectedNodeIds: Array.from(selectedNodeIds), viewport }),
-        [connections, domainProjectId, nodes, projectId, projectTitle, selectedNodeIds, viewport],
+        () => applyWorkbenchContext({ projectId, domainProjectId, title: projectTitle, nodes, connections, selectedNodeIds: Array.from(selectedNodeIds), viewport }, workbenchContext),
+        [connections, domainProjectId, nodes, projectId, projectTitle, selectedNodeIds, viewport, workbenchContext],
     );
+
+    useEffect(() => publishWorkbenchContext(workbenchContext), [workbenchContext]);
 
     useEffect(() => {
         undoStackRef.current = [];

@@ -408,12 +408,17 @@ private final class WorkbenchWindow: NSObject, @preconcurrency WKNavigationDeleg
         webView.reload()
     }
 
-    var currentDomainProjectID: String? {
-        guard let components = webView.url?.pathComponents,
-              let projectsIndex = components.firstIndex(of: "projects"),
-              components.indices.contains(projectsIndex + 1) else { return nil }
-        let value = components[projectsIndex + 1].trimmingCharacters(in: .whitespacesAndNewlines)
-        return value.isEmpty ? nil : value.removingPercentEncoding ?? value
+    func currentDomainProjectID() async -> String? {
+        guard let value = try? await webView.callAsyncJavaScript(
+            "return window.filmOSGetWorkbenchContext?.() ?? null;",
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        ), let context = value as? [String: Any], let projectID = context["domainProjectId"] as? String else {
+            return nil
+        }
+        let normalized = projectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        return normalized.isEmpty ? nil : normalized
     }
 
     func flushForBackup() async throws {
@@ -514,10 +519,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if chatGPTConnectionWindow == nil {
             chatGPTConnectionWindow = ChatGPTConnectionWindow(
                 manager: coordinator.chatGPTConnectionManager,
-                projectID: { [weak self, weak coordinator] in
-                    self?.workbenchWindow?.currentDomainProjectID
-                        ?? coordinator?.chatGPTConnectionManager.savedConfiguration?.projectID
-                        ?? "host-project-1"
+                projectID: { [weak self] in
+                    await self?.workbenchWindow?.currentDomainProjectID()
                 }
             )
         }

@@ -344,10 +344,19 @@ export function hashState(state: CanvasSnapshot) {
     return crypto.createHash("sha256").update(stableStringify({
         projectId: state.projectId,
         domainProjectId: state.domainProjectId,
+        contentUnitId: state.contentUnitId,
+        sceneId: state.sceneId,
+        directorUnitId: state.directorUnitId,
+        shotId: state.shotId,
         title: state.title,
         nodes: state.nodes || [],
         connections: state.connections || [],
         selectedNodeIds: state.selectedNodeIds || [],
+        visibleNodeIds: state.visibleNodeIds || [],
+        assetVersionIds: state.assetVersionIds || [],
+        activePanel: state.activePanel,
+        filmExpectedVersion: state.filmExpectedVersion,
+        filmContentHash: state.filmContentHash,
         viewport: state.viewport,
     })).digest("hex").slice(0, 16);
 }

@@ -1,0 +1,57 @@
+{
+  "schema_version": "1",
+  "work_package": "WP-02",
+  "baseline_commit": "9267a5f198182bfa16403723e865cf815983ef13",
+  "observed_at": "2026-08-29T12:53:06Z",
+  "checks": [
+    {
+      "command": "bun test src/film/agent/workbench-context.test.mjs",
+      "cwd": "web",
+      "status": "PASS",
+      "tests": 3,
+      "failures": 0
+    },
+    {
+      "command": "bun run typecheck",
+      "cwd": "web",
+      "status": "PASS",
+      "failures": 0
+    },
+    {
+      "command": "npx tsx --test --test-concurrency=1 test/workbench-context.test.ts test/canvas-agent-module.test.ts",
+      "cwd": "canvas-agent",
+      "status": "PASS",
+      "tests": 16,
+      "failures": 0
+    },
+    {
+      "command": "npm run build",
+      "cwd": "canvas-agent",
+      "status": "PASS",
+      "failures": 0
+    },
+    {
+      "command": "swift build --product FilmOSStudioDesktop",
+      "cwd": "desktop/macos",
+      "status": "PASS",
+      "failures": 0
+    }
+  ],
+  "source_sha256": {
+    "web/src/film/agent/workbench-context.ts": "2283ec5b3c5daa97d25e079aa6cf6c901fa8137e38a90b90d0534ae01ef4b546",
+    "canvas-agent/src/canvas-session.ts": "0526b924361a5c4345b3bd33d95bbe8a2ab351fd1274574a3d5d22ccb1fa79a7",
+    "canvas-agent/src/modules/canvas-agent-http.ts": "179a1631d15cb110765b965946a705902ffa5f7b642ae8f6405e37bcfab0b6b6",
+    "desktop/macos/Sources/FilmOSStudioDesktop/main.swift": "aa710828e0211d80033b8f9016a3ab0039f2301db9954f57e17cb8618d34225f",
+    "desktop/macos/Sources/FilmOSStudioDesktop/ChatGPTConnectionWindow.swift": "1b1da3b9ffbc154acea0013e451626414950e052617e268b798e3ced2c9f1d33"
+  },
+  "golden_case_ids": ["AGENT-CONTEXT-RECEIPT-001"],
+  "assertions": {
+    "host_project_fallback_removed": true,
+    "desktop_reads_web_context_not_url": true,
+    "ambiguous_entity_ids_omitted": true,
+    "canvas_revision_and_hash_runtime_injected": true
+  },
+  "environment_notes": [
+    "swift test requires the CI Swift Testing runtime; the desktop product itself compiled successfully with the installed formal toolchain"
+  ]
+}

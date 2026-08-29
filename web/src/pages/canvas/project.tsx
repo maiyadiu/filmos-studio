@@ -1282,6 +1282,8 @@ function InfiniteCanvasPage() {
         connections,
         selectedNodeIds,
         viewport,
+        viewportSize: size,
+        filmExpectedVersion: linkedProjectQuery.data?.project.revision,
         nodesRef,
         connectionsRef,
         selectedNodeIdsRef,
