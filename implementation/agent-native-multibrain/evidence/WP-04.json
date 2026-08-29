@@ -1,0 +1,39 @@
+{
+  "schema_version": "1",
+  "work_package": "WP-04",
+  "baseline_commit": "9267a5f198182bfa16403723e865cf815983ef13",
+  "observed_at": "2026-08-29T13:11:34Z",
+  "checks": [
+    {
+      "command": "node --import tsx --test test/model-api-brain-adapter.test.ts test/agent-session-manager.test.ts",
+      "cwd": "canvas-agent",
+      "status": "PASS",
+      "tests": 4,
+      "failures": 0
+    },
+    {
+      "command": "npm run build",
+      "cwd": "canvas-agent",
+      "status": "PASS",
+      "failures": 0
+    }
+  ],
+  "source_sha256": {
+    "canvas-agent/src/brains/adapters/model-api-brain-adapter.ts": "886b9e2e1b746776cc89e5a582ec19b80d9e5b6ee9af9c25b71d52e722f068b6",
+    "canvas-agent/src/brains/adapters/local-model-adapter.ts": "a07429509b203f76062585a55fee59c9c415c1dd57815f3dc6c789970d6bd84a",
+    "canvas-agent/src/brains/profiles.ts": "42086088d9a5018cce734b5b2467a3db39ee505ba2ac4cc6c21f523312c3b5ba",
+    "canvas-agent/test/model-api-brain-adapter.test.ts": "dce25085cabc6be2f5faef6ad4d9300aa190ba93ba9c2988cc831e636ff4cb7e"
+  },
+  "golden_case_ids": [
+    "AGENT-API-RETENTION-001",
+    "AGENT-NO-API-FALLBACK-001"
+  ],
+  "assertions": {
+    "openai_anthropic_deepseek_and_custom_profile_contracts_retained": true,
+    "existing_model_channel_port_retained": true,
+    "image_paths_forwarded": true,
+    "api_requires_explicit_profile_enable": true,
+    "subscription_failure_has_no_api_fallback": true,
+    "local_model_uses_independent_adapter": true
+  }
+}

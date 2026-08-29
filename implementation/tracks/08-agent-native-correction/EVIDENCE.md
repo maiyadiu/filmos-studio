@@ -36,3 +36,11 @@
 - 自动测试：`codex-app-server-adapter.test.ts`、`codex-app-server-process-manager.test.ts`、`codex-approval-coordinator.test.ts`、`internal-canvas-mcp-mode.test.ts`
 - 机器收据：`../../agent-native-multibrain/evidence/WP-03.json`
 - 结论：Codex 订阅使用 app-server 的 ChatGPT managed auth 和实际 account/rate-limit RPC，不需要 `OPENAI_API_KEY`；同一 Thread 串行、跨 Session 并行；工具面为 Canvas + Film Core 且不暴露 direct provider；高风险 app-server 请求未确认、超时或 Session 不匹配时默认拒绝。
+
+## WP-04
+
+- API Compatibility Adapter：`canvas-agent/src/brains/adapters/model-api-brain-adapter.ts`
+- Local Model Adapter：`canvas-agent/src/brains/adapters/local-model-adapter.ts`
+- 自动测试：`model-api-brain-adapter.test.ts`、`agent-session-manager.test.ts`
+- 机器收据：`../../agent-native-multibrain/evidence/WP-04.json`
+- 结论：现有浏览器/后端模型与自定义 Channel 保留为 Compatibility Port；OpenAI、Claude、DeepSeek 和自定义 API Profile 只能在该 Profile 显式启用且被选中时进入按量计费端口；图片路径保留；本地模型为独立 Adapter。
