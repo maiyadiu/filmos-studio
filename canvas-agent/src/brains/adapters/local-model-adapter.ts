@@ -20,9 +20,10 @@ export class LocalModelAdapter implements AgentRuntimeAdapter {
         return { profileId: this.profileId, checkedAt: new Date().toISOString(), ...(await this.port.probe(this.profileId)) };
     }
 
-    async createSession(input: CreateBrainSessionInput, _grant: AgentPermissionGrant): Promise<Partial<BrainSession>> {
+    async createSession(input: CreateBrainSessionInput, grant: AgentPermissionGrant): Promise<Partial<BrainSession>> {
         if (input.brainProfileId !== this.profileId) throw new Error("LOCAL_MODEL_PROFILE_NOT_SELECTED");
-        return await this.port.createSession(input);
+        if (!grant.sessionId.trim() || grant.connectionId !== this.profileId) throw new Error("LOCAL_MODEL_GRANT_SCOPE_MISMATCH");
+        return await this.port.createSession(input, grant.sessionId);
     }
 
     async resumeSession(input: ResumeBrainSessionInput): Promise<Partial<BrainSession>> {

@@ -12,7 +12,7 @@ import type {
 
 export type BrowserModelRuntimePort = {
     probe(profileId: string): Promise<Omit<BrainRuntimeStatus, "profileId" | "checkedAt">>;
-    createSession(input: CreateBrainSessionInput): Promise<{ providerThreadId?: string }>;
+    createSession(input: CreateBrainSessionInput, brainSessionId: string): Promise<{ providerThreadId?: string }>;
     resumeSession(input: ResumeBrainSessionInput, profileId?: string): Promise<{ providerThreadId?: string }>;
     sendTurn(input: AgentTurnInput, sink: AgentEventSink): Promise<AgentTurnResult>;
     cancelTurn(sessionId: string): Promise<void>;
@@ -51,9 +51,10 @@ export class ModelApiBrainAdapter implements AgentRuntimeAdapter {
         return { profileId: this.profileId, checkedAt, ...(await this.options.port.probe(this.profileId)) };
     }
 
-    async createSession(input: CreateBrainSessionInput, _grant: AgentPermissionGrant): Promise<Partial<BrainSession>> {
+    async createSession(input: CreateBrainSessionInput, grant: AgentPermissionGrant): Promise<Partial<BrainSession>> {
         this.assertExplicitSelection(input.brainProfileId);
-        return await this.options.port.createSession(input);
+        if (!grant.sessionId.trim() || grant.connectionId !== this.profileId) throw new Error(`MODEL_API_GRANT_SCOPE_MISMATCH:${this.profileId}`);
+        return await this.options.port.createSession(input, grant.sessionId);
     }
 
     async resumeSession(input: ResumeBrainSessionInput): Promise<Partial<BrainSession>> {

@@ -32,6 +32,7 @@ type GenericAgentRuntimeOptions = {
     tools?: CanonicalAgentToolManifest;
     browserRuntime: BrowserRuntimeTransport;
     canvasToolExecutor: CanonicalCanvasToolExecutor;
+    persistentAudit?: false;
 };
 
 type ConfirmationWaiter = {
@@ -88,7 +89,7 @@ export class GenericAgentRuntime {
         this.composition = new BrainRuntimeCompositionRoot(this.registry, adapterFactory, options.featureFlags).compose();
         const audit = new CompositeAgentAuditSink([
             this.audit,
-            new JsonlAgentAuditSink(path.join(CONFIG_DIR, "agent-audit.v1.jsonl")),
+            ...(options.persistentAudit === false ? [] : [new JsonlAgentAuditSink(path.join(CONFIG_DIR, "agent-audit.v1.jsonl"))]),
         ]);
         this.policy = new AgentPolicyGateway(this.grants, this.contexts);
         this.broker = new CanonicalAgentToolBroker(this.tools, this.grants, this.confirmations, this.policy, audit, this.instrumentation);

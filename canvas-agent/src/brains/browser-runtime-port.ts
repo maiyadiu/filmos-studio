@@ -50,11 +50,12 @@ export class BrowserModelRuntimePort implements ModelApiCompatibilityPort {
         });
     }
 
-    async createSession(input: CreateBrainSessionInput) {
+    async createSession(input: CreateBrainSessionInput, brainSessionId: string) {
         return await this.transport.request<{ providerThreadId?: string }>({
             channel: "model",
             operation: "create_session",
             profileId: input.brainProfileId,
+            sessionId: brainSessionId,
             payload: { input },
         });
     }
