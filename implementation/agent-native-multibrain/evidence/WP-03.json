@@ -1,0 +1,46 @@
+{
+  "schema_version": "1",
+  "work_package": "WP-03",
+  "baseline_commit": "9267a5f198182bfa16403723e865cf815983ef13",
+  "observed_at": "2026-08-29T13:08:37Z",
+  "checks": [
+    {
+      "command": "node --import tsx --test --test-concurrency=1 test/codex-app-server-adapter.test.ts test/codex-app-server-process-manager.test.ts test/codex-approval-coordinator.test.ts test/internal-canvas-mcp-mode.test.ts test/agent-permission-grant.test.ts test/skills.test.ts",
+      "cwd": "canvas-agent",
+      "status": "PASS",
+      "tests": 18,
+      "failures": 0
+    },
+    {
+      "command": "npm run build",
+      "cwd": "canvas-agent",
+      "status": "PASS",
+      "failures": 0
+    }
+  ],
+  "source_sha256": {
+    "canvas-agent/src/agents.ts": "388ae6ef409d9edc9081262a6c54065b59ac328249209b8b7aac250e739d00b4",
+    "canvas-agent/src/brains/adapters/codex-app-server-client.ts": "50a134c8a051c930e164eb09f4de10f36fce3605d4c866da6dac3f0d1ad3ac1c",
+    "canvas-agent/src/brains/adapters/codex-app-server-process-manager.ts": "87eda2630568ea36f94b1126e5e9907ca03d9d20dd41cdbfd25a5a9e7edfa363",
+    "canvas-agent/src/brains/adapters/codex-app-server-adapter.ts": "551db1e4b0658387710c34064fec0c31da51416325c0c01898049e759f7f3ee8",
+    "canvas-agent/src/brains/codex-approval-coordinator.ts": "c525611e42b75e4c2720d0bf20e1356c4af653b1774ac274c1812089505aa08a",
+    "canvas-agent/src/mcp-server.ts": "e30bb506c084a0acfdb41f65ec5f150e0a16c6cff3e4939062ce198cbb96b13b",
+    "canvas-agent/src/modules/canvas-agent-http.ts": "3d8c0f73d292b23ea66d075263625ab1715c899daa04f471e11986193043adfc"
+  },
+  "golden_case_ids": [
+    "AGENT-CODEX-SUBSCRIPTION-001",
+    "AGENT-NO-API-FALLBACK-001",
+    "AGENT-SESSION-RECOVERY-001",
+    "AGENT-TOOL-CONFIRMATION-001"
+  ],
+  "assertions": {
+    "codex_app_server_managed_auth": true,
+    "openai_api_key_not_required": true,
+    "canvas_only_removed_from_internal_surface": true,
+    "direct_provider_bypass_absent": true,
+    "per_thread_queue_and_cross_session_parallelism": true,
+    "server_requests_fail_closed": true,
+    "confirmation_session_match_and_timeout": true,
+    "process_restart_recovery": true
+  }
+}

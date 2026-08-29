@@ -26,3 +26,13 @@
 - 自动测试：`workbench-context.test.mjs`、`workbench-context.test.ts`、`canvas-agent-module.test.ts`
 - 机器收据：`../../agent-native-multibrain/evidence/WP-02.json`
 - 结论：Host Project、Film Project、Unit/Scene/DirectorUnit/Shot、选区、可视节点、资产版本和 Canvas revision/hash 使用同一显式上下文；`host-project-1` 已从正式桌面连接路径移除，缺少 Film Project 时不猜测。
+
+## WP-03
+
+- Codex app-server：`canvas-agent/src/brains/adapters/codex-app-server-client.ts`、`codex-app-server-process-manager.ts`
+- Subscription Adapter：`canvas-agent/src/brains/adapters/codex-app-server-adapter.ts`
+- FilmOS Confirmation：`canvas-agent/src/brains/codex-approval-coordinator.ts`
+- Workbench Surface：`canvas-agent/src/mcp-server.ts`、`modules/canvas-agent-http.ts`
+- 自动测试：`codex-app-server-adapter.test.ts`、`codex-app-server-process-manager.test.ts`、`codex-approval-coordinator.test.ts`、`internal-canvas-mcp-mode.test.ts`
+- 机器收据：`../../agent-native-multibrain/evidence/WP-03.json`
+- 结论：Codex 订阅使用 app-server 的 ChatGPT managed auth 和实际 account/rate-limit RPC，不需要 `OPENAI_API_KEY`；同一 Thread 串行、跨 Session 并行；工具面为 Canvas + Film Core 且不暴露 direct provider；高风险 app-server 请求未确认、超时或 Session 不匹配时默认拒绝。

@@ -2,32 +2,45 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 
 import { AGENT_PROMPT, loadConfig, type CanvasAgentConfig, VERSION } from "./config.js";
+import type { AgentToolSurfaceId } from "./brains/contracts.js";
 import { registerFilmAgentMcp, type FilmAgentMcpOptions } from "./film/mcp.js";
 import { registerDreaminaMcp } from "./modules/dreamina-mcp.js";
 import { toolDescriptions, toolInputSchemas, toolNames, type ToolName } from "./schemas.js";
 
 type CanvasAgentToolResponse = { ok?: boolean; result?: unknown; error?: string };
 
-export async function startMcpServer(options: { canvasOnly?: boolean } = {}) {
+export async function startMcpServer(options: { canvasOnly?: boolean; surface?: AgentToolSurfaceId } = {}) {
     const config = loadConfig(true);
     const server = new McpServer({ name: "canvas-agent", version: VERSION }, { instructions: AGENT_PROMPT });
+    const surfaceArgIndex = process.argv.indexOf("--surface");
+    const argvSurface = surfaceArgIndex >= 0 ? process.argv[surfaceArgIndex + 1] as AgentToolSurfaceId | undefined : undefined;
     registerMcpTools(server, config, {
         canvasOnly: options.canvasOnly ?? process.argv.slice(3).includes("--canvas-only"),
+        surface: options.surface ?? argvSurface,
     });
     await server.connect(new StdioServerTransport());
 }
 
 export type RegisterMcpToolsOptions = {
     canvasOnly?: boolean;
+    surface?: AgentToolSurfaceId;
     film?: FilmAgentMcpOptions;
 };
 
 export function registerMcpTools(server: McpServer, config: CanvasAgentConfig, options: RegisterMcpToolsOptions = {}) {
+    const surface = resolveToolSurface(options);
     toolNames.forEach((name) => registerCanvasTool(server, config, name));
-    if (!options.canvasOnly) {
+    if (surface === "runtime_admin") {
         registerDreaminaMcp(server, config);
         registerFilmAgentMcp(server, config, options.film);
     }
+    if (surface === "workbench_operator") registerFilmAgentMcp(server, config, { ...options.film, enabled: true });
+}
+
+function resolveToolSurface(options: RegisterMcpToolsOptions): AgentToolSurfaceId {
+    if (options.surface) return options.surface;
+    if (options.canvasOnly) return "canvas_legacy";
+    return "runtime_admin";
 }
 
 function registerCanvasTool(server: McpServer, config: CanvasAgentConfig, name: ToolName) {
@@ -39,7 +52,14 @@ function registerCanvasTool(server: McpServer, config: CanvasAgentConfig, name: 
 }
 
 async function postCanvasAgentTool(config: CanvasAgentConfig, name: ToolName, input: unknown) {
-    const res = await fetch(`${config.url}/api/tools`, { method: "POST", headers: { "content-type": "application/json", "x-canvas-agent-token": config.token }, body: JSON.stringify({ name, input }) });
+    const grantHeaders: Record<string, string> = process.env.FILMOS_AGENT_GATEWAY_ENABLED === "true" ? {
+        "x-filmos-agent-grant-id": String(process.env.FILMOS_AGENT_GRANT_ID || ""),
+        "x-filmos-agent-session-id": String(process.env.FILMOS_AGENT_SESSION_ID || ""),
+        "x-filmos-agent-connection-id": String(process.env.FILMOS_AGENT_CONNECTION_ID || ""),
+        "x-filmos-agent-project-id": String(process.env.FILMOS_AGENT_PROJECT_ID || ""),
+        "x-filmos-agent-grant-nonce": String(process.env.FILMOS_AGENT_GRANT_NONCE || ""),
+    } : {};
+    const res = await fetch(`${config.url}/api/tools`, { method: "POST", headers: { "content-type": "application/json", "x-canvas-agent-token": config.token, ...grantHeaders }, body: JSON.stringify({ name, input }) });
     const body = (await res.json()) as CanvasAgentToolResponse;
     if (!body.ok) throw new Error(body.error || "tool call failed");
     return body.result;

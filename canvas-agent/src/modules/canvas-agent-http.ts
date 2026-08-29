@@ -20,6 +20,11 @@ import {
 } from "../config.js";
 import type { LocalRuntimeModule, LocalRuntimeProtectedRoute } from "../local-runtime.js";
 import type { AgentAttachment } from "../types.js";
+import type { AgentPermissionGrant } from "../brains/contracts.js";
+import { AgentPermissionGrantStore } from "../brains/permission-grants.js";
+import { CodexApprovalCoordinator } from "../brains/codex-approval-coordinator.js";
+import { toolNames } from "../schemas.js";
+import { filmToolNames } from "../film/contracts.js";
 
 export type CanvasAgentSession = Pick<
     CanvasSession,
@@ -31,6 +36,24 @@ export function createCanvasAgentHttpModule(
     session: CanvasAgentSession = new CanvasSession(),
 ): LocalRuntimeModule {
     const emit = (type: string, payload: unknown) => session.emitAll(type, payload);
+    const permissionGrants = new AgentPermissionGrantStore();
+    const approvals = new CodexApprovalCoordinator(undefined, emit);
+    const grantsByCanvas = new Map<string, AgentPermissionGrant>();
+    const grantForCanvas = (canvasId: string) => {
+        const current = grantsByCanvas.get(canvasId);
+        if (current && Date.parse(current.expiresAt) > Date.now()) return current;
+        if (current) permissionGrants.revoke(current.id);
+        const grant = permissionGrants.issue({
+            sessionId: `codex-${canvasId}`,
+            connectionId: "codex.subscription",
+            actorId: config.ownerId || "local-owner",
+            projectId: canvasId,
+            toolSurface: "workbench_operator",
+            allowedTools: [...toolNames, ...filmToolNames],
+        });
+        grantsByCanvas.set(canvasId, grant);
+        return grant;
+    };
     const routes: LocalRuntimeProtectedRoute[] = [
         canvasRoute("GET", "/events", (req, res) => {
             session.openEvents(
@@ -57,6 +80,7 @@ export function createCanvasAgentHttpModule(
         }, { queryKeys: ["clientId"] }),
         canvasRoute("POST", "/api/tools", async (req, res) => {
             const body = jsonRecord(req);
+            validateAgentGrantHeaders(req, permissionGrants, String(body.name || ""));
             res.json({ ok: true, result: await session.callTool(body.name, body.input || {}) });
         }),
         canvasRoute("GET", "/agent/context", (_req, res) => {
@@ -77,7 +101,8 @@ export function createCanvasAgentHttpModule(
         canvasRoute("POST", "/agent/codex/threads/new", async (req, res) => {
             const body = jsonRecord(req);
             const workspace = ensureCanvasWorkspace(config, String(body.canvasId || ""));
-            const thread = await startCodexThread(emit, workspace.workspacePath);
+            const grant = grantForCanvas(workspace.canvasId);
+            const thread = await startCodexThread(emit, workspace.workspacePath, codexOptions(grant, approvals, session));
             const activeThreadId = String((thread as Record<string, unknown>).id || "");
             updateCanvasWorkspace(config, workspace.canvasId, { activeThreadId });
             res.json({
@@ -100,7 +125,8 @@ export function createCanvasAgentHttpModule(
             const body = jsonRecord(req);
             const workspace = ensureCanvasWorkspace(config, String(body.canvasId || ""));
             const threadId = routeParam(req.params.threadId);
-            const result = await resumeCodexThread(emit, threadId, workspace.workspacePath);
+            const grant = grantForCanvas(workspace.canvasId);
+            const result = await resumeCodexThread(emit, threadId, workspace.workspacePath, codexOptions(grant, approvals, session));
             updateCanvasWorkspace(config, workspace.canvasId, { activeThreadId: threadId });
             res.json({
                 ok: true,
@@ -125,10 +151,11 @@ export function createCanvasAgentHttpModule(
                 : [];
             const skills = parseAgentSkills(body.skills);
             const workspace = ensureCanvasWorkspace(config, String(body.canvasId || ""));
+            const grant = grantForCanvas(workspace.canvasId);
             let threadId = String(body.threadId || workspace.activeThreadId || "");
             void (async () => {
                 if (!threadId) {
-                    const thread = await startCodexThread(emit, workspace.workspacePath);
+                    const thread = await startCodexThread(emit, workspace.workspacePath, codexOptions(grant, approvals, session));
                     threadId = String((thread as Record<string, unknown>).id || "");
                     updateCanvasWorkspace(config, workspace.canvasId, { activeThreadId: threadId });
                 } else if (threadId !== workspace.activeThreadId) {
@@ -141,6 +168,9 @@ export function createCanvasAgentHttpModule(
                     attachments,
                     {
                         skills,
+                        sessionId: grant.sessionId,
+                        grant,
+                        handleServerRequest: (request) => approvals.request({ sessionId: grant.sessionId, request, contextReceiptId: liveContextReceipt(session) }),
                         threadId,
                         cwd: workspace.workspacePath,
                         onThreadId: (nextThreadId) => updateCanvasWorkspace(
@@ -160,6 +190,17 @@ export function createCanvasAgentHttpModule(
             runClaudeTurn(withAgentPrompt(String(body.prompt || "")), emit);
             res.json({ ok: true });
         }),
+        canvasRoute("POST", "/agent/confirmations/:confirmationId/decision", (req, res) => {
+            const body = jsonRecord(req);
+            const confirmation = approvals.decide({
+                confirmationId: routeParam(req.params.confirmationId),
+                sessionId: String(body.sessionId || ""),
+                actorId: String(body.actorId || config.ownerId || "local-owner"),
+                approved: body.approved === true,
+                ...(body.content && typeof body.content === "object" && !Array.isArray(body.content) ? { content: body.content as Record<string, unknown> } : {}),
+            });
+            res.json({ ok: true, confirmation });
+        }),
     ];
 
     return {
@@ -175,8 +216,53 @@ export function createCanvasAgentHttpModule(
             const { ok: _ok, ...health } = session.health();
             return health;
         },
-        dispose: () => session.dispose(),
+        dispose: () => {
+            for (const grant of grantsByCanvas.values()) permissionGrants.revoke(grant.id);
+            grantsByCanvas.clear();
+            approvals.dispose();
+            return session.dispose();
+        },
     };
+}
+
+function codexOptions(grant: AgentPermissionGrant, approvals: CodexApprovalCoordinator, session: CanvasAgentSession) {
+    return {
+        sessionId: grant.sessionId,
+        grant,
+        handleServerRequest: (request: Parameters<CodexApprovalCoordinator["request"]>[0]["request"]) => approvals.request({
+            sessionId: grant.sessionId,
+            request,
+            contextReceiptId: liveContextReceipt(session),
+        }),
+    };
+}
+
+function liveContextReceipt(session: CanvasAgentSession) {
+    const context = session.workbenchContext() as Record<string, unknown>;
+    return `workbench:${String(context.canvasStateHash || context.stateHash || "unavailable")}:${String(context.canvasRevision || context.revision || 0)}`;
+}
+
+function validateAgentGrantHeaders(req: Request, grants: AgentPermissionGrantStore, toolName: string) {
+    const grantId = header(req, "x-filmos-agent-grant-id");
+    if (!grantId) return;
+    grants.validate(grantId, {
+        sessionId: requiredHeader(req, "x-filmos-agent-session-id"),
+        connectionId: requiredHeader(req, "x-filmos-agent-connection-id"),
+        projectId: requiredHeader(req, "x-filmos-agent-project-id"),
+        nonce: requiredHeader(req, "x-filmos-agent-grant-nonce"),
+        toolName,
+    });
+}
+
+function header(req: Request, name: string) {
+    const value = req.headers[name];
+    return Array.isArray(value) ? value[0] || "" : String(value || "");
+}
+
+function requiredHeader(req: Request, name: string) {
+    const value = header(req, name);
+    if (!value) throw new Error(`AGENT_GRANT_HEADER_REQUIRED:${name}`);
+    return value;
 }
 
 function runtimeSessionId(res: Response) {

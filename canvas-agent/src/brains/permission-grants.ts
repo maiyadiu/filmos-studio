@@ -41,12 +41,13 @@ export class AgentPermissionGrantStore {
         return grant ? structuredClone(grant) : undefined;
     }
 
-    validate(grantId: string, input: { sessionId: string; connectionId: string; projectId: string; toolName?: string; now?: Date }) {
+    validate(grantId: string, input: { sessionId: string; connectionId: string; projectId: string; nonce?: string; toolName?: string; now?: Date }) {
         const grant = this.grants.get(grantId);
         if (!grant) throw new Error("AGENT_GRANT_NOT_FOUND");
         if (grant.sessionId !== input.sessionId || grant.connectionId !== input.connectionId || grant.projectId !== input.projectId) {
             throw new Error("AGENT_GRANT_SCOPE_MISMATCH");
         }
+        if (input.nonce !== undefined && grant.nonce !== input.nonce) throw new Error("AGENT_GRANT_NONCE_MISMATCH");
         if (Date.parse(grant.expiresAt) <= (input.now ?? new Date()).getTime()) {
             this.grants.delete(grant.id);
             throw new Error("AGENT_GRANT_EXPIRED");

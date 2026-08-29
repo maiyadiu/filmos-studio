@@ -118,11 +118,19 @@ export class CanvasAgentObservationSource implements FilmCanvasObservationSource
   ) {}
 
   async current(signal?: AbortSignal) {
+    const grantHeaders: Record<string, string> = process.env.FILMOS_AGENT_GATEWAY_ENABLED === "true" ? {
+      "x-filmos-agent-grant-id": String(process.env.FILMOS_AGENT_GRANT_ID || ""),
+      "x-filmos-agent-session-id": String(process.env.FILMOS_AGENT_SESSION_ID || ""),
+      "x-filmos-agent-connection-id": String(process.env.FILMOS_AGENT_CONNECTION_ID || ""),
+      "x-filmos-agent-project-id": String(process.env.FILMOS_AGENT_PROJECT_ID || ""),
+      "x-filmos-agent-grant-nonce": String(process.env.FILMOS_AGENT_GRANT_NONCE || ""),
+    } : {};
     const response = await this.fetchImpl(`${this.config.url}/api/tools`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
         "x-canvas-agent-token": this.config.token,
+        ...grantHeaders,
       },
       body: JSON.stringify({ name: "canvas_get_context", input: {} }),
       signal,

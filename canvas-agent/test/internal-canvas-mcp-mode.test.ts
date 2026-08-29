@@ -28,27 +28,47 @@ type CodexConfigFactory = (configDir?: string) => {
 type RegisterMcpTools = (
     server: { registerTool(name: string, definition: unknown, callback: (...args: never[]) => unknown): void },
     config: CanvasAgentConfig,
-    options?: { canvasOnly?: boolean },
+    options?: { canvasOnly?: boolean; surface?: "canvas_legacy" | "workbench_operator" | "runtime_admin" },
 ) => void;
 
-test("internal Canvas Agent MCP command starts the server in canvas-only mode", () => {
+test("internal Canvas Agent MCP command starts the explicit workbench_operator surface", () => {
     const commandFactory = (agentsModule as unknown as { canvasAgentMcpCommand?: CommandFactory }).canvasAgentMcpCommand;
     assert.equal(typeof commandFactory, "function");
     if (!commandFactory) return;
     const command = commandFactory();
-    assert.deepEqual(command.args.slice(-2), ["mcp", "--canvas-only"]);
+    assert.deepEqual(command.args.slice(-3), ["mcp", "--surface", "workbench_operator"]);
+    assert.equal(command.args.includes("--canvas-only"), false);
 });
 
-test("internal Codex MCP config binds only the parent Runtime config directory", () => {
+test("internal Codex MCP config binds the Runtime directory without an auto-approval override", () => {
     const configFactory = (agentsModule as unknown as { codexConfig?: CodexConfigFactory }).codexConfig;
     assert.equal(typeof configFactory, "function");
     if (!configFactory) return;
     const configDir = path.resolve("fixture-runtime-config-18871");
     const server = configFactory(configDir).mcp_servers["yingce"];
-    assert.deepEqual(server.env, { FRAMEFIELD_LOCAL_RUNTIME_CONFIG_DIR: configDir });
-    assert.equal(server.args.includes("--canvas-only"), true);
+    assert.deepEqual(server.env, {
+        FRAMEFIELD_LOCAL_RUNTIME_CONFIG_DIR: configDir,
+        FILMOS_AGENT_GATEWAY_ENABLED: "true",
+        FILMOS_AGENT_PROFILE: "codex.subscription",
+    });
+    assert.equal(server.args.includes("workbench_operator"), true);
+    assert.equal("default_tools_approval_mode" in server, false);
     assert.equal(server.args.some((value) => /token|secret/i.test(value)), false);
     assert.equal(Object.keys(server.env ?? {}).some((key) => /token|secret/i.test(key)), false);
+});
+
+test("workbench_operator exposes Canvas and Film tools without direct provider bypass", () => {
+    const register = (mcpServerModule as unknown as { registerMcpTools?: RegisterMcpTools }).registerMcpTools;
+    assert.equal(typeof register, "function");
+    if (!register) return;
+    const names: string[] = [];
+    register({ registerTool(name: string) { names.push(name); } } as never, config, { surface: "workbench_operator", film: { env: {} } } as never);
+    assert.equal(names.includes("canvas_get_context"), true);
+    assert.equal(names.includes("canvas_generate_image"), true);
+    assert.equal(names.includes("film_project_get_context"), true);
+    assert.equal(names.includes("film_command_preview"), true);
+    assert.equal(names.includes("film_command_apply"), true);
+    assert.equal(names.includes("dreamina_cli"), false);
 });
 
 test("internal MCP tool timeout covers the Canvas generation continuation window", () => {
