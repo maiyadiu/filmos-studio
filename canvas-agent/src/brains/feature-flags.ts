@@ -55,6 +55,7 @@ export function enabledAgentProfileIds(flags: AgentFeatureFlags) {
         ...(flags["film.agent_codex_subscription"] ? ["codex.subscription"] : []),
         ...(flags["film.agent_chatgpt_host"] ? ["chatgpt.subscription.host"] : []),
         ...(flags["film.agent_model_api_profiles"] ? ["openai.api", "anthropic.api", "deepseek.api"] : []),
+        ...(flags["film.agent_model_api_profiles"] ? ["local.model"] : []),
         "human.only",
     ]);
 }

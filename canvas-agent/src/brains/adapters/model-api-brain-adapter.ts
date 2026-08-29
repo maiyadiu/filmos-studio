@@ -10,18 +10,21 @@ import type {
     ResumeBrainSessionInput,
 } from "../contracts.js";
 
-export type ModelApiCompatibilityPort = {
+export type BrowserModelRuntimePort = {
     probe(profileId: string): Promise<Omit<BrainRuntimeStatus, "profileId" | "checkedAt">>;
     createSession(input: CreateBrainSessionInput): Promise<{ providerThreadId?: string }>;
-    resumeSession(input: ResumeBrainSessionInput): Promise<{ providerThreadId?: string }>;
+    resumeSession(input: ResumeBrainSessionInput, profileId?: string): Promise<{ providerThreadId?: string }>;
     sendTurn(input: AgentTurnInput, sink: AgentEventSink): Promise<AgentTurnResult>;
     cancelTurn(sessionId: string): Promise<void>;
     closeSession(sessionId: string): Promise<void>;
 };
 
+/** @deprecated Use BrowserModelRuntimePort. */
+export type ModelApiCompatibilityPort = BrowserModelRuntimePort;
+
 export type ModelApiBrainAdapterOptions = {
     profileId: string;
-    port: ModelApiCompatibilityPort;
+    port: BrowserModelRuntimePort;
     explicitlyEnabled: () => boolean;
 };
 
@@ -55,7 +58,7 @@ export class ModelApiBrainAdapter implements AgentRuntimeAdapter {
 
     async resumeSession(input: ResumeBrainSessionInput): Promise<Partial<BrainSession>> {
         this.assertEnabled();
-        return await this.options.port.resumeSession(input);
+        return await this.options.port.resumeSession(input, this.profileId);
     }
 
     async sendTurn(input: AgentTurnInput, sink: AgentEventSink) {

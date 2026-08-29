@@ -8,18 +8,25 @@ import { CodexSubscriptionAdapter } from "./adapters/codex-app-server-adapter.js
 import { AgentConfirmationStore } from "./confirmations.js";
 import { AgentContextBroker, type WorkbenchContextSnapshot } from "./context-broker.js";
 import { AgentPermissionGrantStore } from "./permission-grants.js";
-import { registerBuiltinBrainProfiles } from "./profiles.js";
 import { BrainProfileRegistry } from "./registry.js";
 import { AgentSessionManager } from "./session-manager.js";
 import { JsonBrainSessionStore, type BrainSessionStore } from "./session-store.js";
 import { CanonicalAgentToolManifest } from "./tool-manifest.js";
 import { enabledAgentProfileIds, type AgentFeatureFlags } from "./feature-flags.js";
+import { BrainAdapterFactory } from "./adapter-factory.js";
+import { BrainRuntimeCompositionRoot } from "./runtime-composition-root.js";
+import {
+    BrowserChatGPTHostBridgeClient,
+    BrowserModelRuntimePort,
+    type BrowserRuntimeTransport,
+} from "./browser-runtime-port.js";
 
 type GenericAgentRuntimeOptions = {
     store?: BrainSessionStore;
     featureFlags: AgentFeatureFlags;
     grants?: AgentPermissionGrantStore;
     tools?: CanonicalAgentToolManifest;
+    browserRuntime: BrowserRuntimeTransport;
 };
 
 export class GenericAgentRuntime {
@@ -31,6 +38,7 @@ export class GenericAgentRuntime {
     readonly tools: CanonicalAgentToolManifest;
     readonly audit = new MemoryAgentAuditSink();
     readonly manager: AgentSessionManager;
+    readonly composition: { enabledProfileIds: string[]; adapterProfileIds: string[] };
     private readonly hydratedSessions = new Set<string>();
     private readonly actorId: string;
 
@@ -45,15 +53,20 @@ export class GenericAgentRuntime {
         this.store = options.store ?? new JsonBrainSessionStore(path.join(CONFIG_DIR, "brain-sessions.v1.json"), config.canvases);
         this.grants = options.grants ?? new AgentPermissionGrantStore();
         this.tools = options.tools ?? new CanonicalAgentToolManifest();
-        registerBuiltinBrainProfiles(this.registry, enabledAgentProfileIds(options.featureFlags));
-        if (options.featureFlags["film.agent_codex_subscription"]) {
-            this.registry.registerAdapter(new CodexSubscriptionAdapter(
+        const enabledProfiles = enabledAgentProfileIds(options.featureFlags);
+        const browserModelRuntime = new BrowserModelRuntimePort(options.browserRuntime);
+        const adapterFactory = new BrainAdapterFactory({
+            codex: new CodexSubscriptionAdapter(
                 codexProcessManager,
                 (canvasId) => ensureCanvasWorkspace(config, canvasId).workspacePath,
                 (grant) => codexConfig(CONFIG_DIR, grant),
                 requestConfirmation,
-            ));
-        }
+            ),
+            chatgptHost: new BrowserChatGPTHostBridgeClient(options.browserRuntime),
+            browserModelRuntime,
+            explicitlyEnabled: (profileId) => enabledProfiles.has(profileId),
+        });
+        this.composition = new BrainRuntimeCompositionRoot(this.registry, adapterFactory, options.featureFlags).compose();
         const audit = new CompositeAgentAuditSink([
             this.audit,
             new JsonlAgentAuditSink(path.join(CONFIG_DIR, "agent-audit.v1.jsonl")),

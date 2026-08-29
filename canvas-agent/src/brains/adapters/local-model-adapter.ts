@@ -8,13 +8,13 @@ import type {
     CreateBrainSessionInput,
     ResumeBrainSessionInput,
 } from "../contracts.js";
-import type { ModelApiCompatibilityPort } from "./model-api-brain-adapter.js";
+import type { BrowserModelRuntimePort } from "./model-api-brain-adapter.js";
 
 export class LocalModelAdapter implements AgentRuntimeAdapter {
     readonly connectionId = "local.model";
     readonly profileId = "local.model";
 
-    constructor(private readonly port: ModelApiCompatibilityPort) {}
+    constructor(private readonly port: BrowserModelRuntimePort) {}
 
     async probe(): Promise<BrainRuntimeStatus> {
         return { profileId: this.profileId, checkedAt: new Date().toISOString(), ...(await this.port.probe(this.profileId)) };
@@ -26,7 +26,7 @@ export class LocalModelAdapter implements AgentRuntimeAdapter {
     }
 
     async resumeSession(input: ResumeBrainSessionInput): Promise<Partial<BrainSession>> {
-        return await this.port.resumeSession(input);
+        return await this.port.resumeSession(input, this.profileId);
     }
 
     async sendTurn(input: AgentTurnInput, sink: AgentEventSink) {

@@ -6,11 +6,12 @@ import { buildCanvasContext, findCanvasNodes, getCanvasConnection, getCanvasGene
 import { type ToolName } from "./schemas.js";
 import { compactCanvasState, compactNode, isToolName, nextCanvasX, parseToolInput } from "./tools.js";
 import type { CanvasNode, CanvasNodeType, CanvasSnapshot } from "./types.js";
+import type { BrowserRuntimeRequest, BrowserRuntimeTransport } from "./brains/browser-runtime-port.js";
 
 type PendingRequest = { clientId: string; recoverable: boolean; resolve: (value: unknown) => void; reject: (error: Error) => void };
 type CanvasClient = { response: ServerResponse; timer: NodeJS.Timeout; runtimeSessionId?: string };
 
-export class CanvasSession {
+export class CanvasSession implements BrowserRuntimeTransport {
     private clients = new Map<string, CanvasClient>();
     private pending = new Map<string, PendingRequest>();
     private canvasState: CanvasSnapshot | null = null;
@@ -138,6 +139,15 @@ export class CanvasSession {
 
     emitAll(type: string, payload: unknown) {
         this.clients.forEach((client) => sendEvent(client.response, type, payload));
+    }
+
+    hasConnectedBrowser() {
+        return this.clients.size > 0 && this.canvasState !== null;
+    }
+
+    async request<T>(input: BrowserRuntimeRequest): Promise<T> {
+        if (!input.profileId.trim()) throw new Error("BROWSER_RUNTIME_PROFILE_REQUIRED");
+        return await this.requestBrowser("browser_runtime_request", input) as T;
     }
 
     dispose() {
@@ -279,6 +289,10 @@ export class CanvasSession {
     }
 
     private async requestCanvasTool(name: ToolName, input: Record<string, unknown>) {
+        return await this.requestBrowser("tool_call", { name, input }, hasGenerationContinuation(name, input));
+    }
+
+    private async requestBrowser(eventType: string, payload: Record<string, unknown>, recoverable = false) {
         const requestId = crypto.randomUUID();
         const stateClientId = this.canvasState?.clientId || "";
         const selected = this.clients.has(stateClientId)
@@ -287,8 +301,7 @@ export class CanvasSession {
         const clientId = selected?.[0];
         const client = selected?.[1]?.response;
         if (!clientId || !client) throw new Error("当前没有已连接画布");
-        sendEvent(client, "tool_call", { requestId, name, input });
-        const recoverable = hasGenerationContinuation(name, input);
+        sendEvent(client, eventType, { requestId, ...payload });
         return await new Promise((resolve, reject) => {
             const timer = setTimeout(() => {
                 this.pending.delete(requestId);

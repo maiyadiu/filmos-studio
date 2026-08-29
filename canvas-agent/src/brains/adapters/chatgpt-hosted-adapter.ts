@@ -28,7 +28,7 @@ export type ChatGPTHostBridgeSession = {
     externalConversationUrl?: string;
 };
 
-export type ChatGPTHostHandoff = {
+export type ChatGPTHostBridgeHandoff = {
     handoffId: string;
     hostSessionId: string;
     projectId: string;
@@ -60,7 +60,7 @@ export interface ChatGPTHostBridgeClient {
         projectId: string;
         contextReceiptId: string;
         prompt: string;
-    }): Promise<ChatGPTHostHandoff>;
+    }): Promise<ChatGPTHostBridgeHandoff>;
     closeSession(input: { brainSessionId: string; hostSessionId: string; projectId: string }): Promise<void>;
 }
 
@@ -188,7 +188,7 @@ function assertHostSession(value: ChatGPTHostBridgeSession, projectId: string, e
     if (value.directApplyAvailable !== false) throw new Error("CHATGPT_HOST_DIRECT_APPLY_FORBIDDEN");
 }
 
-function assertHandoff(value: ChatGPTHostHandoff, host: ChatGPTHostBridgeSession, contextReceiptId: string) {
+function assertHandoff(value: ChatGPTHostBridgeHandoff, host: ChatGPTHostBridgeSession, contextReceiptId: string) {
     if (!value.handoffId.trim() || value.status !== "waiting_for_host") throw new Error("CHATGPT_HOST_HANDOFF_RECEIPT_INVALID");
     if (value.hostSessionId !== host.hostSessionId || value.projectId !== host.projectId || value.contextReceiptId !== contextReceiptId) {
         throw new Error("CHATGPT_HOST_HANDOFF_SCOPE_MISMATCH");

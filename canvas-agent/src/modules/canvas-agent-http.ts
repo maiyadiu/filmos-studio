@@ -36,13 +36,14 @@ import { GenericAgentRuntime } from "../brains/generic-agent-runtime.js";
 import type { WorkbenchContextSnapshot } from "../brains/context-broker.js";
 import { assertGenericAgentRuntimeDependencies, resolveAgentFeatureFlags } from "../brains/feature-flags.js";
 import type { BrainSessionStore } from "../brains/session-store.js";
+import type { BrowserRuntimeTransport } from "../brains/browser-runtime-port.js";
 
 export type CanvasAgentSession = Pick<
     CanvasSession,
     "health" | "workbenchContext" | "agentContextSnapshot" | "openEvents" | "updateState" | "resolveResult" | "emitAll" | "callTool" | "closeRuntimeSession" | "dispose"
 >;
 
-export type CanvasAgentHttpModuleOptions = { brainSessionStore?: BrainSessionStore };
+export type CanvasAgentHttpModuleOptions = { brainSessionStore?: BrainSessionStore; browserRuntimeTransport?: BrowserRuntimeTransport };
 
 export function createCanvasAgentHttpModule(
     config: LocalRuntimeConfig,
@@ -64,6 +65,7 @@ export function createCanvasAgentHttpModule(
                 featureFlags: agentFeatureFlags,
                 grants: permissionGrants,
                 tools: canonicalTools,
+                browserRuntime: options.browserRuntimeTransport ?? requireBrowserRuntimeTransport(session),
                 ...(options.brainSessionStore ? { store: options.brainSessionStore } : {}),
             },
         ) : undefined;
@@ -276,6 +278,17 @@ export function createCanvasAgentHttpModule(
             approvals.dispose();
             return Promise.all([Promise.resolve(session.dispose()), generic?.dispose()]).then(() => undefined);
         },
+    };
+}
+
+function requireBrowserRuntimeTransport(session: CanvasAgentSession): BrowserRuntimeTransport {
+    const candidate = session as CanvasAgentSession & Partial<BrowserRuntimeTransport>;
+    if (typeof candidate.hasConnectedBrowser !== "function" || typeof candidate.request !== "function") {
+        throw new Error("BROWSER_RUNTIME_TRANSPORT_REQUIRED");
+    }
+    return {
+        hasConnectedBrowser: () => candidate.hasConnectedBrowser!(),
+        request: <T>(input: Parameters<BrowserRuntimeTransport["request"]>[0]) => candidate.request!<T>(input),
     };
 }
 
