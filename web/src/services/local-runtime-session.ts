@@ -87,7 +87,7 @@ export class LocalRuntimeSessionClient {
     private session?: RuntimePublicSession;
     private runtimeInstanceId?: string;
     private pending?: RuntimeChallenge;
-    private connectPromise?: Promise<LocalRuntimeConnection>;
+    private connectAttempt?: { signal?: AbortSignal; promise: Promise<LocalRuntimeConnection> };
 
     constructor(options: LocalRuntimeSessionClientOptions = {}) {
         this.origin = exactOrigin(options.origin ?? globalThis.location?.origin ?? "");
@@ -105,6 +105,7 @@ export class LocalRuntimeSessionClient {
     }
 
     connect(signal?: AbortSignal) {
+        if (signal?.aborted) return Promise.reject(new DOMException("aborted", "AbortError"));
         if (this.session && Date.parse(this.session.expiresAt) > this.now()) {
             return Promise.resolve<LocalRuntimeConnection>({
                 state: "connected",
@@ -112,10 +113,15 @@ export class LocalRuntimeSessionClient {
                 runtimeVersion: 2,
             });
         }
-        this.connectPromise ??= this.connectOnce(signal).finally(() => {
-            this.connectPromise = undefined;
+        if (this.connectAttempt && !this.connectAttempt.signal?.aborted) return this.connectAttempt.promise;
+
+        let attempt: { signal?: AbortSignal; promise: Promise<LocalRuntimeConnection> };
+        const promise = this.connectOnce(signal).finally(() => {
+            if (this.connectAttempt === attempt) this.connectAttempt = undefined;
         });
-        return this.connectPromise;
+        attempt = { signal, promise };
+        this.connectAttempt = attempt;
+        return promise;
     }
 
     async request(pathAndQuery: string, init: RequestInit = {}) {
@@ -184,7 +190,7 @@ export class LocalRuntimeSessionClient {
             this.pending = undefined;
         }
         this.runtimeInstanceId = info.runtimeInstanceId;
-        const key = await this.requireKey();
+        const key = await this.requireKey(signal);
         let challenge = this.pending;
         if (!challenge || Date.parse(challenge.expiresAt) <= this.now()) {
             challenge = await this.createChallenge(key, signal);
@@ -194,18 +200,21 @@ export class LocalRuntimeSessionClient {
             this.pending = undefined;
             throw new LocalRuntimeClientError("challenge_invalid", "本机会话挑战无效");
         }
-        const signature = await signP1363(
-            this.cryptoImpl,
-            key.privateKey,
-            canonicalize({
-                protocol: "framefield-runtime-session-v1",
-                challengeId: challenge.challengeId,
-                nonce: challenge.nonce,
-                origin: this.origin,
-                endpoint: LOCAL_RUNTIME_ENDPOINT,
-                runtimeInstanceId: challenge.runtimeInstanceId,
-                expiresAt: challenge.expiresAt,
-            }),
+        const signature = await abortable(
+            signP1363(
+                this.cryptoImpl,
+                key.privateKey,
+                canonicalize({
+                    protocol: "framefield-runtime-session-v1",
+                    challengeId: challenge.challengeId,
+                    nonce: challenge.nonce,
+                    origin: this.origin,
+                    endpoint: LOCAL_RUNTIME_ENDPOINT,
+                    runtimeInstanceId: challenge.runtimeInstanceId,
+                    expiresAt: challenge.expiresAt,
+                }),
+            ),
+            signal,
         );
         const exchange = await this.jsonFetch("/runtime/session/exchange", { challengeId: challenge.challengeId, signature }, signal, true);
         if (!exchange.response.ok) throw responseError(exchange.response, exchange.body);
@@ -214,7 +223,7 @@ export class LocalRuntimeSessionClient {
         this.session = session;
         if (!key.registered) {
             key.registered = true;
-            await this.keyStore.save(key);
+            await abortable(this.keyStore.save(key), signal);
         }
         return { state: "connected", session: this.currentSession()!, runtimeVersion: info.apiVersion };
     }
@@ -237,7 +246,7 @@ export class LocalRuntimeSessionClient {
         const result = await this.jsonFetch("/runtime/session/challenge", payload, signal, true);
         if (result.response.status === 404 && key.registered) {
             key.registered = false;
-            await this.keyStore.save(key);
+            await abortable(this.keyStore.save(key), signal);
             const retry = await this.jsonFetch("/runtime/session/challenge", { publicKeyJwk: key.publicKeyJwk }, signal, true);
             if (!retry.response.ok) throw responseError(retry.response, retry.body);
             return parseChallenge(retry.body, key.keyId);
@@ -261,14 +270,17 @@ export class LocalRuntimeSessionClient {
         return { response, body: parsed };
     }
 
-    private async requireKey() {
-        const existing = await this.keyStore.load();
+    private async requireKey(signal?: AbortSignal) {
+        const existing = await abortable(this.keyStore.load(), signal);
         if (existing) {
             validateKeyRecord(existing);
             return existing;
         }
-        const pair = await this.cryptoImpl.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, false, ["sign", "verify"]);
-        const publicKeyJwk = await this.cryptoImpl.subtle.exportKey("jwk", pair.publicKey);
+        const pair = await abortable(
+            this.cryptoImpl.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, false, ["sign", "verify"]),
+            signal,
+        );
+        const publicKeyJwk = await abortable(this.cryptoImpl.subtle.exportKey("jwk", pair.publicKey), signal);
         validatePublicJwk(publicKeyJwk);
         const keyId = await browserKeyId(this.cryptoImpl, publicKeyJwk);
         const record: RuntimeBrowserKeyRecord = {
@@ -278,9 +290,19 @@ export class LocalRuntimeSessionClient {
             keyId,
             registered: false,
         };
-        await this.keyStore.save(record);
+        await abortable(this.keyStore.save(record), signal);
         return record;
     }
+}
+
+function abortable<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
+    if (!signal) return promise;
+    if (signal.aborted) return Promise.reject(new DOMException("aborted", "AbortError"));
+    return new Promise<T>((resolve, reject) => {
+        const abort = () => reject(new DOMException("aborted", "AbortError"));
+        signal.addEventListener("abort", abort, { once: true });
+        promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", abort));
+    });
 }
 
 export function createIndexedDbRuntimeKeyStore(): RuntimeBrowserKeyStore {

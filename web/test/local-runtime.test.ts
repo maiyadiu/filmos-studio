@@ -85,6 +85,34 @@ describe("Local Runtime signed browser session", () => {
         expect(challengeBody).not.toContain("publicKeyJwk");
     });
 
+    test("an aborted bootstrap attempt cannot trap a later manual reconnect behind its pending work", async () => {
+        const keyStore = memoryKeyStore();
+        const runtime = runtimeFetchFixture();
+        const firstController = new AbortController();
+        let infoReads = 0;
+        const client = new LocalRuntimeSessionClient({
+            origin,
+            keyStore,
+            fetch: async (input, init) => {
+                if (String(input).endsWith("/runtime/info") && infoReads++ === 0) {
+                    return await new Promise<Response>(() => undefined);
+                }
+                return await runtime.fetch(input, init);
+            },
+            now: () => runtime.now,
+        });
+
+        void client.connect(firstController.signal);
+        await Promise.resolve();
+        firstController.abort();
+
+        const reconnected = await client.connect(new AbortController().signal);
+
+        expect(reconnected.state).toBe("connected");
+        expect(infoReads).toBe(2);
+        expect(client.currentSession()?.sessionId).toBe("session-fixture-000000000001");
+    });
+
     test("untrusted Runtime error bodies cannot enter browser errors", async () => {
         const client = new LocalRuntimeSessionClient({
             origin,
