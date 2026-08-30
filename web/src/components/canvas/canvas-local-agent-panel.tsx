@@ -33,6 +33,8 @@ import { VoiceRecordingButton } from "@/components/conversation/voice-recording-
 import { AgentChatEmptyState } from "./canvas-agent-panel-chrome";
 import { AgentSessionClient, type AgentHistoryMessageView, type BrainSessionView } from "@/film/agent/agent-client";
 import { dispatchBrowserRuntimeRequest, type BrowserRuntimeRequest } from "@/film/agent/browser-runtime-bridge";
+import { chatGPTHostReadiness } from "@/film/agent/chatgpt-host-readiness";
+import type { FilmOSDesktopChatGPTHostStatus } from "@/film/agent/workbench-context";
 
 const PANEL_MOTION_SECONDS = 0.5;
 const MAX_ATTACHMENTS = 6;
@@ -131,7 +133,14 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
     const [resizing, setResizing] = useState(false);
     const [accountStatus, setAccountStatus] = useState<CodexAccountStatus | null>(null);
     const [accountBusy, setAccountBusy] = useState(false);
+    const chatGPTHostProfile = brainProfileId === "chatgpt.subscription.host";
+    const [chatGPTHostStatus, setChatGPTHostStatus] = useState<FilmOSDesktopChatGPTHostStatus | null>(() => typeof window === "undefined" ? null : window.filmOSChatGPTHostStatus ?? null);
+    const [chatGPTHostClock, setChatGPTHostClock] = useState(() => Date.now());
     const agentSessionClient = useMemo(() => new AgentSessionClient(), []);
+    const chatGPTHost = useMemo(
+        () => chatGPTHostReadiness(chatGPTHostStatus, snapshot.domainProjectId || "", chatGPTHostClock),
+        [chatGPTHostClock, chatGPTHostStatus, snapshot.domainProjectId],
+    );
     const listRef = useRef<HTMLDivElement>(null);
     // 供 Agent 输入框「@」插入的画布节点引用候选（active 标记为可用，供「@」菜单列出），与「/」弹出的已加入技能候选
     const composerReferences = useMemo(() => buildCanvasResourceReferences(snapshot.nodes, snapshot.connections).map((item) => ({ ...item, active: true })), [snapshot]);
@@ -245,6 +254,20 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
     useEffect(() => {
         snapshotRef.current = snapshot;
     }, [snapshot]);
+    useEffect(() => {
+        if (!chatGPTHostProfile) return;
+        const update = (event: Event) => {
+            setChatGPTHostStatus((event as CustomEvent<FilmOSDesktopChatGPTHostStatus>).detail ?? window.filmOSChatGPTHostStatus ?? null);
+            setChatGPTHostClock(Date.now());
+        };
+        const timer = window.setInterval(() => setChatGPTHostClock(Date.now()), 5_000);
+        window.addEventListener("filmos:chatgpt-host-status", update);
+        update(new Event("filmos:chatgpt-host-status"));
+        return () => {
+            window.clearInterval(timer);
+            window.removeEventListener("filmos:chatgpt-host-status", update);
+        };
+    }, [chatGPTHostProfile]);
     useEffect(() => {
         runtimeRevisionRef.current = 0;
         runtimeStateHashRef.current = "";
@@ -388,6 +411,10 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
         const mentionedSkills = resolveSkillMentions(text, composerSkills);
         const requestPrompt = promptWithAttachments(text, files);
         if (!connected || !requestPrompt || sending || waiting) return;
+        if (chatGPTHostProfile && !chatGPTHost.handoffReady) {
+            addMessage({ role: "error", title: "ChatGPT Host 未就绪", text: `${chatGPTHost.message}。请打开“ChatGPT 连接”完成当前项目授权后再发送。` });
+            return;
+        }
         if (attachmentPayloadBytes(files) > MAX_ATTACHMENT_PAYLOAD_BYTES) {
             addMessage({ role: "error", title: "图片过大", text: "图片附件超过 30MB，请删减后再发送。" });
             return;
@@ -821,12 +848,25 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
         }
     };
 
+    const profileConnectionHealthy = connected && (!chatGPTHostProfile || chatGPTHost.handoffReady);
+    const profileConnectionText = !connected
+        ? canvasAgentConnectionStatusText({ enabled, connected, activity, connectError })
+        : chatGPTHostProfile
+          ? chatGPTHost.message
+          : `${brainProfileLabel(brainProfileId)} 已连接`;
+    const openChatGPTConnectionSettings = () => {
+        const handler = window.webkit?.messageHandlers?.filmosDesktop;
+        if (handler) handler.postMessage({ action: "openChatGPTConnection" });
+        else window.dispatchEvent(new CustomEvent("filmos:open-chatgpt-connection"));
+    };
+
     const content = (
         <>
             <div className="flex min-h-8 shrink-0 items-center justify-end gap-1 px-3 pb-1">
-                <div className="mr-auto min-w-0 truncate px-1 text-[var(--fs-tiny)]" style={{ color: connected ? "#16a34a" : theme.node.muted }}>
-                    {connected ? `${brainProfileLabel(brainProfileId)} 已连接` : canvasAgentConnectionStatusText({ enabled, connected, activity, connectError })}
+                <div className="mr-auto min-w-0 truncate px-1 text-[var(--fs-tiny)]" style={{ color: profileConnectionHealthy ? "#16a34a" : theme.node.muted }} title={profileConnectionText}>
+                    {profileConnectionText}
                 </div>
+                {connected && chatGPTHostProfile && !chatGPTHost.handoffReady ? <Button size="small" className="!h-7 !px-2.5" onClick={openChatGPTConnectionSettings}>连接设置</Button> : null}
                 {!connected ? (
                     <Button size="small" type={enabled ? "default" : "primary"} className="!h-7 !px-2.5" icon={<PlugZap className="size-3.5" />} onClick={toggleAgentConnection}>
                         {enabled ? "连接中" : "连接"}
@@ -888,9 +928,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
                                 onQuickAction={(text) => void sendPrompt(text)}
                                 onOpenChatGPT={() => window.open("https://chatgpt.com/", "_blank", "noopener,noreferrer")}
                                 onOpenConnectionSettings={() => {
-                                    const handler = window.webkit?.messageHandlers?.filmosDesktop;
-                                    if (handler) handler.postMessage({ action: "openChatGPTConnection" });
-                                    else window.dispatchEvent(new CustomEvent("filmos:open-chatgpt-connection"));
+                                    openChatGPTConnectionSettings();
                                 }}
                             />
                         ))}
@@ -908,9 +946,9 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
                     <AgentChatComposer
                         prompt={prompt}
                         attachments={attachments.map(agentAttachmentToChatAttachment)}
-                        disabled={!connected}
+                        disabled={!connected || (chatGPTHostProfile && !chatGPTHost.handoffReady)}
                         sending={sending || waiting}
-                        placeholder={`询问 ${brainProfileLabel(brainProfileId)}，或让它操作画布`}
+                        placeholder={chatGPTHostProfile && !chatGPTHost.handoffReady ? chatGPTHost.message : `询问 ${brainProfileLabel(brainProfileId)}，或让它操作画布`}
                         theme={theme}
                         references={composerReferences}
                         slashSkills={composerSkills}

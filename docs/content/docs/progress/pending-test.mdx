@@ -152,3 +152,12 @@ description: 影策已实现功能的手工验证清单与未确认边界
 - [x] Outbox Worker 本地文件删除、对象不存在幂等成功和失败退避测试通过。
 - [ ] 使用真实 OSS 配置验证对象删除成功、权限失败后的退避重试和多实例租约接管。
 - [ ] 浏览器真实环境验证登录快照慢响应期间工作区保持不可写，以及删除后立即刷新不复活素材。
+
+## ChatGPT Host 与即梦 CLI 本机连接
+
+- [x] ChatGPT Host 状态改为校验当前项目、Tunnel、Project Grant、只读 MCP 合同和状态时效，不再用 Local Runtime 在线状态冒充“ChatGPT 已连接”。
+- [x] 未就绪的 ChatGPT Host 会阻止 Agent 提交并给出“连接设置”入口；已保存连接会在首个 Film Project 激活后自动恢复。
+- [x] macOS App 会从受控位置发现官方即梦 CLI，并要求 Runtime 健康检查明确返回 `dreamina_module_loaded`。
+- [x] Web 正式构建、Agent/Dreamina 专项测试与 Desktop 48 项 Swift 验收测试通过。
+- [ ] 用户从程序坞打开重新安装的 App，确认“生成引擎”显示即梦模块已加载并能读取当前账号登录状态。
+- [ ] 在已授权 Film Project 中重新打开 ChatGPT 连接，确认 Agent 先显示“Host 已就绪，等待 ChatGPT 接管”，外部 ChatGPT 完成真实读取后才显示“ChatGPT 已连接”。

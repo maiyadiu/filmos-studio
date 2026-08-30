@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { createFilmChatGPTHandoffClient, resolveFilmChatGPTHandoffConfig } from "@/film/chatgpt/handoff-client";
 import type { ChatGPTHandoffStatus } from "@/film/chatgpt/contracts";
 import type { FilmOSDesktopChatGPTHostStatus } from "@/film/agent/workbench-context";
+import { chatGPTHostReadiness } from "@/film/agent/chatgpt-host-readiness";
 import type { CanvasTheme } from "@/lib/canvas-theme";
 
 type HostedState = { state: "loading" } | { state: "ready"; status: ChatGPTHandoffStatus } | { state: "error"; message: string };
@@ -53,7 +54,8 @@ export function CanvasChatGPTHostedPanel({ theme, projectId }: { theme: CanvasTh
 
     const status = state.state === "ready" ? state.status : null;
     const desktopProjectMatches = Boolean(desktopStatus?.authorizedProjectId && desktopStatus.authorizedProjectId === authorizedProjectId);
-    const hostConnected = desktopStatus ? desktopProjectMatches && desktopStatus.externalAccountConnected : status?.connection === "connected";
+    const desktopReadiness = chatGPTHostReadiness(desktopStatus, authorizedProjectId);
+    const hostConnected = desktopStatus ? desktopReadiness.externalConnected : status?.connection === "connected";
     const timeline = [
         { label: "当前上下文", detail: context ? `${context.title} · ${context.selectedNodeIds.length} 个选中节点` : projectId, done: Boolean(context) },
         { label: "Secure MCP / Grant", detail: desktopStatus ? (desktopProjectMatches && desktopStatus.grantExpiresAt ? `已授权至 ${formatTime(desktopStatus.grantExpiresAt)}` : "当前项目授权待轮换") : status?.authorized_project ? `已授权至 ${formatTime(status.authorized_project.expires_at)}` : status?.status_code || "等待连接", done: desktopStatus ? desktopProjectMatches : Boolean(status?.authorized_project) },
@@ -70,6 +72,7 @@ export function CanvasChatGPTHostedPanel({ theme, projectId }: { theme: CanvasTh
                     {hostConnected ? <ShieldCheck className="size-5 text-emerald-600" /> : <Unplug className="size-5" style={{ color: theme.node.muted }} />}
                 </div>
                 {state.state === "error" && !desktopStatus ? <Alert className="mt-3" type="info" showIcon title="连接待就绪" description={state.message} /> : null}
+                {desktopStatus && !desktopReadiness.handoffReady ? <Alert className="mt-3" type="warning" showIcon title="Host 尚未就绪" description={desktopReadiness.message} /> : null}
                 {desktopStatus && !desktopProjectMatches ? <Alert className="mt-3" type="warning" showIcon title="项目授权待轮换" description="FilmOS 不会沿用旧项目 Grant；请等待当前项目 Host Session 建立。" /> : null}
                 <div className="mt-4 space-y-2">
                     {timeline.map((item) => <div key={item.label} className="flex gap-3 rounded-md px-3 py-2.5" style={{ background: theme.node.fill }}><span className="mt-0.5">{item.done ? <ShieldCheck className="size-4 text-emerald-600" /> : <Clock3 className="size-4" style={{ color: theme.node.muted }} />}</span><div className="min-w-0"><div className="text-xs font-medium">{item.label}</div><div className="mt-0.5 truncate text-[var(--fs-tiny)]" style={{ color: theme.node.muted }} title={item.detail}>{item.detail}</div></div></div>)}

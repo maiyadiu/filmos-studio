@@ -6,6 +6,7 @@ import { encodeChannelModel, resolveModelRequestConfig, type AiConfig } from "@/
 import { AgentSessionClient } from "./agent-client";
 import type { BrowserRuntimeRequest } from "./browser-runtime-bridge";
 import { requestDesktopChatGPTHost } from "./desktop-chatgpt-host-bridge";
+import { chatGPTHostReadiness } from "./chatgpt-host-readiness";
 import { GENERIC_MODEL_API_AGENT_TOOLS } from "./model-api-tool-manifest";
 import type { FilmOSDesktopChatGPTHostStatus } from "./workbench-context";
 
@@ -45,7 +46,7 @@ export function createBrowserRuntimeRequestHandler(deps: HandlerDependencies) {
     const sessionProfiles = deps.sessionProfiles ?? new BrowserRuntimeSessionProfiles();
     return async (request: BrowserRuntimeRequest) => {
         if (request.operation === "probe") {
-            if (request.channel === "chatgpt_host") return hostProbe(window.filmOSChatGPTHostStatus);
+            if (request.channel === "chatgpt_host") return hostProbe(window.filmOSChatGPTHostStatus, activeHostProjectId());
             if (request.channel !== "model" || !MODEL_PROFILE_IDS.has(request.profileId)) throw new Error("BROWSER_RUNTIME_PROFILE_UNREGISTERED");
             return probeModelProfile(request.profileId, deps);
         }
@@ -146,7 +147,7 @@ export function exactBoundModelConfig(config: AiConfig, binding: BrainProfileBin
 
 async function handleChatGPTHost(request: BrowserRuntimeRequest) {
     const status = window.filmOSChatGPTHostStatus;
-    if (request.operation === "probe") return hostProbe(status);
+    if (request.operation === "probe") return hostProbe(status, activeHostProjectId());
     if (request.operation === "cancel_turn" || request.operation === "close_session") return { ok: true };
     const input = record(request.payload.input);
     if (request.operation === "create_session" || request.operation === "resume_session") {
@@ -214,14 +215,18 @@ async function handleChatGPTHost(request: BrowserRuntimeRequest) {
     };
 }
 
-function hostProbe(status: FilmOSDesktopChatGPTHostStatus | undefined) {
-    const safe = Boolean(status?.tunnelConnected && status.authorizedProjectId && status.authorizedGrantId && status.mcpWriteToolCount === 0 && status.mcpPaidToolCount === 0 && status.mcpDestructiveToolCount === 0);
-    return { ready: safe, ...(safe ? {} : { reason: "Desktop Tunnel / Project Grant 尚未就绪" }), profileId: "chatgpt.subscription.host", billingMode: "subscription_host_no_extra_model_api", modelApiAdapterAvailable: false, fallbackEnabled: false };
+function hostProbe(status: FilmOSDesktopChatGPTHostStatus | undefined, projectId: string) {
+    const readiness = chatGPTHostReadiness(status, projectId);
+    return { ready: readiness.handoffReady, ...(readiness.handoffReady ? {} : { reason: readiness.message }), profileId: "chatgpt.subscription.host", billingMode: "subscription_host_no_extra_model_api", modelApiAdapterAvailable: false, fallbackEnabled: false };
 }
 
 function assertAuthorizedHost(status: FilmOSDesktopChatGPTHostStatus | undefined, projectId: string) {
-    const probe = hostProbe(status);
+    const probe = hostProbe(status, projectId);
     if (!probe.ready || status?.authorizedProjectId !== projectId) throw new Error("CHATGPT_HOST_PROJECT_GRANT_SCOPE_MISMATCH");
+}
+
+function activeHostProjectId() {
+    return window.filmOSGetWorkbenchContext?.()?.domainProjectId || "";
 }
 
 function toolCallMessage(call: ResponseToolCall): ResponseInputMessage {

@@ -197,6 +197,31 @@ struct ChatGPTConnectionManagerTests {
     }
 
     @Test
+    func firstLiveWorkbenchProjectRestoresSavedAutoConnectWhenNoProjectSessionWasPersisted() async throws {
+        let operations = FakeConnectionOperations()
+        let tokens = MemoryTokenStore()
+        try tokens.store("runtime", for: .openAIMCPTunnelRuntimeKey)
+        let preferences = MemoryConnectionPreferences()
+        preferences.configuration = ChatGPTHostConnectionConfig(tunnelID: "tunnel_12345678", autoConnect: true)
+        let manager = ChatGPTConnectionManager(
+            operations: operations,
+            tokenStore: tokens,
+            preferences: preferences
+        )
+
+        await manager.autoConnectIfConfigured()
+        #expect(operations.prepareCount == 0)
+
+        try await manager.activateProject(projectID: "host-project-live", canvasID: "canvas-live")
+
+        #expect(preferences.session?.projectID == "host-project-live")
+        #expect(operations.lastPreparedProjectID == "host-project-live")
+        #expect(operations.startCount == 1)
+        #expect(manager.snapshot.state == .waitingForChatGPT)
+        manager.disconnect()
+    }
+
+    @Test
     func legacyCombinedPreferenceMigratesOnceIntoConnectionAndProjectSession() {
         let suite = "filmos-chatgpt-migration-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!

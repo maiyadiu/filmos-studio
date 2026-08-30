@@ -238,7 +238,7 @@ const compactCopyContract = {
     runtimeReconnect: "重新连接",
     runtimeSafety: "官方 CLI 登录资料保存在本机；本页面不读取或上传 Cookie、浏览器 Profile 或登录令牌。",
     runtimeRefresh: "刷新状态",
-    dreaminaDescription: "直接读取当前 Windows 用户的官方即梦 CLI 登录状态。",
+    dreaminaDescription: "直接读取当前系统用户的官方即梦 CLI 登录状态。",
     dreaminaDisconnected: "连接本机服务后自动检测",
     dreaminaDisconnectedMessage: "重新连接本机服务后，将自动读取官方 CLI 状态。",
     dreaminaMembership: "账号生成权限：未知。当前页面只确认本机适配器支持与登录状态；具体账号是否可生成，以官方最终结果为准。",

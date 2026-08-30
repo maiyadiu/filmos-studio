@@ -290,6 +290,7 @@
         "canvas-agent",
         "canvas-agent/src/brains",
         "web/src/film/agent",
+        "web/src/components/canvas/canvas-local-agent-panel.tsx",
         "web/src/film/sync",
         "implementation/agent-native-multibrain",
         "implementation/tracks/08-agent-native-correction",
@@ -304,6 +305,7 @@
         "node acceptance/checks/brain_generation_performance.mjs",
         "npm --prefix packages/filmos-agent-contracts test",
         "cd canvas-agent && npm test",
+        "cd canvas-agent && npx tsx --test test/local-runtime-public-error.test.ts test/agent-chatgpt-host-restart.test.ts test/dreamina-runtime-module.test.ts",
         "cd canvas-agent && npm run build",
         "python3 acceptance/checks/agent_native_multibrain.py",
         "python3 acceptance/checks/agent_tool_contract_single_source.py",
@@ -416,14 +418,17 @@
         "implementation/dreamina-cli",
         "implementation/flova-cli",
         "implementation/workflow-engines",
-        "web/src/components/canvas/canvas-config-composer.tsx"
+        "web/src/components/canvas/canvas-config-composer.tsx",
+        "web/src/pages/settings/local-cli-settings.tsx",
+        "canvas-agent/src/modules/dreamina-http.ts"
       ],
       "automated_tests": [
         "python3 -m pytest -q tests/film-golden/test_golden_a_real.py tests/film-golden/test_golden_c_real.py",
         "python3 acceptance/checks/full_chain.py",
         "cd packages/filmos-generation-contracts && npm test",
         "python3 acceptance/checks/brain_generation_routing.py",
-        "node acceptance/checks/brain_generation_performance.mjs"
+        "node acceptance/checks/brain_generation_performance.mjs",
+        "cd web && bun test test/local-cli-settings.test.ts"
       ],
       "golden_case_ids": [
         "PROVIDER-CANDIDATE-001",
@@ -667,14 +672,18 @@
         "plugins/filmos-chatgpt",
         "web/src/film/chatgpt",
         "web/src/film/agent/browser-runtime-handler.ts",
+        "web/src/film/agent/chatgpt-host-readiness.ts",
+        "web/src/components/canvas/canvas-local-agent-panel.tsx",
         "canvas-agent/src/brains/adapters/chatgpt-hosted-adapter.ts",
         "canvas-agent/test/chatgpt-host-lifecycle.test.ts",
         "web/test/agent-chatgpt-handoff-runtime.test.ts",
+        "web/test/chatgpt-host-readiness.test.ts",
         "services/filmos-chatgpt-app/src/host-context.ts"
       ],
       "automated_tests": [
         "python3 acceptance/checks/film_core_environment.py",
         "python3 acceptance/checks/desktop_chatgpt_connection.py",
+        "cd web && bun test test/chatgpt-host-readiness.test.ts test/agent-chatgpt-handoff-runtime.test.ts",
         "npm test",
         "npm run test:golden-real",
         "npx tsx scripts/mcp-manifest-receipt.ts",

@@ -116,6 +116,11 @@ private final class InternalWorkbenchCoordinator {
         localRuntimeEnvironment["FILMOS_AGENT_FEATURE_FLAGS_HASH"] = configuration.agentFeatureFlagsHash
         localRuntimeEnvironment["FILMOS_AGENT_GATEWAY_ENABLED"] = configuration.agentRuntimeProfile == "filmos-candidate" ? "true" : "false"
         localRuntimeEnvironment["FILMOS_CANVAS_AGENT_MCP_EXECUTABLE"] = canvasAgentMCPExecutable.path
+        if let dreaminaCLIPath = Self.dreaminaCLIPath(homeDirectory: localRuntimeEnvironment["HOME"]) {
+            // Finder/Dock launches do not inherit the user's interactive shell PATH.
+            // Bind only a verified executable at one of the supported install locations.
+            localRuntimeEnvironment["DREAMINA_CLI_PATH"] = dreaminaCLIPath
+        }
         for (flagID, value) in configuration.agentFeatureFlags {
             localRuntimeEnvironment[Self.agentRuntimeEnvironmentName(flagID)] = value ? "true" : "false"
         }
@@ -238,6 +243,16 @@ private final class InternalWorkbenchCoordinator {
         return environment
     }
 
+    private static func dreaminaCLIPath(homeDirectory: String?) -> String? {
+        let fileManager = FileManager.default
+        let homeCandidates = homeDirectory.flatMap { home -> [String]? in
+            guard !home.isEmpty else { return nil }
+            return [URL(fileURLWithPath: home, isDirectory: true).appendingPathComponent(".local/bin/dreamina").path]
+        } ?? []
+        return (homeCandidates + ["/opt/homebrew/bin/dreamina", "/usr/local/bin/dreamina"])
+            .first(where: { fileManager.isExecutableFile(atPath: $0) })
+    }
+
     private static func origin(for url: URL) -> String {
         var components = URLComponents()
         components.scheme = url.scheme
@@ -309,7 +324,8 @@ private final class InternalWorkbenchCoordinator {
             object["agent_feature_flags_hash"] as? String == configuration.agentFeatureFlagsHash,
             object["agent_feature_flag_count"] as? Int == InternalWorkbenchConfiguration.agentFeatureFlagIDs.count,
             object["agent_activation_consistent"] as? Bool == true,
-            object["agent_generic_runtime_enabled"] as? Bool == (configuration.agentRuntimeProfile == "filmos-candidate")
+            object["agent_generic_runtime_enabled"] as? Bool == (configuration.agentRuntimeProfile == "filmos-candidate"),
+            object["dreamina_module_loaded"] as? Bool == true
         else {
             return false
         }
@@ -383,6 +399,7 @@ private final class WorkbenchWindow: NSObject, @preconcurrency WKNavigationDeleg
     private let statusLabel = NSTextField(labelWithString: "正在启动 FilmOS Studio…")
     private let retryButton = NSButton(title: "重试", target: nil, action: nil)
     private var retryHandler: (() -> Void)?
+    private var latestChatGPTHostStatusScript: String?
 
     override init() {
         let webConfiguration = WKWebViewConfiguration()
@@ -538,6 +555,7 @@ private final class WorkbenchWindow: NSObject, @preconcurrency WKNavigationDeleg
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         var payload: [String: Any] = [
+            "publishedAt": formatter.string(from: Date()),
             "profileId": snapshot.profileID,
             "state": snapshot.state.rawValue,
             "tunnelConnected": snapshot.tunnelStatus == .connected,
@@ -558,7 +576,9 @@ private final class WorkbenchWindow: NSObject, @preconcurrency WKNavigationDeleg
         if let requestID = snapshot.lastExternalRequest?.requestID { payload["lastExternalRequestId"] = requestID }
         if let handoffID = snapshot.lastExternalRequest?.handoffID { payload["observedHandoffId"] = handoffID }
         guard let data = try? JSONSerialization.data(withJSONObject: payload), let json = String(data: data, encoding: .utf8) else { return }
-        webView.evaluateJavaScript("window.filmOSChatGPTHostStatus=\(json);window.dispatchEvent(new CustomEvent('filmos:chatgpt-host-status',{detail:window.filmOSChatGPTHostStatus}));")
+        let script = "window.filmOSChatGPTHostStatus=\(json);window.dispatchEvent(new CustomEvent('filmos:chatgpt-host-status',{detail:window.filmOSChatGPTHostStatus}));"
+        latestChatGPTHostStatusScript = script
+        webView.evaluateJavaScript(script)
     }
 
     func resolveChatGPTHostRequest(requestID: String, data: Data?, error: String?) {
@@ -593,6 +613,9 @@ private final class WorkbenchWindow: NSObject, @preconcurrency WKNavigationDeleg
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         overlay.isHidden = true
+        if let latestChatGPTHostStatusScript {
+            webView.evaluateJavaScript(latestChatGPTHostStatusScript)
+        }
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
@@ -788,6 +811,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
                 let url = try await coordinator.prepare()
                 try Task.checkCancellation()
+                self.workbenchWindow?.publishChatGPTHostStatus(coordinator.chatGPTConnectionManager.snapshot)
                 self.workbenchWindow?.load(url)
                 await coordinator.chatGPTConnectionManager.autoConnectIfConfigured()
             } catch is CancellationError {

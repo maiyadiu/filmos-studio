@@ -219,7 +219,24 @@ export function runtimeErrorHandler(
         res.status(error.statusCode).json({ ok: false, code: error.code, message: error.message });
         return;
     }
+    const publicFailure = publicAgentRuntimeFailure(error);
+    if (publicFailure) {
+        res.status(publicFailure.statusCode).json({ ok: false, code: publicFailure.code, message: publicFailure.message });
+        return;
+    }
     res.status(500).json({ ok: false, code: "runtime_internal_error", message: "本机运行时请求失败" });
+}
+
+export function publicAgentRuntimeFailure(error: unknown) {
+    if (!(error instanceof Error)) return undefined;
+    const code = error.message.split(":", 1)[0];
+    if (code === "BRAIN_CONNECTION_UNAVAILABLE" || code === "BRAIN_CONNECTION_NEEDS_AUTH" || code === "BRAIN_CONNECTION_ERROR") {
+        return new LocalRuntimeSessionError("agent_profile_not_ready", "所选 AI 大脑尚未连接，请检查对应连接与授权", 409);
+    }
+    if (/^(?:CHATGPT_HOST|CHATGPT_DESKTOP|CHATGPT_CONNECTION)_/.test(code)) {
+        return new LocalRuntimeSessionError("chatgpt_host_not_ready", "ChatGPT Host 尚未就绪，请重新连接 Secure Tunnel 并授权当前项目", 409);
+    }
+    return undefined;
 }
 
 export function protectedCorsHeaders(method: "GET" | "POST", lastEventId = false) {

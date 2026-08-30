@@ -143,6 +143,7 @@ declare global {
 }
 
 export type FilmOSDesktopChatGPTHostStatus = {
+    publishedAt: string;
     profileId: string;
     state: string;
     authorizedProjectId?: string;

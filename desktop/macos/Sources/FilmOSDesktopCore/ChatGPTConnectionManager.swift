@@ -383,7 +383,8 @@ public final class ChatGPTConnectionManager {
         }
         preferences.saveProjectSession(next)
         currentProjectSession = next
-        guard desiredConnection, let configuration = currentConfiguration ?? preferences.loadConnectionConfig() else { return }
+        guard let configuration = currentConfiguration ?? preferences.loadConnectionConfig(),
+              desiredConnection || configuration.autoConnect else { return }
         let key = try currentRuntimeKey ?? tokenStore.loadString(for: .openAIMCPTunnelRuntimeKey)
         currentRuntimeKey = try Self.validatedRuntimeKey(key)
         operations.stopTunnel()

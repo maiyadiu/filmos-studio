@@ -26,10 +26,12 @@ describe("CHATGPT-HANDOFF-STATE-001 browser boundary", () => {
 async function resume(expectedHandoffId: string, observedHandoffId: string, toolName: string) {
     (globalThis as { window?: unknown }).window = {
         filmOSChatGPTHostStatus: {
+            publishedAt: new Date().toISOString(),
             profileId: "chatgpt.subscription.host.pro_readonly",
             state: "CHATGPT_REACHED_FILMOS",
             authorizedProjectId: "project-a",
             authorizedGrantId: "project-grant-a",
+            grantExpiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
             tunnelConnected: true,
             externalAccountConnected: true,
             mcpToolCount: 20,

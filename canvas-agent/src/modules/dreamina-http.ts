@@ -182,6 +182,7 @@ export function createDreaminaHttpModule(options: DreaminaHttpModuleOptions): Lo
             apiVersion: 1,
             scopes: ["dreamina:status", "dreamina:login", "dreamina:logout", "dreamina:run", "dreamina:models", "dreamina:generate"],
         },
+        publicHealth: () => ({ dreamina_module_loaded: true }),
         routes: [
             {
                 method: "GET",

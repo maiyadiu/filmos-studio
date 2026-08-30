@@ -38,6 +38,11 @@ def main() -> None:
     workbench_source = (PACKAGE / "Sources/FilmOSStudioDesktop/main.swift").read_text(encoding="utf-8")
     connection_window_source = (PACKAGE / "Sources/FilmOSStudioDesktop/ChatGPTConnectionWindow.swift").read_text(encoding="utf-8")
     lifecycle_source = (PACKAGE / "Sources/FilmOSDesktopCore/DesktopWindowLifecycle.swift").read_text(encoding="utf-8")
+    host_readiness_source = (ROOT / "web/src/film/agent/chatgpt-host-readiness.ts").read_text(encoding="utf-8")
+    local_agent_panel_source = (ROOT / "web/src/components/canvas/canvas-local-agent-panel.tsx").read_text(encoding="utf-8")
+    local_cli_settings_source = (ROOT / "web/src/pages/settings/local-cli-settings.tsx").read_text(encoding="utf-8")
+    dreamina_module_source = (ROOT / "canvas-agent/src/modules/dreamina-http.ts").read_text(encoding="utf-8")
+    runtime_security_source = (ROOT / "canvas-agent/src/local-runtime-security.ts").read_text(encoding="utf-8")
     install_script = (PACKAGE / "scripts/install-local-app").read_text(encoding="utf-8")
     fingerprint_path = PACKAGE / "scripts/source-fingerprint"
     sync_verifier = (PACKAGE / "scripts/verify-installed-app-sync").read_text(encoding="utf-8")
@@ -73,6 +78,24 @@ def main() -> None:
         raise RuntimeError("the main workbench window is missing its reopen lifecycle contract")
     if "DesktopWindowLifecycle.configureReusable(window)" not in connection_window_source:
         raise RuntimeError("the ChatGPT connection window is missing its reopen lifecycle contract")
+    if "desiredConnection || configuration.autoConnect" not in manager_source:
+        raise RuntimeError("saved ChatGPT auto-connect must resume when the first live Film Project becomes available")
+    for marker in ("publishedAt", "chatgpt_host_status_stale", "chatgpt_host_project_mismatch", "mcpWriteToolCount !== 0"):
+        if marker not in host_readiness_source:
+            raise RuntimeError(f"ChatGPT Host live readiness is missing: {marker}")
+    for marker in ("chatGPTHost.handoffReady", "ChatGPT Host 未就绪", "openChatGPTConnectionSettings"):
+        if marker not in local_agent_panel_source:
+            raise RuntimeError(f"Agent composer must fail closed on unready ChatGPT Host state: {marker}")
+    for marker in ("DREAMINA_CLI_PATH", ".local/bin/dreamina", 'object["dreamina_module_loaded"] as? Bool == true'):
+        if marker not in workbench_source:
+            raise RuntimeError(f"Desktop Dreamina runtime binding is missing: {marker}")
+    if "publicHealth: () => ({ dreamina_module_loaded: true })" not in dreamina_module_source:
+        raise RuntimeError("Dreamina module health must prove that the module was loaded")
+    if "当前系统用户" not in local_cli_settings_source or "当前 Windows 用户" in local_cli_settings_source:
+        raise RuntimeError("Dreamina settings copy must be platform-neutral")
+    for marker in ("agent_profile_not_ready", "chatgpt_host_not_ready"):
+        if marker not in runtime_security_source:
+            raise RuntimeError(f"Agent runtime public failure mapping is missing: {marker}")
     for marker in (
         "AppBackups",
         "--relaunch",
@@ -122,6 +145,10 @@ def main() -> None:
         "source_fingerprint_sha256": digest,
         "tool_count_source": "MCP_HEALTH_MANIFEST_RUNTIME",
         "write_tools_gate": "DYNAMIC_ZERO_REQUIRED",
+        "chatgpt_host_live_readiness": True,
+        "chatgpt_first_project_auto_connect": True,
+        "dreamina_dock_cli_binding": True,
+        "dreamina_module_health_required": True,
         "bundled_helpers": ["FilmOSFilmCore", "FilmOSChatGPTMCP", "FilmOSChatGPTGrant", "tunnel-client", "cloudflared"],
     }, sort_keys=True))
 
