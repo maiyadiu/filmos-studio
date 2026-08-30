@@ -104,6 +104,10 @@ export function LocalCliSettings() {
         void connect(controller.signal);
     }, [connect]);
 
+    useEffect(() => {
+        if (connection === "idle") refreshRuntime();
+    }, [connection, refreshRuntime]);
+
     const runDreamina = useCallback(
         async (action: Exclude<PendingAction, "">) => {
             if (connection !== "connected" || !moduleAvailable) {

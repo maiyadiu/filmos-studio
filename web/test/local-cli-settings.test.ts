@@ -166,6 +166,7 @@ test("Local CLI settings keeps the Runtime compact and uses the official Dreamin
 
     const source = await Bun.file(new URL("../src/pages/settings/local-cli-settings.tsx", import.meta.url)).text();
     expect(source.match(/void connect\(controller\.signal\)/g)).toHaveLength(1);
+    expect(source).toContain('if (connection === "idle") refreshRuntime();');
     expect(source).not.toContain("runtimeController");
     expect(source).toContain('void runDreamina("refresh")');
     expect(source.match(/官方 CLI 登录资料保存在本机；本页面不读取或上传 Cookie、浏览器 Profile 或登录令牌。/g)).toHaveLength(1);
