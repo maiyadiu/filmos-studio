@@ -44,6 +44,13 @@ func TestDesktopBackupCreatesVerifiableRestorablePackage(t *testing.T) {
 	}
 
 	svc := NewWithRuntimeCapabilities(repository.New(db), dataDir, RuntimeCapabilities{desktopLocalAuth: true})
+	current, err := svc.ReadDesktopUserConfig(user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.WriteDesktopUserConfig(user.ID, DesktopUserConfigWrite{ExpectedVersion: current.EntityVersion, ExpectedContentHash: current.ContentHash, Payload: []byte(`{"brain_generation_routing":{"schemaVersion":1}}`)}); err != nil {
+		t.Fatal(err)
+	}
 	artifact, err := svc.CreateDesktopBackup(user.ID, "0.7.0-test")
 	if err != nil {
 		t.Fatal(err)
@@ -53,7 +60,7 @@ func TestDesktopBackupCreatesVerifiableRestorablePackage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if manifest.ApplicationVersion != "0.7.0-test" || manifest.UserID != user.ID || len(manifest.Entries) != 2 {
+	if manifest.ApplicationVersion != "0.7.0-test" || manifest.UserID != user.ID || len(manifest.Entries) != 3 {
 		t.Fatalf("unexpected manifest: %#v", manifest)
 	}
 

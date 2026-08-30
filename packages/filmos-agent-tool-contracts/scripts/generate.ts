@@ -34,6 +34,13 @@ const auxiliarySchemas: Record<string, Record<string, unknown>> = {
     required: ["operation", "input"],
     additionalProperties: false,
   },
+  ...Object.fromEntries([
+    "generation_list_engines", "generation_get_engine_status", "generation_refresh_catalog", "generation_list_models",
+    "generation_list_workflows", "generation_list_skills", "generation_select_effective_route", "generation_resolve_route_binding",
+    "generation_compile_prompt", "generation_preview_submission", "generation_create_external_project", "generation_submit",
+    "generation_get_status", "generation_reconcile", "generation_cancel", "generation_download_outputs",
+    "generation_import_candidate", "generation_get_lineage",
+  ].map((name) => [name, generationSchema(name)])),
 };
 
 const tools = CANONICAL_AGENT_TOOL_METADATA.map((metadata) => {
@@ -126,6 +133,34 @@ function typescript(name: string, value: unknown, suffix: string[] = []) {
 function withoutSchemaMarker(value: Record<string, unknown>) {
   const { $schema: _schema, ...schema } = value;
   return schema;
+}
+
+function generationSchema(name: string): Record<string, unknown> {
+  const properties: Record<string, unknown> = {
+    projectId: { type: "string", minLength: 1, maxLength: 256 },
+    engineId: { type: "string", minLength: 1, maxLength: 64 },
+    connectionId: { type: "string", minLength: 1, maxLength: 128 },
+    taskKind: { type: "string", minLength: 1, maxLength: 64 },
+    modelId: { type: "string", minLength: 1, maxLength: 256 },
+    workflowId: { type: "string", minLength: 1, maxLength: 256 },
+    skillId: { type: "string", minLength: 1, maxLength: 256 },
+    routeSnapshotId: { type: "string", minLength: 1, maxLength: 256 },
+    generationAttemptId: { type: "string", minLength: 1, maxLength: 256 },
+    providerTaskId: { type: "string", minLength: 1, maxLength: 256 },
+    authorizedSubmissionId: { type: "string", minLength: 1, maxLength: 256 },
+    input: { type: "object", additionalProperties: true },
+  };
+  const requirements: Record<string, string[]> = {
+    generation_get_engine_status: ["engineId", "connectionId"], generation_refresh_catalog: ["engineId", "connectionId"],
+    generation_list_models: ["engineId", "connectionId"], generation_list_workflows: ["engineId", "connectionId"], generation_list_skills: ["engineId", "connectionId"],
+    generation_select_effective_route: ["projectId", "taskKind"], generation_resolve_route_binding: ["projectId", "taskKind", "input"],
+    generation_compile_prompt: ["projectId", "taskKind", "input"], generation_preview_submission: ["routeSnapshotId"],
+    generation_create_external_project: ["engineId", "connectionId", "input"], generation_submit: ["authorizedSubmissionId"],
+    generation_get_status: ["engineId", "connectionId", "providerTaskId"], generation_reconcile: ["engineId", "connectionId", "providerTaskId"],
+    generation_cancel: ["engineId", "connectionId", "providerTaskId"], generation_download_outputs: ["engineId", "connectionId", "providerTaskId"],
+    generation_import_candidate: ["generationAttemptId", "input"], generation_get_lineage: ["generationAttemptId"],
+  };
+  return { type: "object", properties, required: requirements[name] || [], additionalProperties: false };
 }
 
 function canonical(value: unknown) {

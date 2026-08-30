@@ -14,6 +14,7 @@ trap 'rm -f "$PATH_FILE"' EXIT HUP INT TERM
 ARTIFACT_ROOT=${FILMOS_ACCEPTANCE_ARTIFACT_ROOT:-"$ROOT/.local/acceptance-artifacts"}
 EVIDENCE_ROOT=${FILMOS_ACCEPTANCE_EVIDENCE_ROOT:-"$ARTIFACT_ROOT/runs"}
 RELEASE_MANIFEST="$ARTIFACT_ROOT/RELEASE_MANIFEST.json"
+HANDOFF_ARTIFACT_ROOT="$ARTIFACT_ROOT"
 mkdir -p "$EVIDENCE_ROOT"
 
 "$ROOT/.local/acceptance-venv/bin/python" "$ROOT/acceptance/run.py" \
@@ -44,6 +45,11 @@ if [ "$CLEAN" = "1" ]; then
     "$ROOT/.local/acceptance-venv/bin/python" \
         "$ROOT/acceptance/verify_release_manifest.py" \
         "$RELEASE_MANIFEST" "$RECEIPT"
+    "$ROOT/.local/acceptance-venv/bin/python" \
+        "$ROOT/acceptance/build_brain_generation_handoff.py" \
+        --receipt "$RECEIPT" \
+        --release-manifest "$RELEASE_MANIFEST" \
+        --artifact-root "$HANDOFF_ARTIFACT_ROOT"
 fi
 
 printf '%s\n' "$RECEIPT"

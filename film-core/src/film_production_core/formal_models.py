@@ -250,6 +250,40 @@ class PromptDraftProvenance(StrictModel):
     ]
 
 
+class GenerationExecutionEvidenceBinding(StrictModel):
+    """Immutable V2.4 execution evidence bound into the existing GenerationPackage authority."""
+
+    generation_attempt_id: str = Field(min_length=1, max_length=256)
+    route_snapshot_id: str = Field(min_length=1, max_length=256)
+    route_snapshot_content_hash: str = Field(pattern=HASH_PATTERN)
+    route_content_hash: str = Field(pattern=HASH_PATTERN)
+    descriptor_receipt_id: str = Field(min_length=1, max_length=256)
+    descriptor_receipt_content_hash: str = Field(pattern=HASH_PATTERN)
+    descriptor_semantic_hash: str = Field(pattern=HASH_PATTERN)
+    catalog_validation_receipt_id: str = Field(min_length=1, max_length=256)
+    catalog_validation_receipt_content_hash: str = Field(pattern=HASH_PATTERN)
+    catalog_validation_semantic_hash: str = Field(pattern=HASH_PATTERN)
+    provider_input_authorization_snapshot_id: str = Field(min_length=1, max_length=256)
+    provider_input_authorization_content_hash: str = Field(pattern=HASH_PATTERN)
+    authorization_scope_hash: str = Field(pattern=HASH_PATTERN)
+    authorized_submission_id: str = Field(min_length=1, max_length=256)
+    authorized_submission_content_hash: str = Field(pattern=HASH_PATTERN)
+    authorized_submission_semantic_hash: str = Field(pattern=HASH_PATTERN)
+    idempotency_key: str = Field(pattern=HASH_PATTERN)
+
+    @field_validator(
+        "generation_attempt_id",
+        "route_snapshot_id",
+        "descriptor_receipt_id",
+        "catalog_validation_receipt_id",
+        "provider_input_authorization_snapshot_id",
+        "authorized_submission_id",
+    )
+    @classmethod
+    def validate_opaque_ids(cls, value: str, info) -> str:
+        return require_opaque_id(value, info.field_name)
+
+
 class GenerationPackage(StrictModel):
     ref: FilmEntityRef
     prompt_draft_id: UUID4
@@ -261,6 +295,7 @@ class GenerationPackage(StrictModel):
     prompt_hash: str = Field(pattern=HASH_PATTERN)
     input_hash: str = Field(pattern=HASH_PATTERN)
     submission_state: Literal[ProviderSubmissionState.NOT_SUBMITTED]
+    execution_evidence: GenerationExecutionEvidenceBinding | None = None
 
     @field_validator("host_project_id")
     @classmethod
@@ -748,6 +783,7 @@ class CreateGenerationPackagePayload(StrictModel):
     provider_id: str = Field(pattern=PROVIDER_ID_PATTERN)
     capability_id: str = Field(pattern=CAPABILITY_ID_PATTERN)
     parameters: dict[str, Any]
+    execution_evidence: GenerationExecutionEvidenceBinding | None = None
 
     @field_validator("host_project_id")
     @classmethod

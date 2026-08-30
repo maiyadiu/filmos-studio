@@ -207,6 +207,20 @@ export type CanvasNodeMetadata = {
     failedPromptFingerprint?: string;
     fontSize?: number;
     generationMode?: CanvasGenerationMode;
+    /** V2.4 Generation Composer draft fields. The canvas store remains the single mutable draft authority. */
+    generationEngineId?: "dreamina_cli" | "flova_cli" | "runninghub" | "comfyui" | "manual_web";
+    generationConnectionId?: string;
+    generationTaskKind?: string;
+    generationModelId?: string;
+    generationWorkflowId?: string;
+    generationSkillId?: string;
+    generationNativeSize?: string;
+    generationDeliveryResolution?: string;
+    generationEstimatedCost?: string;
+    generationPreviewHash?: string;
+    generationPreviewState?: "draft" | "ready" | "stale";
+    generationSubmissionState?: "not_submitted" | "awaiting_authorization";
+    generationDraftVersion?: number;
     generationType?: CanvasImageGenerationType;
     model?: string;
     workflowProvider?: "model" | "runninghub" | "comfyui";

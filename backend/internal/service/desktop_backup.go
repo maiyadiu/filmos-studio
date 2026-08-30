@@ -86,7 +86,7 @@ func (s *Service) CreateDesktopBackup(userID string, applicationVersion string) 
 	}
 
 	createdAt := time.Now().UTC()
-	manifest, sources, err := collectDesktopBackupSources(snapshotPath, filepath.Join(s.dataDir, "resources"), userID, strings.TrimSpace(applicationVersion), createdAt)
+	manifest, sources, err := collectDesktopBackupSources(snapshotPath, filepath.Join(s.dataDir, "resources"), filepath.Join(s.dataDir, "user-config"), userID, strings.TrimSpace(applicationVersion), createdAt)
 	if err != nil {
 		return DesktopBackupArtifact{}, err
 	}
@@ -187,7 +187,7 @@ func VerifyDesktopBackupPackage(filename string) (DesktopBackupManifest, error) 
 	return manifest, nil
 }
 
-func collectDesktopBackupSources(snapshotPath, resourcesRoot, userID, applicationVersion string, createdAt time.Time) (DesktopBackupManifest, []desktopBackupSource, error) {
+func collectDesktopBackupSources(snapshotPath, resourcesRoot, userConfigRoot, userID, applicationVersion string, createdAt time.Time) (DesktopBackupManifest, []desktopBackupSource, error) {
 	sources := make([]desktopBackupSource, 0)
 	databaseEntry, err := desktopBackupSourceFor("database/open_ai_canvas.db", snapshotPath)
 	if err != nil {
@@ -226,6 +226,35 @@ func collectDesktopBackupSources(snapshotPath, resourcesRoot, userID, applicatio
 	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return DesktopBackupManifest{}, nil, err
 	}
+	if entries, err := os.ReadDir(userConfigRoot); err == nil {
+		for _, entry := range entries {
+			if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
+				continue
+			}
+			filename := filepath.Join(userConfigRoot, entry.Name())
+			if info, statErr := entry.Info(); statErr != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+				return DesktopBackupManifest{}, nil, errors.New("本地用户配置包含非常规文件")
+			}
+			data, readErr := os.ReadFile(filename)
+			if readErr != nil {
+				return DesktopBackupManifest{}, nil, readErr
+			}
+			var document DesktopUserConfigDocument
+			if json.Unmarshal(data, &document) != nil || document.Format != DesktopUserConfigFormat {
+				return DesktopBackupManifest{}, nil, errors.New("本地用户配置备份合同无效")
+			}
+			if _, validationErr := validateDesktopUserConfigPayload(document.Payload); validationErr != nil {
+				return DesktopBackupManifest{}, nil, validationErr
+			}
+			source, sourceErr := desktopBackupSourceFor(path.Join("user-config", entry.Name()), filename)
+			if sourceErr != nil {
+				return DesktopBackupManifest{}, nil, sourceErr
+			}
+			sources = append(sources, source)
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return DesktopBackupManifest{}, nil, err
+	}
 	sort.Slice(sources, func(i, j int) bool { return sources[i].archivePath < sources[j].archivePath })
 	entries := make([]DesktopBackupEntry, len(sources))
 	for index, source := range sources {
@@ -243,6 +272,7 @@ func collectDesktopBackupSources(snapshotPath, resourcesRoot, userID, applicatio
 			"api keys and credential encryption key",
 			"cookies and CLI login credentials",
 			"temporary session uploads",
+			"user-config journals (current validated authority only)",
 			"WebKit rebuildable local cache",
 		},
 	}, sources, nil

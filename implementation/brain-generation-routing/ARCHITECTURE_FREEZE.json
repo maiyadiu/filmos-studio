@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "base_commit": "b12b1ba108a926470614b2e6a231d333d1a1d00f",
+  "task_package_sha256": "965d635310eabc21dba56471f72bef2311d387603ba84d1cd9009cfbd886bf1a",
+  "persistence_matrix_hash": "78839103ba21e2744f9fd084b7efa5b977c6ea536a24e5f50266635bb9dba054",
+  "state_authority_matrix_hash": "b0ba698ad2e56ce2e988ba280fa3d35fa1add0235560dfda2e5a7bfab3b0c8a5",
+  "config_precedence_matrix_hash": "917457dff18a5f632095646face8353fef8547c83b9b5b293904b01d9ca2cb98",
+  "hash_contract_hash": "d144e656ea08d0d36169bab94f523500c981b2d908cc189ec662f6dffaba52c6",
+  "identity_pseudonymization_hash": "8343890ba98163473fc339253a741edc3694c3b1388af1bbd1705cabdbfefb31",
+  "redaction_evidence_contract_hash": "be35c41d64eafb6b2f338807fc9cac3dd24c50f0ad91fdd94d902ec24078e1cc",
+  "budget_authority_matrix_hash": "9dde0f4d1a4110fd797be103b2dc0755f718575eec4d2685e5262479eb6fcd1c",
+  "catalog_validation_authority_hash": "f88177382ffeec0298b9bb9fd5a4e16da3cbfb58e14c603491a39a93fb79f3f2",
+  "unresolved_p0": 0,
+  "duplicate_authorities": 0,
+  "status": "APPROVED_FOR_IMPLEMENTATION"
+}

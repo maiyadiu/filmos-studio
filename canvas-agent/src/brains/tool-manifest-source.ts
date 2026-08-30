@@ -15,6 +15,17 @@ const paidCanvasTools = new Set([
     "canvas_generate_video", "canvas_generate_audio", "canvas_run_generation",
 ]);
 const destructiveCanvasTools = new Set(["canvas_delete_nodes"]);
+const generationReadTools = new Set([
+    "generation_list_engines", "generation_get_engine_status", "generation_refresh_catalog", "generation_list_models",
+    "generation_list_workflows", "generation_list_skills", "generation_select_effective_route", "generation_resolve_route_binding",
+    "generation_get_status", "generation_reconcile", "generation_get_lineage",
+]);
+const generationDraftTools = new Set(["generation_compile_prompt", "generation_preview_submission"]);
+const canonicalGenerationToolNames = [
+    ...generationReadTools,
+    ...generationDraftTools,
+    "generation_create_external_project", "generation_submit", "generation_cancel", "generation_download_outputs", "generation_import_candidate",
+] as const;
 
 export const CANONICAL_AGENT_TOOL_METADATA: readonly CanonicalAgentToolMetadata[] = [
     metadata({
@@ -42,6 +53,17 @@ export const CANONICAL_AGENT_TOOL_METADATA: readonly CanonicalAgentToolMetadata[
         risk: name === "film_command_preview" ? "draft" : name === "film_command_apply" ? "approval" : "read",
         surfaces: ["workbench_operator", "runtime_admin"],
         provider: "film_core",
+        requiresFreshContext: true,
+    })),
+    ...canonicalGenerationToolNames.map((name) => metadata({
+        name,
+        title: toolTitle(name),
+        description: generationToolDescription(name),
+        risk: name === "generation_submit" ? "paid" : generationReadTools.has(name) ? "read" : generationDraftTools.has(name) ? "draft" : "write",
+        surfaces: generationReadTools.has(name) || generationDraftTools.has(name)
+            ? ["workbench_operator", "chatgpt_hosted", "runtime_admin"]
+            : ["workbench_operator", "runtime_admin"],
+        provider: "generation",
         requiresFreshContext: true,
     })),
     metadata({
@@ -78,4 +100,28 @@ function canvasRisk(name: string): AgentToolRisk {
 
 function toolTitle(name: string) {
     return name.split("_").map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(" ");
+}
+
+function generationToolDescription(name: string) {
+    const descriptions: Record<string, string> = {
+        generation_list_engines: "读取已注册生成引擎；不执行外部操作。",
+        generation_get_engine_status: "读取精确 Engine/Connection 状态与账号匿名绑定。",
+        generation_refresh_catalog: "刷新账号隔离的只读目录；不生成、不上传。",
+        generation_list_models: "读取当前连接的模型目录与证据。",
+        generation_list_workflows: "读取当前连接的工作流目录与证据。",
+        generation_list_skills: "读取当前连接的 Skill 目录与证据。",
+        generation_select_effective_route: "按 Task/Node/Project/Global 优先级选择技术路线，不执行提交。",
+        generation_resolve_route_binding: "精确解析 Route 与 Descriptor Receipt，不允许名称猜测或静默替换。",
+        generation_compile_prompt: "编译版本化 Provider Prompt Receipt；仅写草稿证据。",
+        generation_preview_submission: "创建零费用提交预览、Catalog Validation 和费用说明。",
+        generation_create_external_project: "创建外部 Provider 项目；必须由 Broker 确认。",
+        generation_submit: "按 Authorized Submission 执行一次可能付费的生成提交；必须由 Broker 确认。",
+        generation_get_status: "读取已有 Provider Task 状态。",
+        generation_reconcile: "对 Unknown/中断任务只做恢复核对，禁止自动重提。",
+        generation_cancel: "请求取消已有 Provider Task；必须由 Broker 确认。",
+        generation_download_outputs: "下载已有输出并校验 Hash；不自动批准。",
+        generation_import_candidate: "将校验后的输出导入 Candidate；不得直接 Approved。",
+        generation_get_lineage: "读取 Route、Prompt、Receipt、Candidate 与 QC lineage。",
+    };
+    return descriptions[name] || name;
 }

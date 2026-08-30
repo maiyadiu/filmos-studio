@@ -78,6 +78,27 @@ CURRENT_CHECKS = (
 
 RC_LOCAL_CHECKS = CURRENT_CHECKS + (
     Check(
+        "generation-routing-contracts",
+        "V2.4 deterministic brain, catalog, route, authorization, prompt, budget and redaction contracts",
+        ("npm", "test"),
+        ROOT / "packages" / "filmos-generation-contracts",
+        ("03-project-ui", "08-agent", "10-providers", "11-migration", "13-qa"),
+    ),
+    Check(
+        "brain-generation-routing",
+        "V2.4 architecture freeze, discoverability, exact routing and zero-cost provider readiness",
+        (sys.executable, "acceptance/checks/brain_generation_routing.py"),
+        ROOT,
+        ("03-project-ui", "08-agent", "10-providers", "11-migration", "13-qa"),
+    ),
+    Check(
+        "brain-generation-performance",
+        "V2.4 deterministic selector, cached catalog and composer performance samples",
+        ("node", "acceptance/checks/brain_generation_performance.mjs"),
+        ROOT,
+        ("03-project-ui", "08-agent", "10-providers", "13-qa"),
+    ),
+    Check(
         "agent-native-multibrain",
         "Native multi-brain production composition, adapter registry and broker instrumentation",
         (sys.executable, "acceptance/checks/agent_native_multibrain.py"),
@@ -293,6 +314,8 @@ CHECK_ARTIFACT_NAMES = {
     "chatgpt-host-restart-recovery": "chatgpt-host-restart-recovery-receipt.json",
     "chatgpt-handoff-state": "chatgpt-handoff-state-receipt.json",
     "codex-subscription-real": "codex-subscription-real-receipt.json",
+    "brain-generation-routing": "brain-generation-routing-receipt.json",
+    "brain-generation-performance": "brain-generation-performance-receipt.json",
 }
 
 

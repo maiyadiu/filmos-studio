@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, KeyboardEvent, MouseEvent, PointerEvent } from "react";
-import { Button, Image } from "antd";
+import { Alert, Button, Image, Select, Tag } from "antd";
 import { FileText, Image as ImageIcon, Music2, Pencil, Sparkles, Video, X } from "lucide-react";
 
 import { canvasThemes } from "@/lib/canvas-theme";
@@ -11,6 +11,9 @@ import type { NodeGenerationInput } from "./canvas-node-generation";
 import { CanvasVideoPromptTools } from "./canvas-video-prompt-tools";
 import { CanvasPresetPicker, type CanvasPromptPreset } from "./canvas-preset-picker";
 import type { CanvasGenerationMode, CanvasNodeMetadata, CanvasWorkspaceMode } from "@/types/canvas";
+import { useLocalDreaminaModelStore } from "@/stores/use-local-dreamina-model-store";
+import { useEffectiveConfig } from "@/stores/use-config-store";
+import { createGenerationRoutePreviewHash } from "@/film/generation-routing/preview-contract";
 
 type CanvasConfigComposerProps = {
     value: string;
@@ -54,6 +57,8 @@ export function CanvasConfigComposer({ value, inputs, skillReferences = [], gene
     const [presetOpen, setPresetOpen] = useState(false);
     const simpleMode = workspaceMode === "simple";
     const workflowVideoReferenceMode = generationMode === "video" && isCanvasWorkflowProvider(metadata);
+    const effectiveConfig = useEffectiveConfig();
+    const dreaminaModels = useLocalDreaminaModelStore((state) => state.models);
     const tokens = useMemo(() => parseComposerTokens(value), [value]);
     const referenceById = useMemo(() => new Map(inputs.map((input) => [input.nodeId, input])), [inputs]);
     const videoFrameOptions = useMemo(
@@ -192,6 +197,17 @@ export function CanvasConfigComposer({ value, inputs, skillReferences = [], gene
                     />
                 </div>
             ) : null}
+            {!simpleMode && onMetadataChange ? (
+                <GenerationRouteComposer
+                    mode={generationMode || "image"}
+                    metadata={metadata}
+                    prompt={value}
+                    dreaminaModels={dreaminaModels}
+                    runningHubWorkflows={effectiveConfig.runningHub.workflows.map((item) => ({ id: item.workflowId, label: item.title || item.workflowId, capability: item.capability }))}
+                    comfyWorkflows={effectiveConfig.comfyBridge.workflows.map((item) => ({ id: item.workflowId, label: item.title || item.workflowId, capability: item.capability }))}
+                    onChange={onMetadataChange}
+                />
+            ) : null}
             <div className="canvas-config-composer-editor relative rounded-lg" style={{ background: theme.node.fill }}>
                 {!value.trim() ? <div className="pointer-events-none absolute left-4 top-3 text-sm leading-7" style={{ color: theme.node.placeholder }}>输入提示词，按 @ 引用连接素材或技能</div> : null}
                 <div
@@ -250,6 +266,66 @@ export function CanvasConfigComposer({ value, inputs, skillReferences = [], gene
         </div>
     );
 
+}
+
+function GenerationRouteComposer({ mode, metadata, prompt, dreaminaModels, runningHubWorkflows, comfyWorkflows, onChange }: {
+    mode: CanvasGenerationMode;
+    metadata?: CanvasNodeMetadata;
+    prompt: string;
+    dreaminaModels: Array<{ id: string; displayName: string; modality: "image" | "video"; adapterSupported: boolean; currentlyObservedAvailable: "yes" | "no" | "unknown"; settings: { aspects: string[]; tiers?: string[] } }>;
+    runningHubWorkflows: Array<{ id: string; label: string; capability?: string }>;
+    comfyWorkflows: Array<{ id: string; label: string; capability?: string }>;
+    onChange: (patch: Partial<CanvasNodeMetadata>) => void;
+}) {
+    const engineId = metadata?.generationEngineId || "dreamina_cli";
+    const draftVersion = metadata?.generationDraftVersion || 0;
+    const [previewError, setPreviewError] = useState<string | null>(null);
+    const invalidate = (patch: Partial<CanvasNodeMetadata>) => {
+        setPreviewError(null);
+        onChange({ ...patch, generationDraftVersion: draftVersion + 1, generationPreviewState: metadata?.generationPreviewHash ? "stale" : "draft", generationSubmissionState: "not_submitted" });
+    };
+    const modelOptions = dreaminaModels.filter((item) => item.modality === (mode === "video" ? "video" : "image") && item.adapterSupported).map((item) => ({ value: item.id, label: `${item.displayName}${item.currentlyObservedAvailable === "no" ? "（当前不可用）" : ""}`, disabled: item.currentlyObservedAvailable === "no" }));
+    const workflowOptions = (engineId === "runninghub" ? runningHubWorkflows : comfyWorkflows).filter((item) => !item.capability || item.capability === mode).map((item) => ({ value: item.id, label: item.label }));
+    const connectionId = engineId === "dreamina_cli" ? "dreamina-local" : engineId === "runninghub" ? "runninghub-default" : engineId === "comfyui" ? "comfyui-default" : engineId === "manual_web" ? "manual" : "flova-local";
+    const previewReady = metadata?.generationPreviewState === "ready";
+    return (
+        <section className="mb-3 space-y-3 rounded-lg border p-3" style={{ borderColor: "var(--border)" }} aria-label="Generation Composer 路由">
+            <div className="flex flex-wrap items-center justify-between gap-2"><strong className="text-xs">Generation Composer</strong><div className="flex gap-1"><Tag>Prompt</Tag><Tag>路线</Tag><Tag>规格</Tag><Tag>Reference</Tag><Tag>费用</Tag></div></div>
+            <div className="grid gap-2 sm:grid-cols-2">
+                <Select aria-label="生成引擎" value={engineId} options={[{ value: "dreamina_cli", label: "Dreamina CLI" }, { value: "flova_cli", label: "Flova CLI（F0 待核验）", disabled: true }, { value: "runninghub", label: "RunningHub" }, { value: "comfyui", label: "ComfyUI" }, { value: "manual_web", label: "Manual Web" }]} onChange={(value) => invalidate({ generationEngineId: value, generationConnectionId: value === "dreamina_cli" ? "dreamina-local" : value === "runninghub" ? "runninghub-default" : value === "comfyui" ? "comfyui-default" : "manual", generationModelId: undefined, generationWorkflowId: undefined })} />
+                {engineId === "dreamina_cli" ? <Select aria-label="生成模型" value={metadata?.generationModelId} placeholder={modelOptions.length ? "选择运行时模型" : "目录尚未就绪"} options={modelOptions} onChange={(generationModelId) => invalidate({ generationModelId })} /> : engineId === "runninghub" || engineId === "comfyui" ? <Select aria-label="生成工作流" value={metadata?.generationWorkflowId} placeholder="选择工作流" options={workflowOptions} onChange={(generationWorkflowId) => invalidate({ generationWorkflowId })} /> : <Select aria-label="生成模型" disabled placeholder="人工模式不绑定模型" />}
+                <Select aria-label="画面比例" value={metadata?.generationNativeSize || metadata?.size || "9:16"} options={["9:16", "16:9", "1:1"].map((value) => ({ value, label: value }))} onChange={(generationNativeSize) => invalidate({ generationNativeSize })} />
+                <Select aria-label="交付分辨率" value={metadata?.generationDeliveryResolution || "native"} options={[{ value: "native", label: "Native Size" }, { value: "720p", label: "交付 720p" }, { value: "1080p", label: "交付 1080p" }]} onChange={(generationDeliveryResolution) => invalidate({ generationDeliveryResolution })} />
+            </div>
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs opacity-75"><span>Reference：{(metadata?.references?.length || 0)} 项 · Connection：{connectionId}</span><span>费用：{metadata?.generationEstimatedCost || "提交前由引擎估算；未知时逐次确认"}</span></div>
+            {metadata?.generationPreviewState === "stale" ? <Alert type="warning" showIcon message="配置已变更，旧预览已 STALE" /> : null}
+            {previewError ? <Alert type="error" showIcon message="预览合同生成失败" description={previewError} /> : null}
+            {metadata?.generationSubmissionState === "awaiting_authorization" ? <Alert type="info" showIcon message="等待 Broker 授权" description="尚未提交 Provider，未产生费用。必须先生成 Catalog Validation、Budget Reservation 和 Broker Decision Receipt。" /> : null}
+            <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-xs opacity-65">预览零费用；正式提交仍需 Catalog Validation、Broker Confirmation 与预算授权。</span>
+                <div className="flex gap-2">
+                    <Button size="small" type={previewReady ? "default" : "primary"} disabled={!prompt.trim() || (engineId === "dreamina_cli" && !metadata?.generationModelId) || ((engineId === "runninghub" || engineId === "comfyui") && !metadata?.generationWorkflowId)} onClick={() => {
+                        setPreviewError(null);
+                        void createGenerationRoutePreviewHash({
+                            engineId,
+                            connectionId,
+                            mode,
+                            ...(metadata?.generationModelId ? { modelId: metadata.generationModelId } : {}),
+                            ...(metadata?.generationWorkflowId ? { workflowId: metadata.generationWorkflowId } : {}),
+                            prompt,
+                            nativeSize: metadata?.generationNativeSize || metadata?.size || "9:16",
+                            deliveryResolution: metadata?.generationDeliveryResolution || "native",
+                            draftVersion,
+                        }).then((generationPreviewHash) => onChange({ generationPreviewHash, generationPreviewState: "ready", generationSubmissionState: "not_submitted" })).catch((error: unknown) => {
+                            setPreviewError(error instanceof Error ? error.message : "GENERATION_ROUTE_PREVIEW_HASH_FAILED");
+                            onChange({ generationPreviewHash: undefined, generationPreviewState: "draft", generationSubmissionState: "not_submitted" });
+                        });
+                    }}>{previewReady ? "预览已就绪" : "生成预览（零费用）"}</Button>
+                    <Button size="small" disabled={!previewReady || metadata?.generationSubmissionState === "awaiting_authorization"} onClick={() => onChange({ generationSubmissionState: "awaiting_authorization" })}>提交（需授权）</Button>
+                </div>
+            </div>
+        </section>
+    );
 }
 
 function removeActiveSlash(editor: HTMLDivElement) {

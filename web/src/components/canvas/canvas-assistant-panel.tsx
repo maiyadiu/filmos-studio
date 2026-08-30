@@ -36,6 +36,8 @@ import { MODEL_API_AGENT_TOOLS, MODEL_API_READ_TOOL_NAMES } from "@/film/agent/m
 import { NODE_DEFAULT_SIZE } from "@/constant/canvas";
 import { CanvasNodeType, type CanvasAssistantMessage, type CanvasAssistantPendingBackendSession, type CanvasAssistantReference, type CanvasAssistantSession, type CanvasNodeData } from "@/types/canvas";
 import { useCanvasAgentStore } from "@/stores/canvas/use-canvas-agent-store";
+import { useBrainGenerationRoutingStore } from "@/stores/use-brain-generation-routing-store";
+import { executeCanonicalGenerationTool, isCanonicalGenerationTool } from "@/film/generation-routing/canonical-tool-runtime";
 import { canvasAgentPostconditionMessage, previewCanvasAgentOps, summarizeCanvasAgentOps, verifyCanvasAgentOps, type CanvasAgentOp, type CanvasAgentOperationImpact, type CanvasAgentSnapshot } from "@/lib/canvas/canvas-agent-ops";
 import { buildCanvasAgentContext, findCanvasAgentNodes, getCanvasAgentConnection, getCanvasAgentGenerationTasks, getCanvasAgentNode, getCanvasAgentResources, validateCanvasAgentOps } from "@/lib/canvas/canvas-agent-context";
 import { canvasAgentPromptCacheKey } from "@/lib/openai-prompt-cache";
@@ -177,6 +179,8 @@ export function CanvasAssistantPanel({
     const cleanupImages = useAssetStore((state) => state.cleanupImages);
     const isAiConfigReady = useConfigStore((state) => state.isAiConfigReady);
     const updateConfig = useConfigStore((state) => state.updateConfig);
+    const routingConfig = useBrainGenerationRoutingStore((state) => state.config);
+    const initializeRouting = useBrainGenerationRoutingStore((state) => state.initialize);
     const confirmTools = useCanvasAgentStore((state) => state.confirmTools);
     const setAgentState = useCanvasAgentStore((state) => state.setAgentState);
     const codexConnected = useCanvasAgentStore((state) => state.connected);
@@ -211,15 +215,20 @@ export function CanvasAssistantPanel({
     const browserRuntimeSessionProfilesRef = useRef(new BrowserRuntimeSessionProfiles());
 
     useEffect(() => {
+        void initializeRouting(effectiveConfig);
+    }, [effectiveConfig, initializeRouting]);
+
+    useEffect(() => {
         if (!genericAgentRuntimeEnabled) return;
         return registerBrowserRuntimeHandler(createBrowserRuntimeRequestHandler({
             selectedProfileId: activeProfile,
             config: effectiveConfig,
             isConfigReady: isAiConfigReady,
+            resolveBinding: (profileId) => routingConfig?.bindings.find((binding) => binding.profileId === profileId && binding.enabled),
             ordinaryConfirmationEnabled: confirmTools,
             sessionProfiles: browserRuntimeSessionProfilesRef.current,
         }));
-    }, [activeProfile, confirmTools, effectiveConfig, genericAgentRuntimeEnabled, isAiConfigReady]);
+    }, [activeProfile, confirmTools, effectiveConfig, genericAgentRuntimeEnabled, isAiConfigReady, routingConfig]);
 
     useEffect(() => {
         let cancelled = false;
@@ -666,6 +675,14 @@ export function CanvasAssistantPanel({
             if (name === "canvas_get_selection") {
                 const ids = new Set(current.selectedNodeIds || []);
                 return { ok: true, message: `当前选中 ${ids.size} 个节点。`, data: { nodes: compactSnapshot({ ...current, nodes: current.nodes.filter((node) => ids.has(node.id)) }).nodes } };
+            }
+            if (isCanonicalGenerationTool(name)) {
+                return await executeCanonicalGenerationTool(name, args, {
+                    projectId,
+                    config: effectiveConfig,
+                    routingConfig: useBrainGenerationRoutingStore.getState().config,
+                    snapshot: current,
+                });
             }
             if (name === "canvas_create_cinematic_session") {
                 const cinematic = await runCinematicSession(sessionId, requireString(args.prompt, "prompt"), current, effectiveConfig);

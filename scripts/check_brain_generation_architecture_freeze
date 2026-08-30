@@ -1,0 +1,86 @@
+#!/usr/bin/env python3
+"""Validate the V2.4 WP-00/WP-01 architecture freeze without network access."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+IMPL = ROOT / "implementation" / "brain-generation-routing"
+FREEZE = IMPL / "ARCHITECTURE_FREEZE.json"
+
+HASH_FIELDS = {
+    "persistence_matrix_hash": "PERSISTENCE_OWNERSHIP_MATRIX.md",
+    "state_authority_matrix_hash": "STATE_AUTHORITY_MATRIX.md",
+    "config_precedence_matrix_hash": "CONFIG_PRECEDENCE_MATRIX.md",
+    "hash_contract_hash": "HASH_CONTRACT.md",
+    "identity_pseudonymization_hash": "IDENTITY_PSEUDONYMIZATION.md",
+    "redaction_evidence_contract_hash": "REDACTION_EVIDENCE_CONTRACT.md",
+    "budget_authority_matrix_hash": "BUDGET_AUTHORITY_MATRIX.md",
+    "catalog_validation_authority_hash": "CATALOG_VALIDATION_AUTHORITY.md",
+}
+
+WP00_FILES = {
+    "BASELINE_AUDIT.md", "CURRENT_ROUTE_MAP.md", "SETTINGS_SOURCE_MAP.md",
+    "PROVIDER_SOURCE_MAP.md", "SECRET_BOUNDARY_MAP.md", "FEATURE_FLAG_MAP.md",
+    "PERSISTENCE_OWNERSHIP_MATRIX.md", "STATE_AUTHORITY_MATRIX.md",
+    "CONFIG_PRECEDENCE_MATRIX.md", "LOCAL_CONFIG_MIGRATION_PLAN.md",
+    "HASH_CONTRACT.md", "IDENTITY_PSEUDONYMIZATION.md",
+    "REDACTION_EVIDENCE_CONTRACT.md", "BUDGET_AUTHORITY_MATRIX.md",
+    "CATALOG_VALIDATION_AUTHORITY.md", "EXISTING_GENERATION_PATH_ADAPTER_MAP.md",
+    "MIGRATION_IMPACT.md", "REUSE_EXTEND_BUILD_MATRIX.csv",
+}
+
+
+def sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def require(condition: bool, message: str) -> None:
+    if not condition:
+        raise SystemExit(f"ARCHITECTURE_FREEZE_FAIL: {message}")
+
+
+def main() -> None:
+    missing = sorted(name for name in WP00_FILES if not (IMPL / name).is_file())
+    require(not missing, f"missing WP-00 files: {missing}")
+    adrs = sorted(IMPL.glob("ADR-*.md"))
+    require(len(adrs) == 23, f"expected 23 ADRs, got {len(adrs)}")
+    require(all("Status: Accepted." in path.read_text() for path in adrs), "an ADR is not accepted")
+
+    payload = json.loads(FREEZE.read_text())
+    require(payload.get("base_commit") == "b12b1ba108a926470614b2e6a231d333d1a1d00f", "base mismatch")
+    require(payload.get("unresolved_p0") == 0, "unresolved P0")
+    require(payload.get("duplicate_authorities") == 0, "duplicate authority")
+    require(payload.get("status") == "APPROVED_FOR_IMPLEMENTATION", "freeze is not approved")
+    for field, filename in HASH_FIELDS.items():
+        require(payload.get(field) == sha256(IMPL / filename), f"hash mismatch: {filename}")
+
+    hash_contract = (IMPL / "HASH_CONTRACT.md").read_text()
+    for token in ("filmos-jcs-v1", "semantic", "envelope", "redactedContentHash", "ASCII integer"):
+        require(token in hash_contract, f"hash contract missing {token}")
+    state_contract = (IMPL / "STATE_AUTHORITY_MATRIX.md").read_text()
+    for token in ("revoked", "binding_rotated", "PASS_REAL_EXTERNAL", "BLOCKED_BY_VERIFIED_PROVIDER_CAPABILITY"):
+        require(token in state_contract, f"state closure missing {token}")
+    catalog_contract = (IMPL / "CATALOG_VALIDATION_AUTHORITY.md").read_text()
+    for token in ("exact canonical descriptor blob", "submitNotAfter", "never selection keys"):
+        require(token in catalog_contract, f"catalog contract missing {token}")
+    redaction_contract = (IMPL / "REDACTION_EVIDENCE_CONTRACT.md").read_text()
+    for token in ("redactedContentHash", "cannot recompute the source hash", "Alias mappings remain controlled"):
+        require(token in redaction_contract, f"redaction contract missing {token}")
+
+    print(json.dumps({
+        "status": "APPROVED_FOR_IMPLEMENTATION",
+        "base_commit": payload["base_commit"],
+        "wp00_files": len(WP00_FILES),
+        "adrs": len(adrs),
+        "unresolved_p0": 0,
+        "duplicate_authorities": 0,
+    }, ensure_ascii=False, sort_keys=True))
+
+
+if __name__ == "__main__":
+    main()

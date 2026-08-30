@@ -27,3 +27,14 @@ test("generated schemas are real JSON Schema rather than validator placeholders"
     assert.equal(tool.input_schema.type, "object", tool.name);
   }
 });
+
+test("canonical generation tools share one broker contract and ChatGPT excludes external writes and paid submit", () => {
+  const required = ["generation_list_engines", "generation_get_engine_status", "generation_refresh_catalog", "generation_list_models", "generation_list_workflows", "generation_list_skills", "generation_select_effective_route", "generation_resolve_route_binding", "generation_compile_prompt", "generation_preview_submission", "generation_create_external_project", "generation_submit", "generation_get_status", "generation_reconcile", "generation_cancel", "generation_download_outputs", "generation_import_candidate", "generation_get_lineage"];
+  const byName = new Map(canonicalAgentTools.map((tool) => [tool.name, tool]));
+  assert.deepEqual(required.filter((name) => !byName.has(name)), []);
+  for (const name of ["generation_create_external_project", "generation_submit", "generation_cancel", "generation_download_outputs", "generation_import_candidate"]) {
+    assert.equal(byName.get(name).surfaces.includes("chatgpt_hosted"), false, name);
+  }
+  assert.equal(byName.get("generation_submit").risk, "paid");
+  assert.equal(byName.get("generation_preview_submission").risk, "draft");
+});

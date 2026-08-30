@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- 完成 FilmOS AI 大脑与生成执行路由 V2.4：明确区分 Codex/ChatGPT/API/Local 推理大脑与 Dreamina/Flova/RunningHub/ComfyUI/Manual 生成执行器，新增 Desktop 本地免登录配置权威、精确 Brain/Model 绑定、18 个 Canonical Generation Tools、Descriptor/Catalog Validation、Prompt/Reference、Provider Broker、预算预留与绑定旋转、恢复和回滚合同；画布 Composer 只在 Catalog、预算和 Broker 决策齐备后允许提交。真实 `filmos-candidate` App 已覆盖 AI 大脑、生成引擎、默认路由、Image/Video 预览及等待 Broker 授权状态，未执行真实 Completion、生成、上传或外部项目创建，外部费用为 0。
 - 修复 macOS 主工作台窗口关闭后从程序坞重新打开时复用已释放 `NSWindow` 导致的 `EXC_BAD_ACCESS`；主窗口与 ChatGPT 连接窗口统一采用可重开生命周期，并新增稳定路径本地安装脚本，更新时可备份旧 App、停止重复实例、复用已校验的 Tunnel Client 并重新启动唯一安装副本。创作页 Hero 及其生成状态文案同步清除旧“影策”字样，统一为 FilmOS Studio / FilmOS AI 品牌。
 - 修复正式 Swift 6.0.3 Runner 下 ChatGPT Tunnel 重连与 Grant 续期测试依赖固定 80ms 窗口的调度竞态；Gate 现等待真实 start/stop/renew 条件并保留两秒硬超时，不跳过、不隔离 P0 测试。
 - 完成 RC1 前 Agent 生命周期收口：Browser API/Local 会话按真实 Profile 完成创建、取消与关闭，七种 Brain 连接探测独立且不发起 Provider 请求；ChatGPT Host 在进程重启后以新 Agent Grant 恢复原 Session/Project/Canvas，并以 `waiting_host` 、Handoff Receipt 及正式 Host 事件替代伪完成回复。

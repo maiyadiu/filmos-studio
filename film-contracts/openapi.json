@@ -1561,6 +1561,16 @@
             "title": "Entity Type",
             "type": "string"
           },
+          "execution_evidence": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GenerationExecutionEvidenceBinding"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "host_project_id": {
             "maxLength": 256,
             "minLength": 1,
@@ -2564,6 +2574,124 @@
         "title": "GenerationAttemptEvidence",
         "type": "object"
       },
+      "GenerationExecutionEvidenceBinding": {
+        "additionalProperties": false,
+        "description": "Immutable V2.4 execution evidence bound into the existing GenerationPackage authority.",
+        "properties": {
+          "authorization_scope_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Authorization Scope Hash",
+            "type": "string"
+          },
+          "authorized_submission_content_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Authorized Submission Content Hash",
+            "type": "string"
+          },
+          "authorized_submission_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Authorized Submission Id",
+            "type": "string"
+          },
+          "authorized_submission_semantic_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Authorized Submission Semantic Hash",
+            "type": "string"
+          },
+          "catalog_validation_receipt_content_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Catalog Validation Receipt Content Hash",
+            "type": "string"
+          },
+          "catalog_validation_receipt_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Catalog Validation Receipt Id",
+            "type": "string"
+          },
+          "catalog_validation_semantic_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Catalog Validation Semantic Hash",
+            "type": "string"
+          },
+          "descriptor_receipt_content_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Descriptor Receipt Content Hash",
+            "type": "string"
+          },
+          "descriptor_receipt_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Descriptor Receipt Id",
+            "type": "string"
+          },
+          "descriptor_semantic_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Descriptor Semantic Hash",
+            "type": "string"
+          },
+          "generation_attempt_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Generation Attempt Id",
+            "type": "string"
+          },
+          "idempotency_key": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Idempotency Key",
+            "type": "string"
+          },
+          "provider_input_authorization_content_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Provider Input Authorization Content Hash",
+            "type": "string"
+          },
+          "provider_input_authorization_snapshot_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Provider Input Authorization Snapshot Id",
+            "type": "string"
+          },
+          "route_content_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Route Content Hash",
+            "type": "string"
+          },
+          "route_snapshot_content_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Route Snapshot Content Hash",
+            "type": "string"
+          },
+          "route_snapshot_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Route Snapshot Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "generation_attempt_id",
+          "route_snapshot_id",
+          "route_snapshot_content_hash",
+          "route_content_hash",
+          "descriptor_receipt_id",
+          "descriptor_receipt_content_hash",
+          "descriptor_semantic_hash",
+          "catalog_validation_receipt_id",
+          "catalog_validation_receipt_content_hash",
+          "catalog_validation_semantic_hash",
+          "provider_input_authorization_snapshot_id",
+          "provider_input_authorization_content_hash",
+          "authorization_scope_hash",
+          "authorized_submission_id",
+          "authorized_submission_content_hash",
+          "authorized_submission_semantic_hash",
+          "idempotency_key"
+        ],
+        "title": "GenerationExecutionEvidenceBinding",
+        "type": "object"
+      },
       "GenerationPackage": {
         "additionalProperties": false,
         "properties": {
@@ -2571,6 +2699,16 @@
             "pattern": "^[a-z][a-z0-9._-]{1,63}$",
             "title": "Capability Id",
             "type": "string"
+          },
+          "execution_evidence": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GenerationExecutionEvidenceBinding"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "host_project_id": {
             "maxLength": 256,

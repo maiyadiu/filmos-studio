@@ -590,16 +590,19 @@ class FormalService:
             parameters = payload.parameters
             parameter_hash = hash_json(parameters)
             prompt_hash = hash_text(prompt.prompt_text)
-            input_hash = hash_json(
-                {
+            input_material = {
                     "prompt_draft": payload.prompt_draft.model_dump(mode="json"),
                     "host_project_id": payload.host_project_id,
                     "provider_id": payload.provider_id,
                     "capability_id": payload.capability_id,
                     "parameter_hash": parameter_hash,
                     "prompt_hash": prompt_hash,
-                }
-            )
+            }
+            if payload.execution_evidence is not None:
+                input_material["execution_evidence"] = (
+                    payload.execution_evidence.model_dump(mode="json")
+                )
+            input_hash = hash_json(input_material)
             body = {
                 "prompt_draft_id": str(payload.prompt_draft.film_entity_id),
                 "host_project_id": payload.host_project_id,
@@ -611,6 +614,10 @@ class FormalService:
                 "input_hash": input_hash,
                 "submission_state": ProviderSubmissionState.NOT_SUBMITTED.value,
             }
+            if payload.execution_evidence is not None:
+                body["execution_evidence"] = (
+                    payload.execution_evidence.model_dump(mode="json")
+                )
             entity_type = EntityType.GENERATION_PACKAGE
         else:  # pragma: no cover - discriminated Pydantic union is exhaustive
             raise TypeError("unsupported formal record payload")

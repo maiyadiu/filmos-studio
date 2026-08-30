@@ -1,12 +1,27 @@
 import { describe, expect, test } from "bun:test";
 
-import { BrowserRuntimeSessionProfiles, createBrowserRuntimeRequestHandler } from "../src/film/agent/browser-runtime-handler";
+import { BrowserRuntimeSessionProfiles, createBrowserRuntimeRequestHandler, exactBoundModelConfig } from "../src/film/agent/browser-runtime-handler";
 import type { BrowserRuntimeRequest } from "../src/film/agent/browser-runtime-bridge";
-import { defaultConfig } from "../src/stores/use-config-store";
+import { createModelChannel, defaultConfig } from "../src/stores/use-config-store";
 
 const profileIds = ["openai.api", "anthropic.api", "deepseek.api", "local.model"] as const;
 
 describe("AGENT-BROWSER-LIFECYCLE-001", () => {
+    test("exact binding selects only the declared Channel and Model without name or URL guessing", () => {
+        const misleading = createModelChannel({ id: "looks-deepseek", name: "DeepSeek", baseUrl: "https://deepseek.example", apiKey: "secret-a", apiFormat: "openai", models: ["guess-model"] });
+        const exact = createModelChannel({ id: "channel-exact", name: "Neutral", baseUrl: "https://neutral.example", apiKey: "secret-b", apiFormat: "openai", models: ["model-exact"] });
+        const config = { ...defaultConfig, channels: [misleading, exact] };
+        const projected = exactBoundModelConfig(config, {
+            schemaVersion: 1, entityVersion: 1, contentHash: "binding-hash", createdAt: "2026-08-30T00:00:00.000Z", updatedAt: "2026-08-30T00:00:00.000Z",
+            profileId: "deepseek.api", enabled: true, channelId: exact.id, modelId: "model-exact", requiredCapabilities: ["text", "tool_calling"],
+            transport: "model_api", authMode: "api_key", billingMode: "metered_api", interactionSurface: "native_stream", allowApiFallback: false,
+        });
+        expect(projected.channels.map((channel) => channel.id)).toEqual(["channel-exact"]);
+        expect(projected.model).toBe("model-exact");
+        expect(projected.textModel).toBe("model-exact");
+        expect(projected.baseUrl).toBe("https://neutral.example");
+    });
+
     test("OpenAI DeepSeek and Local sessions use their real profile for create cancel and close", async () => {
         const profiles = new BrowserRuntimeSessionProfiles();
         const clientCalls: string[] = [];
@@ -60,6 +75,21 @@ function handler(selectedProfileId: string, sessionProfiles: BrowserRuntimeSessi
         selectedProfileId,
         config: defaultConfig,
         isConfigReady: () => true,
+        resolveBinding: (profileId) => ({
+            schemaVersion: 1,
+            entityVersion: 1,
+            contentHash: `binding:${profileId}`,
+            createdAt: "2026-08-30T00:00:00.000Z",
+            updatedAt: "2026-08-30T00:00:00.000Z",
+            profileId,
+            enabled: true,
+            requiredCapabilities: ["text", "tool_calling"],
+            transport: profileId === "local.model" ? "local_model" : "model_api",
+            authMode: profileId === "local.model" ? "local" : "api_key",
+            billingMode: profileId === "local.model" ? "local_compute" : "metered_api",
+            interactionSurface: "native_stream",
+            allowApiFallback: false,
+        }) as never,
         ordinaryConfirmationEnabled: true,
         sessionProfiles,
         client: client as never,

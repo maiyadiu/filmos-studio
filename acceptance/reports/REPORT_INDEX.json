@@ -1,15 +1,15 @@
 {
-  "evidence_status": "CLEAN_LOCAL_EVIDENCE_NOT_FROZEN",
+  "evidence_status": "DEVELOPMENT_EVIDENCE_DIRTY",
   "raw_sources": [
     {
-      "bytes": 26941,
+      "bytes": 27640,
       "path": "CHANGELOG.md",
-      "sha256": "5b4100e5ca66674ca158094054589289481ffc82cf6ce2f4460996dd9228f81c"
+      "sha256": "8adf3b51061b331459ff84efa35bb126c9c8c80b9c8e98eb3e3ce468e442e056"
     },
     {
       "bytes": 3357,
       "path": "acceptance/MANIFEST.json",
-      "sha256": "4210d231513e90f77c7e21de4fff7fcc305151a0d97a8635edaefe9b45f8cd7a"
+      "sha256": "e2cad518cbea6f7ee0fb18120a3b78821f299f56e2c2fafb9e9ab521381bbfea"
     },
     {
       "bytes": 2187,
@@ -62,9 +62,9 @@
       "sha256": "1229d784798b57332af6385e29a30bec0e8557a81582f837253bbd2f35cef7db"
     },
     {
-      "bytes": 82428,
+      "bytes": 122629,
       "path": "packages/filmos-agent-tool-contracts/generated/canonical-tools.json",
-      "sha256": "5a6dd7a1be28cf46c852c3825412aec89082b56c8662a84ccb8b780f8cf66ffc"
+      "sha256": "478e6db9ef8108ea055b6ff53cdb561fabe4f688de4153e5cd22e7be9524eabd"
     },
     {
       "bytes": 1730,
@@ -92,11 +92,11 @@
       "sha256": "ecaa6419e92c8245b06d00364c707aa88c9d29b973f8bbc9a0aa7726a2648073"
     }
   ],
-  "receipt": "acceptance/evidence/runs/20260830T044029Z-2cbabd8156ee-rc-local/receipt.json",
-  "receipt_sha256": "169785e02d0eaac6595dd57dd453de2444b87d5adb5ac0c25bc595ff3d6fbbc2",
+  "receipt": ".local/acceptance-artifacts/runs/20260830T164746Z-b12b1ba108a9-rc-local/receipt.json",
+  "receipt_sha256": "0de021df68ebb75e42c702771480aeddd49566bc6f454bdd4356d295a2a50b43",
   "reports": [
     {
-      "bytes": 5120,
+      "bytes": 5122,
       "check_ids": [
         "desktop-release-build",
         "desktop-chatgpt-connection",
@@ -114,29 +114,29 @@
         "remote-acceptance-contract"
       ],
       "path": "acceptance/reports/KNOWN_LIMITATIONS.md",
-      "sha256": "8dbcf89e671e82b7365ce3c8174a1926d210bc6f7fd1eff47b31dc8d7ef55f9d"
+      "sha256": "a3a9661bbe3a068a98535d29a6a09cc7caa6ebb23f8afc81ec082a975bbffefb"
     },
     {
-      "bytes": 1630,
+      "bytes": 1633,
       "check_ids": [
         "rc-recovery",
         "upstream-compatibility",
         "desktop-backup-restore"
       ],
       "path": "acceptance/reports/MIGRATION_REPORT.md",
-      "sha256": "0a43eb2299ea092d72fc25025547f54d91b30591874010021e336a2840aa8bbd"
+      "sha256": "89cc81d4cf357228b08d8edf6f8e0cf50bf2f7a09c0ff1e7ca79256d7b384aa4"
     },
     {
-      "bytes": 1386,
+      "bytes": 1389,
       "check_ids": [
         "upstream-compatibility",
         "rc-recovery"
       ],
       "path": "acceptance/reports/UPSTREAM_COMPATIBILITY_REPORT.md",
-      "sha256": "597bb7c40200df9e9741bd5679786036d0ee0bb479350ff460390b9382115534"
+      "sha256": "3f270d2d96dcbe0dd1cc080d1e0a52926ff350637eb765d55929de9ae4e4102d"
     },
     {
-      "bytes": 4741,
+      "bytes": 4744,
       "check_ids": [
         "desktop-local-auth",
         "desktop-backup-restore",
@@ -157,19 +157,19 @@
         "acceptance-privacy"
       ],
       "path": "acceptance/reports/SECURITY_REPORT.md",
-      "sha256": "204b110899eefb65fb6af6c7286d197f412daedf258f9c4c62571407e23f0504"
+      "sha256": "979bd7a62fca2cc55c59dc05509ff21836707b59d98ad60598926bbd0b644578"
     },
     {
-      "bytes": 1524,
+      "bytes": 1527,
       "check_ids": [
         "web-production-build",
         "performance-local"
       ],
       "path": "acceptance/reports/PERFORMANCE_REPORT.md",
-      "sha256": "b96b5d0c4d6ee2dd337d2699e9cc7c01340d60c2d29270fde422fc205c9a7341"
+      "sha256": "7de50075ce2a188bcaa96d561eea96a5ffe915309f2064bc7441b3729ecaf265"
     },
     {
-      "bytes": 4247,
+      "bytes": 4250,
       "check_ids": [
         "desktop-backup-restore",
         "golden-abc-real-http",
@@ -188,10 +188,10 @@
         "no-openai-model-api-billing"
       ],
       "path": "acceptance/reports/GOLDEN_TEST_REPORT.md",
-      "sha256": "bbc5eff8a480d4165e08c5448b03bb588a8e294532c77b4baa2f8ed1d4d2cb10"
+      "sha256": "60fee6f205b4859e2c34d3eb937a368079efee9f26d9cf08d7ed14197b9f0a44"
     }
   ],
   "schema_version": "1.0.0",
-  "source_snapshot_sha256": "02fdb0f8690312907e10fde757f53e77b68904c2deda16b8161b2c147df40942",
-  "started_from_commit": "2cbabd8156ee65e614459e8d43bc665ee525e501"
+  "source_snapshot_sha256": "d0888cb19b878a71e66299c50abb50c94303be14c4fa42720d754bf832338050",
+  "started_from_commit": "b12b1ba108a926470614b2e6a231d333d1a1d00f"
 }

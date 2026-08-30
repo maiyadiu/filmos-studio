@@ -13,6 +13,7 @@
         "@ffmpeg/ffmpeg": "^0.12.15",
         "@ffmpeg/util": "^0.12.2",
         "@filmos/agent-tool-contracts": "file:../packages/filmos-agent-tool-contracts",
+        "@filmos/generation-contracts": "file:../packages/filmos-generation-contracts",
         "@lobehub/icons": "5.16.0",
         "@mediapipe/tasks-vision": "^1.0.1",
         "@react-three/drei": "^10.7.7",
@@ -321,6 +322,8 @@
     "@ffmpeg/util": ["@ffmpeg/util@0.12.2", "https://registry.npmmirror.com/@ffmpeg/util/-/util-0.12.2.tgz", {}, "sha512-ouyoW+4JB7WxjeZ2y6KpRvB+dLp7Cp4ro8z0HIVpZVCM7AwFlHa0c4R8Y/a4M3wMqATpYKhC7lSFHQ0T11MEDw=="],
 
     "@filmos/agent-tool-contracts": ["@filmos/agent-tool-contracts@file:../packages/filmos-agent-tool-contracts", { "dependencies": { "zod-to-json-schema": "3.25.2" }, "devDependencies": { "tsx": "4.23.1", "typescript": "7.0.2" } }],
+
+    "@filmos/generation-contracts": ["@filmos/generation-contracts@file:../packages/filmos-generation-contracts", { "devDependencies": { "typescript": "^7.0.2" } }],
 
     "@floating-ui/core": ["@floating-ui/core@1.7.5", "https://registry.npmmirror.com/@floating-ui/core/-/core-1.7.5.tgz", { "dependencies": { "@floating-ui/utils": "^0.2.11" } }, "sha512-1Ih4WTWyw0+lKyFMcBHGbb5U5FtuHJuujoyyr5zTaWS5EYMeT6Jb2AuDeftsCsEuchO+mM2ij5+q9crhydzLhQ=="],
 

@@ -185,7 +185,7 @@ test("Local CLI settings keeps the Runtime compact and uses the official Dreamin
     expect(architecture).toContain("prompt、receipt 或本地路径");
 });
 
-test("settings route recognizes local-cli as a first-class section", async () => {
+test("settings route keeps local-cli as a stable alias of the generation-engine section", async () => {
     const module = await import("../src/pages/settings");
     const isConfigSection = (module as { isConfigSection?: (value: string | null) => boolean }).isConfigSection;
     expect(typeof isConfigSection).toBe("function");
@@ -197,10 +197,12 @@ test("settings route recognizes local-cli as a first-class section", async () =>
 
 test("model settings and Create subscribe to the same effective Runtime catalog after first render", async () => {
     const settingsSource = await Bun.file(new URL("../src/pages/settings/index.tsx", import.meta.url)).text();
+    const routeSource = await Bun.file(new URL("../src/pages/settings/model-route-settings-pane.tsx", import.meta.url)).text();
     const createSource = await Bun.file(new URL("../src/pages/create/index.tsx", import.meta.url)).text();
 
-    expect(settingsSource).toContain("useEffectiveConfig");
-    expect(settingsSource).toContain("<ModelDefaultGrid config={effectiveConfig}");
+    expect(settingsSource).toContain("<ModelRouteSettingsPane");
+    expect(routeSource).toContain("useEffectiveConfig");
+    expect(routeSource).toContain("<ModelDefaultGrid config={effectiveConfig}");
     expect(createSource).toContain("const config = useEffectiveConfig()");
 });
 

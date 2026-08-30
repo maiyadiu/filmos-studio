@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "observed_at": "2026-08-30T23:30:00+08:00",
+  "cli": {
+    "version": "v0.0.9",
+    "commit": "1945b3e",
+    "platform": "darwin-arm64",
+    "structured_json": true
+  },
+  "external_cost_microunits": "0",
+  "privacy": {
+    "token_in_report": false,
+    "email_in_report": false,
+    "user_id_in_report": false,
+    "project_id_in_report": false,
+    "signed_url_in_report": false
+  },
+  "capabilities": {
+    "auth_status": "VERIFIED_READ_ONLY",
+    "account_and_quota": "VERIFIED_READ_ONLY",
+    "project_list": "VERIFIED_READ_ONLY",
+    "project_create": "REQUIRES_USER_AUTHORIZATION",
+    "skill_catalog": "VERIFIED_READ_ONLY",
+    "model_catalog": "UNSUPPORTED_BY_VERIFIED_CLI",
+    "workflow_catalog": "UNSUPPORTED_BY_VERIFIED_CLI",
+    "submit": "COMMAND_SURFACE_VERIFIED_NOT_EXECUTED",
+    "status_and_recovery": "VERIFIED_COMMAND_SURFACE",
+    "download_and_recovery": "VERIFIED_COMMAND_SURFACE",
+    "caller_idempotency_key": "UNSUPPORTED_BY_VERIFIED_CLI",
+    "task_identifier": "VERIFIED_COMMAND_SURFACE_NOT_OBSERVED",
+    "cost_estimate": "UNSUPPORTED_BY_VERIFIED_CLI",
+    "actual_cost_receipt": "NOT_OBSERVED_NO_SUBMIT"
+  },
+  "state": "READY_FOR_USER_SELECTION"
+}

@@ -80,6 +80,8 @@ fi
 
 destination_parent=$(dirname -- "$destination")
 mkdir -p "$destination_parent"
+destination_parent=$(CDPATH= cd -- "$destination_parent" && pwd)
+destination="$destination_parent/$(basename -- "$destination")"
 staging=$(mktemp -d "$destination_parent/.filmos-app.XXXXXX")
 profile_environment="$staging/agent-runtime-profile.env"
 "$python_executable" "$workspace_root/scripts/agent_runtime_profile.py" shell --profile "$agent_runtime_profile" >"$profile_environment"

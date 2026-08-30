@@ -1,0 +1,11 @@
+path,owner,phase,rule
+implementation/brain-generation-routing,Codex-WP00-WP01,0,Frozen contracts and evidence
+packages/filmos-generation-contracts,Codex-Domain,1,Deterministic shared contracts only
+web/src/film/agent,Codex-Brain,1,Exact brain selection and binding
+web/src/film/generation,Codex-Generation,1,Web adapters and projections
+web/src/pages/settings,Codex-Settings,1,Reuse current settings and stores
+web/src/pages/canvas,Codex-Composer,1,Extend existing canvas generation surface
+film-core/src/film_production_core,Codex-FilmCore,2,Project authority and immutable evidence
+desktop/macos,Codex-Desktop,2,Application Support config bridge
+canvas-agent/src,Codex-Agent,2,Canonical broker/provider adapters
+acceptance,Codex-Acceptance,3,Stable evidence contracts and zero-cost gates

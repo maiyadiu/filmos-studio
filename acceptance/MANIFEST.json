@@ -7,7 +7,7 @@
   },
   "evidence_index": {
     "path": "acceptance/EVIDENCE_INDEX.json",
-    "sha256": "53023897d340064ededac4bf136eb1d96aefe662bf5b45f753c2b3c92bae3876"
+    "sha256": "a66c05ef118593d7a3cc7ed3446273d2411f30fa1668a27db649270d29291871"
   },
   "golden_project": {
     "path": "acceptance/FilmOS_Acceptance_Project/项目.json",
@@ -38,7 +38,7 @@
     "film_core": {
       "version": "0.4.0",
       "path": "film-contracts/schemas/core.schema.json",
-      "sha256": "894906d7bb3105f7a74bc14e6777bede4160cb598a686e8a15e18372c78a8516"
+      "sha256": "60b4f9b1b3185a29afc90d03d9281be711d1bc0f6292d3c403d9764a2d4ea8fb"
     },
     "canvas": {
       "version": "yingce-v1.2.1",

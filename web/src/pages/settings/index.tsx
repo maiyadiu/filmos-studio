@@ -1,5 +1,5 @@
 import { App, Button, Form, Input, InputNumber, Select } from "antd";
-import { ArrowLeft, Boxes, Bug, Cloud, MessageSquareText, MonitorUp, RadioTower, SlidersHorizontal, SquareTerminal, Workflow } from "lucide-react";
+import { ArrowLeft, Bot, Bug, Cloud, GitBranch, MessageSquareText, RadioTower, SlidersHorizontal, Sparkles } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
@@ -10,29 +10,36 @@ import { defaultConfig, useConfigStore, useEffectiveConfig } from "@/stores/use-
 import { useUserStore } from "@/stores/use-user-store";
 import { ChannelSettingsPane, channelValidationError, focusInvalidChannelField, isChannelReady } from "./channel-settings-pane";
 export { UserLocalChannelFields, UserLocalChannelSwitch, userLocalChannelChangePatch, userLocalChannelFormOwner } from "./channel-settings-pane";
-import { ComfyUIBridgeSettingsPane } from "./comfyui-bridge-settings-pane";
-import { ModelDefaultGrid } from "./model-default-grid";
-import { LocalCliSettings } from "./local-cli-settings";
 import { PromptPreferencesPane } from "./prompt-preferences-pane";
 import DiagnosticsPanel from "./diagnostics-panel";
-import { RunningHubSettingsPane } from "./runninghub-settings-pane";
+import { BrainSettingsPane } from "./brain-settings-pane";
+import { GenerationEngineSettingsPane } from "./generation-engine-settings-pane";
+import { ModelRouteSettingsPane } from "./model-route-settings-pane";
 
-type ConfigSectionKey = "local-cli" | "channels" | "models" | "runninghub" | "comfyui" | "preferences" | "prompts" | "storage" | "diagnostics";
+type ConfigSectionKey = "brains" | "engines" | "routes" | "channels" | "preferences" | "prompts" | "storage" | "diagnostics";
+type LegacyConfigSectionKey = "local-cli" | "runninghub" | "comfyui" | "models";
 
 const configSections: Array<{ key: ConfigSectionKey; label: string; description: string; icon: ReactNode }> = [
-    { key: "local-cli", label: "本机工具", description: "连接 Runtime 与官方 CLI", icon: <SquareTerminal className="size-4" /> },
+    { key: "brains", label: "AI 大脑", description: "推理主体、能力与精确绑定", icon: <Bot className="size-4" /> },
+    { key: "engines", label: "生成引擎", description: "生图、视频与工作流执行器", icon: <Sparkles className="size-4" /> },
+    { key: "routes", label: "模型与默认路由", description: "普通模型与 Task Kind 路由", icon: <GitBranch className="size-4" /> },
     { key: "channels", label: "个人渠道", description: "模型服务与个人工作流", icon: <RadioTower className="size-4" /> },
-    { key: "runninghub", label: "RunningHub 工作流", description: "个人渠道的云端工作流配置", icon: <Workflow className="size-4" /> },
-    { key: "comfyui", label: "ComfyUI Bridge", description: "个人渠道的 Bridge 工作流配置", icon: <MonitorUp className="size-4" /> },
-    { key: "models", label: "模型选择", description: "按领域选择默认模型", icon: <Boxes className="size-4" /> },
     { key: "preferences", label: "生成偏好", description: "画布、视频与音频默认值", icon: <SlidersHorizontal className="size-4" /> },
     { key: "prompts", label: "提示词偏好", description: "按任务定制平台模板", icon: <MessageSquareText className="size-4" /> },
     { key: "storage", label: "我的对象存储", description: "管理个人媒体存储", icon: <Cloud className="size-4" /> },
     { key: "diagnostics", label: "问题诊断", description: "导出日志协助排查", icon: <Bug className="size-4" /> },
 ];
 
-export function isConfigSection(value: string | null): value is ConfigSectionKey {
-    return configSections.some((section) => section.key === value);
+function normalizedConfigSection(value: string | null): ConfigSectionKey | null {
+    if (configSections.some((section) => section.key === value)) return value as ConfigSectionKey;
+    if (["local-cli", "runninghub", "comfyui"].includes(value || "")) return "engines";
+    if (value === "models") return "routes";
+    return null;
+}
+
+/** Accepts canonical sections and the four stable legacy deep-link aliases. */
+export function isConfigSection(value: string | null): value is ConfigSectionKey | LegacyConfigSectionKey {
+    return normalizedConfigSection(value) !== null;
 }
 
 export default function SettingsPage() {
@@ -41,8 +48,8 @@ export default function SettingsPage() {
     const [searchParams, setSearchParams] = useSearchParams();
     const requestedSection = searchParams.get("section");
     const customChannelsEnabled = useUserStore((state) => state.features.customChannelsEnabled);
-    const initialSection = isConfigSection(requestedSection) ? requestedSection : customChannelsEnabled ? "channels" : "models";
-    const [activeTab, setActiveTab] = useState<ConfigSectionKey>(initialSection === "channels" && !customChannelsEnabled ? "models" : initialSection);
+    const initialSection = normalizedConfigSection(requestedSection) || "brains";
+    const [activeTab, setActiveTab] = useState<ConfigSectionKey>(initialSection === "channels" && !customChannelsEnabled ? "brains" : initialSection);
     const config = useConfigStore((state) => state.config);
     const effectiveConfig = useEffectiveConfig();
     const updateConfig = useConfigStore((state) => state.updateConfig);
@@ -52,11 +59,12 @@ export default function SettingsPage() {
     const visibleConfigSections = customChannelsEnabled ? configSections : configSections.filter((section) => section.key !== "channels");
 
     useEffect(() => {
-        if (isConfigSection(requestedSection) && (requestedSection !== "channels" || customChannelsEnabled)) {
-            setActiveTab(requestedSection);
+        const normalized = normalizedConfigSection(requestedSection);
+        if (normalized && (normalized !== "channels" || customChannelsEnabled)) {
+            setActiveTab(normalized);
             return;
         }
-        if (!customChannelsEnabled) setActiveTab((current) => (current === "channels" ? "models" : current));
+        if (!customChannelsEnabled) setActiveTab((current) => (current === "channels" ? "brains" : current));
     }, [customChannelsEnabled, requestedSection]);
 
     useEffect(() => {
@@ -91,7 +99,7 @@ export default function SettingsPage() {
             || (config.comfyBridge.enabled && config.comfyBridge.bridgeId.trim() && config.comfyBridge.workflowId.trim()),
         );
         if (!effectiveConfig.channels.some(isChannelReady) && !hasReadyLocalRuntime && !workflowReady) {
-            selectSection(customChannelsEnabled ? "channels" : "models");
+            selectSection(customChannelsEnabled ? "channels" : "routes");
             message.error(customChannelsEnabled ? (shouldPromptContinue ? "请先完成至少一个渠道的 Base URL、API Key 和模型配置" : "当前没有可用渠道，请先完成连接信息和模型配置") : "当前没有可用的系统模型，请联系管理员配置系统渠道");
             return;
         }
@@ -100,23 +108,10 @@ export default function SettingsPage() {
     };
 
     const panes: Record<ConfigSectionKey, ReactNode> = {
-        "local-cli": <SettingsPane><LocalCliSettings /></SettingsPane>,
-        channels: <SettingsPane><ChannelSettingsPane onOpenModels={() => selectSection("models")} onOpenRunningHub={() => selectSection("runninghub")} onOpenComfyUI={() => selectSection("comfyui")} /></SettingsPane>,
-        models: (
-            <SettingsPane>
-                <div className="settings-pane-header">
-                    <div className="min-w-0">
-                        <h2>模型选择</h2>
-                        <p>按领域选择默认模型；模型能力与请求协议在渠道“模型与能力”中配置。</p>
-                    </div>
-                </div>
-                <div className="settings-section">
-                    <ModelDefaultGrid config={effectiveConfig} onChange={(key, model) => updateConfig(key, model)} />
-                </div>
-            </SettingsPane>
-        ),
-        runninghub: <SettingsPane><RunningHubSettingsPane /></SettingsPane>,
-        comfyui: <SettingsPane><ComfyUIBridgeSettingsPane /></SettingsPane>,
+        brains: <SettingsPane><BrainSettingsPane /></SettingsPane>,
+        engines: <SettingsPane><GenerationEngineSettingsPane /></SettingsPane>,
+        routes: <SettingsPane><ModelRouteSettingsPane /></SettingsPane>,
+        channels: <SettingsPane><ChannelSettingsPane onOpenModels={() => selectSection("routes")} onOpenRunningHub={() => selectSection("engines")} onOpenComfyUI={() => selectSection("engines")} /></SettingsPane>,
         preferences: (
             <SettingsPane>
                 <div className="settings-pane-header">

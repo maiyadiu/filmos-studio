@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { canonicalMcpTools } from "@filmos/agent-tool-contracts/mcp-tools";
+import { z } from "zod";
 
 import { AGENT_PROMPT, loadConfig, type CanvasAgentConfig, VERSION } from "./config.js";
 import type { AgentToolRisk, AgentToolSurfaceId } from "./brains/contracts.js";
@@ -33,14 +34,48 @@ export type RegisterMcpToolsOptions = {
 
 export function registerMcpTools(server: McpServer, config: CanvasAgentConfig, options: RegisterMcpToolsOptions = {}) {
     const surface = resolveToolSurface(options);
-    const allowed = new Set(new CanonicalAgentToolManifest().names(surface));
+    const manifest = new CanonicalAgentToolManifest();
+    const allowedTools = manifest.list(surface);
+    const allowed = new Set(allowedTools.map((tool) => tool.name));
     toolNames.filter((name) => allowed.has(name)).forEach((name) => registerCanvasTool(server, config, name));
+    allowedTools.filter((tool) => tool.provider === "generation" && tool.name !== "dreamina_cli" && !toolNames.includes(tool.name as ToolName)).forEach((tool) => registerGenerationProxyTool(server, config, tool.name));
     if (allowed.has("workbench_get_context")) registerWorkbenchContextTool(server, config);
     if (surface === "runtime_admin") {
         if (allowed.has("dreamina_cli")) registerDreaminaMcp(server, config);
         if (filmToolNames.some((name) => allowed.has(name))) registerFilmAgentMcp(server, config, options.film);
     }
     if (surface === "workbench_operator" && filmToolNames.some((name) => allowed.has(name))) registerFilmAgentMcp(server, config, { ...options.film, enabled: true });
+}
+
+function registerGenerationProxyTool(server: McpServer, config: CanvasAgentConfig, name: string) {
+    const contract = requiredMcpContract(name);
+    server.registerTool(name, {
+        description: contract.description,
+        inputSchema: generationInputShape(contract.inputSchema),
+        annotations: contract.annotations,
+    }, async (input: unknown) => {
+        const result = await postCanvasAgentTool(config, name, input);
+        return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
+    });
+}
+
+function generationInputShape(schema: Record<string, unknown>) {
+    const properties = schema.properties && typeof schema.properties === "object" && !Array.isArray(schema.properties) ? schema.properties as Record<string, Record<string, unknown>> : {};
+    const required = new Set(Array.isArray(schema.required) ? schema.required.filter((item): item is string => typeof item === "string") : []);
+    return Object.fromEntries(Object.entries(properties).map(([name, property]) => {
+        let validator: z.ZodTypeAny;
+        if (property.type === "string") {
+            let stringValidator = z.string();
+            if (typeof property.minLength === "number") stringValidator = stringValidator.min(property.minLength);
+            if (typeof property.maxLength === "number") stringValidator = stringValidator.max(property.maxLength);
+            validator = stringValidator;
+        } else if (property.type === "integer") validator = z.number().int();
+        else if (property.type === "number") validator = z.number();
+        else if (property.type === "boolean") validator = z.boolean();
+        else if (property.type === "array") validator = z.array(z.unknown());
+        else validator = z.record(z.string(), z.unknown());
+        return [name, required.has(name) ? validator : validator.optional()];
+    }));
 }
 
 function registerWorkbenchContextTool(server: McpServer, config: CanvasAgentConfig) {
@@ -90,7 +125,7 @@ function mcpAnnotationsForRisk(risk: AgentToolRisk) {
     };
 }
 
-async function postCanvasAgentTool(config: CanvasAgentConfig, name: ToolName | "workbench_get_context", input: unknown) {
+async function postCanvasAgentTool(config: CanvasAgentConfig, name: string, input: unknown) {
     const grantHeaders: Record<string, string> = process.env.FILMOS_AGENT_GATEWAY_ENABLED === "true" ? {
         "x-filmos-agent-grant-id": String(process.env.FILMOS_AGENT_GRANT_ID || ""),
         "x-filmos-agent-session-id": String(process.env.FILMOS_AGENT_SESSION_ID || ""),

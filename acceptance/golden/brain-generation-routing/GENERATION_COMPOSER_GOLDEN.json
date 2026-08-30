@@ -1,0 +1,132 @@
+{
+  "schema_version": "1.0.0",
+  "golden_case_id": "BRAIN-GENERATION-CANDIDATE-UI-001",
+  "status": "PASSED_ZERO_COST",
+  "candidate": {
+    "application": "FilmOS Studio.app",
+    "profile": "filmos-candidate",
+    "bundle_sha256": "bb46cc51e860f8f52c88a5329f876ef450c6fda9f6d1f156553080f03944bc0f",
+    "source_baseline": "b12b1ba108a926470614b2e6a231d333d1a1d00f",
+    "local_project_created_for_evidence": true,
+    "external_project_created": false
+  },
+  "observed_contracts": {
+    "settings_home": [
+      "AI_BRAIN",
+      "GENERATION_ENGINES",
+      "MODEL_AND_DEFAULT_ROUTES"
+    ],
+    "brain_profiles": [
+      "CODEX_SUBSCRIPTION",
+      "CHATGPT_SUBSCRIPTION_HOST",
+      "OPENAI_API",
+      "ANTHROPIC_API",
+      "DEEPSEEK_API",
+      "LOCAL_OPENAI_COMPATIBLE"
+    ],
+    "human_profile_visible_in_selector": false,
+    "generation_engines": [
+      "DREAMINA",
+      "FLOVA",
+      "RUNNINGHUB",
+      "COMFYUI",
+      "MANUAL_WEB"
+    ],
+    "flova_external_gate_state": "READY_FOR_USER_SELECTION",
+    "flova_external_gate_vocabulary": [
+      "PASS_AUTOMATED",
+      "READY_FOR_USER_SELECTION",
+      "READY_FOR_USER_AUTHORIZATION",
+      "PASS_REAL_EXTERNAL",
+      "BLOCKED_BY_VERIFIED_PROVIDER_CAPABILITY",
+      "FAIL"
+    ],
+    "composer_modes": [
+      "IMAGE",
+      "VIDEO"
+    ],
+    "composer_fields": [
+      "PROMPT",
+      "ROUTE",
+      "SIZE",
+      "RESOLUTION",
+      "REFERENCE",
+      "COST",
+      "BUDGET"
+    ],
+    "preview_state": "PREVIEW_READY",
+    "submission_state": "AWAITING_BROKER_AUTHORIZATION",
+    "provider_submit_invoked": false,
+    "provider_completion_invoked": false,
+    "asset_upload_invoked": false,
+    "external_generation_invoked": false,
+    "external_spend_microunits": "0"
+  },
+  "screenshots": [
+    {
+      "path": "ui/settings-ai-brain-dark.jpeg",
+      "sha256": "48f8fe66ad394825ccba1db9a38eb2c62bfa5e5e977b643854a7b241761e0489"
+    },
+    {
+      "path": "ui/settings-ai-brain-light.jpeg",
+      "sha256": "90bde2c54e5cfc885772522d0eb511b1dd9fb270215e2970e34fef0ae9772e4d"
+    },
+    {
+      "path": "ui/settings-generation-engines-dark.jpeg",
+      "sha256": "b0818637c432dd76b22014817c5c051f69e792e40fd0591ec87df09c192c814b"
+    },
+    {
+      "path": "ui/settings-generation-engines-light.jpeg",
+      "sha256": "d7859fac030f6ef21f63feca812069e380306cb7f0d2f24e71ce562cdae4fb1f"
+    },
+    {
+      "path": "ui/settings-generation-engines-lower-light.jpeg",
+      "sha256": "181d64310fbba60469332b03e1e8825441ea434e870cdf6e98a017539c2bf6c0"
+    },
+    {
+      "path": "ui/settings-model-routes-dark.jpeg",
+      "sha256": "048878e76f15e6842691ceeafe657cd472958977060eecb75298079d7f761b5e"
+    },
+    {
+      "path": "ui/settings-generation-routes-dark.jpeg",
+      "sha256": "1cc4307c209fc4ea8371f26818f87b8b044292749f98e6bd04586c88ce2baf85"
+    },
+    {
+      "path": "ui/settings-generation-routes-light.jpeg",
+      "sha256": "9e58bb7a9bb29f9953f46bfa242b36b6fb5ebe5058ede435e8f758e0324566d1"
+    },
+    {
+      "path": "ui/composer-image-draft-light.jpeg",
+      "sha256": "7b3ee16964ac15e9818b08f88eace27854637e1710355c9d65a5e610865267d9"
+    },
+    {
+      "path": "ui/composer-image-preview-ready-light.jpeg",
+      "sha256": "fb0fd96fc723751ff732ab8c68035ff6d3ea166d5271991d43ddbd468fc2bc57"
+    },
+    {
+      "path": "ui/composer-awaiting-broker-light.jpeg",
+      "sha256": "637d0feb123493dd8a2fa2acd3a950831091b43d359f744f2000788c59d88319"
+    },
+    {
+      "path": "ui/composer-video-light.jpeg",
+      "sha256": "3d524e72f9c20235985d8c45a2805fc205a2d7cc3f4699d015c506ab36d38820"
+    }
+  ],
+  "finding_and_repair": {
+    "finding": "Optional route fields with undefined values caused strict canonical preview projection to reject the draft.",
+    "repair": "Omit absent optional fields before canonicalization and expose preview failures in the Composer UI.",
+    "regression_test": "web/test/generation-route-preview-contract.test.ts",
+    "candidate_rebuilt_after_repair": true
+  },
+  "cold_start_finding_and_repair": {
+    "finding": "Direct cold-start navigation to Generation Engines returned a fresh empty selector array before Desktop config initialization and triggered React maximum update depth error 185.",
+    "repair": "Use one stable immutable empty connection snapshot until the Desktop user config authority is loaded.",
+    "regression_test": "web/test/generation-engine-settings-presentation.test.ts",
+    "candidate_rebuilt_after_repair": true,
+    "black_box_cold_start_retested": true
+  },
+  "limitations": [
+    "External provider execution remains READY_FOR_USER_AUTHORIZATION.",
+    "This Golden intentionally proves the zero-cost preview and authorization boundary only."
+  ]
+}

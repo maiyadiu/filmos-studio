@@ -1,0 +1,28 @@
+{
+  "schema_version": "1.0.0",
+  "external_cost_microunits": "0",
+  "external_writes_performed": false,
+  "engines": {
+    "runninghub": {
+      "state": "READY_FOR_USER_SELECTION",
+      "single_store": true,
+      "catalog": "remote_catalog",
+      "schema_composer": true,
+      "receipt_candidate_mapping": true,
+      "restart_recovery": true
+    },
+    "comfyui": {
+      "state": "READY_FOR_USER_SELECTION",
+      "single_store": true,
+      "catalog": "runtime_discovery",
+      "schema_composer": true,
+      "receipt_candidate_mapping": true,
+      "restart_recovery": true
+    }
+  },
+  "privacy": {
+    "api_key_persisted": false,
+    "workflow_payload_with_secret_persisted": false,
+    "local_private_path_persisted": false
+  }
+}

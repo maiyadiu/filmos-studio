@@ -23,6 +23,10 @@ if [ ! -x "$ROOT/packages/filmos-agent-tool-contracts/node_modules/.bin/tsx" ]; 
     (cd "$ROOT/packages/filmos-agent-tool-contracts" && npm ci --ignore-scripts)
 fi
 (cd "$ROOT/packages/filmos-agent-tool-contracts" && npm run build)
+if [ ! -x "$ROOT/packages/filmos-generation-contracts/node_modules/.bin/tsc" ]; then
+    (cd "$ROOT/packages/filmos-generation-contracts" && npm ci --ignore-scripts)
+fi
+(cd "$ROOT/packages/filmos-generation-contracts" && npm test)
 # Bun materializes `file:` dependencies as package snapshots. On a clean clone
 # the first install happens before the generated package has a dist/ directory,
 # so refresh the built runtime files in each consumer without relying on a
@@ -37,6 +41,15 @@ for consumer in "$ROOT/web" "$ROOT/canvas-agent"; do
             cp "$artifact" "$target/$filename"
         fi
     done
+done
+generation_target="$ROOT/web/node_modules/@filmos/generation-contracts/dist"
+mkdir -p "$generation_target"
+for artifact in "$ROOT/packages/filmos-generation-contracts/dist/"*.js \
+    "$ROOT/packages/filmos-generation-contracts/dist/"*.d.ts; do
+    filename=$(basename -- "$artifact")
+    if [ ! -f "$generation_target/$filename" ] || ! cmp -s "$artifact" "$generation_target/$filename"; then
+        cp "$artifact" "$generation_target/$filename"
+    fi
 done
 if [ ! -x "$ROOT/packages/filmos-tool-contracts/node_modules/.bin/tsc" ]; then
     (cd "$ROOT/packages/filmos-tool-contracts" && npm ci --ignore-scripts)

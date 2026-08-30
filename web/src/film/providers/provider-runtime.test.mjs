@@ -50,7 +50,7 @@ describe("Film Provider registry", () => {
 
     test("rejects a capability the verified source does not declare", async () => {
         await expect(
-            prepareSubmissionPackage(enabledRegistry(), { ...packageInput(), providerId: "comfy_bridge", capabilityId: "video" }),
+            prepareSubmissionPackage(enabledRegistry(), { ...packageInput(), providerId: "comfyui", capabilityId: "three_d" }),
         ).rejects.toMatchObject({ code: "provider_capability_unsupported" });
     });
 

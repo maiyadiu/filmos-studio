@@ -275,6 +275,30 @@
       },
       "additionalProperties": false
     },
+    "GenerationExecutionEvidenceBinding": {
+      "type": "object",
+      "required": ["generation_attempt_id", "route_snapshot_id", "route_snapshot_content_hash", "route_content_hash", "descriptor_receipt_id", "descriptor_receipt_content_hash", "descriptor_semantic_hash", "catalog_validation_receipt_id", "catalog_validation_receipt_content_hash", "catalog_validation_semantic_hash", "provider_input_authorization_snapshot_id", "provider_input_authorization_content_hash", "authorization_scope_hash", "authorized_submission_id", "authorized_submission_content_hash", "authorized_submission_semantic_hash", "idempotency_key"],
+      "properties": {
+        "generation_attempt_id": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "route_snapshot_id": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "route_snapshot_content_hash": { "$ref": "#/$defs/ContentHash" },
+        "route_content_hash": { "$ref": "#/$defs/ContentHash" },
+        "descriptor_receipt_id": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "descriptor_receipt_content_hash": { "$ref": "#/$defs/ContentHash" },
+        "descriptor_semantic_hash": { "$ref": "#/$defs/ContentHash" },
+        "catalog_validation_receipt_id": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "catalog_validation_receipt_content_hash": { "$ref": "#/$defs/ContentHash" },
+        "catalog_validation_semantic_hash": { "$ref": "#/$defs/ContentHash" },
+        "provider_input_authorization_snapshot_id": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "provider_input_authorization_content_hash": { "$ref": "#/$defs/ContentHash" },
+        "authorization_scope_hash": { "$ref": "#/$defs/ContentHash" },
+        "authorized_submission_id": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "authorized_submission_content_hash": { "$ref": "#/$defs/ContentHash" },
+        "authorized_submission_semantic_hash": { "$ref": "#/$defs/ContentHash" },
+        "idempotency_key": { "$ref": "#/$defs/ContentHash" }
+      },
+      "additionalProperties": false
+    },
     "GenerationPackage": {
       "type": "object",
       "required": ["ref", "prompt_draft_id", "host_project_id", "provider_id", "capability_id", "parameters", "parameter_hash", "prompt_hash", "input_hash", "submission_state"],
@@ -288,7 +312,8 @@
         "parameter_hash": { "$ref": "#/$defs/ContentHash" },
         "prompt_hash": { "$ref": "#/$defs/ContentHash" },
         "input_hash": { "$ref": "#/$defs/ContentHash" },
-        "submission_state": { "const": "NOT_SUBMITTED" }
+        "submission_state": { "const": "NOT_SUBMITTED" },
+        "execution_evidence": { "anyOf": [{ "$ref": "#/$defs/GenerationExecutionEvidenceBinding" }, { "type": "null" }] }
       },
       "additionalProperties": false
     },

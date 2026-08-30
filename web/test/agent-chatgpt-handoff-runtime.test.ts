@@ -49,6 +49,7 @@ async function resume(expectedHandoffId: string, observedHandoffId: string, tool
         selectedProfileId: "chatgpt.subscription.host",
         config: defaultConfig,
         isConfigReady: () => false,
+        resolveBinding: () => undefined,
         ordinaryConfirmationEnabled: true,
         client: { requestTool: async () => { throw new Error("CHATGPT_HANDOFF_GATE_MUST_NOT_CALL_LOCAL_RUNTIME"); } } as never,
     });

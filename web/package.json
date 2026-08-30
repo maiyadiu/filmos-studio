@@ -17,6 +17,7 @@
     },
     "dependencies": {
         "@filmos/agent-tool-contracts": "file:../packages/filmos-agent-tool-contracts",
+        "@filmos/generation-contracts": "file:../packages/filmos-generation-contracts",
         "@ant-design/icons": "^6.3.2",
         "@ant-design/x": "^2.9.0",
         "@codemirror/lang-json": "^6.0.2",

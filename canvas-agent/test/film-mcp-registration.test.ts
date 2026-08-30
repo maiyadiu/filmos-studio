@@ -39,11 +39,33 @@ function captureRegistration() {
   return { server, tools };
 }
 
-test("shared MCP entry keeps default and canvasOnly tool sets unchanged", () => {
+const generationToolNames = [
+  "generation_list_engines",
+  "generation_get_engine_status",
+  "generation_refresh_catalog",
+  "generation_list_models",
+  "generation_list_workflows",
+  "generation_list_skills",
+  "generation_select_effective_route",
+  "generation_resolve_route_binding",
+  "generation_get_status",
+  "generation_reconcile",
+  "generation_get_lineage",
+  "generation_compile_prompt",
+  "generation_preview_submission",
+  "generation_create_external_project",
+  "generation_submit",
+  "generation_cancel",
+  "generation_download_outputs",
+  "generation_import_candidate",
+] as const;
+
+test("shared MCP entry exposes canonical generation tools while canvasOnly stays isolated", () => {
   const ordinary = captureRegistration();
   registerMcpTools(ordinary.server as never, config, { film: { env: {} } });
   assert.deepEqual([...ordinary.tools.keys()], [
     ...canvasToolNames,
+    ...generationToolNames,
     "dreamina_cli",
   ]);
   assert.equal(

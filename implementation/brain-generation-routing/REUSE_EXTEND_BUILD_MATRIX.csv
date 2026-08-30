@@ -1,0 +1,12 @@
+capability,decision,source,reason
+Film Core lifecycle,REUSE,film-core/src/film_production_core,Existing formal authority
+Agent broker/session,REUSE,canvas-agent/src/brains,Existing canonical governance
+Canvas generation nodes,EXTEND,web/src/pages/canvas,Add composer metadata without second executor
+Brain exact binding,BUILD,web/src/film/agent,Current handler guesses channel/model
+Local config repository,EXTEND,desktop/macos/Sources/FilmOSDesktopCore,Application Support authority already exists
+Generation contracts,BUILD,packages/filmos-generation-contracts,Shared deterministic contracts absent
+Dreamina adapter,EXTEND,web/src/services/local-dreamina-generation.ts,Reuse local runtime
+Flova adapter,BUILD_AFTER_F0,canvas-agent/src,F0 source verification required
+RunningHub adapter,EXTEND,web/src/stores/use-config-store.ts,Reuse single config
+ComfyUI adapter,EXTEND,web/src/stores/use-config-store.ts,Reuse single bridge
+Manual provider,REUSE,web/src/film/providers/provider-runtime.ts,Existing safe manual boundary

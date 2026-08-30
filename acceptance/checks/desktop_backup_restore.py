@@ -132,6 +132,8 @@ def restore_backup(package_path: Path, restore_directory: Path, manifest: dict) 
                 destination = restore_directory / "open_ai_canvas.db"
             elif archive_path.startswith("resources/"):
                 destination = restore_directory / archive_path
+            elif archive_path.startswith("user-config/"):
+                destination = restore_directory / archive_path
             else:
                 raise RuntimeError("backup manifest contains an unsupported restore target")
             destination.parent.mkdir(parents=True, exist_ok=True)
@@ -178,6 +180,12 @@ def main() -> None:
                 "connections": [],
             }
             request_json("PUT", first_origin + f"/api/canvas-projects/{GOLDEN_PROJECT_ID}", {"project": project})
+            current_config = request_json("GET", first_origin + "/api/desktop/user-config")["data"]
+            request_json("PUT", first_origin + "/api/desktop/user-config", {
+                "expected_version": current_config["entity_version"],
+                "expected_content_hash": current_config["content_hash"],
+                "payload": {"brain_generation_routing": {"schemaVersion": 1, "acceptanceMarker": "backup-route-config"}},
+            })
             (source_directory / ".settings-key").write_bytes(FORBIDDEN_MARKER)
 
             backup_request = urllib.request.Request(
@@ -206,6 +214,10 @@ def main() -> None:
             restored_project = restored.get("data", {}).get("project") or {}
             if restored_project.get("id") != GOLDEN_PROJECT_ID or restored_project.get("title") != GOLDEN_TITLE:
                 raise RuntimeError("restored FilmOS project does not match Golden source")
+            restored_config = request_json("GET", second_origin + "/api/desktop/user-config").get("data", {})
+            marker = (restored_config.get("payload", {}).get("brain_generation_routing", {}) or {}).get("acceptanceMarker")
+            if marker != "backup-route-config":
+                raise RuntimeError("restored FilmOS local routing config does not match Golden source")
         finally:
             stop_backend(process, log_stream)
 
@@ -216,6 +228,7 @@ def main() -> None:
             "entry_hashes": "VERIFIED",
             "credentials_exported": False,
             "restore_restart": "PASSED",
+            "local_routing_config_restore": "PASSED",
             "golden_case_id": "DESKTOP-BACKUP-RESTORE-001",
             "golden_project_id": GOLDEN_PROJECT_ID,
         }, ensure_ascii=False, sort_keys=True))

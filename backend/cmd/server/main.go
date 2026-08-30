@@ -105,6 +105,7 @@ func main() {
 	handler.RegisterSkillRoutes(api, svc)
 	handler.RegisterUserDataRoutes(api, svc)
 	handler.RegisterDesktopBackupRoutes(api, svc)
+	handler.RegisterDesktopUserConfigRoutes(api, svc)
 	handler.RegisterDiagnosticsRoutes(api, svc)
 	handler.RegisterPluginRoutes(api, svc)
 	projectAPI := api.Group("")

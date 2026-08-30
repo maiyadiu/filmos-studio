@@ -2235,6 +2235,1447 @@ export const canonicalModelApiToolManifest = [
     "tool": {
       "type": "function",
       "function": {
+        "name": "generation_cancel",
+        "description": "请求取消已有 Provider Task；必须由 Broker 确认。",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "authorizedSubmissionId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "connectionId": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "engineId": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            "generationAttemptId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "input": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "modelId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "projectId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "providerTaskId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "routeSnapshotId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "skillId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "taskKind": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            "workflowId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "engineId",
+            "connectionId",
+            "providerTaskId"
+          ],
+          "type": "object"
+        },
+        "strict": true
+      }
+    }
+  },
+  {
+    "risk": "draft",
+    "tool": {
+      "type": "function",
+      "function": {
+        "name": "generation_compile_prompt",
+        "description": "编译版本化 Provider Prompt Receipt；仅写草稿证据。",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "authorizedSubmissionId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "connectionId": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "engineId": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            "generationAttemptId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "input": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "modelId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "projectId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "providerTaskId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "routeSnapshotId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "skillId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "taskKind": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            "workflowId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "projectId",
+            "taskKind",
+            "input"
+          ],
+          "type": "object"
+        },
+        "strict": true
+      }
+    }
+  },
+  {
+    "risk": "write",
+    "tool": {
+      "type": "function",
+      "function": {
+        "name": "generation_create_external_project",
+        "description": "创建外部 Provider 项目；必须由 Broker 确认。",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "authorizedSubmissionId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "connectionId": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "engineId": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            "generationAttemptId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "input": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "modelId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "projectId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "providerTaskId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "routeSnapshotId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "skillId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "taskKind": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            "workflowId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "engineId",
+            "connectionId",
+            "input"
+          ],
+          "type": "object"
+        },
+        "strict": true
+      }
+    }
+  },
+  {
+    "risk": "write",
+    "tool": {
+      "type": "function",
+      "function": {
+        "name": "generation_download_outputs",
+        "description": "下载已有输出并校验 Hash；不自动批准。",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "authorizedSubmissionId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "connectionId": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "engineId": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            "generationAttemptId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "input": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "modelId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "projectId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "providerTaskId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "routeSnapshotId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "skillId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "taskKind": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            "workflowId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "engineId",
+            "connectionId",
+            "providerTaskId"
+          ],
+          "type": "object"
+        },
+        "strict": true
+      }
+    }
+  },
+  {
+    "risk": "read",
+    "tool": {
+      "type": "function",
+      "function": {
+        "name": "generation_get_engine_status",
+        "description": "读取精确 Engine/Connection 状态与账号匿名绑定。",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "authorizedSubmissionId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "connectionId": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "engineId": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            "generationAttemptId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "input": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "modelId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "projectId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "providerTaskId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "routeSnapshotId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "skillId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "taskKind": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            "workflowId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "engineId",
+            "connectionId"
+          ],
+          "type": "object"
+        },
+        "strict": true
+      }
+    }
+  },
+  {
+    "risk": "read",
+    "tool": {
+      "type": "function",
+      "function": {
+        "name": "generation_get_lineage",
+        "description": "读取 Route、Prompt、Receipt、Candidate 与 QC lineage。",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "authorizedSubmissionId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "connectionId": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "engineId": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            "generationAttemptId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "input": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "modelId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "projectId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "providerTaskId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "routeSnapshotId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "skillId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "taskKind": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            "workflowId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "generationAttemptId"
+          ],
+          "type": "object"
+        },
+        "strict": true
+      }
+    }
+  },
+  {
+    "risk": "read",
+    "tool": {
+      "type": "function",
+      "function": {
+        "name": "generation_get_status",
+        "description": "读取已有 Provider Task 状态。",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "authorizedSubmissionId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "connectionId": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "engineId": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            "generationAttemptId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "input": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "modelId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "projectId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "providerTaskId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "routeSnapshotId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "skillId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "taskKind": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            "workflowId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "engineId",
+            "connectionId",
+            "providerTaskId"
+          ],
+          "type": "object"
+        },
+        "strict": true
+      }
+    }
+  },
+  {
+    "risk": "write",
+    "tool": {
+      "type": "function",
+      "function": {
+        "name": "generation_import_candidate",
+        "description": "将校验后的输出导入 Candidate；不得直接 Approved。",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "authorizedSubmissionId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "connectionId": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "engineId": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            "generationAttemptId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "input": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "modelId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "projectId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "providerTaskId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "routeSnapshotId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "skillId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "taskKind": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            "workflowId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "generationAttemptId",
+            "input"
+          ],
+          "type": "object"
+        },
+        "strict": true
+      }
+    }
+  },
+  {
+    "risk": "read",
+    "tool": {
+      "type": "function",
+      "function": {
+        "name": "generation_list_engines",
+        "description": "读取已注册生成引擎；不执行外部操作。",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "authorizedSubmissionId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "connectionId": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "engineId": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            "generationAttemptId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "input": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "modelId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "projectId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "providerTaskId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "routeSnapshotId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "skillId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "taskKind": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            "workflowId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [],
+          "type": "object"
+        },
+        "strict": true
+      }
+    }
+  },
+  {
+    "risk": "read",
+    "tool": {
+      "type": "function",
+      "function": {
+        "name": "generation_list_models",
+        "description": "读取当前连接的模型目录与证据。",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "authorizedSubmissionId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "connectionId": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "engineId": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            "generationAttemptId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "input": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "modelId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "projectId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "providerTaskId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "routeSnapshotId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "skillId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "taskKind": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            "workflowId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "engineId",
+            "connectionId"
+          ],
+          "type": "object"
+        },
+        "strict": true
+      }
+    }
+  },
+  {
+    "risk": "read",
+    "tool": {
+      "type": "function",
+      "function": {
+        "name": "generation_list_skills",
+        "description": "读取当前连接的 Skill 目录与证据。",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "authorizedSubmissionId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "connectionId": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "engineId": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            "generationAttemptId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "input": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "modelId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "projectId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "providerTaskId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "routeSnapshotId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "skillId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "taskKind": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            "workflowId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "engineId",
+            "connectionId"
+          ],
+          "type": "object"
+        },
+        "strict": true
+      }
+    }
+  },
+  {
+    "risk": "read",
+    "tool": {
+      "type": "function",
+      "function": {
+        "name": "generation_list_workflows",
+        "description": "读取当前连接的工作流目录与证据。",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "authorizedSubmissionId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "connectionId": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "engineId": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            "generationAttemptId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "input": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "modelId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "projectId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "providerTaskId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "routeSnapshotId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "skillId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "taskKind": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            "workflowId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "engineId",
+            "connectionId"
+          ],
+          "type": "object"
+        },
+        "strict": true
+      }
+    }
+  },
+  {
+    "risk": "draft",
+    "tool": {
+      "type": "function",
+      "function": {
+        "name": "generation_preview_submission",
+        "description": "创建零费用提交预览、Catalog Validation 和费用说明。",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "authorizedSubmissionId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "connectionId": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "engineId": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            "generationAttemptId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "input": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "modelId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "projectId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "providerTaskId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "routeSnapshotId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "skillId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "taskKind": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            "workflowId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "routeSnapshotId"
+          ],
+          "type": "object"
+        },
+        "strict": true
+      }
+    }
+  },
+  {
+    "risk": "read",
+    "tool": {
+      "type": "function",
+      "function": {
+        "name": "generation_reconcile",
+        "description": "对 Unknown/中断任务只做恢复核对，禁止自动重提。",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "authorizedSubmissionId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "connectionId": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "engineId": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            "generationAttemptId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "input": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "modelId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "projectId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "providerTaskId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "routeSnapshotId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "skillId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "taskKind": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            "workflowId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "engineId",
+            "connectionId",
+            "providerTaskId"
+          ],
+          "type": "object"
+        },
+        "strict": true
+      }
+    }
+  },
+  {
+    "risk": "read",
+    "tool": {
+      "type": "function",
+      "function": {
+        "name": "generation_refresh_catalog",
+        "description": "刷新账号隔离的只读目录；不生成、不上传。",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "authorizedSubmissionId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "connectionId": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "engineId": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            "generationAttemptId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "input": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "modelId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "projectId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "providerTaskId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "routeSnapshotId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "skillId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "taskKind": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            "workflowId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "engineId",
+            "connectionId"
+          ],
+          "type": "object"
+        },
+        "strict": true
+      }
+    }
+  },
+  {
+    "risk": "read",
+    "tool": {
+      "type": "function",
+      "function": {
+        "name": "generation_resolve_route_binding",
+        "description": "精确解析 Route 与 Descriptor Receipt，不允许名称猜测或静默替换。",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "authorizedSubmissionId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "connectionId": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "engineId": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            "generationAttemptId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "input": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "modelId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "projectId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "providerTaskId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "routeSnapshotId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "skillId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "taskKind": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            "workflowId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "projectId",
+            "taskKind",
+            "input"
+          ],
+          "type": "object"
+        },
+        "strict": true
+      }
+    }
+  },
+  {
+    "risk": "read",
+    "tool": {
+      "type": "function",
+      "function": {
+        "name": "generation_select_effective_route",
+        "description": "按 Task/Node/Project/Global 优先级选择技术路线，不执行提交。",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "authorizedSubmissionId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "connectionId": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "engineId": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            "generationAttemptId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "input": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "modelId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "projectId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "providerTaskId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "routeSnapshotId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "skillId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "taskKind": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            "workflowId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "projectId",
+            "taskKind"
+          ],
+          "type": "object"
+        },
+        "strict": true
+      }
+    }
+  },
+  {
+    "risk": "paid",
+    "tool": {
+      "type": "function",
+      "function": {
+        "name": "generation_submit",
+        "description": "按 Authorized Submission 执行一次可能付费的生成提交；必须由 Broker 确认。",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "authorizedSubmissionId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "connectionId": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "engineId": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            "generationAttemptId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "input": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "modelId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "projectId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "providerTaskId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "routeSnapshotId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "skillId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "taskKind": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            "workflowId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "authorizedSubmissionId"
+          ],
+          "type": "object"
+        },
+        "strict": true
+      }
+    }
+  },
+  {
+    "risk": "write",
+    "tool": {
+      "type": "function",
+      "function": {
         "name": "project_confirm_asset_candidate",
         "description": "确认一个资产候选，创建正式资产或关联已有个人资产。",
         "parameters": {

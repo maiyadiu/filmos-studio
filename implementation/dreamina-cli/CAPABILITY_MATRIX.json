@@ -1,0 +1,28 @@
+{
+  "schema_version": "1.0.0",
+  "provider": "dreamina_cli",
+  "state": "PASS_AUTOMATED",
+  "catalog_evidence": "verified_static_version_bound",
+  "runtime_version": "54f1bdf-dirty",
+  "runtime_commit": "54f1bdf",
+  "verified": {
+    "cli_present": true,
+    "real_readonly_account_probe": true,
+    "real_readonly_credit_probe": true,
+    "real_readonly_task_list": true,
+    "version_discovery": true,
+    "request_schema_catalog": true,
+    "idempotency": true,
+    "submission_unknown_fail_closed": true,
+    "restart_recovery": true,
+    "candidate_materialization": true
+  },
+  "external_cost_microunits": "0",
+  "external_writes_performed": false,
+  "privacy": {
+    "account_identifier_persisted": false,
+    "task_identifier_persisted": false,
+    "credential_persisted": false,
+    "local_private_path_persisted": false
+  }
+}

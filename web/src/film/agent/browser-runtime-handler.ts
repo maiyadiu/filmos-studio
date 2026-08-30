@@ -1,6 +1,7 @@
 import { backendModelRuntimeRequired, runBackendToolGenerationTask } from "@/services/api/generation-task";
 import { requestToolResponse, type ResponseInputMessage, type ResponseToolCall } from "@/services/api/image";
-import type { AiConfig } from "@/stores/use-config-store";
+import type { BrainProfileBinding } from "@filmos/generation-contracts";
+import { encodeChannelModel, resolveModelRequestConfig, type AiConfig } from "@/stores/use-config-store";
 
 import { AgentSessionClient } from "./agent-client";
 import type { BrowserRuntimeRequest } from "./browser-runtime-bridge";
@@ -12,6 +13,7 @@ type HandlerDependencies = {
     selectedProfileId: string;
     config: AiConfig;
     isConfigReady(config: AiConfig, model: string): boolean;
+    resolveBinding(profileId: string): BrainProfileBinding | undefined;
     ordinaryConfirmationEnabled: boolean;
     client?: AgentSessionClient;
     sessionProfiles?: BrowserRuntimeSessionProfiles;
@@ -50,6 +52,7 @@ export function createBrowserRuntimeRequestHandler(deps: HandlerDependencies) {
         if (request.profileId !== deps.selectedProfileId) throw new Error("BROWSER_RUNTIME_PROFILE_SCOPE_MISMATCH");
         if (request.channel === "chatgpt_host") return await handleChatGPTHost(request);
         if (request.channel !== "model") throw new Error("BROWSER_RUNTIME_CHANNEL_UNSUPPORTED");
+        if (!deps.resolveBinding(request.profileId)) throw new Error("BROWSER_RUNTIME_EXACT_BINDING_REQUIRED");
         if (request.operation === "create_session" || request.operation === "resume_session") {
             if (!request.sessionId) throw new Error("BROWSER_RUNTIME_SESSION_REQUIRED");
             sessionProfiles.bind(request.sessionId, request.profileId);
@@ -68,27 +71,20 @@ export function createBrowserRuntimeRequestHandler(deps: HandlerDependencies) {
 }
 
 function probeModelProfile(profileId: string, deps: HandlerDependencies) {
-    const model = deps.config.textModel || deps.config.model;
-    if (profileId === deps.selectedProfileId) {
-        return deps.isConfigReady({ ...deps.config, model }, model)
-            ? { status: "ready" as const, version: `browser:${profileId}` }
-            : { status: profileId === "local.model" ? "unavailable" as const : "needs_auth" as const, statusReason: `Profile ${profileId} 尚未配置` };
+    const binding = deps.resolveBinding(profileId);
+    if (!binding?.channelId || !binding.modelId) return { status: "unavailable" as const, statusReason: `Profile ${profileId} 尚未配置精确 Binding` };
+    const channel = deps.config.channels.find((item) => item.id === binding.channelId && item.enabled !== false);
+    if (!channel || (!channel.models.includes(binding.modelId) && !channel.localModels?.some((item) => item.id === binding.modelId))) {
+        return { status: "unavailable" as const, statusReason: `Profile ${profileId} 的精确 Channel / Model 不可用` };
     }
-    const channels = deps.config.channels.filter((channel) => channel.enabled !== false && channelMatchesProfile(channel, profileId));
-    if (!channels.length) return { status: "unavailable" as const, statusReason: `Profile ${profileId} 尚未配置` };
-    if (profileId !== "local.model" && !channels.some((channel) => Boolean(channel.apiKey.trim() || channel.hasApiKey))) {
+    const modelValue = channel.transport === "local-runtime" ? `local:dreamina-cli:${binding.modelId}` : encodeChannelModel(channel.id, binding.modelId);
+    const exactConfig = exactBoundModelConfig(deps.config, binding);
+    if (profileId !== "local.model" && !Boolean(channel.apiKey.trim() || channel.hasApiKey)) {
         return { status: "needs_auth" as const, statusReason: `Profile ${profileId} 需要独立 API 凭据` };
     }
-    return { status: "ready" as const, version: `browser:${profileId}` };
-}
-
-function channelMatchesProfile(channel: AiConfig["channels"][number], profileId: string) {
-    const searchable = [channel.id, channel.name, channel.baseUrl, ...channel.models].join(" ").toLowerCase();
-    if (profileId === "local.model") return channel.transport === "local-runtime";
-    if (channel.transport === "local-runtime") return false;
-    if (profileId === "anthropic.api") return channel.apiFormat === "claude" || channel.interfaceType === "claude-api" || searchable.includes("anthropic") || searchable.includes("claude");
-    if (profileId === "deepseek.api") return searchable.includes("deepseek");
-    return channel.apiFormat === "openai" && !searchable.includes("deepseek");
+    return deps.isConfigReady(exactConfig, modelValue)
+        ? { status: "ready" as const, version: `browser:${profileId}:${binding.entityVersion}` }
+        : { status: profileId === "local.model" ? "unavailable" as const : "needs_auth" as const, statusReason: `Profile ${profileId} 的精确 Binding 尚未就绪` };
 }
 
 async function runModelTurn(request: BrowserRuntimeRequest, deps: HandlerDependencies, client: AgentSessionClient) {
@@ -103,7 +99,9 @@ async function runModelTurn(request: BrowserRuntimeRequest, deps: HandlerDepende
     const events: unknown[] = [{ type: "turn.started", sessionId, turnId, at: new Date().toISOString() }];
     let text = "";
     for (let step = 0; step < 4; step += 1) {
-        const result = await requestModel(deps.config, messages, prompt);
+        const binding = deps.resolveBinding(request.profileId);
+        if (!binding) throw new Error("BROWSER_RUNTIME_EXACT_BINDING_REQUIRED");
+        const result = await requestModel(exactBoundModelConfig(deps.config, binding), messages, prompt);
         text = result.content || text;
         if (!result.toolCalls.length) break;
         const outputs = [];
@@ -130,11 +128,20 @@ async function runModelTurn(request: BrowserRuntimeRequest, deps: HandlerDepende
 }
 
 async function requestModel(config: AiConfig, messages: ResponseInputMessage[], prompt: string) {
-    const requestConfig = { ...config, model: config.textModel || config.model };
-    if (backendModelRuntimeRequired(requestConfig)) {
-        return await runBackendToolGenerationTask({ prompt, config: requestConfig, messages, tools: [...GENERIC_MODEL_API_AGENT_TOOLS], toolChoice: "auto" });
+    if (backendModelRuntimeRequired(config)) {
+        return await runBackendToolGenerationTask({ prompt, config, messages, tools: [...GENERIC_MODEL_API_AGENT_TOOLS], toolChoice: "auto" });
     }
-    return await requestToolResponse(requestConfig, messages, [...GENERIC_MODEL_API_AGENT_TOOLS], "auto");
+    return await requestToolResponse(config, messages, [...GENERIC_MODEL_API_AGENT_TOOLS], "auto");
+}
+
+export function exactBoundModelConfig(config: AiConfig, binding: BrainProfileBinding): AiConfig {
+    if (!binding.enabled || !binding.channelId || !binding.modelId) throw new Error("BROWSER_RUNTIME_EXACT_BINDING_REQUIRED");
+    const channel = config.channels.find((item) => item.id === binding.channelId && item.enabled !== false);
+    if (!channel) throw new Error("BROWSER_RUNTIME_BOUND_CHANNEL_UNAVAILABLE");
+    if (!channel.models.includes(binding.modelId) && !channel.localModels?.some((item) => item.id === binding.modelId)) throw new Error("BROWSER_RUNTIME_BOUND_MODEL_UNAVAILABLE");
+    const modelValue = channel.transport === "local-runtime" ? `local:dreamina-cli:${binding.modelId}` : encodeChannelModel(channel.id, binding.modelId);
+    const projected = resolveModelRequestConfig({ ...config, channels: [channel] }, modelValue);
+    return { ...projected, channels: [channel], models: [modelValue], textModels: [modelValue], model: binding.modelId, textModel: binding.modelId };
 }
 
 async function handleChatGPTHost(request: BrowserRuntimeRequest) {
