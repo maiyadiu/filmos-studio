@@ -1,0 +1,121 @@
+[0/1] Planning build
+Building for debugging...
+[0/4] Write swift-version--1AB21518FC5DEDBE.txt
+Build complete! (0.11s)
+◇ Test run started.
+↳ Testing Library Version: 1902
+↳ Target Platform: arm64e-apple-macos14.0
+◇ Suite LocalDataLayoutTests started.
+◇ Suite WorkspaceManagerTests started.
+◇ Suite InternalWorkbenchConfigurationTests started.
+◇ Suite SecureTokenStoreTests started.
+◇ Suite ServiceSupervisorTests started.
+◇ Suite ChatGPTBridgeTests started.
+◇ Suite ProposalHandoffTests started.
+◇ Suite ChatGPTConnectionManagerTests started.
+◇ Test decodesSelfContainedLoopbackRuntime() started.
+◇ Test rejectsAbsoluteManifestPath() started.
+◇ Test rejectsManifestSymlinkThatEscapesWorkspace() started.
+◇ Test rejectsLayoutSymlinkForOpenAndWorkspaceFileLookup() started.
+◇ Suite DesktopWindowLifecycleTests started.
+◇ Test copiedWorkspaceReopensWithProjectData() started.
+◇ Test rejectsNonLoopbackWorkbenchURL() started.
+◇ Test rejectsNonFilmProjectPackage() started.
+◇ Test rejectsPartiallyEnabledAgentRuntimeProfile() started.
+◇ Test applicationSupportLayoutSeparatesHostStateFromPortableWorkspace() started.
+◇ Test disabledBridgeNeverContactsTransport() started.
+◇ Test controllerLoadsTokenFromSecureStoreAndTransitionsState() started.
+◇ Test rejectsFilesystemRoot() started.
+◇ Test missingTokenDegradesWithoutEmbeddingSecretsInState() started.
+◇ Test createAndReopenPortableWorkspace() started.
+◇ Test healthPayloadRequiresFeatureIdentityAndNoPublicListener() started.
+◇ Test rejectsDirectoryTraversalName() started.
+◇ Test cliPreviewUsesFixedPreviewCommandKeychainSecretAndControlledReceipt() started.
+◇ Test rejectsAnyResponseThatClaimsFormalWrite() started.
+◇ Test runtimeEnvironmentRejectsUnsupportedSecretsAndSensitivePlainValues() started.
+◇ Test cliRejectionIsReturnedWithoutAnyApplyFallback() started.
+◇ Test endpointAllowsOnlyExplicitLoopbackHTTPRoot() started.
+◇ Test invalidConfigurationExpiredGrantAndWriteToolsFailClosed() started.
+◇ Test rejectsSensitiveEnvironmentInPersistableDefinition() started.
+◇ Test environmentRuntimeIsFailClosedByDefault() started.
+◇ Test rejectsWorkingDirectorySymlinkThatEscapesAllowedRoot() started.
+◇ Test keychainRoundTripUpdateAndDelete() started.
+◇ Test firstConnectionStoresOnlyRuntimeKeyInSecureStoreAndReachesWaitingState() started.
+◇ Test failedLaunchProducesExplicitState() started.
+◇ Test foundationLauncherWaitsForOwnedProcessAndEscalatesBoundedly() started.
+◇ Test projectSwitchKeepsGlobalTunnelConfigButRotatesTheActiveHostSession() started.
+◇ Test rejectsExecutableSymlinkThatEscapesAllowedRoot() started.
+◇ Test legacyCombinedPreferenceMigratesOnceIntoConnectionAndProjectSession() started.
+◇ Test fileOpenCoordinatorEnforcesCoreOneMiBLimitAndExtension() started.
+◇ Test foundationExecutorAllowsOnlyCanonicalNonSymlinkProcessPaths() started.
+◇ Test rejectsExecutableOutsidePolicyBeforeLaunch() started.
+◇ Test runtimeTunnelCredentialIsInjectedWithoutPersistingOrEnteringArguments() started.
+◇ Test firstProvenExternalReadChangesOnlyChatGPTReachabilityState() started.
+◇ Test controlledServiceLifecycleUsesInjectedLauncher() started.
+◇ Test tunnelDoctorFailureBlocksLaunchAndRedactsUnderlyingError() started.
+◇ Test monitorReconnectsWithBoundedBackoffAndDisconnectStopsOwnedTunnel() started.
+◇ Test liveGatePreparationRotatesChallengeRestartsTunnelAndNeverCopiesRuntimeKey() started.
+◇ Test hostContextAndHandoffUseCurrentTunnelChallengeWithoutExposingItToWebPayload() started.
+◇ Test stoppedFilmCoreAndMCPArePreparedBeforeTunnelStarts() started.
+◇ Test expiringGrantRenewsOnlyTheCurrentProjectAndRestartsMCPBeforeTunnel() started.
+◇ Test diagnosticAndRuntimeDescriptionsRedactCredentials() started.
+◇ Test reusableWindowIsNotReleasedWhenClosed() started.
+✔ Test rejectsNonLoopbackWorkbenchURL() passed after 0.007 seconds.
+✔ Test decodesSelfContainedLoopbackRuntime() passed after 0.008 seconds.
+✔ Test rejectsPartiallyEnabledAgentRuntimeProfile() passed after 0.008 seconds.
+✔ Test rejectsFilesystemRoot() passed after 0.008 seconds.
+✔ Test missingTokenDegradesWithoutEmbeddingSecretsInState() passed after 0.008 seconds.
+✔ Test rejectsDirectoryTraversalName() passed after 0.008 seconds.
+✔ Test rejectsNonFilmProjectPackage() passed after 0.008 seconds.
+✔ Test disabledBridgeNeverContactsTransport() passed after 0.008 seconds.
+✔ Test controllerLoadsTokenFromSecureStoreAndTransitionsState() passed after 0.008 seconds.
+✔ Test applicationSupportLayoutSeparatesHostStateFromPortableWorkspace() passed after 0.008 seconds.
+✔ Test endpointAllowsOnlyExplicitLoopbackHTTPRoot() passed after 0.008 seconds.
+✔ Test environmentRuntimeIsFailClosedByDefault() passed after 0.008 seconds.
+✔ Test healthPayloadRequiresFeatureIdentityAndNoPublicListener() passed after 0.008 seconds.
+✔ Test rejectsAnyResponseThatClaimsFormalWrite() passed after 0.008 seconds.
+✔ Test cliRejectionIsReturnedWithoutAnyApplyFallback() passed after 0.008 seconds.
+✔ Test fileOpenCoordinatorEnforcesCoreOneMiBLimitAndExtension() passed after 0.009 seconds.
+✔ Test firstConnectionStoresOnlyRuntimeKeyInSecureStoreAndReachesWaitingState() passed after 0.009 seconds.
+✔ Test projectSwitchKeepsGlobalTunnelConfigButRotatesTheActiveHostSession() passed after 0.009 seconds.
+✔ Suite InternalWorkbenchConfigurationTests passed after 0.009 seconds.
+✔ Test firstProvenExternalReadChangesOnlyChatGPTReachabilityState() passed after 0.008 seconds.
+✔ Test hostContextAndHandoffUseCurrentTunnelChallengeWithoutExposingItToWebPayload() passed after 0.009 seconds.
+✔ Test cliPreviewUsesFixedPreviewCommandKeychainSecretAndControlledReceipt() passed after 0.009 seconds.
+✔ Test liveGatePreparationRotatesChallengeRestartsTunnelAndNeverCopiesRuntimeKey() passed after 0.008 seconds.
+✔ Test stoppedFilmCoreAndMCPArePreparedBeforeTunnelStarts() passed after 0.008 seconds.
+✔ Suite LocalDataLayoutTests passed after 0.009 seconds.
+✔ Suite ChatGPTBridgeTests passed after 0.009 seconds.
+✔ Test diagnosticAndRuntimeDescriptionsRedactCredentials() passed after 0.008 seconds.
+✔ Test rejectsAbsoluteManifestPath() passed after 0.012 seconds.
+✔ Test rejectsLayoutSymlinkForOpenAndWorkspaceFileLookup() passed after 0.013 seconds.
+✔ Test rejectsManifestSymlinkThatEscapesWorkspace() passed after 0.013 seconds.
+✔ Test createAndReopenPortableWorkspace() passed after 0.014 seconds.
+✔ Test foundationExecutorAllowsOnlyCanonicalNonSymlinkProcessPaths() passed after 0.015 seconds.
+✔ Suite ProposalHandoffTests passed after 0.015 seconds.
+✔ Test copiedWorkspaceReopensWithProjectData() passed after 0.023 seconds.
+✔ Suite WorkspaceManagerTests passed after 0.024 seconds.
+✔ Test tunnelDoctorFailureBlocksLaunchAndRedactsUnderlyingError() passed after 0.036 seconds.
+✔ Test rejectsSensitiveEnvironmentInPersistableDefinition() passed after 0.036 seconds.
+✔ Test runtimeEnvironmentRejectsUnsupportedSecretsAndSensitivePlainValues() passed after 0.036 seconds.
+✔ Test rejectsWorkingDirectorySymlinkThatEscapesAllowedRoot() passed after 0.036 seconds.
+✔ Test keychainRoundTripUpdateAndDelete() passed after 0.046 seconds.
+◇ Test rejectsInvalidKeysAndUnsafeTokenSizesBeforeKeychainAccess() started.
+✔ Test rejectsInvalidKeysAndUnsafeTokenSizesBeforeKeychainAccess() passed after 0.001 seconds.
+✔ Suite SecureTokenStoreTests passed after 0.046 seconds.
+✔ Test rejectsExecutableSymlinkThatEscapesAllowedRoot() passed after 0.144 seconds.
+✔ Test failedLaunchProducesExplicitState() passed after 0.144 seconds.
+✔ Test foundationLauncherWaitsForOwnedProcessAndEscalatesBoundedly() passed after 0.144 seconds.
+✔ Test runtimeTunnelCredentialIsInjectedWithoutPersistingOrEnteringArguments() passed after 0.144 seconds.
+✔ Test controlledServiceLifecycleUsesInjectedLauncher() passed after 0.144 seconds.
+✔ Test rejectsExecutableOutsidePolicyBeforeLaunch() passed after 0.144 seconds.
+✔ Test legacyCombinedPreferenceMigratesOnceIntoConnectionAndProjectSession() passed after 0.144 seconds.
+✔ Suite ServiceSupervisorTests passed after 0.145 seconds.
+✔ Test invalidConfigurationExpiredGrantAndWriteToolsFailClosed() passed after 0.145 seconds.
+✔ Test monitorReconnectsWithBoundedBackoffAndDisconnectStopsOwnedTunnel() passed after 0.145 seconds.
+✔ Test expiringGrantRenewsOnlyTheCurrentProjectAndRestartsMCPBeforeTunnel() passed after 0.144 seconds.
+✔ Suite ChatGPTConnectionManagerTests passed after 0.145 seconds.
+✔ Test reusableWindowIsNotReleasedWhenClosed() passed after 0.139 seconds.
+✔ Suite DesktopWindowLifecycleTests passed after 0.145 seconds.
+✔ Test run with 47 tests in 9 suites passed after 0.146 seconds.
+{"bounded_reconnect": [1, 2, 5, 10, 30], "bundled_helpers": ["FilmOSFilmCore", "FilmOSChatGPTMCP", "FilmOSChatGPTGrant", "tunnel-client", "cloudflared"], "clean_clone_contract_build": true, "dock_reopen_lifecycle": true, "keychain_only_runtime_key": true, "owned_process_shutdown": true, "stable_local_install": true, "status": "PASSED", "swift_connection_manager_tests": true, "tool_count_source": "MCP_HEALTH_MANIFEST_RUNTIME", "write_tools_gate": "DYNAMIC_ZERO_REQUIRED"}

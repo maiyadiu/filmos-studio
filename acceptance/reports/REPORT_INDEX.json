@@ -1,5 +1,5 @@
 {
-  "evidence_status": "DEVELOPMENT_EVIDENCE_DIRTY",
+  "evidence_status": "CLEAN_LOCAL_EVIDENCE_NOT_FROZEN",
   "raw_sources": [
     {
       "bytes": 27640,
@@ -92,11 +92,11 @@
       "sha256": "ecaa6419e92c8245b06d00364c707aa88c9d29b973f8bbc9a0aa7726a2648073"
     }
   ],
-  "receipt": ".local/acceptance-artifacts/runs/20260830T164746Z-b12b1ba108a9-rc-local/receipt.json",
-  "receipt_sha256": "0de021df68ebb75e42c702771480aeddd49566bc6f454bdd4356d295a2a50b43",
+  "receipt": "acceptance/evidence/runs/20260830T165124Z-a45effee4fe2-rc-local/receipt.json",
+  "receipt_sha256": "5981dc29ba5859699790a97890d1de40fdeb58572b44b239a0b5585789f15cb1",
   "reports": [
     {
-      "bytes": 5122,
+      "bytes": 5120,
       "check_ids": [
         "desktop-release-build",
         "desktop-chatgpt-connection",
@@ -114,29 +114,29 @@
         "remote-acceptance-contract"
       ],
       "path": "acceptance/reports/KNOWN_LIMITATIONS.md",
-      "sha256": "a3a9661bbe3a068a98535d29a6a09cc7caa6ebb23f8afc81ec082a975bbffefb"
+      "sha256": "dd18f0dafac607691c8a727f280377b67252b5e76cf066863037393bf6f6ced9"
     },
     {
-      "bytes": 1633,
+      "bytes": 1630,
       "check_ids": [
         "rc-recovery",
         "upstream-compatibility",
         "desktop-backup-restore"
       ],
       "path": "acceptance/reports/MIGRATION_REPORT.md",
-      "sha256": "89cc81d4cf357228b08d8edf6f8e0cf50bf2f7a09c0ff1e7ca79256d7b384aa4"
+      "sha256": "a2dd2e393ea886024bbf4b347fc78ec69ea2bad275bf8da90544705719ebb2c0"
     },
     {
-      "bytes": 1389,
+      "bytes": 1386,
       "check_ids": [
         "upstream-compatibility",
         "rc-recovery"
       ],
       "path": "acceptance/reports/UPSTREAM_COMPATIBILITY_REPORT.md",
-      "sha256": "3f270d2d96dcbe0dd1cc080d1e0a52926ff350637eb765d55929de9ae4e4102d"
+      "sha256": "a357ff5f7783607e6dfe5fc7b69b8955648b0de02f89f4286610fe1443caf1b4"
     },
     {
-      "bytes": 4744,
+      "bytes": 4741,
       "check_ids": [
         "desktop-local-auth",
         "desktop-backup-restore",
@@ -157,19 +157,19 @@
         "acceptance-privacy"
       ],
       "path": "acceptance/reports/SECURITY_REPORT.md",
-      "sha256": "979bd7a62fca2cc55c59dc05509ff21836707b59d98ad60598926bbd0b644578"
+      "sha256": "2fbc005db6a81720bbd825a02c98ef1fe6ddcc21b87c026c880b584d45871f58"
     },
     {
-      "bytes": 1527,
+      "bytes": 1523,
       "check_ids": [
         "web-production-build",
         "performance-local"
       ],
       "path": "acceptance/reports/PERFORMANCE_REPORT.md",
-      "sha256": "7de50075ce2a188bcaa96d561eea96a5ffe915309f2064bc7441b3729ecaf265"
+      "sha256": "5e38f1a8a1724e1600db40528d16d4fd4fd97b05e7d1a7ea1797038b33f32db3"
     },
     {
-      "bytes": 4250,
+      "bytes": 4247,
       "check_ids": [
         "desktop-backup-restore",
         "golden-abc-real-http",
@@ -188,10 +188,10 @@
         "no-openai-model-api-billing"
       ],
       "path": "acceptance/reports/GOLDEN_TEST_REPORT.md",
-      "sha256": "60fee6f205b4859e2c34d3eb937a368079efee9f26d9cf08d7ed14197b9f0a44"
+      "sha256": "52d8f86cad9bbb95c3764a9ea6f0158881e0b26cac2afa23308bb511f661977e"
     }
   ],
   "schema_version": "1.0.0",
-  "source_snapshot_sha256": "d0888cb19b878a71e66299c50abb50c94303be14c4fa42720d754bf832338050",
-  "started_from_commit": "b12b1ba108a926470614b2e6a231d333d1a1d00f"
+  "source_snapshot_sha256": "4c45dfa7bf9e23947df9dd5136b0dcc038ec43bdea07e83e4720dc4c1f26b30b",
+  "started_from_commit": "a45effee4fe282db80f444cb18500533e270178f"
 }

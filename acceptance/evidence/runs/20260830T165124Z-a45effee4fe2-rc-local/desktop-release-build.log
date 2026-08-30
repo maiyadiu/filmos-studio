@@ -1,0 +1,5 @@
+{"apple_c_stdlib_probe": "PASSED", "apple_c_toolchain": "Apple clang version 21.0.0 (clang-2100.1.1.101)", "github_pin": null, "installed": "6.3.3", "kind": "FILMOS_DESKTOP_SWIFT_TOOLCHAIN", "macos_sdk": "XcodeDefault/macosx", "package_tools_version": "6.0", "swift_6_contract_sources": ["desktop/macos/Package.swift", "desktop/macos/Tests/FilmOSDesktopCoreTests"]}
+[0/1] Planning build
+Building for production...
+[0/2] Write swift-version--1AB21518FC5DEDBE.txt
+Build complete! (0.12s)
