@@ -92,8 +92,8 @@ def main() -> None:
             raise RuntimeError(f"Desktop Dreamina runtime binding is missing: {marker}")
     if "publicHealth: () => ({ dreamina_module_loaded: true })" not in dreamina_module_source:
         raise RuntimeError("Dreamina module health must prove that the module was loaded")
-    if "modules: createDefaultLocalRuntimeModules(config)" not in desktop_runtime_source:
-        raise RuntimeError("packaged Desktop Runtime must load the default Dreamina module composition")
+    if "createDreaminaHttpModule(" not in desktop_runtime_source or "createPortraitClearanceHttpModule" in desktop_runtime_source:
+        raise RuntimeError("packaged Desktop Runtime must load Dreamina without unrelated optional modules")
     if "当前系统用户" not in local_cli_settings_source or "当前 Windows 用户" in local_cli_settings_source:
         raise RuntimeError("Dreamina settings copy must be platform-neutral")
     for marker in ("agent_profile_not_ready", "chatgpt_host_not_ready"):
