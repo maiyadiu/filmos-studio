@@ -158,6 +158,7 @@ description: 影策已实现功能的手工验证清单与未确认边界
 - [x] ChatGPT Host 状态改为校验当前项目、Tunnel、Project Grant、只读 MCP 合同和状态时效，不再用 Local Runtime 在线状态冒充“ChatGPT 已连接”。
 - [x] 未就绪的 ChatGPT Host 会阻止 Agent 提交并给出“连接设置”入口；已保存连接会在首个 Film Project 激活后自动恢复。
 - [x] macOS App 会从受控位置发现官方即梦 CLI；正式打包入口精确装载 Canvas Agent 与 Dreamina 模块，并要求健康检查明确返回 `dreamina_module_loaded`。
+- [x] App 原位更新会终止旧主进程及安装目录内的孤儿 Helper，避免旧 Runtime 继续占用端口导致新包看似未生效。
 - [x] Web 正式构建、Agent/Dreamina 专项测试与 Desktop 48 项 Swift 验收测试通过。
 - [ ] 用户从程序坞打开重新安装的 App，确认“生成引擎”显示即梦模块已加载并能读取当前账号登录状态。
 - [ ] 在已授权 Film Project 中重新打开 ChatGPT 连接，确认 Agent 先显示“Host 已就绪，等待 ChatGPT 接管”，外部 ChatGPT 完成真实读取后才显示“ChatGPT 已连接”。

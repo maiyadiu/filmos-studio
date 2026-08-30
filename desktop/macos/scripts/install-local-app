@@ -34,17 +34,19 @@ cleanup() {
 }
 trap cleanup EXIT HUP INT TERM
 
+installed_app_pids() {
+    ps -axo pid=,comm= | awk -v app_root="$destination" '
+        {
+            pid = $1
+            $1 = ""
+            sub(/^[[:space:]]+/, "", $0)
+            if ($0 ~ /\/FilmOSStudioDesktop$/ || index($0, app_root "/Contents/") == 1) print pid
+        }
+    '
+}
+
 if [ "$relaunch" != true ]; then
-    existing_pids=$(
-        ps -axo pid=,comm= | awk '
-            {
-                pid = $1
-                $1 = ""
-                sub(/^[[:space:]]+/, "", $0)
-                if ($0 ~ /\/FilmOSStudioDesktop$/) print pid
-            }
-        '
-    )
+    existing_pids=$(installed_app_pids)
     if [ -n "$existing_pids" ]; then
         echo "FilmOS Studio is running; rerun with --relaunch to replace every local copy with the stable installation" >&2
         exit 2
@@ -59,16 +61,7 @@ else
 fi
 "$script_dir/verify-unsigned-app" "$candidate"
 
-running_pids=$(
-    ps -axo pid=,comm= | awk '
-        {
-            pid = $1
-            $1 = ""
-            sub(/^[[:space:]]+/, "", $0)
-            if ($0 ~ /\/FilmOSStudioDesktop$/) print pid
-        }
-    '
-)
+running_pids=$(installed_app_pids)
 if [ -n "$running_pids" ]; then
     for pid in $running_pids; do
         kill -TERM "$pid"

@@ -106,6 +106,7 @@ def main() -> None:
         "FilmOSStudioDesktop$/",
         "FILMOS_TUNNEL_CLIENT_RUNTIME_CACHE",
         "verify-installed-app-sync",
+        'index($0, app_root "/Contents/") == 1',
     ):
         if marker not in install_script:
             raise RuntimeError(f"stable local app installer is missing: {marker}")
