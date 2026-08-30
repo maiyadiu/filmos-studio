@@ -4,18 +4,33 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
-import sys
 from pathlib import Path
 from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[2]
 BETA = ROOT / "tests" / "film-beta"
-if str(BETA) not in sys.path:
-    sys.path.insert(0, str(BETA))
 
-from performance_local import run as run_core  # noqa: E402
+
+def run_core() -> dict[str, Any]:
+    core_python = os.environ.get("FILMOS_CORE_PYTHON", "").strip()
+    if not core_python:
+        raise RuntimeError("FILMOS_CORE_PYTHON is not acceptance-ready")
+    result = subprocess.run(
+        (core_python, str(BETA / "performance_local.py")),
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"Film Core performance failed with exit {result.returncode}: "
+            f"{result.stderr.strip() or result.stdout.strip()}"
+        )
+    return json.loads(result.stdout)
 
 
 def run_surface() -> dict[str, Any]:
