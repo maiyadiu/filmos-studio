@@ -67,7 +67,9 @@ test -f "$icon"
 test -f "$runtime"
 test -f "$source_identity"
 test -f "$web_root/index.html"
-/usr/bin/plutil -lint "$source_identity" >/dev/null
+# SourceIdentity is JSON. `plutil -lint` on macOS rejects JSON even though
+# `plutil -extract` can parse it, so the field extractions below are the parser
+# and schema validation for this file.
 test "$(/usr/bin/plutil -extract schema_version raw -o - "$source_identity")" = "1.0.0"
 embedded_source_fingerprint=$(/usr/bin/plutil -extract source_fingerprint_sha256 raw -o - "$source_identity")
 printf '%s\n' "$embedded_source_fingerprint" | grep -Eq '^[0-9a-f]{64}$'
