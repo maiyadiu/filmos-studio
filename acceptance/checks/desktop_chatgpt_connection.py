@@ -39,6 +39,9 @@ def main() -> None:
     connection_window_source = (PACKAGE / "Sources/FilmOSStudioDesktop/ChatGPTConnectionWindow.swift").read_text(encoding="utf-8")
     lifecycle_source = (PACKAGE / "Sources/FilmOSDesktopCore/DesktopWindowLifecycle.swift").read_text(encoding="utf-8")
     install_script = (PACKAGE / "scripts/install-local-app").read_text(encoding="utf-8")
+    fingerprint_path = PACKAGE / "scripts/source-fingerprint"
+    sync_verifier = (PACKAGE / "scripts/verify-installed-app-sync").read_text(encoding="utf-8")
+    bundle_verifier = (PACKAGE / "scripts/verify-unsigned-app").read_text(encoding="utf-8")
     for helper in ("FilmOSFilmCore", "FilmOSChatGPTMCP", "FilmOSChatGPTGrant", "tunnel-client", "cloudflared"):
         if helper not in build_script:
             raise RuntimeError(f"desktop bundle is missing ChatGPT helper contract: {helper}")
@@ -70,9 +73,32 @@ def main() -> None:
         raise RuntimeError("the main workbench window is missing its reopen lifecycle contract")
     if "DesktopWindowLifecycle.configureReusable(window)" not in connection_window_source:
         raise RuntimeError("the ChatGPT connection window is missing its reopen lifecycle contract")
-    for marker in ("AppBackups", "--relaunch", "LOCAL_APP_INSTALLED", "FilmOSStudioDesktop$/", "FILMOS_TUNNEL_CLIENT_RUNTIME_CACHE"):
+    for marker in (
+        "AppBackups",
+        "--relaunch",
+        "LOCAL_APP_INSTALLED",
+        "FilmOSStudioDesktop$/",
+        "FILMOS_TUNNEL_CLIENT_RUNTIME_CACHE",
+        "verify-installed-app-sync",
+    ):
         if marker not in install_script:
             raise RuntimeError(f"stable local app installer is missing: {marker}")
+    for marker in ("source-fingerprint", "SourceIdentity.json", "source_identity_before", "source_identity_after"):
+        if marker not in build_script:
+            raise RuntimeError(f"desktop bundle source identity is missing: {marker}")
+    for marker in ("SourceIdentity.json", "LOCAL_APP_SYNC_VERIFIED", "source-fingerprint"):
+        if marker not in sync_verifier:
+            raise RuntimeError(f"installed app synchronization verifier is missing: {marker}")
+    for marker in ("source_fingerprint_sha256", "git_commit_sha", "git_tree_sha", "HEAD^{tree}"):
+        if marker not in bundle_verifier:
+            raise RuntimeError(f"desktop bundle identity verification is missing: {marker}")
+
+    fingerprint = json.loads(subprocess.check_output((str(fingerprint_path), "--json"), cwd=ROOT, text=True))
+    digest = fingerprint.get("source_fingerprint_sha256", "")
+    if len(digest) != 64 or any(character not in "0123456789abcdef" for character in digest):
+        raise RuntimeError("desktop source fingerprint is not canonical SHA-256")
+    if fingerprint.get("schema_version") != "1.0.0" or fingerprint.get("source_file_count", 0) < 1:
+        raise RuntimeError("desktop source fingerprint contract is incomplete")
 
     environment = os.environ.copy()
     runtime_library = "/Library/Developer/CommandLineTools/Library/Developer/usr/lib"
@@ -92,6 +118,8 @@ def main() -> None:
         "clean_clone_contract_build": True,
         "dock_reopen_lifecycle": True,
         "stable_local_install": True,
+        "desktop_source_sync_contract": True,
+        "source_fingerprint_sha256": digest,
         "tool_count_source": "MCP_HEALTH_MANIFEST_RUNTIME",
         "write_tools_gate": "DYNAMIC_ZERO_REQUIRED",
         "bundled_helpers": ["FilmOSFilmCore", "FilmOSChatGPTMCP", "FilmOSChatGPTGrant", "tunnel-client", "cloudflared"],

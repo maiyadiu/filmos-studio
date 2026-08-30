@@ -10,6 +10,7 @@ backend_port=${FILMOS_DESKTOP_BACKEND_PORT:-43101}
 application_support_directory_name=${FILMOS_DESKTOP_APPLICATION_SUPPORT_DIRECTORY_NAME:-FilmOS Studio}
 agent_runtime_profile=${FILMOS_DESKTOP_RUNTIME_PROFILE:-integration}
 icon_source="$package_dir/App/FilmOS图标.png"
+source_fingerprint_script="$script_dir/source-fingerprint"
 bun_executable=$(command -v bun || true)
 go_executable=$(command -v go || true)
 acceptance_python="$workspace_root/.local/acceptance-venv/bin/python"
@@ -69,6 +70,12 @@ if [ ! -f "$icon_source" ]; then
     echo "app icon master is missing: $icon_source" >&2
     exit 1
 fi
+if [ ! -x "$source_fingerprint_script" ]; then
+    echo "desktop source fingerprint tool is missing: $source_fingerprint_script" >&2
+    exit 1
+fi
+
+source_identity_before=$("$source_fingerprint_script" --json)
 
 swift build --package-path "$package_dir" -c release
 binary_dir=$(swift build --package-path "$package_dir" -c release --show-bin-path)
@@ -198,12 +205,18 @@ install -m 0755 "$staging/tunnel-client-runtime/cloudflared" "$bundle/Contents/H
 install -m 0644 "$package_dir/App/Info.plist" "$bundle/Contents/Info.plist"
 install -m 0644 "$staging/FilmOSStudio.icns" "$bundle/Contents/Resources/FilmOSStudio.icns"
 install -m 0644 "$staging/InternalRuntime.json" "$bundle/Contents/Resources/InternalRuntime.json"
+printf '%s\n' "$source_identity_before" >"$bundle/Contents/Resources/SourceIdentity.json"
 /usr/bin/ditto "$workspace_root/web/dist" "$bundle/Contents/Resources/Web"
 /usr/bin/plutil -lint "$bundle/Contents/Info.plist" >/dev/null
 runtime="$bundle/Contents/Resources/InternalRuntime.json"
 test "$(/usr/bin/plutil -extract schema_version raw -o - "$runtime")" = "2"
 test "$(/usr/bin/plutil -extract application_support_directory_name raw -o - "$runtime")" = "$application_support_directory_name"
 test -n "$(/usr/bin/plutil -extract start_url raw -o - "$runtime")"
+source_identity_after=$("$source_fingerprint_script" --json)
+if [ "$source_identity_before" != "$source_identity_after" ]; then
+    echo "FilmOS source changed during app construction; rebuild from a stable source snapshot" >&2
+    exit 1
+fi
 mv "$bundle" "$destination"
 
 cleanup_bun_build_artifacts

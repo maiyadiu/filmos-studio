@@ -115,6 +115,13 @@
 - 默认不启动 dev server；只有用户明确要求浏览器预览或联调时才启动，并先确认端口、数据目录和现有进程。
 - 健康检查只能证明入口可用，不能替代登录、SSE、任务生成和资源访问验证。
 
+### 桌面 App 同步硬规则
+
+- `~/Applications/FilmOS Studio.app` 是唯一可固定到程序坞的本地 App；`.local/`、worktree 和验收目录中的 `.app` 只能作为构建中间物或取证候选，不能作为用户入口。
+- 任何仓库修改形成新 Commit 后，交付前必须执行 `FILMOS_DESKTOP_RUNTIME_PROFILE=filmos-candidate desktop/macos/scripts/install-local-app --relaunch`；影响 `web/`、`backend/`、`canvas-agent/`、`film-core/`、`services/filmos-chatgpt-app/`、`packages/`、`desktop/macos/` 或 Agent Runtime Profile 的未提交修改也必须先同步 App 再交给用户试用。
+- 安装必须通过 `desktop/macos/scripts/verify-installed-app-sync`。该校验比较 App 内嵌的 `SourceIdentity.json` 与当前源码指纹；不一致即视为旧 App，任务不得声明完成、提交交接或让用户自行判断版本。
+- 构建期间源码发生变化必须失败；安装后校验失败必须自动恢复上一份 App。App 数据、项目库和 Runtime Key 继续保存在 Application Support 与 Keychain，不得随 App 包更新迁移或删除。
+
 ## 8. 验证纪律
 
 项目当前默认不自动运行语法检查、类型检查、测试或构建。用户明确要求验证，或改动风险需要验证时，按范围选择最小充分命令，并在交付中如实记录：

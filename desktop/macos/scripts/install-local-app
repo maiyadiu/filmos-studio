@@ -116,6 +116,15 @@ if [ -x "$launch_services" ]; then
     "$launch_services" -f "$destination" >/dev/null 2>&1 || true
 fi
 
+if ! "$script_dir/verify-installed-app-sync" "$destination"; then
+    mv "$destination" "$staging/Rejected FilmOS Studio.app"
+    if [ -n "${backup:-}" ] && [ -e "$backup" ]; then
+        mv "$backup" "$destination"
+    fi
+    echo "local app synchronization failed; the previous app was restored" >&2
+    exit 1
+fi
+
 if [ "$relaunch" = true ]; then
     open "$destination"
 fi

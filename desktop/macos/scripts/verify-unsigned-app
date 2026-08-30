@@ -1,6 +1,8 @@
 #!/bin/sh
 set -eu
 
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+workspace_root=$(CDPATH= cd -- "$script_dir/../../.." && pwd)
 bundle=${1:-}
 if [ -z "$bundle" ] || [ ! -d "$bundle" ]; then
     echo "usage: verify-unsigned-app <FilmOS Studio.app>" >&2
@@ -20,6 +22,7 @@ tunnel_client="$bundle/Contents/Helpers/tunnel-client"
 cloudflared="$bundle/Contents/Helpers/cloudflared"
 icon="$bundle/Contents/Resources/FilmOSStudio.icns"
 runtime="$bundle/Contents/Resources/InternalRuntime.json"
+source_identity="$bundle/Contents/Resources/SourceIdentity.json"
 web_root="$bundle/Contents/Resources/Web"
 /usr/bin/plutil -lint "$plist" >/dev/null
 
@@ -62,7 +65,16 @@ test -x "$tunnel_client"
 test -x "$cloudflared"
 test -f "$icon"
 test -f "$runtime"
+test -f "$source_identity"
 test -f "$web_root/index.html"
+/usr/bin/plutil -lint "$source_identity" >/dev/null
+test "$(/usr/bin/plutil -extract schema_version raw -o - "$source_identity")" = "1.0.0"
+embedded_source_fingerprint=$(/usr/bin/plutil -extract source_fingerprint_sha256 raw -o - "$source_identity")
+printf '%s\n' "$embedded_source_fingerprint" | grep -Eq '^[0-9a-f]{64}$'
+current_source_fingerprint=$("$script_dir/source-fingerprint")
+test "$embedded_source_fingerprint" = "$current_source_fingerprint"
+test "$(/usr/bin/plutil -extract git_commit_sha raw -o - "$source_identity")" = "$(git -C "$workspace_root" rev-parse HEAD)"
+test "$(/usr/bin/plutil -extract git_tree_sha raw -o - "$source_identity")" = "$(git -C "$workspace_root" rev-parse 'HEAD^{tree}')"
 file "$binary" | grep -q 'Mach-O'
 file "$backend" | grep -q 'Mach-O'
 file "$web_server" | grep -q 'Mach-O'

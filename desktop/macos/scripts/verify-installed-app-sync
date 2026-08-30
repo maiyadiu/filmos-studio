@@ -1,0 +1,28 @@
+#!/bin/sh
+set -eu
+
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+bundle=${1:-"$HOME/Applications/FilmOS Studio.app"}
+identity="$bundle/Contents/Resources/SourceIdentity.json"
+
+if [ ! -d "$bundle" ]; then
+    echo "installed FilmOS Studio.app is missing: $bundle" >&2
+    exit 1
+fi
+if [ ! -f "$identity" ]; then
+    echo "installed FilmOS Studio.app has no source identity: $identity" >&2
+    exit 1
+fi
+
+"$script_dir/verify-unsigned-app" "$bundle" >/dev/null
+embedded=$(/usr/bin/plutil -extract source_fingerprint_sha256 raw -o - "$identity")
+current=$("$script_dir/source-fingerprint")
+if [ "$embedded" != "$current" ]; then
+    echo "installed FilmOS Studio.app is stale: embedded=$embedded current=$current" >&2
+    exit 1
+fi
+
+commit=$(/usr/bin/plutil -extract git_commit_sha raw -o - "$identity")
+tree=$(/usr/bin/plutil -extract git_tree_sha raw -o - "$identity")
+printf 'LOCAL_APP_SYNC_VERIFIED source_fingerprint=%s commit=%s tree=%s path=%s\n' \
+    "$embedded" "$commit" "$tree" "$bundle"
