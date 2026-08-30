@@ -1,5 +1,6 @@
 import { hashEnvelope } from "./canonical.js";
 import type { GenerationCatalogSnapshot, GenerationEngineConnection, GenerationEngineDescriptor } from "./types.js";
+import { assertConnectionBinding } from "./identity.js";
 
 export const GENERATION_ENGINES: readonly GenerationEngineDescriptor[] = Object.freeze([
     { engineId: "dreamina_cli", displayName: "Dreamina CLI", transport: "cli", capabilities: ["image", "video"], catalogSourceCapabilities: ["runtime_discovery", "verified_static_version_bound"], externalProjectRequired: false, supportsCostEstimate: true, supportsCancellation: true, supportsResume: true },
@@ -7,7 +8,18 @@ export const GENERATION_ENGINES: readonly GenerationEngineDescriptor[] = Object.
     { engineId: "runninghub", displayName: "RunningHub", transport: "workflow_api", capabilities: ["image", "video", "audio", "workflow"], catalogSourceCapabilities: ["remote_catalog"], externalProjectRequired: false, supportsCostEstimate: false, supportsCancellation: true, supportsResume: true },
     { engineId: "comfyui", displayName: "ComfyUI", transport: "bridge", capabilities: ["image", "video", "audio", "workflow"], catalogSourceCapabilities: ["runtime_discovery"], externalProjectRequired: false, supportsCostEstimate: false, supportsCancellation: true, supportsResume: true },
     { engineId: "manual_web", displayName: "Manual Web", transport: "manual", capabilities: ["image", "video", "audio", "workflow"], catalogSourceCapabilities: ["manual_unverified"], externalProjectRequired: false, supportsCostEstimate: false, supportsCancellation: false, supportsResume: false },
+    { engineId: "filmos_mock_generation", displayName: "FilmOS Acceptance Mock", transport: "local_mock", capabilities: ["image"], catalogSourceCapabilities: ["runtime_discovery"], externalProjectRequired: false, supportsCostEstimate: true, supportsCancellation: false, supportsResume: true },
 ]);
+
+export function assertGenerationEngineConnectionInvariant(connection: GenerationEngineConnection): void {
+    assertConnectionBinding(connection);
+    if (connection.authScope === "account" && !connection.accountBindingRef && connection.status === "ready") throw new Error("GENERATION_CONNECTION_ACCOUNT_BINDING_REQUIRED");
+}
+
+export function assertGenerationEngineConnectionRoutable(connection: GenerationEngineConnection): void {
+    assertGenerationEngineConnectionInvariant(connection);
+    if (!connection.enabled || connection.status !== "ready") throw new Error("GENERATION_CONNECTION_NOT_ROUTABLE");
+}
 
 export class AccountScopedCatalogCache {
     private readonly entries = new Map<string, GenerationCatalogSnapshot>();

@@ -167,6 +167,7 @@ private final class InternalWorkbenchCoordinator {
     }
 
     func prepare() async throws -> URL {
+        try await chatGPTRuntime.prepareFilmCoreAuthority()
         try await ensureService(
             localRuntimeServiceID,
             displayName: "Agent Runtime",

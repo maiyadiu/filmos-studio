@@ -1,8 +1,9 @@
-import { GENERATION_ENGINES, hashProjection, type GenerationEngineConnection } from "@filmos/generation-contracts";
+import { GENERATION_ENGINES, hashProjection, type GenerationDefaultRoute, type GenerationEngineConnection, type ProjectGenerationPolicy } from "@filmos/generation-contracts";
 
 import type { CanvasAgentSnapshot } from "@/lib/canvas/canvas-agent-ops";
 import type { AiConfig } from "@/stores/use-config-store";
 import type { BrainGenerationRoutingConfig } from "./user-config";
+import { isAcceptanceProductionProject } from "./acceptance-production-runtime";
 
 export const CANONICAL_GENERATION_TOOL_NAMES = [
     "generation_list_engines", "generation_get_engine_status", "generation_refresh_catalog", "generation_list_models",
@@ -19,6 +20,9 @@ type RuntimeContext = {
     config: AiConfig;
     routingConfig: BrainGenerationRoutingConfig | null;
     snapshot: CanvasAgentSnapshot;
+    nodeRoute?: GenerationDefaultRoute;
+    projectPolicy?: ProjectGenerationPolicy;
+    productionPort?: { submitAuthorized(authorizedSubmissionId: string): Promise<unknown> };
 };
 
 type Result = { ok: true; message: string; data: unknown } | { ok: false; message: string; data?: unknown };
@@ -31,7 +35,15 @@ export function isCanonicalGenerationTool(name: string): name is CanonicalGenera
 
 export async function executeCanonicalGenerationTool(name: CanonicalGenerationToolName, input: Record<string, unknown>, context: RuntimeContext): Promise<Result> {
     const catalog = runtimeCatalog(context);
-    if (name === "generation_list_engines") return success("已读取生成引擎注册表。", { engines: GENERATION_ENGINES, externalWritePerformed: false });
+    if (name === "generation_list_engines") {
+        const acceptanceProject = isAcceptanceProductionProject({
+            projectId: context.projectId,
+            domainProjectId: context.snapshot.domainProjectId,
+            projectName: context.snapshot.title || "",
+        });
+        const engines = GENERATION_ENGINES.filter((engine) => acceptanceProject || engine.engineId !== "filmos_mock_generation");
+        return success("已读取生成引擎注册表。", { engines, externalWritePerformed: false });
+    }
     if (name === "generation_get_engine_status") {
         const engineId = required(input.engineId, "engineId");
         const connectionId = optional(input.connectionId);
@@ -45,9 +57,12 @@ export async function executeCanonicalGenerationTool(name: CanonicalGenerationTo
     if (name === "generation_select_effective_route") {
         const taskKind = required(input.taskKind, "taskKind");
         const explicit = record(input.explicitRoute);
-        const selected = Object.keys(explicit).length ? explicit : context.routingConfig?.generationDefaults[taskKind as keyof BrainGenerationRoutingConfig["generationDefaults"]];
+        const projectDefault = context.projectPolicy?.defaultRoutes[taskKind as keyof ProjectGenerationPolicy["defaultRoutes"]];
+        const globalDefault = context.routingConfig?.generationDefaults[taskKind as keyof BrainGenerationRoutingConfig["generationDefaults"]];
+        const selected = Object.keys(explicit).length ? explicit : context.nodeRoute || projectDefault || globalDefault;
         if (!selected) return failure("GENERATION_ROUTE_NEEDS_CONFIGURATION", "未找到显式、Project 或 Global 默认路线。");
-        return success("已按显式任务到默认策略的优先级选择路线。", { ...selected, taskKind, selectionSource: Object.keys(explicit).length ? "explicit_task" : "global_default", externalWritePerformed: false });
+        const selectionSource = Object.keys(explicit).length ? "explicit_task" : context.nodeRoute ? "node_override" : projectDefault ? "project_default" : "global_default";
+        return success("已按显式任务、节点、项目、全局默认的优先级选择路线。", { ...selected, taskKind, selectionSource, externalWritePerformed: false });
     }
     if (name === "generation_resolve_route_binding") {
         const engineId = required(input.engineId, "engineId");
@@ -78,13 +93,18 @@ export async function executeCanonicalGenerationTool(name: CanonicalGenerationTo
             const currentAttempt = optional(metadata.taskId);
             if (attemptId && currentAttempt !== attemptId) return [];
             if (!currentAttempt) return [];
-            return [{ nodeId: node.id, generationAttemptId: currentAttempt, status: metadata.status || "unknown", routeSnapshotId: metadata.generationPreviewHash, candidateImported: Boolean(metadata.content) }];
+            return [{ nodeId: node.id, generationAttemptId: currentAttempt, status: metadata.status || "unknown", routeSnapshotId: metadata.generationRouteSnapshotId, candidateImported: metadata.generationSubmissionState === "candidate" }];
         });
         if (name === "generation_reconcile" && !records.length) return failure("GENERATION_RECONCILE_SOURCE_NOT_FOUND", "没有可恢复的本地 Provider Task Receipt；禁止自动重提。");
         return success(name === "generation_get_lineage" ? "已读取生成 lineage。" : "已读取生成任务状态；未执行重提。", { records, retryPerformed: false, externalWritePerformed: false });
     }
     if (name === "generation_create_external_project") return gated("EXTERNAL_PROJECT_CREATION_AUTHORIZATION_REQUIRED", "外部项目创建需要独立 Broker Decision Receipt。");
-    if (name === "generation_submit") return gated("AUTHORIZED_GENERATION_SUBMISSION_REQUIRED", "付费提交需要完整 Authorized Submission、Catalog Validation、Budget Reservation 与 Broker Decision Receipt。");
+    if (name === "generation_submit") {
+        const authorizedSubmissionId = required(input.authorizedSubmissionId, "authorizedSubmissionId");
+        if (!context.productionPort) return gated("READY_FOR_USER_AUTHORIZATION", "当前 Runtime 尚未绑定用户批准的 Production Composition；未执行 Provider 请求。");
+        const receipt = await context.productionPort.submitAuthorized(authorizedSubmissionId);
+        return success("已通过 Production Tool Broker 执行精确 Authorized Submission。", receipt);
+    }
     if (name === "generation_cancel") return gated("GENERATION_CANCEL_AUTHORIZATION_REQUIRED", "取消外部任务需要精确 Task Receipt 与 Broker 确认。");
     if (name === "generation_download_outputs") return gated("GENERATION_OUTPUT_RECEIPT_REQUIRED", "下载需要已有 Provider Output Receipt 与内容 Hash。");
     return gated("GENERATION_CANDIDATE_IMPORT_RECEIPT_REQUIRED", "Candidate 导入需要已校验输出 Receipt；不得直接标记 Approved。");

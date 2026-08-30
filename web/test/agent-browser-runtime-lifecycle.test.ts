@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import { BrowserRuntimeSessionProfiles, createBrowserRuntimeRequestHandler, exactBoundModelConfig } from "../src/film/agent/browser-runtime-handler";
 import type { BrowserRuntimeRequest } from "../src/film/agent/browser-runtime-bridge";
-import { createModelChannel, defaultConfig } from "../src/stores/use-config-store";
+import { createModelChannel, defaultConfig, type ModelChannel } from "../src/stores/use-config-store";
 
 const profileIds = ["openai.api", "anthropic.api", "deepseek.api", "local.model"] as const;
 
@@ -15,6 +15,7 @@ describe("AGENT-BROWSER-LIFECYCLE-001", () => {
             schemaVersion: 1, entityVersion: 1, contentHash: "binding-hash", createdAt: "2026-08-30T00:00:00.000Z", updatedAt: "2026-08-30T00:00:00.000Z",
             profileId: "deepseek.api", enabled: true, channelId: exact.id, modelId: "model-exact", requiredCapabilities: ["text", "tool_calling"],
             transport: "model_api", authMode: "api_key", billingMode: "metered_api", interactionSurface: "native_stream", allowApiFallback: false,
+            providerKind: "deepseek", protocol: "openai_chat_completions", modelCapabilityEvidence: evidence(),
         });
         expect(projected.channels.map((channel) => channel.id)).toEqual(["channel-exact"]);
         expect(projected.model).toBe("model-exact");
@@ -54,7 +55,7 @@ describe("AGENT-BROWSER-LIFECYCLE-001", () => {
             const selected = handler(selectedProfileId, profiles, { requestTool: async () => { clientCalls.push("requestTool"); throw new Error("unexpected model request"); } });
             const statuses = await Promise.all(profileIds.map((profileId) => selected(request(profileId, "probe"))));
             expect(statuses).toHaveLength(4);
-            expect(statuses.every((status) => typeof status === "object" && status !== null && "status" in status)).toBe(true);
+            expect(statuses.every((status) => typeof status === "object" && status !== null && "status" in status && status.status === "ready")).toBe(true);
         }
         expect(clientCalls).toEqual([]);
 
@@ -71,9 +72,10 @@ describe("AGENT-BROWSER-LIFECYCLE-001", () => {
 });
 
 function handler(selectedProfileId: string, sessionProfiles: BrowserRuntimeSessionProfiles, client: { requestTool(...args: never[]): Promise<never> }) {
+    const channels = profileIds.map(channelForProfile);
     return createBrowserRuntimeRequestHandler({
         selectedProfileId,
-        config: defaultConfig,
+        config: { ...defaultConfig, channels },
         isConfigReady: () => true,
         resolveBinding: (profileId) => ({
             schemaVersion: 1,
@@ -89,11 +91,44 @@ function handler(selectedProfileId: string, sessionProfiles: BrowserRuntimeSessi
             billingMode: profileId === "local.model" ? "local_compute" : "metered_api",
             interactionSurface: "native_stream",
             allowApiFallback: false,
+            channelId: `channel-${profileId}`,
+            modelId: `model-${profileId}`,
+            providerKind: providerForProfile(profileId),
+            protocol: protocolForProfile(profileId),
+            modelCapabilityEvidence: evidence(),
         }) as never,
         ordinaryConfirmationEnabled: true,
         sessionProfiles,
         client: client as never,
     });
+}
+
+function channelForProfile(profileId: (typeof profileIds)[number]): ModelChannel {
+    const modelId = `model-${profileId}`;
+    return createModelChannel({
+        id: `channel-${profileId}`,
+        name: "Exact test channel",
+        baseUrl: profileId === "local.model" ? "http://127.0.0.1:11434" : "https://provider.invalid",
+        apiKey: profileId === "local.model" ? "local-runtime-auth" : "non-network-test-secret",
+        apiFormat: profileId === "anthropic.api" ? "claude" : "openai",
+        models: [modelId],
+        transport: profileId === "local.model" ? "local-llm-runtime" : "backend-channel",
+        providerKind: providerForProfile(profileId),
+        agentProtocol: protocolForProfile(profileId),
+        agentModelCapabilities: { [modelId]: evidence() },
+    });
+}
+
+function providerForProfile(profileId: (typeof profileIds)[number]) {
+    return profileId === "openai.api" ? "openai" as const : profileId === "anthropic.api" ? "anthropic" as const : profileId === "deepseek.api" ? "deepseek" as const : "local_openai_compatible" as const;
+}
+
+function protocolForProfile(profileId: (typeof profileIds)[number]) {
+    return profileId === "openai.api" ? "openai_responses" as const : profileId === "anthropic.api" ? "anthropic_messages" as const : profileId === "deepseek.api" ? "openai_chat_completions" as const : "local_openai_compatible" as const;
+}
+
+function evidence() {
+    return { text: true as const, toolCalling: true, structuredOutput: true, evidenceSource: "test-exact-contract", evidenceRevision: "v1" };
 }
 
 function request(profileId: string, operation: BrowserRuntimeRequest["operation"], sessionId?: string): BrowserRuntimeRequest {

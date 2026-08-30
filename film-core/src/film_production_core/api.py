@@ -42,6 +42,7 @@ from film_production_core.formal_models import (
     SpatialVersionUpdateRequest,
 )
 from film_production_core.formal_service import FormalService
+from film_production_core.generation_production import GenerationProductionStore
 from film_production_core.impact_models import (
     ImpactEdge,
     ImpactEdgeCreateRequest,
@@ -84,6 +85,7 @@ def create_app(database_path: str | Path | None = None) -> FastAPI:
     service = FilmService(repository)
     formal_service = FormalService(repository)
     impact_service = ImpactService(impact_repository, formal_service)
+    generation_production = GenerationProductionStore(database)
     app = FastAPI(
         title="FilmOS Studio Film Core API",
         version="0.4.0",
@@ -100,6 +102,7 @@ def create_app(database_path: str | Path | None = None) -> FastAPI:
     app.state.film_service = service
     app.state.formal_service = formal_service
     app.state.impact_service = impact_service
+    app.state.generation_production = generation_production
 
     @app.exception_handler(VersionConflict)
     async def version_conflict_handler(
@@ -406,5 +409,49 @@ def create_app(database_path: str | Path | None = None) -> FastAPI:
         return service.audit_events(
             None if target_id is None else str(target_id), limit
         )
+
+    @app.post("/generation-production/previews", operation_id="filmGenerationProductionPreviewPersist")
+    def generation_production_preview_persist(payload: Annotated[dict, Body()]) -> dict:
+        return generation_production.persist_preview(payload)
+
+    @app.post("/generation-production/acceptance-authority", operation_id="filmGenerationProductionAcceptanceAuthorityPersist")
+    def generation_production_acceptance_authority_persist(payload: Annotated[dict, Body()]) -> dict:
+        return generation_production.persist_acceptance_authority(payload)
+
+    @app.get("/generation-production/acceptance-authority/{projectId}", operation_id="filmGenerationProductionAcceptanceAuthorityGet")
+    def generation_production_acceptance_authority_get(projectId: str) -> dict:
+        return generation_production.acceptance_authority(projectId)
+
+    @app.get("/generation-production/previews/{proposalId}", operation_id="filmGenerationProductionPreviewGet")
+    def generation_production_preview_get(proposalId: str) -> dict:
+        return generation_production.preview(proposalId)
+
+    @app.post("/generation-production/previews/{proposalId}/reject", operation_id="filmGenerationProductionPreviewReject")
+    def generation_production_preview_reject(proposalId: str, payload: Annotated[dict, Body()]) -> dict:
+        return generation_production.reject(proposalId, str(payload.get("decisionId", "")), payload.get("traceEvent", {}))
+
+    @app.post("/generation-production/authorizations", operation_id="filmGenerationProductionAuthorizationPersist")
+    def generation_production_authorization_persist(payload: Annotated[dict, Body()]) -> dict:
+        return generation_production.persist_authorization(payload)
+
+    @app.get("/generation-production/authorizations/{authorizedSubmissionId}", operation_id="filmGenerationProductionAuthorizationGet")
+    def generation_production_authorization_get(authorizedSubmissionId: str) -> dict:
+        return generation_production.authorization(authorizedSubmissionId)
+
+    @app.post("/generation-production/provider-receipts", operation_id="filmGenerationProductionProviderReceiptPersist")
+    def generation_production_provider_receipt_persist(payload: Annotated[dict, Body()]) -> dict:
+        return generation_production.persist_provider_receipt(payload)
+
+    @app.get("/generation-production/provider-receipts/{idempotencyKey}", operation_id="filmGenerationProductionProviderReceiptGet")
+    def generation_production_provider_receipt_get(idempotencyKey: str) -> dict:
+        return generation_production.provider_receipt(idempotencyKey)
+
+    @app.post("/generation-production/candidates", operation_id="filmGenerationProductionCandidatePersist")
+    def generation_production_candidate_persist(payload: Annotated[dict, Body()]) -> dict:
+        return generation_production.persist_candidate(payload)
+
+    @app.get("/generation-production/candidates/by-attempt/{generationAttemptId}", operation_id="filmGenerationProductionCandidateGet")
+    def generation_production_candidate_get(generationAttemptId: str) -> dict:
+        return generation_production.candidate(generationAttemptId)
 
     return app

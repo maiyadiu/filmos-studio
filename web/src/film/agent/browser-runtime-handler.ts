@@ -1,6 +1,6 @@
 import { backendModelRuntimeRequired, runBackendToolGenerationTask } from "@/services/api/generation-task";
 import { requestToolResponse, type ResponseInputMessage, type ResponseToolCall } from "@/services/api/image";
-import type { BrainProfileBinding } from "@filmos/generation-contracts";
+import { assertBrainProviderCompatibility, type BrainProfileBinding } from "@filmos/generation-contracts";
 import { encodeChannelModel, resolveModelRequestConfig, type AiConfig } from "@/stores/use-config-store";
 
 import { AgentSessionClient } from "./agent-client";
@@ -78,7 +78,9 @@ function probeModelProfile(profileId: string, deps: HandlerDependencies) {
     if (!channel || (!channel.models.includes(binding.modelId) && !channel.localModels?.some((item) => item.id === binding.modelId))) {
         return { status: "unavailable" as const, statusReason: `Profile ${profileId} 的精确 Channel / Model 不可用` };
     }
-    const modelValue = channel.transport === "local-runtime" ? `local:dreamina-cli:${binding.modelId}` : encodeChannelModel(channel.id, binding.modelId);
+    assertBrainProviderCompatibility(binding);
+    if (binding.profileId === "local.model" && channel.transport !== "local-llm-runtime") return { status: "unavailable" as const, statusReason: "Local Brain 需要独立本地文本 LLM Runtime；Dreamina 不能作为 AI 大脑" };
+    const modelValue = encodeChannelModel(channel.id, binding.modelId);
     const exactConfig = exactBoundModelConfig(deps.config, binding);
     if (profileId !== "local.model" && !Boolean(channel.apiKey.trim() || channel.hasApiKey)) {
         return { status: "needs_auth" as const, statusReason: `Profile ${profileId} 需要独立 API 凭据` };
@@ -140,7 +142,9 @@ export function exactBoundModelConfig(config: AiConfig, binding: BrainProfileBin
     const channel = config.channels.find((item) => item.id === binding.channelId && item.enabled !== false);
     if (!channel) throw new Error("BROWSER_RUNTIME_BOUND_CHANNEL_UNAVAILABLE");
     if (!channel.models.includes(binding.modelId) && !channel.localModels?.some((item) => item.id === binding.modelId)) throw new Error("BROWSER_RUNTIME_BOUND_MODEL_UNAVAILABLE");
-    const modelValue = channel.transport === "local-runtime" ? `local:dreamina-cli:${binding.modelId}` : encodeChannelModel(channel.id, binding.modelId);
+    assertBrainProviderCompatibility(binding);
+    if (binding.profileId === "local.model" && channel.transport !== "local-llm-runtime") throw new Error("LOCAL_LLM_TEXT_RUNTIME_REQUIRED");
+    const modelValue = encodeChannelModel(channel.id, binding.modelId);
     const projected = resolveModelRequestConfig({ ...config, channels: [channel] }, modelValue);
     return { ...projected, channels: [channel], models: [modelValue], textModels: [modelValue], model: binding.modelId, textModel: binding.modelId };
 }

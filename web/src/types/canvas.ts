@@ -208,7 +208,7 @@ export type CanvasNodeMetadata = {
     fontSize?: number;
     generationMode?: CanvasGenerationMode;
     /** V2.4 Generation Composer draft fields. The canvas store remains the single mutable draft authority. */
-    generationEngineId?: "dreamina_cli" | "flova_cli" | "runninghub" | "comfyui" | "manual_web";
+    generationEngineId?: "dreamina_cli" | "flova_cli" | "runninghub" | "comfyui" | "manual_web" | "filmos_mock_generation";
     generationConnectionId?: string;
     generationTaskKind?: string;
     generationModelId?: string;
@@ -218,8 +218,19 @@ export type CanvasNodeMetadata = {
     generationDeliveryResolution?: string;
     generationEstimatedCost?: string;
     generationPreviewHash?: string;
+    generationAttemptId?: string;
+    generationRouteSnapshotId?: string;
+    generationRouteSnapshotContentHash?: string;
+    generationRouteContentHash?: string;
+    generationDescriptorReceiptId?: string;
+    generationCompiledPromptReceiptId?: string;
+    generationProposalId?: string;
+    generationPreviewReceiptId?: string;
     generationPreviewState?: "draft" | "ready" | "stale";
-    generationSubmissionState?: "not_submitted" | "awaiting_authorization";
+    generationAuthorizedSubmissionId?: string;
+    generationProviderReceiptId?: string;
+    generationCandidateId?: string;
+    generationSubmissionState?: "not_submitted" | "awaiting_authorization" | "rejected" | "authorized" | "submitted" | "candidate";
     generationDraftVersion?: number;
     generationType?: CanvasImageGenerationType;
     model?: string;

@@ -4,10 +4,7 @@
   "tracks": [
     {
       "track_id": "00-upstream",
-      "source_paths": [
-        "scripts/upstream",
-        "implementation/tracks/00-upstream"
-      ],
+      "source_paths": ["scripts/upstream", "implementation/tracks/00-upstream"],
       "automated_tests": [
         "python3 -m unittest discover -s scripts/upstream/tests -v",
         "python3 acceptance/checks/reports.py",
@@ -85,6 +82,8 @@
       "source_paths": [
         "film-core",
         "film-contracts",
+        "film-core/src/film_production_core/generation_production.py",
+        "acceptance/checks/production_generation_composition.py",
         "backend/internal/service/desktop_backup.go",
         "acceptance/checks/full_chain.py",
         "acceptance/FilmOS_Acceptance_Project/项目.json",
@@ -95,6 +94,7 @@
         "python3 tests/film-contract/validate_contracts.py",
         "python3 -m pytest -q tests/film-golden/test_golden_a_real.py tests/film-golden/test_golden_b_real.py tests/film-golden/test_golden_c_real.py",
         "python3 acceptance/checks/full_chain.py",
+        "python3 acceptance/checks/production_generation_composition.py",
         "python3 acceptance/checks/performance.py"
       ],
       "golden_case_ids": [
@@ -105,7 +105,8 @@
         "PERFORMANCE-LOCAL-001",
         "ACCEPTANCE-REPORT-BUNDLE-001",
         "RESTART-RECOVERY-001",
-        "DESKTOP-BACKUP-RESTORE-001"
+        "DESKTOP-BACKUP-RESTORE-001",
+        "PRODUCTION-GENERATION-COMPOSITION-001"
       ],
       "required_local_check_ids": [
         "film-core-environment",
@@ -116,7 +117,8 @@
         "acceptance-full-chain",
         "performance-local",
         "acceptance-reports",
-        "rc-recovery"
+        "rc-recovery",
+        "production-generation-composition"
       ],
       "required_final_check_ids": [
         "film-core-environment",
@@ -139,6 +141,7 @@
         "web/src/film/generation-routing",
         "web/src/stores/use-brain-generation-routing-store.ts",
         "web/src/components/canvas/canvas-config-composer.tsx",
+        "web/src/film/generation-routing/production-composition.ts",
         "acceptance/golden/brain-generation-routing",
         "tests/film-beta/performance_local.py",
         "tests/film-beta/performance_surface.ts"
@@ -147,6 +150,7 @@
         "bun run typecheck",
         "bun run build",
         "bun test test/brain-generation-routing-config.test.ts",
+        "python3 acceptance/checks/production_generation_composition.py",
         "bun test test/generation-engine-settings-presentation.test.ts test/generation-route-preview-contract.test.ts",
         "node acceptance/checks/brain_generation_performance.mjs",
         "python3 acceptance/checks/performance.py"
@@ -157,7 +161,8 @@
         "BRAIN-GENERATION-ROUTING-V2.4-001",
         "BRAIN-GENERATION-PERFORMANCE-001",
         "GENERATION-COMPOSER-CANDIDATE-UI-001",
-        "PERFORMANCE-LOCAL-001"
+        "PERFORMANCE-LOCAL-001",
+        "PRODUCTION-GENERATION-COMPOSITION-001"
       ],
       "required_local_check_ids": [
         "desktop-brand",
@@ -167,7 +172,8 @@
         "generation-routing-contracts",
         "brain-generation-routing",
         "brain-generation-performance",
-        "performance-local"
+        "performance-local",
+        "production-generation-composition"
       ],
       "required_final_check_ids": [
         "desktop-brand",
@@ -296,12 +302,14 @@
         "implementation/tracks/08-agent-native-correction",
         "acceptance/checks/agent_codex_controlled_write.py",
         "acceptance/checks/agent_lifecycle_receipt.py",
+        "acceptance/checks/production_generation_composition.py",
         "tests/film-beta/performance_surface.ts"
       ],
       "automated_tests": [
         "python3 acceptance/checks/film_core_environment.py",
         "cd packages/filmos-generation-contracts && npm test",
         "python3 acceptance/checks/brain_generation_routing.py",
+        "python3 acceptance/checks/production_generation_composition.py",
         "node acceptance/checks/brain_generation_performance.mjs",
         "npm --prefix packages/filmos-agent-contracts test",
         "cd canvas-agent && npm test",
@@ -343,7 +351,8 @@
         "MCP-ACTUAL-TOOL-COUNT-001",
         "BRAIN-GENERATION-ROUTING-V2.4-001",
         "BRAIN-GENERATION-PERFORMANCE-001",
-        "PERFORMANCE-LOCAL-001"
+        "PERFORMANCE-LOCAL-001",
+        "PRODUCTION-GENERATION-COMPOSITION-001"
       ],
       "required_local_check_ids": [
         "film-core-environment",
@@ -361,7 +370,8 @@
         "canvas-agent",
         "mcp-actual-tool-count",
         "performance-local",
-        "rc-recovery"
+        "rc-recovery",
+        "production-generation-composition"
       ],
       "required_final_check_ids": [
         "film-core-environment",
@@ -420,13 +430,15 @@
         "implementation/workflow-engines",
         "web/src/components/canvas/canvas-config-composer.tsx",
         "web/src/pages/settings/local-cli-settings.tsx",
-        "canvas-agent/src/modules/dreamina-http.ts"
+        "canvas-agent/src/modules/dreamina-http.ts",
+        "web/src/film/generation-routing/production-composition.ts"
       ],
       "automated_tests": [
         "python3 -m pytest -q tests/film-golden/test_golden_a_real.py tests/film-golden/test_golden_c_real.py",
         "python3 acceptance/checks/full_chain.py",
         "cd packages/filmos-generation-contracts && npm test",
         "python3 acceptance/checks/brain_generation_routing.py",
+        "python3 acceptance/checks/production_generation_composition.py",
         "node acceptance/checks/brain_generation_performance.mjs",
         "cd web && bun test test/local-cli-settings.test.ts"
       ],
@@ -437,14 +449,16 @@
         "BRAIN-GENERATION-PERFORMANCE-001",
         "DREAMINA-DOCTOR-REAL-001",
         "FLOVA-DOCTOR-REAL-001",
-        "ACCEPTANCE-FULL-CHAIN-001"
+        "ACCEPTANCE-FULL-CHAIN-001",
+        "PRODUCTION-GENERATION-COMPOSITION-001"
       ],
       "required_local_check_ids": [
         "golden-abc-real-http",
         "generation-routing-contracts",
         "brain-generation-routing",
         "brain-generation-performance",
-        "acceptance-full-chain"
+        "acceptance-full-chain",
+        "production-generation-composition"
       ],
       "required_final_check_ids": [
         "golden-abc-real-http",
@@ -540,7 +554,8 @@
       "source_paths": [
         "tests/film-golden",
         "tests/film-rc",
-        "acceptance"
+        "acceptance",
+        "acceptance/checks/production_generation_composition.py"
       ],
       "automated_tests": [
         "python3 acceptance/checks/desktop_backup_restore.py",
@@ -554,6 +569,7 @@
         "python3 acceptance/checks/no_openai_model_api_billing.py",
         "cd packages/filmos-generation-contracts && npm test",
         "python3 acceptance/checks/brain_generation_routing.py",
+        "python3 acceptance/checks/production_generation_composition.py",
         "node acceptance/checks/brain_generation_performance.mjs",
         "python3 acceptance/checks/agent_native_multibrain.py",
         "python3 acceptance/checks/agent_tool_contract_single_source.py",
@@ -592,7 +608,8 @@
         "MCP-ACTUAL-TOOL-COUNT-001",
         "BRAIN-GENERATION-ROUTING-V2.4-001",
         "BRAIN-GENERATION-PERFORMANCE-001",
-        "GENERATION-COMPOSER-CANDIDATE-UI-001"
+        "GENERATION-COMPOSER-CANDIDATE-UI-001",
+        "PRODUCTION-GENERATION-COMPOSITION-001"
       ],
       "required_local_check_ids": [
         "acceptance-full-chain",
@@ -625,7 +642,8 @@
         "rc-recovery",
         "remote-acceptance-contract",
         "upstream-compatibility",
-        "no-openai-model-api-billing"
+        "no-openai-model-api-billing",
+        "production-generation-composition"
       ],
       "required_final_check_ids": [
         "film-core-environment",

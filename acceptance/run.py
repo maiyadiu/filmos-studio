@@ -86,10 +86,17 @@ RC_LOCAL_CHECKS = CURRENT_CHECKS + (
     ),
     Check(
         "brain-generation-routing",
-        "V2.4 architecture freeze, discoverability, exact routing and zero-cost provider readiness",
+        "V2.4 static smoke for architecture freeze, discoverability and zero-cost provider readiness",
         (sys.executable, "acceptance/checks/brain_generation_routing.py"),
         ROOT,
         ("03-project-ui", "08-agent", "10-providers", "11-migration", "13-qa"),
+    ),
+    Check(
+        "production-generation-composition",
+        "V2.4 real Production Composition with persistent Film Core and zero-network local Mock Provider",
+        (sys.executable, "acceptance/checks/production_generation_composition.py"),
+        ROOT,
+        ("02-film-core", "03-project-ui", "08-agent", "10-providers", "13-qa"),
     ),
     Check(
         "brain-generation-performance",
@@ -315,6 +322,7 @@ CHECK_ARTIFACT_NAMES = {
     "chatgpt-handoff-state": "chatgpt-handoff-state-receipt.json",
     "codex-subscription-real": "codex-subscription-real-receipt.json",
     "brain-generation-routing": "brain-generation-routing-receipt.json",
+    "production-generation-composition": "production-generation-composition-receipt.json",
     "brain-generation-performance": "brain-generation-performance-receipt.json",
 }
 

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, KeyboardEvent, MouseEvent, PointerEvent } from "react";
-import { Alert, Button, Image, Select, Tag } from "antd";
+import { Alert, Button, Image, Modal, Select, Tag } from "antd";
 import { FileText, Image as ImageIcon, Music2, Pencil, Sparkles, Video, X } from "lucide-react";
 
 import { canvasThemes } from "@/lib/canvas-theme";
@@ -13,9 +13,20 @@ import { CanvasPresetPicker, type CanvasPromptPreset } from "./canvas-preset-pic
 import type { CanvasGenerationMode, CanvasNodeMetadata, CanvasWorkspaceMode } from "@/types/canvas";
 import { useLocalDreaminaModelStore } from "@/stores/use-local-dreamina-model-store";
 import { useEffectiveConfig } from "@/stores/use-config-store";
-import { createGenerationRoutePreviewHash } from "@/film/generation-routing/preview-contract";
+import { createGenerationRoutePreviewReceipt } from "@/film/generation-routing/preview-contract";
+import { buildRuntimeGenerationDescriptorOptions, generationCatalogDescriptorOptions, routableGenerationEngineOptions } from "@/film/generation-routing/runtime-catalog";
+import { useBrainGenerationRoutingStore } from "@/stores/use-brain-generation-routing-store";
+import type { CanvasAgentSnapshot } from "@/lib/canvas/canvas-agent-ops";
+import { AcceptanceProductionRuntime, createAcceptanceMockBindings, isAcceptanceProductionProject, type AcceptanceMockBindings } from "@/film/generation-routing/acceptance-production-runtime";
+import { FILMOS_MOCK_GENERATION_ENGINE_ID } from "@/film/generation-routing/production-composition";
+import { executeCanonicalGenerationTool } from "@/film/generation-routing/canonical-tool-runtime";
 
 type CanvasConfigComposerProps = {
+    projectId: string;
+    domainProjectId?: string;
+    projectName: string;
+    nodeId: string;
+    snapshot: CanvasAgentSnapshot;
     value: string;
     inputs: NodeGenerationInput[];
     skillReferences?: CanvasResourceReference[];
@@ -27,9 +38,7 @@ type CanvasConfigComposerProps = {
     workspaceMode?: CanvasWorkspaceMode;
 };
 
-type Token =
-    | { type: "text"; value: string }
-    | { type: "reference"; nodeId: string };
+type Token = { type: "text"; value: string } | { type: "reference"; nodeId: string };
 
 type MentionState = {
     query: string;
@@ -47,7 +56,22 @@ type ComposerCandidate =
 
 export const CONFIG_REFERENCE_PATTERN = /@\[node:([^\]]+)\]/g;
 
-export function CanvasConfigComposer({ value, inputs, skillReferences = [], generationMode, metadata, onChange, onMetadataChange, onClose, workspaceMode = "professional" }: CanvasConfigComposerProps) {
+export function CanvasConfigComposer({
+    projectId,
+    domainProjectId,
+    projectName,
+    nodeId,
+    snapshot,
+    value,
+    inputs,
+    skillReferences = [],
+    generationMode,
+    metadata,
+    onChange,
+    onMetadataChange,
+    onClose,
+    workspaceMode = "professional",
+}: CanvasConfigComposerProps) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const editorRef = useRef<HTMLDivElement>(null);
     const composingRef = useRef(false);
@@ -61,13 +85,7 @@ export function CanvasConfigComposer({ value, inputs, skillReferences = [], gene
     const dreaminaModels = useLocalDreaminaModelStore((state) => state.models);
     const tokens = useMemo(() => parseComposerTokens(value), [value]);
     const referenceById = useMemo(() => new Map(inputs.map((input) => [input.nodeId, input])), [inputs]);
-    const videoFrameOptions = useMemo(
-        () =>
-            inputs
-                .filter((input) => input.type === "image" && input.image)
-                .map((input) => ({ nodeId: input.nodeId, label: resourceLabel(input, inputs), title: input.title, previewUrl: input.image?.dataUrl })),
-        [inputs],
-    );
+    const videoFrameOptions = useMemo(() => inputs.filter((input) => input.type === "image" && input.image).map((input) => ({ nodeId: input.nodeId, label: resourceLabel(input, inputs), title: input.title, previewUrl: input.image?.dataUrl })), [inputs]);
     const candidates = useMemo(() => {
         if (!mention) return [];
         const query = (mention.query || "").trim().toLowerCase();
@@ -199,17 +217,27 @@ export function CanvasConfigComposer({ value, inputs, skillReferences = [], gene
             ) : null}
             {!simpleMode && onMetadataChange ? (
                 <GenerationRouteComposer
+                    projectId={projectId}
+                    domainProjectId={domainProjectId}
+                    projectName={projectName}
+                    nodeId={nodeId}
+                    snapshot={snapshot}
                     mode={generationMode || "image"}
                     metadata={metadata}
                     prompt={value}
+                    connectedReferenceCount={inputs.filter((input) => input.type !== "text").length}
                     dreaminaModels={dreaminaModels}
-                    runningHubWorkflows={effectiveConfig.runningHub.workflows.map((item) => ({ id: item.workflowId, label: item.title || item.workflowId, capability: item.capability }))}
-                    comfyWorkflows={effectiveConfig.comfyBridge.workflows.map((item) => ({ id: item.workflowId, label: item.title || item.workflowId, capability: item.capability }))}
+                    runningHubWorkflows={effectiveConfig.runningHub.workflows}
+                    comfyWorkflows={effectiveConfig.comfyBridge.workflows}
                     onChange={onMetadataChange}
                 />
             ) : null}
             <div className="canvas-config-composer-editor relative rounded-lg" style={{ background: theme.node.fill }}>
-                {!value.trim() ? <div className="pointer-events-none absolute left-4 top-3 text-sm leading-7" style={{ color: theme.node.placeholder }}>输入提示词，按 @ 引用连接素材或技能</div> : null}
+                {!value.trim() ? (
+                    <div className="pointer-events-none absolute left-4 top-3 text-sm leading-7" style={{ color: theme.node.placeholder }}>
+                        输入提示词，按 @ 引用连接素材或技能
+                    </div>
+                ) : null}
                 <div
                     ref={editorRef}
                     contentEditable
@@ -265,63 +293,301 @@ export function CanvasConfigComposer({ value, inputs, skillReferences = [], gene
             {imagePreview ? <Image src={imagePreview} alt="引用图片预览" style={{ display: "none" }} preview={{ visible: true, src: imagePreview, onVisibleChange: (visible) => !visible && setImagePreview(null) }} /> : null}
         </div>
     );
-
 }
 
-function GenerationRouteComposer({ mode, metadata, prompt, dreaminaModels, runningHubWorkflows, comfyWorkflows, onChange }: {
+function GenerationRouteComposer({
+    projectId,
+    domainProjectId,
+    projectName,
+    nodeId,
+    snapshot,
+    mode,
+    metadata,
+    prompt,
+    connectedReferenceCount,
+    dreaminaModels,
+    runningHubWorkflows,
+    comfyWorkflows,
+    onChange,
+}: {
+    projectId: string;
+    domainProjectId?: string;
+    projectName: string;
+    nodeId: string;
+    snapshot: CanvasAgentSnapshot;
     mode: CanvasGenerationMode;
     metadata?: CanvasNodeMetadata;
     prompt: string;
-    dreaminaModels: Array<{ id: string; displayName: string; modality: "image" | "video"; adapterSupported: boolean; currentlyObservedAvailable: "yes" | "no" | "unknown"; settings: { aspects: string[]; tiers?: string[] } }>;
-    runningHubWorkflows: Array<{ id: string; label: string; capability?: string }>;
-    comfyWorkflows: Array<{ id: string; label: string; capability?: string }>;
+    connectedReferenceCount: number;
+    dreaminaModels: Parameters<typeof buildRuntimeGenerationDescriptorOptions>[0]["dreaminaModels"];
+    runningHubWorkflows: Parameters<typeof buildRuntimeGenerationDescriptorOptions>[0]["runningHubWorkflows"];
+    comfyWorkflows: Parameters<typeof buildRuntimeGenerationDescriptorOptions>[0]["comfyWorkflows"];
     onChange: (patch: Partial<CanvasNodeMetadata>) => void;
 }) {
-    const engineId = metadata?.generationEngineId || "dreamina_cli";
+    const routingConfig = useBrainGenerationRoutingStore((state) => state.config);
+    const routingDocument = useBrainGenerationRoutingStore((state) => state.document);
+    const effectiveConfig = useEffectiveConfig();
+    const acceptanceProject = isAcceptanceProductionProject({ projectId, domainProjectId, projectName });
+    const [acceptanceBindings, setAcceptanceBindings] = useState<AcceptanceMockBindings | null>(null);
+    const snapshotRef = useRef(snapshot);
+    snapshotRef.current = snapshot;
+    useEffect(() => {
+        let current = true;
+        if (!acceptanceProject) {
+            setAcceptanceBindings(null);
+            return () => {
+                current = false;
+            };
+        }
+        void createAcceptanceMockBindings(domainProjectId || projectId).then((bindings) => {
+            if (current) setAcceptanceBindings(bindings);
+        });
+        return () => {
+            current = false;
+        };
+    }, [acceptanceProject, domainProjectId, projectId]);
+    const connections = useMemo(() => [...(routingConfig?.engineConnections || []), ...(acceptanceBindings ? [acceptanceBindings.connection] : [])], [acceptanceBindings, routingConfig?.engineConnections]);
+    const engineOptions = useMemo(() => routableGenerationEngineOptions(connections), [connections]);
+    const descriptors = useMemo(
+        () => [...buildRuntimeGenerationDescriptorOptions({ dreaminaModels, runningHubWorkflows, comfyWorkflows }), ...(acceptanceBindings ? generationCatalogDescriptorOptions(acceptanceBindings.catalog) : [])],
+        [acceptanceBindings, comfyWorkflows, dreaminaModels, runningHubWorkflows],
+    );
+    const engineId = metadata?.generationEngineId || (acceptanceProject ? FILMOS_MOCK_GENERATION_ENGINE_ID : engineOptions[0]?.engineId) || "";
+    const selectedConnection = engineOptions.find((item) => item.engineId === engineId && (!metadata?.generationConnectionId || item.connectionId === metadata.generationConnectionId));
+    const connectionId = selectedConnection?.connectionId || metadata?.generationConnectionId || "";
     const draftVersion = metadata?.generationDraftVersion || 0;
     const [previewError, setPreviewError] = useState<string | null>(null);
+    const [submitting, setSubmitting] = useState(false);
     const invalidate = (patch: Partial<CanvasNodeMetadata>) => {
         setPreviewError(null);
         onChange({ ...patch, generationDraftVersion: draftVersion + 1, generationPreviewState: metadata?.generationPreviewHash ? "stale" : "draft", generationSubmissionState: "not_submitted" });
     };
-    const modelOptions = dreaminaModels.filter((item) => item.modality === (mode === "video" ? "video" : "image") && item.adapterSupported).map((item) => ({ value: item.id, label: `${item.displayName}${item.currentlyObservedAvailable === "no" ? "（当前不可用）" : ""}`, disabled: item.currentlyObservedAvailable === "no" }));
-    const workflowOptions = (engineId === "runninghub" ? runningHubWorkflows : comfyWorkflows).filter((item) => !item.capability || item.capability === mode).map((item) => ({ value: item.id, label: item.label }));
-    const connectionId = engineId === "dreamina_cli" ? "dreamina-local" : engineId === "runninghub" ? "runninghub-default" : engineId === "comfyui" ? "comfyui-default" : engineId === "manual_web" ? "manual" : "flova-local";
+    const descriptorOptions = descriptors.filter((item) => item.engineId === engineId && item.connectionId === connectionId && (item.capability === mode || item.capability === "workflow"));
+    const selectedDescriptor = descriptorOptions.find((item) => item.id === (metadata?.generationModelId || metadata?.generationWorkflowId || metadata?.generationSkillId));
+    const aspectOptions = selectedDescriptor?.schema.aspectRatios || [];
+    const resolutionOptions = selectedDescriptor?.schema.resolutionTiers || [];
     const previewReady = metadata?.generationPreviewState === "ready";
+    const referenceCount = Math.max(metadata?.references?.length || 0, connectedReferenceCount);
+    const productionMockSelected = acceptanceProject && engineId === FILMOS_MOCK_GENERATION_ENGINE_ID;
+    const createAcceptanceRuntime = () =>
+        AcceptanceProductionRuntime.create({
+            projectId,
+            domainProjectId,
+            projectName,
+            getSnapshot: () => snapshotRef.current,
+        });
+    const persistPreview = (receipt: {
+        generationAttemptId: string;
+        routeSnapshotId: string;
+        routeSnapshotContentHash: string;
+        routeContentHash: string;
+        descriptorReceiptId: string;
+        compiledPromptReceiptId: string;
+        proposalId: string;
+        previewReceiptId: string;
+        previewReceiptHash: string;
+    }) =>
+        onChange({
+            generationPreviewHash: receipt.previewReceiptHash,
+            generationAttemptId: receipt.generationAttemptId,
+            generationRouteSnapshotId: receipt.routeSnapshotId,
+            generationRouteSnapshotContentHash: receipt.routeSnapshotContentHash,
+            generationRouteContentHash: receipt.routeContentHash,
+            generationDescriptorReceiptId: receipt.descriptorReceiptId,
+            generationCompiledPromptReceiptId: receipt.compiledPromptReceiptId,
+            generationProposalId: receipt.proposalId,
+            generationPreviewReceiptId: receipt.previewReceiptId,
+            generationPreviewState: "ready",
+            generationSubmissionState: "not_submitted",
+        });
+    const previewProduction = async () => {
+        if (!selectedDescriptor) return;
+        setPreviewError(null);
+        try {
+            if (productionMockSelected) {
+                const runtime = await createAcceptanceRuntime();
+                const bundle = await runtime.preview({ nodeId, projectName, userConfigRevision: routingDocument?.content_hash || "desktop-user-config-unavailable" });
+                persistPreview({
+                    generationAttemptId: bundle.generationAttemptId,
+                    routeSnapshotId: bundle.routeSnapshot.routeSnapshotId,
+                    routeSnapshotContentHash: bundle.routeSnapshot.contentHash,
+                    routeContentHash: bundle.routeSnapshot.routeContentHash,
+                    descriptorReceiptId: bundle.descriptorReceipt.descriptorReceiptId,
+                    compiledPromptReceiptId: bundle.compiledPromptReceipt.compiledPromptReceiptId,
+                    proposalId: bundle.proposal.proposalId,
+                    previewReceiptId: bundle.proposal.previewReceiptId,
+                    previewReceiptHash: bundle.proposal.previewReceiptHash,
+                });
+                return;
+            }
+            const receipt = await createGenerationRoutePreviewReceipt({
+                projectId,
+                nodeId,
+                engineId,
+                connectionId,
+                mode,
+                ...(metadata?.generationModelId ? { modelId: metadata.generationModelId } : {}),
+                ...(metadata?.generationWorkflowId ? { workflowId: metadata.generationWorkflowId } : {}),
+                prompt,
+                ...(metadata?.generationSkillId ? { skillId: metadata.generationSkillId } : {}),
+                nativeSize: metadata?.generationNativeSize || "descriptor-default",
+                deliveryResolution: metadata?.generationDeliveryResolution || "descriptor-default",
+                draftVersion,
+                descriptorKind: selectedDescriptor.kind,
+                descriptorId: selectedDescriptor.id,
+            });
+            persistPreview(receipt);
+        } catch (error) {
+            setPreviewError(error instanceof Error ? error.message : "GENERATION_ROUTE_PREVIEW_FAILED");
+            onChange({ generationPreviewHash: undefined, generationPreviewState: "draft", generationSubmissionState: "not_submitted" });
+        }
+    };
+    const submitProduction = () => {
+        if (!productionMockSelected || !metadata?.generationProposalId) {
+            onChange({ generationSubmissionState: "awaiting_authorization" });
+            return;
+        }
+        onChange({ generationSubmissionState: "awaiting_authorization" });
+        Modal.confirm({
+            title: "Production Tool Broker",
+            content: (
+                <div className="space-y-2 text-sm">
+                    <p>Engine：FilmOS Acceptance Mock</p>
+                    <p>Model：{selectedDescriptor?.label}</p>
+                    <p>Reference：Hard Lock · {metadata.references?.length || snapshot.connections.filter((item) => item.toNodeId === nodeId).length} 项</p>
+                    <p>费用：0 · 外部网络：0</p>
+                </div>
+            ),
+            okText: "批准并提交",
+            cancelText: "拒绝",
+            centered: true,
+            onCancel: async () => {
+                setSubmitting(true);
+                try {
+                    const runtime = await createAcceptanceRuntime();
+                    await runtime.reject(metadata.generationProposalId!);
+                    onChange({
+                        generationSubmissionState: "rejected",
+                        generationPreviewState: "draft",
+                        generationProposalId: undefined,
+                        generationPreviewHash: undefined,
+                        generationPreviewReceiptId: undefined,
+                    });
+                } catch (error) {
+                    setPreviewError(error instanceof Error ? error.message : "GENERATION_BROKER_REJECT_FAILED");
+                } finally {
+                    setSubmitting(false);
+                }
+            },
+            onOk: async () => {
+                setSubmitting(true);
+                setPreviewError(null);
+                try {
+                    const runtime = await createAcceptanceRuntime();
+                    const authorization = await runtime.approve(metadata.generationProposalId!);
+                    const authorizedSubmissionId = authorization.authorizedSubmission.authorizedSubmissionId;
+                    onChange({ generationAuthorizedSubmissionId: authorizedSubmissionId, generationSubmissionState: "authorized" });
+                    const result = await executeCanonicalGenerationTool(
+                        "generation_submit",
+                        { authorizedSubmissionId },
+                        {
+                            projectId,
+                            config: effectiveConfig,
+                            routingConfig,
+                            snapshot: snapshotRef.current,
+                            projectPolicy: runtime.bindings.projectPolicy,
+                            productionPort: runtime,
+                        },
+                    );
+                    if (!result.ok) throw new Error(result.message);
+                    const production = result.data as Awaited<ReturnType<AcceptanceProductionRuntime["submitAuthorized"]>>;
+                    onChange({
+                        generationProviderReceiptId: production.receipt.providerReceiptId,
+                        generationCandidateId: production.candidate.candidateId,
+                        generationSubmissionState: "candidate",
+                    });
+                } catch (error) {
+                    setPreviewError(error instanceof Error ? error.message : "GENERATION_PRODUCTION_SUBMIT_FAILED");
+                    onChange({ generationSubmissionState: "awaiting_authorization" });
+                    throw error;
+                } finally {
+                    setSubmitting(false);
+                }
+            },
+        });
+    };
     return (
         <section className="mb-3 space-y-3 rounded-lg border p-3" style={{ borderColor: "var(--border)" }} aria-label="Generation Composer 路由">
-            <div className="flex flex-wrap items-center justify-between gap-2"><strong className="text-xs">Generation Composer</strong><div className="flex gap-1"><Tag>Prompt</Tag><Tag>路线</Tag><Tag>规格</Tag><Tag>Reference</Tag><Tag>费用</Tag></div></div>
-            <div className="grid gap-2 sm:grid-cols-2">
-                <Select aria-label="生成引擎" value={engineId} options={[{ value: "dreamina_cli", label: "Dreamina CLI" }, { value: "flova_cli", label: "Flova CLI（F0 待核验）", disabled: true }, { value: "runninghub", label: "RunningHub" }, { value: "comfyui", label: "ComfyUI" }, { value: "manual_web", label: "Manual Web" }]} onChange={(value) => invalidate({ generationEngineId: value, generationConnectionId: value === "dreamina_cli" ? "dreamina-local" : value === "runninghub" ? "runninghub-default" : value === "comfyui" ? "comfyui-default" : "manual", generationModelId: undefined, generationWorkflowId: undefined })} />
-                {engineId === "dreamina_cli" ? <Select aria-label="生成模型" value={metadata?.generationModelId} placeholder={modelOptions.length ? "选择运行时模型" : "目录尚未就绪"} options={modelOptions} onChange={(generationModelId) => invalidate({ generationModelId })} /> : engineId === "runninghub" || engineId === "comfyui" ? <Select aria-label="生成工作流" value={metadata?.generationWorkflowId} placeholder="选择工作流" options={workflowOptions} onChange={(generationWorkflowId) => invalidate({ generationWorkflowId })} /> : <Select aria-label="生成模型" disabled placeholder="人工模式不绑定模型" />}
-                <Select aria-label="画面比例" value={metadata?.generationNativeSize || metadata?.size || "9:16"} options={["9:16", "16:9", "1:1"].map((value) => ({ value, label: value }))} onChange={(generationNativeSize) => invalidate({ generationNativeSize })} />
-                <Select aria-label="交付分辨率" value={metadata?.generationDeliveryResolution || "native"} options={[{ value: "native", label: "Native Size" }, { value: "720p", label: "交付 720p" }, { value: "1080p", label: "交付 1080p" }]} onChange={(generationDeliveryResolution) => invalidate({ generationDeliveryResolution })} />
+            <div className="flex flex-wrap items-center justify-between gap-2">
+                <strong className="text-xs">Generation Composer</strong>
+                <div className="flex gap-1">
+                    <Tag>Prompt</Tag>
+                    <Tag>路线</Tag>
+                    <Tag>规格</Tag>
+                    <Tag>Reference</Tag>
+                    <Tag>费用</Tag>
+                </div>
             </div>
-            <div className="flex flex-wrap items-center justify-between gap-2 text-xs opacity-75"><span>Reference：{(metadata?.references?.length || 0)} 项 · Connection：{connectionId}</span><span>费用：{metadata?.generationEstimatedCost || "提交前由引擎估算；未知时逐次确认"}</span></div>
+            <div className="grid gap-2 sm:grid-cols-2">
+                <Select
+                    aria-label="生成引擎"
+                    value={engineId || undefined}
+                    placeholder="无可路由引擎"
+                    options={engineOptions.filter((item) => mode !== "text" && item.capabilities.includes(mode)).map((item) => ({ value: `${item.engineId}|${item.connectionId}`, label: item.label }))}
+                    onChange={(value) => {
+                        const [nextEngineId, nextConnectionId] = value.split("|");
+                        invalidate({ generationEngineId: nextEngineId as CanvasNodeMetadata["generationEngineId"], generationConnectionId: nextConnectionId, generationModelId: undefined, generationWorkflowId: undefined, generationSkillId: undefined });
+                    }}
+                />
+                <Select
+                    aria-label="精确生成描述符"
+                    value={selectedDescriptor ? `${selectedDescriptor.kind}|${selectedDescriptor.id}` : undefined}
+                    placeholder={descriptorOptions.length ? "选择 Model / Workflow / Skill" : "目录尚未就绪"}
+                    options={descriptorOptions.map((item) => ({ value: `${item.kind}|${item.id}`, label: item.label, disabled: item.disabled }))}
+                    onChange={(value) => {
+                        const [kind, id] = value.split("|");
+                        invalidate({ generationModelId: kind === "model" ? id : undefined, generationWorkflowId: kind === "workflow" ? id : undefined, generationSkillId: kind === "skill" ? id : undefined });
+                    }}
+                />
+                <Select
+                    aria-label="画面比例"
+                    value={metadata?.generationNativeSize}
+                    placeholder={aspectOptions.length ? "选择比例" : "当前描述符不声明比例"}
+                    disabled={!aspectOptions.length}
+                    options={aspectOptions.map((value) => ({ value, label: value }))}
+                    onChange={(generationNativeSize) => invalidate({ generationNativeSize })}
+                />
+                <Select
+                    aria-label="交付分辨率"
+                    value={metadata?.generationDeliveryResolution}
+                    placeholder={resolutionOptions.length ? "选择分辨率" : "当前描述符不声明分辨率"}
+                    disabled={!resolutionOptions.length}
+                    options={resolutionOptions.map((value) => ({ value, label: value }))}
+                    onChange={(generationDeliveryResolution) => invalidate({ generationDeliveryResolution })}
+                />
+            </div>
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs opacity-75">
+                <span>
+                    Reference：{referenceCount} 项 · Connection：{connectionId}
+                </span>
+                <span>费用：{metadata?.generationEstimatedCost || "提交前由引擎估算；未知时逐次确认"}</span>
+            </div>
             {metadata?.generationPreviewState === "stale" ? <Alert type="warning" showIcon message="配置已变更，旧预览已 STALE" /> : null}
             {previewError ? <Alert type="error" showIcon message="预览合同生成失败" description={previewError} /> : null}
-            {metadata?.generationSubmissionState === "awaiting_authorization" ? <Alert type="info" showIcon message="等待 Broker 授权" description="尚未提交 Provider，未产生费用。必须先生成 Catalog Validation、Budget Reservation 和 Broker Decision Receipt。" /> : null}
+            {metadata?.generationSubmissionState === "awaiting_authorization" ? (
+                <Alert type="info" showIcon message="等待 Broker 授权" description="尚未提交 Provider，未产生费用。必须先生成 Catalog Validation、Budget Reservation 和 Broker Decision Receipt。" />
+            ) : null}
+            {metadata?.generationSubmissionState === "rejected" ? <Alert type="warning" showIcon message="Broker 已拒绝" description="未创建 Budget Reservation 或 Authorized Submission，Mock Provider Submit Count = 0。" /> : null}
+            {metadata?.generationSubmissionState === "candidate" ? <Alert type="success" showIcon message="Candidate 已导入" description="Provider Receipt 已持久化；当前为 QC Pending，未自动 Approved。" /> : null}
             <div className="flex flex-wrap items-center justify-between gap-2">
                 <span className="text-xs opacity-65">预览零费用；正式提交仍需 Catalog Validation、Broker Confirmation 与预算授权。</span>
                 <div className="flex gap-2">
-                    <Button size="small" type={previewReady ? "default" : "primary"} disabled={!prompt.trim() || (engineId === "dreamina_cli" && !metadata?.generationModelId) || ((engineId === "runninghub" || engineId === "comfyui") && !metadata?.generationWorkflowId)} onClick={() => {
-                        setPreviewError(null);
-                        void createGenerationRoutePreviewHash({
-                            engineId,
-                            connectionId,
-                            mode,
-                            ...(metadata?.generationModelId ? { modelId: metadata.generationModelId } : {}),
-                            ...(metadata?.generationWorkflowId ? { workflowId: metadata.generationWorkflowId } : {}),
-                            prompt,
-                            nativeSize: metadata?.generationNativeSize || metadata?.size || "9:16",
-                            deliveryResolution: metadata?.generationDeliveryResolution || "native",
-                            draftVersion,
-                        }).then((generationPreviewHash) => onChange({ generationPreviewHash, generationPreviewState: "ready", generationSubmissionState: "not_submitted" })).catch((error: unknown) => {
-                            setPreviewError(error instanceof Error ? error.message : "GENERATION_ROUTE_PREVIEW_HASH_FAILED");
-                            onChange({ generationPreviewHash: undefined, generationPreviewState: "draft", generationSubmissionState: "not_submitted" });
-                        });
-                    }}>{previewReady ? "预览已就绪" : "生成预览（零费用）"}</Button>
-                    <Button size="small" disabled={!previewReady || metadata?.generationSubmissionState === "awaiting_authorization"} onClick={() => onChange({ generationSubmissionState: "awaiting_authorization" })}>提交（需授权）</Button>
+                    <Button size="small" type={previewReady ? "default" : "primary"} disabled={submitting || !prompt.trim() || !selectedDescriptor || !connectionId} onClick={() => void previewProduction()}>
+                        {previewReady ? "预览已就绪" : "生成预览（零费用）"}
+                    </Button>
+                    <Button size="small" loading={submitting} disabled={!previewReady || submitting || metadata?.generationSubmissionState === "awaiting_authorization" || metadata?.generationSubmissionState === "candidate"} onClick={submitProduction}>
+                        提交（需授权）
+                    </Button>
                 </div>
             </div>
         </section>
@@ -345,7 +611,19 @@ function removeActiveSlash(editor: HTMLDivElement) {
     selection?.addRange(range);
 }
 
-function MentionMenu({ candidates, allInputs, activeIndex, theme, onSelect }: { candidates: ComposerCandidate[]; allInputs: NodeGenerationInput[]; activeIndex: number; theme: (typeof canvasThemes)[keyof typeof canvasThemes]; onSelect: (candidate: ComposerCandidate) => void }) {
+function MentionMenu({
+    candidates,
+    allInputs,
+    activeIndex,
+    theme,
+    onSelect,
+}: {
+    candidates: ComposerCandidate[];
+    allInputs: NodeGenerationInput[];
+    activeIndex: number;
+    theme: (typeof canvasThemes)[keyof typeof canvasThemes];
+    onSelect: (candidate: ComposerCandidate) => void;
+}) {
     const selectedRef = useRef(false);
     const activeItemRef = useRef<HTMLButtonElement | null>(null);
 
@@ -545,7 +823,10 @@ function parseComposerTokens(value: string): Token[] {
 
 function resourceLabel(input: NodeGenerationInput, inputs: NodeGenerationInput[]) {
     const sameTypeInputs = inputs.filter((item) => item.type === input.type && item.sourceKind === input.sourceKind);
-    const index = Math.max(0, sameTypeInputs.findIndex((item) => item.nodeId === input.nodeId));
+    const index = Math.max(
+        0,
+        sameTypeInputs.findIndex((item) => item.nodeId === input.nodeId),
+    );
     if (input.sourceKind === "drawing") return `绘图${index + 1}`;
     if (input.type === "image") return `图片${index + 1}`;
     if (input.type === "video") return `视频${index + 1}`;

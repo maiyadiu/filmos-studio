@@ -677,7 +677,7 @@ def test_restart_and_sqlite_backup_restore_preserve_versions_and_receipts(tmp_pa
             assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
 
 
-def test_v3_to_v4_migration_preserves_history_fk_indexes_and_triggers(tmp_path) -> None:
+def test_v3_to_latest_migration_preserves_history_fk_indexes_and_triggers(tmp_path) -> None:
     path = tmp_path / "v3.sqlite"
     entity_id = str(uuid4())
     event_id = str(uuid4())
@@ -747,7 +747,7 @@ def test_v3_to_v4_migration_preserves_history_fk_indexes_and_triggers(tmp_path) 
         } <= triggers
         assert connection.execute(
             "SELECT MAX(version) AS version FROM schema_migrations"
-        ).fetchone()["version"] == 4
+        ).fetchone()["version"] == 6
 
     SQLiteDatabase(path)
     with database.connect() as connection:

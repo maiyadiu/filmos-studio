@@ -36,7 +36,13 @@ def main() -> int:
         "READY_FOR_USER_SELECTION", "RunningHub", "ComfyUI", "Manual Web",
     )
     require("web/src/components/canvas/canvas-config-composer.tsx", "Generation Composer", "生成预览（零费用）", "提交（需授权）", "Catalog Validation", "Broker Confirmation")
-    require("web/src/film/generation-routing/canonical-tool-runtime.ts", "CANONICAL_GENERATION_TOOL_NAMES", "AUTHORIZED_GENERATION_SUBMISSION_REQUIRED", "externalWritePerformed: false")
+    require(
+        "web/src/film/generation-routing/canonical-tool-runtime.ts",
+        "CANONICAL_GENERATION_TOOL_NAMES",
+        "authorizedSubmissionId",
+        "context.productionPort.submitAuthorized",
+        "externalWritePerformed: false",
+    )
     require("packages/filmos-generation-contracts/src/catalog.ts", "CATALOG_VALIDATION_STALE", "CATALOG_VALIDATION_BINDING_MISMATCH")
     require("packages/filmos-generation-contracts/src/authorization.ts", "BROKER_AUTHORIZATION_EVIDENCE_INCOMPLETE", "GENERATION_SUBMISSION_STALE")
     require("packages/filmos-generation-contracts/src/budget.ts", "BUDGET_BINDING_SCOPE_MISMATCH", "BUDGET_LEDGER_SEQUENCE_GAP")
@@ -58,12 +64,31 @@ def main() -> int:
     ui_golden_path = ROOT / "acceptance/golden/brain-generation-routing/GENERATION_COMPOSER_GOLDEN.json"
     ui_golden = json.loads(ui_golden_path.read_text(encoding="utf-8"))
     observed = ui_golden.get("observed_contracts", {})
-    if ui_golden.get("status") != "PASSED_ZERO_COST" or observed.get("flova_external_gate_state") != "READY_FOR_USER_SELECTION":
+    if ui_golden.get("status") != "PASSED_PRODUCTION_COMPOSITION_ZERO_EXTERNAL_COST" or observed.get("flova_external_gate_state") != "READY_FOR_USER_SELECTION":
         raise RuntimeError("candidate UI Golden state closure changed")
     if any(observed.get(field) for field in (
         "provider_submit_invoked", "provider_completion_invoked", "asset_upload_invoked", "external_generation_invoked",
     )) or observed.get("external_spend_microunits") != "0":
         raise RuntimeError("candidate UI Golden crossed the zero-cost boundary")
+    production = ui_golden.get("production_composition", {})
+    expected_production = {
+        "project_name": "FilmOS_Acceptance_Project",
+        "engine_id": "filmos_mock_generation",
+        "reference_count": 1,
+        "reference_lock": "HARD",
+        "broker_reject_provider_submit_count": 0,
+        "broker_approve_provider_submit_count": 1,
+        "provider_receipt_count": 1,
+        "candidate_count": 1,
+        "candidate_qc_state": "PENDING",
+        "approved_count": 0,
+        "restart_provider_resubmit_count": 0,
+        "restart_candidate_recovered": True,
+        "external_network_request_count": 0,
+        "external_spend_microunits": "0",
+    }
+    if any(production.get(key) != value for key, value in expected_production.items()):
+        raise RuntimeError("candidate App Production Composition Golden closure changed")
     for screenshot in ui_golden.get("screenshots", []):
         screenshot_path = ui_golden_path.parent / screenshot["path"]
         if hashlib.sha256(screenshot_path.read_bytes()).hexdigest() != screenshot["sha256"]:

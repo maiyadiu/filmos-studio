@@ -20,8 +20,8 @@ type RoutingStore = {
     error: string;
     initialize(legacy: AiConfig): Promise<void>;
     setGlobalDefault(profileId: UserSelectableBrainProfileId): Promise<void>;
-    updateBinding(profileId: UserSelectableBrainProfileId, patch: Partial<Pick<BrainProfileBinding, "enabled" | "channelId" | "modelId">>): Promise<void>;
-    setGenerationDefault(taskKind: GenerationTaskKind, route: { engineId: string; connectionId: string }): Promise<void>;
+    updateBinding(profileId: UserSelectableBrainProfileId, patch: Partial<Pick<BrainProfileBinding, "enabled" | "channelId" | "modelId" | "providerKind" | "protocol" | "modelCapabilityEvidence">>): Promise<void>;
+    setGenerationDefault(taskKind: GenerationTaskKind, route: { engineId: string; connectionId: string; modelId?: string; workflowId?: string; skillId?: string }): Promise<void>;
 };
 
 let initialization: Promise<void> | undefined;

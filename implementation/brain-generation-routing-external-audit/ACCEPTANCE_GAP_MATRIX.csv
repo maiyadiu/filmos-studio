@@ -1,0 +1,11 @@
+gate_id,previous_evidence,new_evidence,external_network,external_spend,status
+REFERENCE-CONTRACT,static source,contract runtime tests,0,0,PASSED
+BRAIN-RUNTIME,configuration presence,four exact Browser Runtime probes,0,0,PASSED
+ENGINE-CONNECTION,default config string,account invariant and non-routable Flova test,0,0,PASSED
+COMPOSER-PREVIEW,UI hash,real Descriptor Prompt Route Proposal receipts,0,0,PASSED
+REJECT,none,rejected immutable decision trace and zero submit count,0,0,PASSED
+APPROVE,none,authorized Mock submit exactly once and provider receipt,0,0,PASSED
+STALE,source assertion,guard drift blocks before provider submit,0,0,PASSED
+RESTART,in-memory statement,Film Core SQLite restart plus no-resubmit recovery,0,0,PASSED
+CANDIDATE,UI state,QC pending and not approved persisted candidate,0,0,PASSED
+TRACE,static smoke,15-event machine trace plus rejection event,0,0,PASSED

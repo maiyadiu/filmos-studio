@@ -1697,6 +1697,11 @@ function InfiniteCanvasPage() {
             if (panelNode.type === CanvasNodeType.Script || panelNode.type === CanvasNodeType.Drawing) return null;
             return panelNode.type === CanvasNodeType.Config ? (
                 <CanvasConfigComposer
+                    projectId={projectId}
+                    domainProjectId={currentProject?.projectId}
+                    projectName={linkedProjectQuery.data?.project.name || currentProject?.title || "未命名画布"}
+                    nodeId={panelNode.id}
+                    snapshot={agentSnapshot}
                     value={panelNode.metadata?.composerContent ?? panelNode.metadata?.prompt ?? ""}
                     inputs={configInputsById.get(panelNode.id) || []}
                     skillReferences={skillMentionReferences}
@@ -1726,7 +1731,7 @@ function InfiniteCanvasPage() {
                 />
             );
         },
-        [configInputsById, handleConfigNodeChange, handleGenerateNode, handleNodePromptChange, handleRemoveNodeReference, mentionReferencesByNodeId, runningNodeId, skillMentionReferences, workspaceMode],
+        [agentSnapshot, configInputsById, currentProject?.projectId, currentProject?.title, handleConfigNodeChange, handleGenerateNode, handleNodePromptChange, handleRemoveNodeReference, linkedProjectQuery.data?.project.name, mentionReferencesByNodeId, projectId, runningNodeId, skillMentionReferences, workspaceMode],
     );
 
     const renderCanvasNodeContent = useCallback(

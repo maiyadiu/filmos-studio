@@ -14,7 +14,11 @@
         "jsx": "react-jsx",
         "incremental": true,
         "paths": {
-            "@/*": ["./src/*"]
+            "@/*": ["./src/*"],
+            "@filmos/generation-contracts": ["../packages/filmos-generation-contracts/src/index.ts"],
+            "@filmos/agent-tool-contracts": ["../packages/filmos-agent-tool-contracts/generated/canonical-tools.ts"],
+            "@filmos/agent-tool-contracts/model-api-tools": ["../packages/filmos-agent-tool-contracts/generated/model-api-tools.ts"],
+            "@filmos/agent-tool-contracts/mcp-tools": ["../packages/filmos-agent-tool-contracts/generated/mcp-tools.ts"]
         }
     },
     "include": ["vite.config.ts", "src/**/*.ts", "src/**/*.tsx"],

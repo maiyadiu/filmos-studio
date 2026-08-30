@@ -4,7 +4,7 @@ import sqlite3
 from pathlib import Path
 
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 6
 
 MIGRATION_001 = """
 CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -482,11 +482,139 @@ COMMIT;
 PRAGMA foreign_keys = ON;
 """
 
+MIGRATION_005 = """
+BEGIN IMMEDIATE;
+
+CREATE TABLE generation_production_records (
+    record_id TEXT PRIMARY KEY,
+    record_kind TEXT NOT NULL CHECK (record_kind IN ('preview', 'authorization', 'provider_receipt', 'candidate', 'rejection')),
+    generation_attempt_id TEXT NOT NULL,
+    proposal_id TEXT,
+    authorized_submission_id TEXT,
+    idempotency_key TEXT,
+    content_hash TEXT NOT NULL CHECK (
+        length(content_hash) = 64
+        AND content_hash = lower(content_hash)
+        AND content_hash NOT GLOB '*[^0-9a-f]*'
+    ),
+    payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
+    created_at TEXT NOT NULL
+);
+
+CREATE UNIQUE INDEX idx_generation_production_preview
+ON generation_production_records(proposal_id)
+WHERE record_kind = 'preview';
+
+CREATE UNIQUE INDEX idx_generation_production_authorization
+ON generation_production_records(authorized_submission_id)
+WHERE record_kind = 'authorization';
+
+CREATE UNIQUE INDEX idx_generation_production_receipt
+ON generation_production_records(idempotency_key)
+WHERE record_kind = 'provider_receipt';
+
+CREATE UNIQUE INDEX idx_generation_production_candidate
+ON generation_production_records(generation_attempt_id)
+WHERE record_kind = 'candidate';
+
+CREATE TRIGGER generation_production_records_no_update
+BEFORE UPDATE ON generation_production_records
+BEGIN
+    SELECT RAISE(ABORT, 'generation_production_records are append-only');
+END;
+
+CREATE TRIGGER generation_production_records_no_delete
+BEFORE DELETE ON generation_production_records
+BEGIN
+    SELECT RAISE(ABORT, 'generation_production_records are append-only');
+END;
+
+INSERT INTO schema_migrations(version, applied_at)
+VALUES (5, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
+
+COMMIT;
+"""
+
+MIGRATION_006 = """
+BEGIN IMMEDIATE;
+
+DROP TRIGGER generation_production_records_no_update;
+DROP TRIGGER generation_production_records_no_delete;
+DROP INDEX idx_generation_production_preview;
+DROP INDEX idx_generation_production_authorization;
+DROP INDEX idx_generation_production_receipt;
+DROP INDEX idx_generation_production_candidate;
+
+ALTER TABLE generation_production_records RENAME TO generation_production_records_v5;
+
+CREATE TABLE generation_production_records (
+    record_id TEXT PRIMARY KEY,
+    record_kind TEXT NOT NULL CHECK (record_kind IN ('acceptance_authority', 'preview', 'authorization', 'provider_receipt', 'candidate', 'rejection')),
+    generation_attempt_id TEXT NOT NULL,
+    proposal_id TEXT,
+    authorized_submission_id TEXT,
+    idempotency_key TEXT,
+    content_hash TEXT NOT NULL CHECK (
+        length(content_hash) = 64
+        AND content_hash = lower(content_hash)
+        AND content_hash NOT GLOB '*[^0-9a-f]*'
+    ),
+    payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
+    created_at TEXT NOT NULL
+);
+
+INSERT INTO generation_production_records(
+    record_id, record_kind, generation_attempt_id, proposal_id,
+    authorized_submission_id, idempotency_key, content_hash, payload_json, created_at
+)
+SELECT
+    record_id, record_kind, generation_attempt_id, proposal_id,
+    authorized_submission_id, idempotency_key, content_hash, payload_json, created_at
+FROM generation_production_records_v5;
+
+DROP TABLE generation_production_records_v5;
+
+CREATE UNIQUE INDEX idx_generation_production_preview
+ON generation_production_records(proposal_id)
+WHERE record_kind = 'preview';
+
+CREATE UNIQUE INDEX idx_generation_production_authorization
+ON generation_production_records(authorized_submission_id)
+WHERE record_kind = 'authorization';
+
+CREATE UNIQUE INDEX idx_generation_production_receipt
+ON generation_production_records(idempotency_key)
+WHERE record_kind = 'provider_receipt';
+
+CREATE UNIQUE INDEX idx_generation_production_candidate
+ON generation_production_records(generation_attempt_id)
+WHERE record_kind = 'candidate';
+
+CREATE TRIGGER generation_production_records_no_update
+BEFORE UPDATE ON generation_production_records
+BEGIN
+    SELECT RAISE(ABORT, 'generation_production_records are append-only');
+END;
+
+CREATE TRIGGER generation_production_records_no_delete
+BEFORE DELETE ON generation_production_records
+BEGIN
+    SELECT RAISE(ABORT, 'generation_production_records are append-only');
+END;
+
+INSERT INTO schema_migrations(version, applied_at)
+VALUES (6, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
+
+COMMIT;
+"""
+
 MIGRATIONS = (
     (1, MIGRATION_001),
     (2, MIGRATION_002),
     (3, MIGRATION_003),
     (4, MIGRATION_004),
+    (5, MIGRATION_005),
+    (6, MIGRATION_006),
 )
 
 

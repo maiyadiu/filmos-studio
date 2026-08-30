@@ -6,6 +6,18 @@ export type UserSelectableBrainProfileId =
     | "deepseek.api"
     | "local.model";
 
+export type AgentProviderKind = "openai" | "anthropic" | "deepseek" | "local_openai_compatible";
+
+export type AgentModelCapabilityEvidence = {
+    text: true;
+    toolCalling: boolean;
+    structuredOutput: boolean;
+    vision?: boolean;
+    attachments?: boolean;
+    evidenceSource: string;
+    evidenceRevision: string;
+};
+
 export type MutableAuthorityRecord = {
     schemaVersion: number;
     entityVersion: number;
@@ -40,6 +52,9 @@ export type BrainProfileBinding = MutableAuthorityRecord & {
     billingMode: "subscription" | "metered_api" | "local_compute";
     interactionSurface: "native_stream" | "host_handoff";
     allowApiFallback: false;
+    providerKind?: AgentProviderKind;
+    protocol?: "openai_responses" | "openai_chat_completions" | "anthropic_messages" | "local_openai_compatible";
+    modelCapabilityEvidence?: AgentModelCapabilityEvidence;
 };
 
 export type ProjectBrainPolicy = MutableAuthorityRecord & {
@@ -60,7 +75,7 @@ export type GenerationTaskKind =
 export type GenerationEngineDescriptor = {
     engineId: string;
     displayName: string;
-    transport: "cli" | "project_cli" | "workflow_api" | "bridge" | "manual";
+    transport: "cli" | "project_cli" | "workflow_api" | "bridge" | "manual" | "local_mock";
     capabilities: Array<"image" | "video" | "audio" | "workflow">;
     catalogSourceCapabilities: Array<"runtime_discovery" | "remote_catalog" | "verified_static_version_bound" | "manual_unverified">;
     externalProjectRequired: boolean;
@@ -232,6 +247,10 @@ export type GenerationReferenceBinding = {
     assetVersionContentHash: string;
     mediaType: string;
     ordinal: number;
+    preparedRepresentationId?: string;
+    preparedRepresentationContentHash?: string;
+    weightMicrounits?: number;
+    hardLock: boolean;
 };
 
 export type GenerationRouteDraft = {

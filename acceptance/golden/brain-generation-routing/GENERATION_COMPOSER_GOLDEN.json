@@ -1,16 +1,18 @@
 {
   "schema_version": "1.0.0",
   "golden_case_id": "BRAIN-GENERATION-CANDIDATE-UI-001",
-  "status": "PASSED_ZERO_COST",
+  "status": "PASSED_PRODUCTION_COMPOSITION_ZERO_EXTERNAL_COST",
   "candidate": {
     "application": "FilmOS Studio.app",
     "profile": "filmos-candidate",
-    "bundle_sha256": "bb46cc51e860f8f52c88a5329f876ef450c6fda9f6d1f156553080f03944bc0f",
-    "source_baseline": "b12b1ba108a926470614b2e6a231d333d1a1d00f",
+    "bundle_tree_sha256": "2d5ef3736b66dee71e6272cb49261c17d453d9f8e9952bf5cac5c6f32230c2ba",
+    "bundle_tree_hash_contract": "sha256(sorted(sha256(file) + two-spaces + relative-path + newline))",
+    "source_baseline": "9ead75ba2afda248f77a9c916d29769852283abe",
     "local_project_created_for_evidence": true,
     "external_project_created": false
   },
   "observed_contracts": {
+    "phase": "ZERO_COST_PREVIEW_BOUNDARY",
     "settings_home": [
       "AI_BRAIN",
       "GENERATION_ENGINES",
@@ -62,6 +64,24 @@
     "external_generation_invoked": false,
     "external_spend_microunits": "0"
   },
+  "production_composition": {
+    "project_id": "filmos-acceptance-project-v1",
+    "project_name": "FilmOS_Acceptance_Project",
+    "engine_id": "filmos_mock_generation",
+    "provider_transport": "LOCAL_DETERMINISTIC_MOCK",
+    "reference_count": 1,
+    "reference_lock": "HARD",
+    "broker_reject_provider_submit_count": 0,
+    "broker_approve_provider_submit_count": 1,
+    "provider_receipt_count": 1,
+    "candidate_count": 1,
+    "candidate_qc_state": "PENDING",
+    "approved_count": 0,
+    "restart_provider_resubmit_count": 0,
+    "restart_candidate_recovered": true,
+    "external_network_request_count": 0,
+    "external_spend_microunits": "0"
+  },
   "screenshots": [
     {
       "path": "ui/settings-ai-brain-dark.jpeg",
@@ -110,6 +130,22 @@
     {
       "path": "ui/composer-video-light.jpeg",
       "sha256": "3d524e72f9c20235985d8c45a2805fc205a2d7cc3f4699d015c506ab36d38820"
+    },
+    {
+      "path": "ui/candidate-app-production-broker-approve.png",
+      "sha256": "e5c689af582df1186fa4826872613d9336b79d57af5edba59f2e59770ae38b9f"
+    },
+    {
+      "path": "ui/candidate-app-production-rejected-zero-submit.png",
+      "sha256": "3c2fdc5f382b9bb0b6273e2d980bf5a155235826a94af3690009785c7987a4b1"
+    },
+    {
+      "path": "ui/candidate-app-production-candidate.png",
+      "sha256": "f89eaf1673b3e18aac7839a2427c74d6e9d9d659525ce8fc63c95fb0a747fceb"
+    },
+    {
+      "path": "ui/candidate-app-production-restart.png",
+      "sha256": "1479bc9ee05d32d9b65158dd314aa65c67603d2374bc72eca9ebd960ca9b2b31"
     }
   ],
   "finding_and_repair": {
@@ -126,7 +162,7 @@
     "black_box_cold_start_retested": true
   },
   "limitations": [
-    "External provider execution remains READY_FOR_USER_AUTHORIZATION.",
-    "This Golden intentionally proves the zero-cost preview and authorization boundary only."
+    "Credentialed external providers remain READY_FOR_USER_AUTHORIZATION.",
+    "Production Composition is proven with the dedicated local Mock Provider only; no external completion, upload, project creation or spend was authorized."
   ]
 }

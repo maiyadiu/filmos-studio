@@ -2,9 +2,15 @@ import { canonicalSort, hashEnvelope, hashProjection } from "./canonical.js";
 import type { GenerationReferenceBinding, GenerationRouteSnapshot } from "./types.js";
 
 export async function hashGenerationReferences(references: readonly GenerationReferenceBinding[]): Promise<string> {
-    const normalized = canonicalSort(references, (item) => `${String(item.ordinal).padStart(8, "0")}:${item.role}:${item.bindingId}`);
+    const normalized = canonicalSort(references, (item) => `${String(item.ordinal).padStart(8, "0")}:${item.role}:${item.assetVersionId}`);
     if (new Set(normalized.map((item) => item.bindingId)).size !== normalized.length) throw new Error("GENERATION_REFERENCE_BINDING_DUPLICATE");
-    return hashProjection("generation-references", "semantic", normalized);
+    if (normalized.some((item, index) => !Number.isInteger(item.ordinal) || item.ordinal !== index)) throw new Error("GENERATION_REFERENCE_ORDINAL_INVALID");
+    for (const item of normalized) {
+        if ((item.preparedRepresentationId === undefined) !== (item.preparedRepresentationContentHash === undefined)) throw new Error("GENERATION_REFERENCE_PREPARED_REPRESENTATION_INCOMPLETE");
+        if (item.weightMicrounits !== undefined && (!Number.isInteger(item.weightMicrounits) || item.weightMicrounits < 0 || item.weightMicrounits > 1_000_000)) throw new Error("GENERATION_REFERENCE_WEIGHT_INVALID");
+        if (typeof item.hardLock !== "boolean") throw new Error("GENERATION_REFERENCE_HARD_LOCK_REQUIRED");
+    }
+    return hashProjection("generation-references", "semantic", normalized.map(({ bindingId: _bindingId, ...item }) => item));
 }
 
 export async function createGenerationRouteSnapshot(input: Omit<GenerationRouteSnapshot, "contentHash" | "routeContentHash">): Promise<GenerationRouteSnapshot> {
@@ -16,7 +22,7 @@ export async function createGenerationRouteSnapshot(input: Omit<GenerationRouteS
         descriptorSemanticHash: input.descriptorSemanticHash,
         ...(input.modelId ? { modelId: input.modelId } : {}), ...(input.workflowId ? { workflowId: input.workflowId } : {}), ...(input.skillId ? { skillId: input.skillId } : {}),
         normalizedParameters: input.normalizedParameters, parameterHash: input.parameterHash,
-        references: canonicalSort(input.references, (item) => `${String(item.ordinal).padStart(8, "0")}:${item.role}:${item.bindingId}`), referenceHash: input.referenceHash,
+        references: canonicalSort(input.references, (item) => `${String(item.ordinal).padStart(8, "0")}:${item.role}:${item.assetVersionId}`), referenceHash: input.referenceHash,
         promptDraftVersion: input.promptDraftVersion, promptDraftContentHash: input.promptDraftContentHash,
         compiledPromptSemanticHash: input.compiledPromptSemanticHash, compiledPromptTextHash: input.compiledPromptTextHash,
         compilerVersion: input.compilerVersion, templateVersion: input.templateVersion,

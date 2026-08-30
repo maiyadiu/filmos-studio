@@ -105,7 +105,7 @@ final class DesktopChatGPTRuntime: ChatGPTConnectionOperating {
     }
 
     func prepareLocalServices(projectID: String, transportProof: String) async throws {
-        try await ensureService(filmCoreServiceID) { await Self.endpointReady("http://127.0.0.1:17650/health") }
+        try await prepareFilmCoreAuthority()
         if let activeProjectID, activeProjectID != projectID {
             await disconnectHostSession()
             stopTunnel()
@@ -134,6 +134,10 @@ final class DesktopChatGPTRuntime: ChatGPTConnectionOperating {
             await Self.endpointReady("http://127.0.0.1:17840/health")
         }
         activeTransportProof = transportProof
+    }
+
+    func prepareFilmCoreAuthority() async throws {
+        try await ensureService(filmCoreServiceID) { await Self.endpointReady("http://127.0.0.1:17650/health") }
     }
 
     func runTunnelDoctor(

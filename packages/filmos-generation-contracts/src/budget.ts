@@ -1,5 +1,5 @@
 import { hashEnvelope, hashProjection } from "./canonical.js";
-import type { BudgetLedger, BudgetLedgerEvent, CanonicalSignedMicrounitsDelta, CanonicalUnsignedMicrounits, SignedBudgetLedgerEffects } from "./types.js";
+import type { BudgetLedger, BudgetLedgerEvent, BudgetReservation, CanonicalSignedMicrounitsDelta, CanonicalUnsignedMicrounits, GenerationBudgetGrant, SignedBudgetLedgerEffects } from "./types.js";
 
 const UNSIGNED = /^(0|[1-9][0-9]*)$/;
 const SIGNED = /^(0|[1-9][0-9]*|-[1-9][0-9]*)$/;
@@ -16,6 +16,57 @@ export function canonicalSignedMicrounitsDelta(value: string): CanonicalSignedMi
 
 export function assertBudgetBindingScope(ledger: Pick<BudgetLedger, "accountBindingRef" | "connectionInstanceRef">, input: { accountBindingRef?: string; connectionInstanceRef: string }): void {
     if (ledger.accountBindingRef !== input.accountBindingRef || ledger.connectionInstanceRef !== input.connectionInstanceRef) throw new Error("BUDGET_BINDING_SCOPE_MISMATCH");
+}
+
+export async function createBudgetReservation(input: {
+    reservationId: string;
+    ledger: BudgetLedger;
+    grant: GenerationBudgetGrant;
+    generationAttemptId: string;
+    routeSnapshotId: string;
+    routeContentHash: string;
+    reservedTasks: number;
+    reservedCost?: { unit: string; amountMicrounits: CanonicalUnsignedMicrounits };
+    expiresAt: string;
+    createdAt: string;
+}): Promise<BudgetReservation> {
+    if (input.ledger.grantId !== input.grant.grantId || input.ledger.projectId !== input.grant.projectId) throw new Error("BUDGET_GRANT_LEDGER_SCOPE_MISMATCH");
+    assertBudgetBindingScope(input.ledger, input.grant);
+    if (input.grant.status !== "active" || Date.parse(input.createdAt) >= Date.parse(input.grant.expiresAt)) throw new Error("BUDGET_GRANT_NOT_ACTIVE");
+    if (!Number.isSafeInteger(input.reservedTasks) || input.reservedTasks < 1) throw new Error("BUDGET_RESERVED_TASKS_INVALID");
+    if (input.reservedCost) canonicalUnsignedMicrounits(input.reservedCost.amountMicrounits);
+    const semantic = {
+        ledgerId: input.ledger.ledgerId, budgetGrantId: input.grant.grantId,
+        generationAttemptId: input.generationAttemptId, routeSnapshotId: input.routeSnapshotId,
+        routeContentHash: input.routeContentHash,
+        ...(input.ledger.accountBindingRef ? { accountBindingRef: input.ledger.accountBindingRef } : {}),
+        connectionInstanceRef: input.ledger.connectionInstanceRef,
+        budgetGrantExpectedVersion: input.grant.entityVersion, budgetGrantExpectedContentHash: input.grant.contentHash,
+        ledgerExpectedVersion: input.ledger.entityVersion, ledgerExpectedContentHash: input.ledger.contentHash,
+        reservedTasks: input.reservedTasks, ...(input.reservedCost ? { reservedCost: input.reservedCost } : {}),
+        expiresAt: input.expiresAt,
+    };
+    const budgetReservationSemanticHash = await hashProjection("budget-reservation", "semantic", semantic);
+    const envelope: Omit<BudgetReservation, "contentHash"> = { schemaVersion: 1, reservationId: input.reservationId, ...semantic, budgetReservationSemanticHash, createdAt: input.createdAt };
+    return { ...envelope, contentHash: await hashEnvelope("budget-reservation", envelope as unknown as Record<string, unknown>) };
+}
+
+export async function verifyBudgetReservation(reservation: BudgetReservation): Promise<void> {
+    const semantic = {
+        ledgerId: reservation.ledgerId, budgetGrantId: reservation.budgetGrantId,
+        generationAttemptId: reservation.generationAttemptId, routeSnapshotId: reservation.routeSnapshotId,
+        routeContentHash: reservation.routeContentHash,
+        ...(reservation.accountBindingRef ? { accountBindingRef: reservation.accountBindingRef } : {}),
+        connectionInstanceRef: reservation.connectionInstanceRef,
+        budgetGrantExpectedVersion: reservation.budgetGrantExpectedVersion, budgetGrantExpectedContentHash: reservation.budgetGrantExpectedContentHash,
+        ledgerExpectedVersion: reservation.ledgerExpectedVersion, ledgerExpectedContentHash: reservation.ledgerExpectedContentHash,
+        reservedTasks: reservation.reservedTasks, ...(reservation.reservedCost ? { reservedCost: reservation.reservedCost } : {}),
+        expiresAt: reservation.expiresAt,
+    };
+    const semanticHash = await hashProjection("budget-reservation", "semantic", semantic);
+    const { contentHash: _contentHash, ...envelope } = reservation;
+    const envelopeHash = await hashEnvelope("budget-reservation", envelope as unknown as Record<string, unknown>);
+    if (semanticHash !== reservation.budgetReservationSemanticHash || envelopeHash !== reservation.contentHash) throw new Error("BUDGET_RESERVATION_TAMPERED");
 }
 
 function addUnsigned(current: string, delta: string): string {

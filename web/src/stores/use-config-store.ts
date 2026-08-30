@@ -374,7 +374,19 @@ export type ModelChannel = {
 		logicalPriceTiers?: PublicLogicalModelPriceTier[];
         defaultOptions?: Record<string, unknown>;
     }>;
-    transport?: "backend-channel" | "local-runtime";
+    transport?: "backend-channel" | "local-runtime" | "local-llm-runtime";
+    /** Exact Agent provider evidence. Never infer this from channel name, URL or model ID. */
+    providerKind?: "openai" | "anthropic" | "deepseek" | "local_openai_compatible";
+    agentProtocol?: "openai_responses" | "openai_chat_completions" | "anthropic_messages" | "local_openai_compatible";
+    agentModelCapabilities?: Record<string, {
+        text: true;
+        toolCalling: boolean;
+        structuredOutput: boolean;
+        vision?: boolean;
+        attachments?: boolean;
+        evidenceSource: string;
+        evidenceRevision: string;
+    }>;
     localModels?: DreaminaLocalModel[];
 };
 
@@ -766,6 +778,7 @@ export function effectiveConfigWithDreamina(config: AiConfig, catalogState: "idl
         scope: "user",
         enabled: true,
         transport: "local-runtime",
+        // Dreamina is a generation engine and intentionally has no Agent provider metadata.
         localModels: dreaminaModels,
     };
     const channels = [...config.channels.filter((item) => item.id !== channel.id), channel];
@@ -802,6 +815,10 @@ export function createModelChannel(channel?: Partial<ModelChannel>): ModelChanne
         hasApiKey: channel?.hasApiKey,
         hasSecretKey: channel?.hasSecretKey,
         modelCosts: channel?.modelCosts?.map((item) => ({ ...item, protocol: normalizeModelProtocol(item.protocol) })),
+        transport: channel?.transport,
+        providerKind: channel?.providerKind,
+        agentProtocol: channel?.agentProtocol,
+        agentModelCapabilities: channel?.agentModelCapabilities,
     };
 }
 

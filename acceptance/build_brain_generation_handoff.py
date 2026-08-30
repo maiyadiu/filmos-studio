@@ -23,6 +23,15 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 REQUIRED_ZIP_FILES = (
     "FINAL_COMMIT.json",
+    "EXTERNAL_AUDIT_RESOLUTION.json",
+    "BRAIN_RUNTIME_BINDING_TRACE.json",
+    "REFERENCE_CONTRACT_GATE.json",
+    "ENGINE_CONNECTION_INVARIANT_GATE.json",
+    "PROJECT_ROUTE_PRECEDENCE_GATE.json",
+    "PRODUCTION_GENERATION_TRACE.json",
+    "MOCK_PROVIDER_RECEIPT.json",
+    "BUDGET_ATOMICITY_GATE.json",
+    "CANDIDATE_BOUNDARY_GATE.json",
     "IMPLEMENTATION_SUMMARY.md",
     "BRAIN_BINDING_MATRIX.json",
     "PERSISTENCE_OWNERSHIP_MATRIX.md",
@@ -267,7 +276,7 @@ def main() -> int:
     copy_evidence(receipt_path, receipt, formal_root / "evidence")
 
     with tempfile.TemporaryDirectory(prefix="filmos-v2.4-handoff-") as temporary:
-        package = Path(temporary) / f"FilmOS_Brain_Generation_Routing_Handoff_{short_sha}"
+        package = Path(temporary) / f"FilmOS_V2_4_Production_Wiring_Handoff_{short_sha}"
         package.mkdir()
         copy_evidence(receipt_path, receipt, package / "evidence")
         ui_source = ROOT / "acceptance" / "golden" / "brain-generation-routing" / "ui"
@@ -290,6 +299,62 @@ def main() -> int:
         write_json(package / "FINAL_COMMIT.json", final_commit)
         write_json(package / "REDACTED_EVIDENCE_PROJECTION.json", redacted_projection)
         write_json(package / "REDACTION_RECEIPT.json", redaction_receipt)
+
+        production_result = results.get("production-generation-composition")
+        if not production_result or not production_result.get("artifact"):
+            raise RuntimeError("production-generation-composition artifact is missing")
+        production_artifact = load_json(receipt_path.parent / production_result["artifact"]["path"])
+        production_trace = production_artifact["production_trace"]
+        write_json(package / "PRODUCTION_GENERATION_TRACE.json", production_trace)
+        write_json(package / "BRAIN_RUNTIME_BINDING_TRACE.json", {
+            "schema_version": "1.0.0",
+            "status": "PASSED",
+            "binding": final_commit,
+            **production_artifact["brain_runtime"],
+        })
+        write_json(package / "REFERENCE_CONTRACT_GATE.json", bound_gate(
+            "GEN-REFERENCE-BINDING-PRODUCTION-001", release, receipt, results,
+            ("generation-routing-contracts", "production-generation-composition"),
+            ("packages/filmos-generation-contracts/src/route.ts", "web/src/film/generation-routing/production-composition.ts"),
+            **production_artifact["reference_contract"],
+        ))
+        write_json(package / "ENGINE_CONNECTION_INVARIANT_GATE.json", bound_gate(
+            "GEN-ENGINE-CONNECTION-INVARIANT-001", release, receipt, results,
+            ("generation-routing-contracts", "production-generation-composition"),
+            ("packages/filmos-generation-contracts/src/engine.ts", "web/src/film/generation-routing/user-config.ts"),
+            **production_artifact["engine_connection_invariant"],
+        ))
+        write_json(package / "PROJECT_ROUTE_PRECEDENCE_GATE.json", bound_gate(
+            "GEN-PROJECT-ROUTE-PRECEDENCE-001", release, receipt, results,
+            ("production-generation-composition",),
+            ("web/src/film/generation-routing/production-composition.ts",),
+            precedence=production_artifact["route_precedence"],
+        ))
+        write_json(package / "MOCK_PROVIDER_RECEIPT.json", production_trace["rounds"]["approve"]["provider_receipt"])
+        write_json(package / "BUDGET_ATOMICITY_GATE.json", bound_gate(
+            "GEN-BUDGET-ATOMICITY-PRODUCTION-001", release, receipt, results,
+            ("production-generation-composition", "generation-routing-contracts"),
+            ("packages/filmos-generation-contracts/src/budget.ts", "film-core/src/film_production_core/generation_production.py"),
+            reservation_cost_microunits=production_artifact["budget_reservation_cost_microunits"],
+            persistence_transaction="BEGIN IMMEDIATE",
+        ))
+        write_json(package / "CANDIDATE_BOUNDARY_GATE.json", bound_gate(
+            "GEN-CANDIDATE-BOUNDARY-PRODUCTION-001", release, receipt, results,
+            ("production-generation-composition",),
+            ("web/src/film/generation-routing/production-composition.ts", "film-core/src/film_production_core/generation_production.py"),
+            candidate_boundary=production_artifact["candidate_boundary"],
+            approved_count=production_trace["candidate_approved_count"],
+        ))
+        write_json(package / "EXTERNAL_AUDIT_RESOLUTION.json", {
+            "schema_version": "1.0.0",
+            "status": "PASSED",
+            "fixed_baseline": "9ead75ba2afda248f77a9c916d29769852283abe",
+            "scope": "V2.4_PRODUCTION_WIRING_ONLY",
+            "resolved_p0": ["reference_contract", "brain_exact_binding", "engine_connection_truth", "production_composer_chain", "data_driven_ui", "production_acceptance"],
+            "external_network_request_count": production_artifact["external_network_request_count"],
+            "external_spend_microunits": production_artifact["external_spend_microunits"],
+            "binding": final_commit,
+        })
 
         for source_name, target_name in (
             ("PERSISTENCE_OWNERSHIP_MATRIX.md", "PERSISTENCE_OWNERSHIP_MATRIX.md"),
@@ -435,7 +500,7 @@ def main() -> int:
             raise RuntimeError(f"final privacy scan failed: {findings}")
 
         artifact_root.mkdir(parents=True, exist_ok=True)
-        zip_path = artifact_root / f"FilmOS_Brain_Generation_Routing_Handoff_{short_sha}.zip"
+        zip_path = artifact_root / f"FilmOS_V2_4_Production_Wiring_Handoff_{short_sha}.zip"
         with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
             for path in sorted(item for item in package.rglob("*") if item.is_file()):
                 archive.write(path, arcname=f"{package.name}/{path.relative_to(package).as_posix()}")

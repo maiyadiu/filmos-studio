@@ -37,6 +37,6 @@ describe("canonical generation tool runtime", () => {
         const preview = await executeCanonicalGenerationTool("generation_preview_submission", { routeSnapshotId: "route-test" }, context);
         expect(preview).toMatchObject({ ok: true, data: { externalCostMicrounits: "0", externalWritePerformed: false } });
         const submit = await executeCanonicalGenerationTool("generation_submit", { authorizedSubmissionId: "submission-test" }, context);
-        expect(submit).toMatchObject({ ok: false, data: { code: "AUTHORIZED_GENERATION_SUBMISSION_REQUIRED", externalWritePerformed: false } });
+        expect(submit).toMatchObject({ ok: false, data: { code: "READY_FOR_USER_AUTHORIZATION", externalWritePerformed: false } });
     });
 });

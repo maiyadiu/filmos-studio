@@ -1,0 +1,9 @@
+gap_id,baseline_gap,resolution,source,status
+P0-1,Reference缺少准备态权重硬锁与稳定语义哈希,补齐字段和五项fail-closed gate,packages/filmos-generation-contracts/src/route.ts,PASSED
+P0-2,Brain默认兜底且Provider兼容证据不足,显式选择和精确Provider Protocol Capability证据,packages/filmos-generation-contracts/src/brain.ts,PASSED
+P0-2-LOCAL,Local Brain可能误用Dreamina,Local仅允许local-llm-runtime,web/src/film/agent/browser-runtime-handler.ts,PASSED
+P0-3,Account Connection无账号绑定仍可Ready,Ready必须绑定pseudonymous account ref,packages/filmos-generation-contracts/src/engine.ts,PASSED
+P0-3-FLOVA,Flova选择Project前可路由,默认not_configured且Resolver过滤,web/src/film/generation-routing/user-config.ts,PASSED
+P0-4,Composer没有不可变生产链,Production Composition与Film Core追加式权威接线,web/src/film/generation-routing/production-composition.ts,PASSED
+P0-5,UI硬编码Engine Route参数,Registry Connection Catalog Schema驱动,web/src/film/generation-routing/runtime-catalog.ts,PASSED
+P0-6,验收只做字符串扫描,新增真实Production Composition和机器Trace,acceptance/checks/production_generation_composition.py,PASSED

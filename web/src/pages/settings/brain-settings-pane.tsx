@@ -1,8 +1,9 @@
 import { App, Alert, Select, Switch, Tag } from "antd";
-import type { UserSelectableBrainProfileId } from "@filmos/generation-contracts";
+import { assertBrainProviderCompatibility, type UserSelectableBrainProfileId } from "@filmos/generation-contracts";
 import { useEffect } from "react";
 
 import { BRAIN_PROFILE_PRESENTATIONS } from "@/film/agent/brain-profiles";
+import { brainBindingEvidencePatch, compatibleBrainChannels, compatibleBrainModels } from "@/film/agent/brain-channel-compatibility";
 import { useBrainGenerationRoutingStore } from "@/stores/use-brain-generation-routing-store";
 import { useEffectiveConfig } from "@/stores/use-config-store";
 
@@ -43,8 +44,12 @@ export function BrainSettingsPane() {
                     {BRAIN_PROFILE_PRESENTATIONS.map((profile) => {
                         const binding = routing?.bindings.find((item) => item.profileId === profile.id);
                         const channel = effectiveConfig.channels.find((item) => item.id === binding?.channelId);
+                        const compatibleChannels = compatibleBrainChannels(profile.id, effectiveConfig.channels);
                         const exactRequired = apiProfiles.has(profile.id);
-                        const ready = Boolean(binding?.enabled && (!exactRequired || (binding.channelId && binding.modelId)));
+                        let ready = Boolean(binding?.enabled && (!exactRequired || (binding.channelId && binding.modelId)));
+                        if (ready && exactRequired && binding) {
+                            try { assertBrainProviderCompatibility(binding); } catch { ready = false; }
+                        }
                         return (
                             <section key={profile.id} className="settings-preference-block p-4" data-brain-profile-id={profile.id}>
                                 <div className="flex items-start justify-between gap-3">
@@ -66,8 +71,11 @@ export function BrainSettingsPane() {
                                                 className="w-full"
                                                 value={binding?.channelId}
                                                 placeholder="选择 Channel ID"
-                                                options={effectiveConfig.channels.filter((item) => item.enabled !== false).map((item) => ({ value: item.id, label: `${item.name} · ${item.id}` }))}
-                                                onChange={(channelId) => void mutate(() => updateBinding(profile.id, { channelId, modelId: undefined }))}
+                                                options={compatibleChannels.map((item) => ({ value: item.id, label: `${item.name} · ${item.id}` }))}
+                                                onChange={(channelId) => {
+                                                    const selected = compatibleChannels.find((item) => item.id === channelId);
+                                                    if (selected) void mutate(() => updateBinding(profile.id, { channelId, modelId: undefined, modelCapabilityEvidence: undefined, ...brainBindingEvidencePatch(selected) }));
+                                                }}
                                             />
                                         </label>
                                         <label className="space-y-1.5 text-xs text-foreground/65">
@@ -77,8 +85,8 @@ export function BrainSettingsPane() {
                                                 value={binding?.modelId}
                                                 disabled={!channel}
                                                 placeholder="选择 Model ID"
-                                                options={(channel?.models || []).map((modelId) => ({ value: modelId, label: modelId }))}
-                                                onChange={(modelId) => void mutate(() => updateBinding(profile.id, { modelId }))}
+                                                options={compatibleBrainModels(channel).map((modelId) => ({ value: modelId, label: modelId }))}
+                                                onChange={(modelId) => channel && void mutate(() => updateBinding(profile.id, { modelId, ...brainBindingEvidencePatch(channel, modelId) }))}
                                             />
                                         </label>
                                     </div>

@@ -26,6 +26,9 @@ import {
   assertProjectGenerationPolicy,
   hashProjectGenerationLock,
   hashProjectGenerationPolicy,
+  hashGenerationReferences,
+  selectEffectiveBrainProfile,
+  assertGenerationEngineConnectionInvariant,
 } from "../dist/index.js";
 
 const at = "2026-08-30T00:00:00.000Z";
@@ -42,13 +45,41 @@ test("canonical microunit lexical form rejects floats, plus, exponent, negative 
 });
 
 test("brain binding is exact and does not fall back across profiles", () => {
-  const base = { schemaVersion: 1, entityVersion: 1, contentHash: "h", createdAt: at, updatedAt: at, enabled: true, requiredCapabilities: ["text", "tool_calling"], transport: "model_api", authMode: "api_key", billingMode: "metered_api", interactionSurface: "native_stream", allowApiFallback: false };
+  const base = { schemaVersion: 1, entityVersion: 1, contentHash: "h", createdAt: at, updatedAt: at, enabled: true, requiredCapabilities: ["text", "tool_calling"], transport: "model_api", authMode: "api_key", billingMode: "metered_api", interactionSurface: "native_stream", allowApiFallback: false, modelCapabilityEvidence: { text: true, toolCalling: true, structuredOutput: true, evidenceSource: "test-catalog", evidenceRevision: "r1" } };
   const bindings = [
-    { ...base, profileId: "openai.api", channelId: "openai-primary", modelId: "gpt-exact" },
-    { ...base, profileId: "deepseek.api", channelId: "deepseek-primary", modelId: "deepseek-exact" },
+    { ...base, profileId: "openai.api", channelId: "openai-primary", modelId: "gpt-exact", providerKind: "openai", protocol: "openai_responses" },
+    { ...base, profileId: "deepseek.api", channelId: "deepseek-primary", modelId: "deepseek-exact", providerKind: "deepseek", protocol: "openai_chat_completions" },
   ];
   assert.deepEqual(resolveExactBrainBinding({ profileId: "deepseek.api", bindings }), { profileId: "deepseek.api", channelId: "deepseek-primary", modelId: "deepseek-exact", transport: "model_api", billingMode: "metered_api" });
   assert.throws(() => resolveExactBrainBinding({ profileId: "anthropic.api", bindings }), /NEEDS_CONFIGURATION/);
+});
+
+test("brain selection fails closed without explicit, project or global profile", () => {
+  assert.throws(() => selectEffectiveBrainProfile({}), /BRAIN_PROFILE_NEEDS_CONFIGURATION/);
+  assert.deepEqual(selectEffectiveBrainProfile({ globalDefaultProfileId: "codex.subscription" }), { profileId: "codex.subscription", source: "global_default" });
+});
+
+test("generation reference semantic hash excludes binding id and enforces hard lock fields", async () => {
+  const reference = { bindingId: "binding-a", role: "subject_identity", assetId: "asset-1", assetVersionId: "asset-version-1", assetVersionContentHash: "a".repeat(64), mediaType: "image/png", ordinal: 0, preparedRepresentationId: "representation-1", preparedRepresentationContentHash: "b".repeat(64), weightMicrounits: 1_000_000, hardLock: true };
+  const stable = await hashGenerationReferences([reference]);
+  assert.equal(stable, await hashGenerationReferences([{ ...reference, bindingId: "binding-b" }]));
+  for (const changed of [
+    { ...reference, weightMicrounits: 999_999 },
+    { ...reference, hardLock: false },
+    { ...reference, assetVersionId: "asset-version-2" },
+    { ...reference, preparedRepresentationId: "representation-2" },
+  ]) assert.notEqual(stable, await hashGenerationReferences([changed]));
+  await assert.rejects(hashGenerationReferences([{ ...reference, ordinal: 1 }]), /ORDINAL/);
+  await assert.rejects(hashGenerationReferences([reference, { ...reference, bindingId: "binding-b", assetVersionId: "asset-version-2", ordinal: 0 }]), /ORDINAL/);
+  await assert.rejects(hashGenerationReferences([reference, { ...reference, bindingId: "binding-b", assetVersionId: "asset-version-2", ordinal: 2 }]), /ORDINAL/);
+  await assert.rejects(hashGenerationReferences([{ ...reference, preparedRepresentationContentHash: undefined }]), /PREPARED_REPRESENTATION/);
+  await assert.rejects(hashGenerationReferences([{ ...reference, weightMicrounits: 1_000_001 }]), /WEIGHT/);
+});
+
+test("account scoped generation connection cannot be ready without account binding", () => {
+  const connection = { schemaVersion: 1, entityVersion: 1, contentHash: "h", createdAt: at, updatedAt: at, connectionId: "dreamina-local", engineId: "dreamina_cli", enabled: true, authScope: "account", status: "ready", connectionInstanceRef: instance };
+  assert.throws(() => assertGenerationEngineConnectionInvariant(connection), /ACCOUNT_BINDING/);
+  assert.doesNotThrow(() => assertGenerationEngineConnectionInvariant({ ...connection, accountBindingRef: account }));
 });
 
 function catalog() {

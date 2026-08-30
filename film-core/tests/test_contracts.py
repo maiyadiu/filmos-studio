@@ -77,6 +77,17 @@ def test_committed_openapi_matches_export_and_marks_implementation_state() -> No
         "/commands/preview",
         "/commands/apply",
         "/audit-events",
+        "/generation-production/previews",
+        "/generation-production/acceptance-authority",
+        "/generation-production/acceptance-authority/{projectId}",
+        "/generation-production/previews/{proposalId}",
+        "/generation-production/previews/{proposalId}/reject",
+        "/generation-production/authorizations",
+        "/generation-production/authorizations/{authorizedSubmissionId}",
+        "/generation-production/provider-receipts",
+        "/generation-production/provider-receipts/{idempotencyKey}",
+        "/generation-production/candidates",
+        "/generation-production/candidates/by-attempt/{generationAttemptId}",
     }
     assert planned_paths == set()
 
