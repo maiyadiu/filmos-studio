@@ -37,7 +37,7 @@ def git(*args: str) -> str:
     return result.stdout.strip()
 
 
-def source_paths() -> list[Path]:
+def listed_items(*selection: str) -> list[str]:
     result = subprocess.run(
         (
             "git",
@@ -45,9 +45,7 @@ def source_paths() -> list[Path]:
             str(ROOT),
             "ls-files",
             "-z",
-            "--cached",
-            "--others",
-            "--exclude-standard",
+            *selection,
             "--",
             *SOURCE_SCOPES,
         ),
@@ -63,7 +61,12 @@ def source_paths() -> list[Path]:
         for item in items
         if not (Path(item).name.startswith(".") and Path(item).name.endswith(".bun-build"))
     ]
-    return [ROOT / item for item in sorted(items)]
+    return sorted(items)
+
+
+def source_paths() -> list[Path]:
+    items = listed_items("--cached", "--others", "--exclude-standard")
+    return [ROOT / item for item in items]
 
 
 def fingerprint(paths: list[Path]) -> str:
@@ -93,7 +96,8 @@ def main() -> None:
     args = parser.parse_args()
 
     paths = source_paths()
-    status = git("status", "--porcelain", "--untracked-files=normal", "--", *SOURCE_SCOPES)
+    tracked_status = git("status", "--porcelain", "--untracked-files=no", "--", *SOURCE_SCOPES)
+    untracked_sources = listed_items("--others", "--exclude-standard")
     payload = {
         "schema_version": "1.0.0",
         "source_fingerprint_sha256": fingerprint(paths),
@@ -101,7 +105,7 @@ def main() -> None:
         "git_tree_sha": git("rev-parse", "HEAD^{tree}"),
         "source_file_count": len(paths),
         "source_scopes": list(SOURCE_SCOPES),
-        "tracked_source_clean": not bool(status),
+        "source_clean": not bool(tracked_status or untracked_sources),
     }
     if args.json:
         print(json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
