@@ -135,10 +135,11 @@ struct ChatGPTConnectionManagerTests {
         let initialStarts = operations.startCount
         operations.health.tunnelReady = false
         operations.makeTunnelReadyOnNextStart = true
-        try await Task.sleep(for: .milliseconds(80))
+        let reconnected = await waitUntil {
+            operations.startCount > initialStarts && operations.stopCount > 0
+        }
 
-        #expect(operations.startCount > initialStarts)
-        #expect(operations.stopCount > 0)
+        #expect(reconnected)
         manager.disconnect()
         #expect(operations.stopCount > 1)
         #expect(manager.snapshot == .notConfigured)
@@ -158,8 +159,13 @@ struct ChatGPTConnectionManagerTests {
         let initialPrepareCount = operations.prepareCount
         operations.health.grantExpiresAt = Date().addingTimeInterval(120)
         operations.renewGrantOnPrepare = true
-        try await Task.sleep(for: .milliseconds(80))
+        let renewed = await waitUntil {
+            operations.prepareCount > initialPrepareCount
+                && (operations.health.grantExpiresAt?.timeIntervalSinceNow ?? 0) > 300
+                && operations.stopCount > 0
+        }
 
+        #expect(renewed)
         #expect(operations.prepareCount > initialPrepareCount)
         #expect(operations.lastPreparedProjectID == "host-project-1")
         #expect(operations.health.grantExpiresAt?.timeIntervalSinceNow ?? 0 > 300)
@@ -291,6 +297,21 @@ struct ChatGPTConnectionManagerTests {
         #expect(manager.snapshot.lastError?.contains("runtime-never-in-diagnostics") == false)
         manager.disconnect()
     }
+}
+
+@MainActor
+private func waitUntil(
+    timeout: Duration = .seconds(2),
+    condition: @escaping @MainActor () -> Bool
+) async -> Bool {
+    let clock = ContinuousClock()
+    let deadline = clock.now.advanced(by: timeout)
+    while !condition() {
+        guard clock.now < deadline else { return false }
+        await Task.yield()
+        try? await Task.sleep(for: .milliseconds(5))
+    }
+    return true
 }
 
 private final class MemoryTokenStore: SecureTokenStoring, @unchecked Sendable {

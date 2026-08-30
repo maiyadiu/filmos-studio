@@ -2,14 +2,14 @@
   "evidence_status": "CLEAN_LOCAL_EVIDENCE_NOT_FROZEN",
   "raw_sources": [
     {
-      "bytes": 26237,
+      "bytes": 26941,
       "path": "CHANGELOG.md",
-      "sha256": "61d17278cf76508ce24d54266d1c1cf41c5460f7b65c49a0fe892dfa6605900a"
+      "sha256": "5b4100e5ca66674ca158094054589289481ffc82cf6ce2f4460996dd9228f81c"
     },
     {
       "bytes": 3357,
       "path": "acceptance/MANIFEST.json",
-      "sha256": "a6dfdb6f825668981d73d3b437abebab16f51585f191a351647cf6dcf47f15a3"
+      "sha256": "4210d231513e90f77c7e21de4fff7fcc305151a0d97a8635edaefe9b45f8cd7a"
     },
     {
       "bytes": 2187,
