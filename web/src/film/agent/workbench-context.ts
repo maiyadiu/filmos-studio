@@ -157,5 +157,8 @@ export type FilmOSDesktopChatGPTHostStatus = {
     mcpDestructiveToolCount: number;
     billingMode: string;
     lastReadAt?: string;
+    lastExternalToolName?: string;
+    lastExternalRequestId?: string;
+    observedHandoffId?: string;
     proposalHandoffEnabled: boolean;
 };

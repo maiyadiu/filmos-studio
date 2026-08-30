@@ -24,6 +24,10 @@ REPORT_SPECS = {
             "agent-codex-controlled-write",
             "agent-tool-contract-single-source",
             "agent-candidate-activation",
+            "agent-browser-lifecycle",
+            "agent-connection-probe-isolation",
+            "chatgpt-host-restart-recovery",
+            "chatgpt-handoff-state",
             "mcp-actual-tool-count",
             "performance-local",
             "remote-acceptance-contract",
@@ -51,6 +55,10 @@ REPORT_SPECS = {
             "agent-codex-controlled-write",
             "agent-tool-contract-single-source",
             "agent-candidate-activation",
+            "agent-browser-lifecycle",
+            "agent-connection-probe-isolation",
+            "chatgpt-host-restart-recovery",
+            "chatgpt-handoff-state",
             "mcp-actual-tool-count",
             "acceptance-privacy",
         ),
@@ -71,6 +79,10 @@ REPORT_SPECS = {
             "agent-codex-controlled-write",
             "agent-tool-contract-single-source",
             "agent-candidate-activation",
+            "agent-browser-lifecycle",
+            "agent-connection-probe-isolation",
+            "chatgpt-host-restart-recovery",
+            "chatgpt-handoff-state",
             "mcp-actual-tool-count",
             "no-openai-model-api-billing",
         ),
@@ -227,6 +239,9 @@ def report_notes(
             "and handoff checks do not replace independent account-side acknowledgement.\n"
             "- `NO-OPENAI-MODEL-API-001` proves the checked-in runtime has no model API "
             "endpoint path; the final external Live Gate must add its own time-bounded receipt.\n"
+            "- Resume history is provider-specific: Codex is rebuilt from `thread/read`; ChatGPT "
+            "shows the persisted Handoff timeline only; API and Local profiles currently state "
+            "that Provider conversation history is not persisted instead of showing invented history.\n"
             "- Real user database migration and real rollback remain outside the synthetic "
             "recovery drill.\n"
             "- The app is an internal unsigned macOS build; signing, notarization and public "
@@ -256,7 +271,8 @@ def report_notes(
             "The covered checks enforce loopback-only desktop auth, human-only approval, "
             "credential exclusion from backup/evidence, signed project scopes, replay-safe "
             "controlled writes, generated tool-risk schemas, ChatGPT preview boundaries and a "
-            "redacted evidence package. Runtime Key is Keychain-only, Tunnel and ChatGPT "
+            "redacted evidence package. Browser sessions bind create/cancel/close to one Profile; "
+            "connection probes are non-networking and fail-soft. Runtime Key is Keychain-only, Tunnel and ChatGPT "
             "reachability remain separate states, and model API endpoint use is blocked. "
             "Passing local checks does not prove public deployment "
             "security or Apple notarization."
@@ -271,7 +287,9 @@ def report_notes(
             "Golden evidence combines real temporary HTTP Sidecars, the fixed Acceptance "
             "Project, desktop backup/restore, production multi-brain composition, Candidate App "
             "activation, a real Codex Subscription reject/approve/restart drill and real local "
-            "ChatGPT handoff. Local Provider import is never relabeled as real CLI generation."
+            "ChatGPT handoff. The final lifecycle gates add process-level Host restart, scoped "
+            "Grant rotation, formal waiting_host receipts and Handoff expiry recovery. Local "
+            "Provider import is never relabeled as real CLI generation."
         ),
     }
     return notes[filename] + "\n\n" + common

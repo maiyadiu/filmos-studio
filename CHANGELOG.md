@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- 完成 RC1 前 Agent 生命周期收口：Browser API/Local 会话按真实 Profile 完成创建、取消与关闭，七种 Brain 连接探测独立且不发起 Provider 请求；ChatGPT Host 在进程重启后以新 Agent Grant 恢复原 Session/Project/Canvas，并以 `waiting_host` 、Handoff Receipt 及正式 Host 事件替代伪完成回复。
+- 对话恢复证据按 Provider 边界显示：Codex 从真实 `thread/read` 重建历史，ChatGPT 仅显示持久化 Handoff 时间线，API/Local 明确标注当前未持久化 Provider 对话，不编造历史。
 - 完成外部独立审计 P0 纠偏：七种 Brain Profile 统一进入生产 Generic Runtime，以单一 Canonical Tool Contract 生成 MCP/ChatGPT/Codex 工具面，所有写入经过 Production Tool Broker 的签名权限、单次人工确认和防重放边界；新增 Candidate 10/10 原子激活黑盒门禁与 Codex Subscription 真实拒绝/批准/重启恢复证据。
 - 新增 macOS“ChatGPT 连接”管家：首次仅输入 Tunnel ID 与 Runtime Key，密钥只存入 Keychain；由桌面端统一启动 Film Core、20 个只读 MCP 工具、Project Grant 与官方 Secure MCP Tunnel，并提供自动重连、诊断和 External Live Gate Challenge。
 - 锁定 ChatGPT 接入为 `SUBSCRIPTION_ONLY`：MCP 写工具为 0，运行时不接入 OpenAI Responses、Chat Completions、Embeddings、Images 或 Audio 模型 API，并生成独立 `NO-OPENAI-MODEL-API-001` 机器回执。

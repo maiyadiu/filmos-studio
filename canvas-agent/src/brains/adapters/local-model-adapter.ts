@@ -35,6 +35,6 @@ export class LocalModelAdapter implements AgentRuntimeAdapter {
         return await this.port.sendTurn(input, sink);
     }
 
-    async cancelTurn(sessionId: string) { await this.port.cancelTurn(sessionId); }
-    async closeSession(sessionId: string) { await this.port.closeSession(sessionId); }
+    async cancelTurn(sessionId: string) { await this.port.cancelTurn(sessionId, this.profileId); }
+    async closeSession(sessionId: string) { await this.port.closeSession(sessionId, this.profileId); }
 }

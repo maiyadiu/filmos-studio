@@ -28,6 +28,7 @@ type ExternalObservation = {
   project_scope: string;
   challenge_id: string;
   result_hash: string | null;
+  handoff_id: string | null;
   observed_at: string;
   expires_at: string;
 };
@@ -146,6 +147,12 @@ export function createFilmOSChatGPTApp(options: FilmOSChatGPTAppOptions) {
           const observedAt = new Date(snapshot.read_at);
           const grantExpiry = new Date(authorization.grant.expires_at).getTime();
           const expiresAt = new Date(Math.min(grantExpiry, observedAt.getTime() + observationTtlMs));
+          let handoffId: string | null = null;
+          try {
+            handoffId = hostContext.requireHandoff(authorization.grant, tunnel.challengeId, observedAt).handoff_id;
+          } catch {
+            // A regular MCP read can be externally observed without belonging to an Agent Handoff.
+          }
           const value: ExternalObservation = {
             connection_id: connectionId,
             mcp_session_id: sessionId,
@@ -157,6 +164,7 @@ export function createFilmOSChatGPTApp(options: FilmOSChatGPTAppOptions) {
             project_scope: authorization.grant.project_id,
             challenge_id: tunnel.challengeId,
             result_hash: snapshot.state_hash,
+            handoff_id: handoffId,
             observed_at: observedAt.toISOString(),
             expires_at: expiresAt.toISOString(),
           };
@@ -217,6 +225,7 @@ export function createFilmOSChatGPTApp(options: FilmOSChatGPTAppOptions) {
       project_scope: externalObservation?.project_scope ?? null,
       challenge_id: externalObservation?.challenge_id ?? null,
       result_hash: externalObservation?.result_hash ?? null,
+      handoff_id: externalObservation?.handoff_id ?? null,
       connection_id: externalObservation?.connection_id ?? connectionId,
       mcp_session_id: externalObservation?.mcp_session_id ?? null,
       observation_expires_at: externalObservation?.expires_at ?? null,

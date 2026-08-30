@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { codexConfig } from "../src/agents.js";
-import { CodexSubscriptionAdapter } from "../src/brains/adapters/codex-app-server-adapter.js";
+import { CodexSubscriptionAdapter, codexThreadHistory } from "../src/brains/adapters/codex-app-server-adapter.js";
 import { declineServerRequest, type CodexThreadBinding } from "../src/brains/adapters/codex-app-server-client.js";
 import type { AgentContextPackV1, AgentPermissionGrant, BrainSession } from "../src/brains/contracts.js";
 
@@ -97,6 +97,19 @@ test("Codex turns serialize per thread, run independently across sessions, and s
     assert.equal(started.length, 3);
     releases.splice(0).forEach((release) => release());
     await Promise.all([first, queued, parallel]);
+});
+
+test("Codex resume history is reconstructed from the real provider thread payload", () => {
+    const history = codexThreadHistory({ turns: [{ items: [
+        { id: "u1", type: "userMessage", content: [{ type: "text", text: "FilmOS context\n\n用户请求：恢复这次对话" }] },
+        { id: "a1", type: "agentMessage", text: "已从 Provider Thread 恢复" },
+        { id: "t1", type: "mcpToolCall", tool: "workbench_get_context", status: "completed" },
+    ] }] });
+    assert.deepEqual(history.map(({ id, role, text, source }) => ({ id, role, text, source })), [
+        { id: "u1", role: "user", text: "恢复这次对话", source: "provider" },
+        { id: "a1", role: "assistant", text: "已从 Provider Thread 恢复", source: "provider" },
+        { id: "t1", role: "tool", text: "workbench_get_context completed", source: "provider" },
+    ]);
 });
 
 function fakeClient(onTurn?: (binding: CodexThreadBinding, threadId: string, onTurnStarted?: (turnId: string) => void) => Promise<void>) {

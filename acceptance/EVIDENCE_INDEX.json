@@ -1,5 +1,5 @@
 {
-  "schema_version": "1.1.0",
+  "schema_version": "1.2.0",
   "contract_kind": "FILMOS_STABLE_TRACK_EVIDENCE_CONTRACT",
   "tracks": [
     {
@@ -277,6 +277,7 @@
         "implementation/agent-native-multibrain",
         "implementation/tracks/08-agent-native-correction",
         "acceptance/checks/agent_codex_controlled_write.py",
+        "acceptance/checks/agent_lifecycle_receipt.py",
         "tests/film-beta/performance_surface.ts"
       ],
       "automated_tests": [
@@ -288,6 +289,10 @@
         "python3 acceptance/checks/agent_tool_contract_single_source.py",
         "python3 acceptance/checks/agent_candidate_activation.py",
         "python3 acceptance/checks/agent_codex_controlled_write.py",
+        "python3 acceptance/checks/agent_lifecycle_receipt.py AGENT-BROWSER-LIFECYCLE-001",
+        "python3 acceptance/checks/agent_lifecycle_receipt.py AGENT-CONNECTION-PROBE-ISOLATION-001",
+        "python3 acceptance/checks/agent_lifecycle_receipt.py CHATGPT-HOST-RESTART-RECOVERY-001",
+        "python3 acceptance/checks/agent_lifecycle_receipt.py CHATGPT-HANDOFF-STATE-001",
         "cd services/filmos-chatgpt-app && npx tsx scripts/mcp-manifest-receipt.ts",
         "acceptance/run_real_agent",
         "cd canvas-agent && npx tsx --test test/agent-feature-flags.test.ts test/agent-session-migration.test.ts test/agent-rollback.test.ts",
@@ -309,6 +314,10 @@
         "AGENT-TOOL-CONTRACT-SINGLE-SOURCE-001",
         "AGENT-CANDIDATE-ACTIVATION-001",
         "AGENT-CODEX-SUBSCRIPTION-CONTROLLED-WRITE-001",
+        "AGENT-BROWSER-LIFECYCLE-001",
+        "AGENT-CONNECTION-PROBE-ISOLATION-001",
+        "CHATGPT-HOST-RESTART-RECOVERY-001",
+        "CHATGPT-HANDOFF-STATE-001",
         "MCP-ACTUAL-TOOL-COUNT-001",
         "PERFORMANCE-LOCAL-001"
       ],
@@ -318,6 +327,10 @@
         "agent-tool-contract-single-source",
         "agent-candidate-activation",
         "agent-codex-controlled-write",
+        "agent-browser-lifecycle",
+        "agent-connection-probe-isolation",
+        "chatgpt-host-restart-recovery",
+        "chatgpt-handoff-state",
         "canvas-agent",
         "mcp-actual-tool-count",
         "performance-local",
@@ -330,6 +343,10 @@
         "agent-tool-contract-single-source",
         "agent-candidate-activation",
         "agent-codex-controlled-write",
+        "agent-browser-lifecycle",
+        "agent-connection-probe-isolation",
+        "chatgpt-host-restart-recovery",
+        "chatgpt-handoff-state",
         "codex-subscription-real",
         "rc-recovery",
         "codex-agent-runtime",
@@ -474,6 +491,10 @@
         "python3 acceptance/checks/agent_tool_contract_single_source.py",
         "python3 acceptance/checks/agent_candidate_activation.py",
         "python3 acceptance/checks/agent_codex_controlled_write.py",
+        "python3 acceptance/checks/agent_lifecycle_receipt.py AGENT-BROWSER-LIFECYCLE-001",
+        "python3 acceptance/checks/agent_lifecycle_receipt.py AGENT-CONNECTION-PROBE-ISOLATION-001",
+        "python3 acceptance/checks/agent_lifecycle_receipt.py CHATGPT-HOST-RESTART-RECOVERY-001",
+        "python3 acceptance/checks/agent_lifecycle_receipt.py CHATGPT-HANDOFF-STATE-001",
         "cd services/filmos-chatgpt-app && npx tsx scripts/mcp-manifest-receipt.ts",
         "acceptance/run_real_agent",
         "python3 acceptance/run.py --suite rc-local",
@@ -496,6 +517,10 @@
         "AGENT-TOOL-CONTRACT-SINGLE-SOURCE-001",
         "AGENT-CANDIDATE-ACTIVATION-001",
         "AGENT-CODEX-SUBSCRIPTION-CONTROLLED-WRITE-001",
+        "AGENT-BROWSER-LIFECYCLE-001",
+        "AGENT-CONNECTION-PROBE-ISOLATION-001",
+        "CHATGPT-HOST-RESTART-RECOVERY-001",
+        "CHATGPT-HANDOFF-STATE-001",
         "MCP-ACTUAL-TOOL-COUNT-001"
       ],
       "required_local_check_ids": [
@@ -504,6 +529,10 @@
         "agent-tool-contract-single-source",
         "agent-candidate-activation",
         "agent-codex-controlled-write",
+        "agent-browser-lifecycle",
+        "agent-connection-probe-isolation",
+        "chatgpt-host-restart-recovery",
+        "chatgpt-handoff-state",
         "acceptance-privacy",
         "acceptance-reports",
         "canvas-agent",
@@ -529,6 +558,10 @@
         "agent-tool-contract-single-source",
         "agent-candidate-activation",
         "agent-codex-controlled-write",
+        "agent-browser-lifecycle",
+        "agent-connection-probe-isolation",
+        "chatgpt-host-restart-recovery",
+        "chatgpt-handoff-state",
         "acceptance-full-chain",
         "restart-recovery",
         "precise-stale",
@@ -552,10 +585,14 @@
         "desktop/macos/Sources/FilmOSDesktopCore/ChatGPTConnectionManager.swift",
         "desktop/macos/Sources/FilmOSStudioDesktop/DesktopChatGPTRuntime.swift",
         "desktop/macos/Sources/FilmOSStudioDesktop/ChatGPTConnectionWindow.swift",
+        "desktop/macos/Sources/FilmOSStudioDesktop/main.swift",
         "acceptance/checks/no_openai_model_api_billing.py",
         "plugins/filmos-chatgpt",
         "web/src/film/chatgpt",
         "web/src/film/agent/browser-runtime-handler.ts",
+        "canvas-agent/src/brains/adapters/chatgpt-hosted-adapter.ts",
+        "canvas-agent/test/chatgpt-host-lifecycle.test.ts",
+        "web/test/agent-chatgpt-handoff-runtime.test.ts",
         "services/filmos-chatgpt-app/src/host-context.ts"
       ],
       "automated_tests": [
@@ -564,7 +601,9 @@
         "npm test",
         "npm run test:golden-real",
         "npx tsx scripts/mcp-manifest-receipt.ts",
-        "python3 acceptance/checks/no_openai_model_api_billing.py"
+        "python3 acceptance/checks/no_openai_model_api_billing.py",
+        "python3 acceptance/checks/agent_lifecycle_receipt.py CHATGPT-HOST-RESTART-RECOVERY-001",
+        "python3 acceptance/checks/agent_lifecycle_receipt.py CHATGPT-HANDOFF-STATE-001"
       ],
       "golden_case_ids": [
         "CHATGPT-MCP-001",
@@ -573,6 +612,8 @@
         "DESKTOP-CHATGPT-CONNECTION-001",
         "NO-OPENAI-MODEL-API-001",
         "CHATGPT-LIVE-WORKBENCH-CONTEXT-001",
+        "CHATGPT-HOST-RESTART-RECOVERY-001",
+        "CHATGPT-HANDOFF-STATE-001",
         "MCP-ACTUAL-TOOL-COUNT-001"
       ],
       "required_local_check_ids": [
@@ -583,6 +624,8 @@
         "web-production-build",
         "chatgpt-handoff-local",
         "chatgpt-golden-real",
+        "chatgpt-host-restart-recovery",
+        "chatgpt-handoff-state",
         "no-openai-model-api-billing"
       ],
       "required_final_check_ids": [
@@ -590,6 +633,8 @@
         "desktop-chatgpt-connection",
         "chatgpt-handoff-local",
         "chatgpt-golden-real",
+        "chatgpt-host-restart-recovery",
+        "chatgpt-handoff-state",
         "chatgpt-handoff-external",
         "acceptance-full-chain",
         "no-openai-model-api-billing"

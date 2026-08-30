@@ -7,7 +7,7 @@ export interface BrainSessionStore {
     saveSession(session: BrainSession): Promise<void>;
     getSession(sessionId: string): Promise<BrainSession | undefined>;
     listSessions(scope?: { projectId?: string; canvasId?: string; brainProfileId?: string; conversationId?: string }): Promise<BrainSession[]>;
-    updateSession(sessionId: string, patch: Partial<Pick<BrainSession, "providerThreadId" | "permissionGrantId" | "status" | "lastContextReceiptId" | "updatedAt" | "closedAt">>): Promise<BrainSession>;
+    updateSession(sessionId: string, patch: Partial<Pick<BrainSession, "providerThreadId" | "permissionGrantId" | "status" | "lastContextReceiptId" | "hostHandoff" | "hostHandoffTimeline" | "updatedAt" | "closedAt">>): Promise<BrainSession>;
     saveConversation(conversation: AgentConversation): Promise<void>;
     getConversation(conversationId: string): Promise<AgentConversation | undefined>;
 }
@@ -38,7 +38,7 @@ export class MemoryBrainSessionStore implements BrainSessionStore {
             .map((session) => structuredClone(session));
     }
 
-    async updateSession(sessionId: string, patch: Partial<Pick<BrainSession, "providerThreadId" | "permissionGrantId" | "status" | "lastContextReceiptId" | "updatedAt" | "closedAt">>) {
+    async updateSession(sessionId: string, patch: Partial<Pick<BrainSession, "providerThreadId" | "permissionGrantId" | "status" | "lastContextReceiptId" | "hostHandoff" | "hostHandoffTimeline" | "updatedAt" | "closedAt">>) {
         const current = this.sessions.get(sessionId);
         if (!current) throw new Error(`Unknown brain session: ${sessionId}`);
         const next = { ...current, ...patch };
@@ -115,7 +115,7 @@ export class JsonBrainSessionStore implements BrainSessionStore {
         return await this.memory.listSessions(scope);
     }
 
-    async updateSession(sessionId: string, patch: Partial<Pick<BrainSession, "providerThreadId" | "permissionGrantId" | "status" | "lastContextReceiptId" | "updatedAt" | "closedAt">>) {
+    async updateSession(sessionId: string, patch: Partial<Pick<BrainSession, "providerThreadId" | "permissionGrantId" | "status" | "lastContextReceiptId" | "hostHandoff" | "hostHandoffTimeline" | "updatedAt" | "closedAt">>) {
         const session = await this.memory.updateSession(sessionId, patch);
         this.persist();
         return session;
@@ -230,12 +230,13 @@ function recoverInterruptedSession(session: BrainSession): BrainSession {
 
 const allowedTransitions: Record<BrainSessionStatus, readonly BrainSessionStatus[]> = {
     creating: ["ready", "failed", "closed"],
-    ready: ["running", "closed", "failed", "interrupted"],
-    running: ["awaiting_confirmation", "completed", "interrupted", "failed", "closed"],
-    awaiting_confirmation: ["running", "completed", "interrupted", "failed", "closed"],
-    completed: ["running", "ready", "closed"],
-    interrupted: ["running", "ready", "closed", "failed"],
-    failed: ["ready", "closed"],
+    ready: ["running", "waiting_host", "closed", "failed", "interrupted"],
+    running: ["awaiting_confirmation", "waiting_host", "completed", "interrupted", "failed", "closed"],
+    awaiting_confirmation: ["running", "waiting_host", "completed", "interrupted", "failed", "closed"],
+    waiting_host: ["running", "ready", "interrupted", "closed"],
+    completed: ["running", "ready", "waiting_host", "closed"],
+    interrupted: ["running", "ready", "waiting_host", "closed", "failed"],
+    failed: ["ready", "waiting_host", "closed"],
     closed: [],
 };
 

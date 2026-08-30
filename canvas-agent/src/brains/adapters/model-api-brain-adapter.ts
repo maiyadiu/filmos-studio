@@ -13,10 +13,10 @@ import type {
 export type BrowserModelRuntimePort = {
     probe(profileId: string): Promise<Omit<BrainRuntimeStatus, "profileId" | "checkedAt">>;
     createSession(input: CreateBrainSessionInput, brainSessionId: string): Promise<{ providerThreadId?: string }>;
-    resumeSession(input: ResumeBrainSessionInput, profileId?: string): Promise<{ providerThreadId?: string }>;
+    resumeSession(input: ResumeBrainSessionInput, profileId: string): Promise<{ providerThreadId?: string }>;
     sendTurn(input: AgentTurnInput, sink: AgentEventSink): Promise<AgentTurnResult>;
-    cancelTurn(sessionId: string): Promise<void>;
-    closeSession(sessionId: string): Promise<void>;
+    cancelTurn(sessionId: string, profileId: string): Promise<void>;
+    closeSession(sessionId: string, profileId: string): Promise<void>;
 };
 
 /** @deprecated Use BrowserModelRuntimePort. */
@@ -69,11 +69,11 @@ export class ModelApiBrainAdapter implements AgentRuntimeAdapter {
 
     async cancelTurn(sessionId: string) {
         this.assertEnabled();
-        await this.options.port.cancelTurn(sessionId);
+        await this.options.port.cancelTurn(sessionId, this.profileId);
     }
 
     async closeSession(sessionId: string) {
-        await this.options.port.closeSession(sessionId);
+        await this.options.port.closeSession(sessionId, this.profileId);
     }
 
     private assertExplicitSelection(selectedProfileId: string) {

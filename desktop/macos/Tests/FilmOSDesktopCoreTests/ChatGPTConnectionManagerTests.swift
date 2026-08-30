@@ -103,18 +103,20 @@ struct ChatGPTConnectionManagerTests {
         try await manager.connect(tunnelID: "tunnel_12345678", runtimeKey: "runtime", projectID: "host-project-1")
         operations.health.externalRequest = ChatGPTExternalRequest(
             timestamp: Date(),
-            toolName: "filmos_get_project_context",
+            toolName: "filmos_get_pending_agent_handoff",
             requestID: "request-1",
             projectScope: "host-project-1",
             challengeID: "live_12345678",
-            resultHash: String(repeating: "a", count: 64)
+            resultHash: String(repeating: "a", count: 64),
+            handoffID: "handoff-1"
         )
 
         await manager.refresh()
 
         #expect(manager.snapshot.state == .chatGPTReachedFilmOS)
         #expect(manager.snapshot.chatgptReachabilityStatus == .connected)
-        #expect(manager.snapshot.lastExternalRequest?.toolName == "filmos_get_project_context")
+        #expect(manager.snapshot.lastExternalRequest?.toolName == "filmos_get_pending_agent_handoff")
+        #expect(manager.snapshot.lastExternalRequest?.handoffID == "handoff-1")
         #expect(manager.snapshot.tunnelStatus == .connected)
         manager.disconnect()
     }

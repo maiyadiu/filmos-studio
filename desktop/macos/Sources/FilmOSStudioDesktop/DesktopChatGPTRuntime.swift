@@ -515,6 +515,7 @@ final class DesktopChatGPTRuntime: ChatGPTConnectionOperating {
             projectScope: projectScope,
             challengeID: payload?["challenge_id"] as? String,
             resultHash: payload?["result_hash"] as? String,
+            handoffID: payload?["handoff_id"] as? String,
             connectionID: payload?["connection_id"] as? String,
             mcpSessionID: payload?["mcp_session_id"] as? String,
             expiresAt: (payload?["observation_expires_at"] as? String).flatMap(iso8601Date)

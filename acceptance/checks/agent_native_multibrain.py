@@ -8,7 +8,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-BASELINE = "643a993a66b5eacd0f534bd78670bdb766d5dcb2"
+BASELINE = "5cbf078c134cc79cc3d86dde91687a24bd6b0188"
 PRODUCTION_RECEIPT_PREFIX = "FILMOS_PRODUCTION_RUNTIME_RECEIPT "
 
 

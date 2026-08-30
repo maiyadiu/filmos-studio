@@ -1,5 +1,5 @@
 {
-  "schema_version": "1.1.0",
+  "schema_version": "1.2.0",
   "release_target": "filmos-v1.0.0-rc1",
   "canonical_remote": "maiyadiu/filmos-studio",
   "acceptance_project": "FilmOS_Acceptance_Project",
@@ -35,6 +35,10 @@
     "precise_stale_propagation",
     "codex_agent",
     "chatgpt_handoff",
+    "agent_browser_lifecycle",
+    "agent_connection_probe_isolation",
+    "chatgpt_host_restart_recovery",
+    "chatgpt_handoff_state",
     "desktop_managed_secure_mcp_tunnel",
     "no_openai_model_api_billing",
     "real_cli_generation",

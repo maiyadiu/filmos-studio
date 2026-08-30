@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ClipboardEvent as ReactClipboardEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { Button, Tooltip } from "antd";
 import { motion, useReducedMotion } from "motion/react";
-import { ArrowUp, CheckCircle2, CircleAlert, ImagePlus, LoaderCircle, Sparkles, UserRound, Wrench, X, XCircle } from "lucide-react";
+import { ArrowUp, CheckCircle2, CircleAlert, ExternalLink, ImagePlus, LoaderCircle, Settings2, Sparkles, UserRound, Wrench, X, XCircle } from "lucide-react";
 
 import { canvasThemes } from "@/lib/canvas-theme";
 import type { CanvasAgentOperationImpact } from "@/lib/canvas/canvas-agent-ops";
@@ -49,11 +49,14 @@ export function extractCanvasAgentQuickActions(text: string): CanvasAgentQuickAc
 
 const WORKING_TEXT = "正在推演...";
 
-export function AgentChatMessage({ item, theme, user, isStreaming = false, onRejectTool, onApproveTool, onQuickAction }: { item: CanvasAgentChatMessage; theme: (typeof canvasThemes)[keyof typeof canvasThemes]; user: LocalUser | null; isStreaming?: boolean; onRejectTool?: (id: string) => void; onApproveTool?: (id: string) => void; onQuickAction?: (prompt: string) => void }) {
+export function AgentChatMessage({ item, theme, user, isStreaming = false, onRejectTool, onApproveTool, onQuickAction, onOpenChatGPT, onOpenConnectionSettings }: { item: CanvasAgentChatMessage; theme: (typeof canvasThemes)[keyof typeof canvasThemes]; user: LocalUser | null; isStreaming?: boolean; onRejectTool?: (id: string) => void; onApproveTool?: (id: string) => void; onQuickAction?: (prompt: string) => void; onOpenChatGPT?: () => void; onOpenConnectionSettings?: () => void }) {
     const isUser = item.role === "user";
     const isSystem = item.role === "system";
     const color = item.role === "error" ? "#dc2626" : item.role === "tool" ? "#2563eb" : theme.node.text;
     const quickActions = item.role === "assistant" && !isStreaming ? extractCanvasAgentQuickActions(item.text) : [];
+    if (objectField(item.detail, "kind") === "chatgpt_handoff") {
+        return <ChatGPTHandoffCard detail={item.detail} theme={theme} onOpenChatGPT={onOpenChatGPT} onOpenConnectionSettings={onOpenConnectionSettings} />;
+    }
     if (isSystem) {
         return (
             <div className="flex justify-center text-xs">
@@ -100,6 +103,42 @@ export function AgentChatMessage({ item, theme, user, isStreaming = false, onRej
             {isUser ? <AgentUserAvatar user={user} theme={theme} /> : null}
         </div>
     );
+}
+
+function ChatGPTHandoffCard({ detail, theme, onOpenChatGPT, onOpenConnectionSettings }: { detail: unknown; theme: (typeof canvasThemes)[keyof typeof canvasThemes]; onOpenChatGPT?: () => void; onOpenConnectionSettings?: () => void }) {
+    const status = String(objectField(detail, "status") || "waiting_host");
+    const expired = status === "expired";
+    const label = expired ? "已过期" : status === "proposal_received" ? "Proposal 已返回" : status === "host_observed" ? "ChatGPT 已读取" : "等待 ChatGPT";
+    const color = expired ? "#dc2626" : status === "proposal_received" ? "#16a34a" : "#2563eb";
+    return (
+        <div className="flex items-start gap-2.5">
+            <AgentAvatar theme={theme} />
+            <div className="min-w-0 flex-1 rounded-md p-3.5" style={{ background: theme.spatial.surface, color: theme.node.text }} data-testid="chatgpt-handoff-card">
+                <div className="flex items-start gap-3">
+                    <span className="mt-0.5 grid size-7 shrink-0 place-items-center rounded-md" style={{ color, background: `${color}14` }}><ExternalLink className="size-4" /></span>
+                    <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2 text-sm font-semibold"><span>ChatGPT Handoff</span><span className="rounded-full px-2 py-0.5 text-[var(--fs-label)]" style={{ color, background: `${color}14` }}>{label}</span></div>
+                        <div className="mt-2 text-sm leading-6" style={{ color: theme.node.muted }}>{expired ? "Handoff 已过期，可重新发送。" : "FilmOS 已准备项目级交接凭据；这不是伪造的 ChatGPT 回复。"}</div>
+                    </div>
+                </div>
+                <dl className="mt-3 grid gap-1.5 text-xs" style={{ color: theme.node.muted }}>
+                    <HandoffField label="Handoff" value={objectField(detail, "handoffId")} />
+                    <HandoffField label="Project" value={objectField(detail, "projectId")} />
+                    <HandoffField label="Context Receipt" value={objectField(detail, "contextReceiptId")} />
+                    <HandoffField label="Expires" value={objectField(detail, "expiresAt")} />
+                </dl>
+                <div className="mt-4 grid grid-cols-2 gap-2">
+                    <Button className="!h-9" icon={<ExternalLink className="size-4" />} onClick={onOpenChatGPT}>打开 ChatGPT</Button>
+                    <Button className="!h-9" icon={<Settings2 className="size-4" />} onClick={onOpenConnectionSettings}>查看连接状态</Button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+function HandoffField({ label, value }: { label: string; value: unknown }) {
+    if (typeof value !== "string" || !value.trim()) return null;
+    return <div className="grid grid-cols-[104px_minmax(0,1fr)] gap-2"><dt>{label}</dt><dd className="truncate font-mono" title={value}>{value}</dd></div>;
 }
 
 export function AgentPendingToolCard({ summary, detail, theme, onReject, onApprove }: { summary: string; detail?: unknown; theme: (typeof canvasThemes)[keyof typeof canvasThemes]; onReject?: () => void; onApprove?: () => void }) {

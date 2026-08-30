@@ -5,6 +5,15 @@ description: 影策已实现功能的手工验证清单与未确认边界
 
 # 待测试
 
+## RC1 前 Agent 生命周期
+
+- [x] Browser OpenAI/DeepSeek/Local 会话按各自 Profile 完成 create/cancel/close，跨 Profile 操作失败关闭。
+- [x] 七种 Brain Profile 独立探测全部返回结果，单项异常不会拒绝整个矩阵，且探测不触发 Provider/API/生成请求。
+- [x] ChatGPT Host 已通过两个独立进程的持久化恢复 Gate：保留 BrainSession、Host Session、Project/Domain Project/Canvas，并轮换新 Agent Grant；跨项目恢复被拒绝。
+- [x] ChatGPT Handoff 使用 `waiting_host`、可哈希 Receipt 和 `host.handoff.prepared` / `host.observed` / `host.proposal.received` / `host.handoff.expired` 事件，不伪造 ChatGPT 消息或“本轮完成”。
+- [x] 恢复历史按真实边界展示：Codex 来自 Provider `thread/read`，ChatGPT 来自 Handoff 时间线，API/Local 显示未持久化限制。
+- [ ] 在安装后的桌面 App 中手工确认 Handoff 卡片的“打开 ChatGPT”和“查看连接状态”两个按钮、明暗主题和窄窗口布局。
+
 ## FilmOS ChatGPT 连接管家
 
 - [x] Runtime Key 仅通过 macOS Keychain 保存，不进入参数、偏好设置、日志、诊断或 Acceptance Artifact。

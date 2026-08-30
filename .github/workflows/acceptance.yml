@@ -11,6 +11,7 @@ on:
       - film-contracts/**
       - film-core/**
       - packages/filmos-tool-contracts/**
+      - packages/filmos-agent-contracts/**
       - packages/filmos-agent-tool-contracts/**
       - scripts/**
       - services/filmos-chatgpt-app/**

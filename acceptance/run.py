@@ -184,6 +184,34 @@ RC_LOCAL_CHECKS = CURRENT_CHECKS + (
         ("02-film-core", "08-agent", "11-migration", "12-remote", "13-qa"),
     ),
     Check(
+        "agent-browser-lifecycle",
+        "Browser API and Local create, cancel, close profile lifecycle",
+        (sys.executable, "acceptance/checks/agent_lifecycle_receipt.py", "AGENT-BROWSER-LIFECYCLE-001"),
+        ROOT,
+        ("08-agent", "13-qa"),
+    ),
+    Check(
+        "agent-connection-probe-isolation",
+        "Seven-profile independent non-network connection probe matrix",
+        (sys.executable, "acceptance/checks/agent_lifecycle_receipt.py", "AGENT-CONNECTION-PROBE-ISOLATION-001"),
+        ROOT,
+        ("08-agent", "13-qa"),
+    ),
+    Check(
+        "chatgpt-host-restart-recovery",
+        "Process-level ChatGPT Host session and scoped grant recovery",
+        (sys.executable, "acceptance/checks/agent_lifecycle_receipt.py", "CHATGPT-HOST-RESTART-RECOVERY-001"),
+        ROOT,
+        ("08-agent", "13-qa", "14-chatgpt-app"),
+    ),
+    Check(
+        "chatgpt-handoff-state",
+        "Formal ChatGPT waiting_host, Handoff events, receipts and expiry",
+        (sys.executable, "acceptance/checks/agent_lifecycle_receipt.py", "CHATGPT-HANDOFF-STATE-001"),
+        ROOT,
+        ("08-agent", "13-qa", "14-chatgpt-app"),
+    ),
+    Check(
         "canvas-agent",
         "Codex Agent regression and build",
         ("npm", "test"),
@@ -260,6 +288,10 @@ CHECK_ARTIFACT_NAMES = {
     "agent-tool-contract-single-source": "agent-tool-contract-single-source-receipt.json",
     "agent-candidate-activation": "agent-candidate-activation-receipt.json",
     "mcp-actual-tool-count": "mcp-actual-tool-count-receipt.json",
+    "agent-browser-lifecycle": "agent-browser-lifecycle-receipt.json",
+    "agent-connection-probe-isolation": "agent-connection-probe-isolation-receipt.json",
+    "chatgpt-host-restart-recovery": "chatgpt-host-restart-recovery-receipt.json",
+    "chatgpt-handoff-state": "chatgpt-handoff-state-receipt.json",
     "codex-subscription-real": "codex-subscription-real-receipt.json",
 }
 

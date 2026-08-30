@@ -14,28 +14,81 @@ type HandlerDependencies = {
     isConfigReady(config: AiConfig, model: string): boolean;
     ordinaryConfirmationEnabled: boolean;
     client?: AgentSessionClient;
+    sessionProfiles?: BrowserRuntimeSessionProfiles;
 };
+
+const MODEL_PROFILE_IDS = new Set(["openai.api", "anthropic.api", "deepseek.api", "local.model"]);
+
+export class BrowserRuntimeSessionProfiles {
+    private readonly profiles = new Map<string, string>();
+
+    bind(sessionId: string, profileId: string) {
+        const current = this.profiles.get(sessionId);
+        if (current && current !== profileId) throw new Error("BROWSER_RUNTIME_SESSION_PROFILE_SCOPE_MISMATCH");
+        this.profiles.set(sessionId, profileId);
+    }
+
+    assert(sessionId: string, profileId: string) {
+        if (this.profiles.get(sessionId) !== profileId) throw new Error("BROWSER_RUNTIME_SESSION_PROFILE_SCOPE_MISMATCH");
+    }
+
+    release(sessionId: string, profileId: string) {
+        this.assert(sessionId, profileId);
+        this.profiles.delete(sessionId);
+    }
+}
 
 export function createBrowserRuntimeRequestHandler(deps: HandlerDependencies) {
     const client = deps.client ?? new AgentSessionClient();
+    const sessionProfiles = deps.sessionProfiles ?? new BrowserRuntimeSessionProfiles();
     return async (request: BrowserRuntimeRequest) => {
+        if (request.operation === "probe") {
+            if (request.channel === "chatgpt_host") return hostProbe(window.filmOSChatGPTHostStatus);
+            if (request.channel !== "model" || !MODEL_PROFILE_IDS.has(request.profileId)) throw new Error("BROWSER_RUNTIME_PROFILE_UNREGISTERED");
+            return probeModelProfile(request.profileId, deps);
+        }
         if (request.profileId !== deps.selectedProfileId) throw new Error("BROWSER_RUNTIME_PROFILE_SCOPE_MISMATCH");
         if (request.channel === "chatgpt_host") return await handleChatGPTHost(request);
         if (request.channel !== "model") throw new Error("BROWSER_RUNTIME_CHANNEL_UNSUPPORTED");
-        if (request.operation === "probe") {
-            const model = deps.config.textModel || deps.config.model;
-            return deps.isConfigReady({ ...deps.config, model }, model)
-                ? { status: "ready", version: `browser:${request.profileId}` }
-                : { status: "unavailable", statusReason: `Profile ${request.profileId} 尚未配置` };
-        }
         if (request.operation === "create_session" || request.operation === "resume_session") {
             if (!request.sessionId) throw new Error("BROWSER_RUNTIME_SESSION_REQUIRED");
+            sessionProfiles.bind(request.sessionId, request.profileId);
             return { providerThreadId: `browser:${request.profileId}:${request.sessionId}` };
         }
-        if (request.operation === "cancel_turn" || request.operation === "close_session") return { ok: true };
+        if (request.operation === "cancel_turn" || request.operation === "close_session") {
+            const sessionId = requiredString(request.sessionId, "sessionId");
+            sessionProfiles.assert(sessionId, request.profileId);
+            if (request.operation === "close_session") sessionProfiles.release(sessionId, request.profileId);
+            return { ok: true };
+        }
         if (request.operation !== "send_turn" || !request.sessionId || !request.turnId) throw new Error("BROWSER_RUNTIME_TURN_SCOPE_REQUIRED");
+        sessionProfiles.assert(request.sessionId, request.profileId);
         return await runModelTurn(request, deps, client);
     };
+}
+
+function probeModelProfile(profileId: string, deps: HandlerDependencies) {
+    const model = deps.config.textModel || deps.config.model;
+    if (profileId === deps.selectedProfileId) {
+        return deps.isConfigReady({ ...deps.config, model }, model)
+            ? { status: "ready" as const, version: `browser:${profileId}` }
+            : { status: profileId === "local.model" ? "unavailable" as const : "needs_auth" as const, statusReason: `Profile ${profileId} 尚未配置` };
+    }
+    const channels = deps.config.channels.filter((channel) => channel.enabled !== false && channelMatchesProfile(channel, profileId));
+    if (!channels.length) return { status: "unavailable" as const, statusReason: `Profile ${profileId} 尚未配置` };
+    if (profileId !== "local.model" && !channels.some((channel) => Boolean(channel.apiKey.trim() || channel.hasApiKey))) {
+        return { status: "needs_auth" as const, statusReason: `Profile ${profileId} 需要独立 API 凭据` };
+    }
+    return { status: "ready" as const, version: `browser:${profileId}` };
+}
+
+function channelMatchesProfile(channel: AiConfig["channels"][number], profileId: string) {
+    const searchable = [channel.id, channel.name, channel.baseUrl, ...channel.models].join(" ").toLowerCase();
+    if (profileId === "local.model") return channel.transport === "local-runtime";
+    if (channel.transport === "local-runtime") return false;
+    if (profileId === "anthropic.api") return channel.apiFormat === "claude" || channel.interfaceType === "claude-api" || searchable.includes("anthropic") || searchable.includes("claude");
+    if (profileId === "deepseek.api") return searchable.includes("deepseek");
+    return channel.apiFormat === "openai" && !searchable.includes("deepseek");
 }
 
 async function runModelTurn(request: BrowserRuntimeRequest, deps: HandlerDependencies, client: AgentSessionClient) {
@@ -93,13 +146,19 @@ async function handleChatGPTHost(request: BrowserRuntimeRequest) {
         const projectId = requiredString(input.domainProjectId || input.projectId, "projectId");
         assertAuthorizedHost(status, projectId);
         if (!request.sessionId || !status?.authorizedGrantId) throw new Error("CHATGPT_HOST_PROJECT_GRANT_REQUIRED");
+        const currentHandoff = record(input.hostHandoff);
+        const expectedHandoffId = typeof currentHandoff.handoffId === "string" ? currentHandoff.handoffId : undefined;
+        const observedExpectedHandoff = Boolean(expectedHandoffId && status.observedHandoffId === expectedHandoffId && status.lastReadAt);
+        const proposalReceived = observedExpectedHandoff && status.lastExternalToolName === "filmos_prepare_proposal_export";
         return {
             hostSessionId: `chatgpt-host:${request.sessionId}`,
             projectGrantId: status.authorizedGrantId,
             projectId,
-            status: status.externalAccountConnected ? "observed" : "blocked_external_account",
+            status: proposalReceived ? "proposal_received" : observedExpectedHandoff ? "observed" : expectedHandoffId ? "waiting_for_host" : status.externalAccountConnected ? "observed" : "blocked_external_account",
             proposalHandoffEnabled: status.proposalHandoffEnabled,
             directApplyAvailable: false,
+            ...(observedExpectedHandoff && status.lastReadAt ? { observedAt: status.lastReadAt, observedHandoffId: status.observedHandoffId } : {}),
+            ...(proposalReceived && status.lastReadAt ? { proposalReceivedAt: status.lastReadAt } : {}),
         };
     }
     if (request.operation !== "prepare_handoff") throw new Error("CHATGPT_HOST_OPERATION_UNSUPPORTED");
@@ -143,6 +202,8 @@ async function handleChatGPTHost(request: BrowserRuntimeRequest) {
         contextReceiptId: liveContext.context_receipt_id,
         status: "waiting_for_host",
         directApplyAvailable: false,
+        createdAt: new Date().toISOString(),
+        expiresAt: requiredString(handoffReceipt.expires_at, "expiresAt"),
     };
 }
 

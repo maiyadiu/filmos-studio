@@ -22,10 +22,12 @@ test("ChatGPT Hosted adapter binds Track 14 sessions to project grants and never
     const result = await adapter.sendTurn(turn(session("session-a", "project-a", "canvas-a", created.providerThreadId)), (event) => { events.push(event); });
     assert.equal(result.status, "handoff_pending");
     assert.equal(result.providerThreadId, "host-session-session-a");
-    assert.deepEqual(events.map((event) => event.type), ["turn.started", "turn.completed"]);
+    assert.deepEqual(events.map((event) => event.type), ["turn.started", "host.handoff.prepared"]);
     assert.equal(events.some((event) => event.type === "message.delta"), false);
+    assert.equal(events.some((event) => event.type === "turn.completed"), false);
     assert.equal(calls.some((call) => call.includes("api")), false);
-    assert.match(result.text || "", /官方宿主/);
+    assert.equal(result.text, undefined);
+    assert.equal(result.handoff?.status, "waiting_host");
 });
 
 test("ChatGPT Hosted adapter isolates A/B sessions and rejects project or direct-apply spoofing", async () => {
@@ -58,7 +60,7 @@ test("ChatGPT Hosted adapter refreshes and closes only its own Host session", as
     const calls: string[] = [];
     const adapter = new ChatGPTHostedAdapter(bridge(calls));
     const created = await adapter.createSession(createInput("project-a", "canvas-a"), grant("session-a", "project-a"));
-    const resumed = await adapter.resumeSession({ sessionId: "session-a", providerThreadId: created.providerThreadId });
+    const resumed = await adapter.resumeSession({ sessionId: "session-a", providerThreadId: created.providerThreadId, projectId: "project-a", canvasId: "canvas-a", grant: grant("session-a", "project-a") });
     assert.equal(resumed.providerThreadId, created.providerThreadId);
     await assert.rejects(() => adapter.cancelTurn("session-a"), /NOT_CANCELLABLE/);
     await adapter.closeSession("session-a");
@@ -111,6 +113,8 @@ function bridge(calls: string[], options: { directApply?: boolean } = {}): ChatG
                 contextReceiptId: input.contextReceiptId,
                 status: "waiting_for_host",
                 directApplyAvailable: false,
+                createdAt: "2099-01-01T00:00:00.000Z",
+                expiresAt: "2099-01-01T01:00:00.000Z",
             };
         },
         closeSession: async (input) => {

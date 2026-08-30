@@ -1,5 +1,6 @@
 import type {
     AgentEventSink,
+    AgentHistoryMessage,
     AgentPermissionGrant,
     AgentRuntimeAdapter,
     AgentTurnInput,
@@ -122,6 +123,14 @@ export class CodexSubscriptionAdapter implements AgentRuntimeAdapter {
         await active.client.interruptTurn(active.threadId, active.turnId);
     }
 
+    async readHistory(session: BrainSession): Promise<AgentHistoryMessage[]> {
+        const threadId = session.providerThreadId || this.threadsBySession.get(session.id);
+        if (!threadId) throw new Error("CODEX_SESSION_THREAD_MISSING");
+        const client = await this.processManager.client();
+        const result = await client.readThread(threadId, true);
+        return codexThreadHistory(field(result, "thread") || result);
+    }
+
     async closeSession(sessionId: string) {
         const threadId = this.threadsBySession.get(sessionId);
         const client = this.clientsBySession.get(sessionId);
@@ -215,4 +224,58 @@ function record(value: unknown): Record<string, unknown> {
 
 function numberValue(value: unknown) {
     return typeof value === "number" && Number.isFinite(value) ? value : -1;
+}
+
+export function codexThreadHistory(thread: unknown): AgentHistoryMessage[] {
+    const messages: AgentHistoryMessage[] = [];
+    arrayValue(field(thread, "turns")).forEach((turn, turnIndex) => {
+        arrayValue(field(turn, "items")).forEach((item, itemIndex) => {
+            const type = String(field(item, "type") || "");
+            const id = String(field(item, "id") || `${turnIndex}-${itemIndex}`);
+            if (type === "userMessage") {
+                const text = displayUserText(userInputText(field(item, "content")));
+                if (text) messages.push({ id, role: "user", text, source: "provider" });
+            }
+            if (type === "agentMessage") {
+                const text = String(field(item, "text") || "").trim();
+                if (text) messages.push({ id, role: "assistant", title: "Codex", text, streamId: id, source: "provider" });
+            }
+            if (type === "mcpToolCall") {
+                const tool = String(field(item, "tool") || "工具调用");
+                const error = field(field(item, "error"), "message");
+                messages.push({ id, role: error ? "error" : "tool", title: tool, text: error ? String(error) : `${tool} ${String(field(item, "status") || "完成")}`, detail: item, source: "provider" });
+            }
+            if (type === "commandExecution") {
+                const command = String(field(item, "command") || "").trim();
+                if (command) messages.push({ id, role: "tool", title: "命令", text: command, detail: { cwd: field(item, "cwd"), status: field(item, "status"), exitCode: field(item, "exitCode") }, source: "provider" });
+            }
+            if (type === "fileChange") messages.push({ id, role: "tool", title: "文件变更", text: "Codex 修改了文件", detail: item, source: "provider" });
+        });
+    });
+    return messages.filter((item) => item.text).slice(-120);
+}
+
+function userInputText(content: unknown) {
+    return arrayValue(content).map((item) => {
+        const type = String(field(item, "type") || "");
+        if (type === "text") return String(field(item, "text") || "");
+        if (type === "image" || type === "localImage") return "图片附件";
+        if (type === "mention") return `@${String(field(item, "name") || "文件")}`;
+        return "";
+    }).filter(Boolean).join("\n");
+}
+
+function displayUserText(text: string) {
+    const value = text.trim();
+    const marker = "用户请求：";
+    const index = value.lastIndexOf(marker);
+    return (index >= 0 ? value.slice(index + marker.length) : value).trim();
+}
+
+function field(value: unknown, key: string): unknown {
+    return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>)[key] : undefined;
+}
+
+function arrayValue(value: unknown): unknown[] {
+    return Array.isArray(value) ? value : [];
 }

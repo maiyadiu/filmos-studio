@@ -12,6 +12,23 @@ export type BrainSessionView = {
     updatedAt: string;
 };
 
+export type AgentHistoryMessageView = {
+    id: string;
+    role: "user" | "assistant" | "tool" | "system" | "error";
+    text: string;
+    title?: string;
+    detail?: unknown;
+    streamId?: string;
+    at?: string;
+    source: "provider" | "handoff_timeline" | "local_timeline";
+};
+
+export type AgentHistoryStatus = {
+    source: "provider" | "handoff_timeline" | "not_persisted";
+    complete: boolean;
+    limitation?: string;
+};
+
 export type AgentRuntimeDiagnostics = {
     composition: { enabledProfileIds: string[]; adapterProfileIds: string[] };
     counters: Record<string, number>;
@@ -47,7 +64,7 @@ export class AgentSessionClient {
     }
 
     resumeSession(sessionId: string, signal?: AbortSignal) {
-        return this.post<{ session: BrainSessionView; contextReceiptId?: string }>(`/agent/sessions/${segment(sessionId)}/resume`, {}, signal);
+        return this.post<{ session: BrainSessionView; contextReceiptId?: string; history: AgentHistoryMessageView[]; historyStatus: AgentHistoryStatus }>(`/agent/sessions/${segment(sessionId)}/resume`, {}, signal);
     }
 
     sendTurn(sessionId: string, input: { prompt: string; turnId?: string; attachments?: Array<{ name?: string; type?: string; dataUrl?: string }>; skills?: Array<{ skillId?: string; name: string; description?: string; instruction: string }> }, signal?: AbortSignal) {

@@ -30,7 +30,7 @@ import { CanvasChatGPTHostedPanel } from "./canvas-chatgpt-hosted-panel";
 import { isModelApiBrainProfile, normalizeBrainProfileId } from "@/film/agent/brain-profiles";
 import { isAgentFeatureEnabled } from "@/film/agent/feature-flags";
 import { registerBrowserRuntimeHandler } from "@/film/agent/browser-runtime-bridge";
-import { createBrowserRuntimeRequestHandler } from "@/film/agent/browser-runtime-handler";
+import { BrowserRuntimeSessionProfiles, createBrowserRuntimeRequestHandler } from "@/film/agent/browser-runtime-handler";
 import { assertExplicitModelRuntimeSelection } from "@/film/agent/model-api-billing-guard";
 import { MODEL_API_AGENT_TOOLS, MODEL_API_READ_TOOL_NAMES } from "@/film/agent/model-api-tool-manifest";
 import { NODE_DEFAULT_SIZE } from "@/constant/canvas";
@@ -208,6 +208,7 @@ export function CanvasAssistantPanel({
     const cinematicSessionControllersRef = useRef(new Map<string, AbortController>());
     const generationConsumerControllerRef = useRef(new AbortController());
     const previousProfileRef = useRef(activeProfile);
+    const browserRuntimeSessionProfilesRef = useRef(new BrowserRuntimeSessionProfiles());
 
     useEffect(() => {
         if (!genericAgentRuntimeEnabled) return;
@@ -216,6 +217,7 @@ export function CanvasAssistantPanel({
             config: effectiveConfig,
             isConfigReady: isAiConfigReady,
             ordinaryConfirmationEnabled: confirmTools,
+            sessionProfiles: browserRuntimeSessionProfilesRef.current,
         }));
     }, [activeProfile, confirmTools, effectiveConfig, genericAgentRuntimeEnabled, isAiConfigReady]);
 

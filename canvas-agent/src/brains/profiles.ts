@@ -45,8 +45,8 @@ export const BUILTIN_BRAIN_PROFILES: readonly BrainProfile[] = [
         capabilities: {
             ...nativeCapabilities,
             streamingChat: false,
-            threadHistory: false,
-            threadResume: false,
+            threadHistory: true,
+            threadResume: true,
             imageInput: false,
             automaticVisualContext: false,
             applyAfterHumanConfirmation: false,

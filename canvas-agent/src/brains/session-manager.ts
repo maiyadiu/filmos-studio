@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 
-import type { AgentConversation, AgentEventSink, AgentTurnInput, BrainSession, CreateBrainSessionInput } from "./contracts.js";
+import type { AgentConversation, AgentEventSink, AgentTurnInput, BrainSession, ChatGPTHandoffReceipt, CreateBrainSessionInput } from "./contracts.js";
 import { AgentContextBroker } from "./context-broker.js";
 import { AgentConfirmationStore } from "./confirmations.js";
 import { AgentPermissionGrantStore } from "./permission-grants.js";
@@ -79,12 +79,21 @@ export class AgentSessionManager {
         await this.audit?.append(brainTurnAuditRecord({ profile, session, turnId: input.turnId, contextReceiptId: input.context.contextReceiptId, prompt: input.prompt, outcome: "proposed" }));
         try {
             const result = await this.registry.getAdapter(session.brainProfileId).sendTurn({ ...input, session }, sink);
-            const status = result.status === "completed" || result.status === "handoff_pending" ? "completed" : result.status;
-            await this.store.updateSession(sessionId, { status, ...(result.providerThreadId ? { providerThreadId: result.providerThreadId } : {}), updatedAt: this.now().toISOString() });
+            const updatedAt = this.now().toISOString();
+            const status = result.status === "handoff_pending" ? "waiting_host" : result.status;
+            await this.store.updateSession(sessionId, {
+                status,
+                ...(result.providerThreadId ? { providerThreadId: result.providerThreadId } : {}),
+                ...(result.handoff ? {
+                    hostHandoff: structuredClone(result.handoff),
+                    hostHandoffTimeline: appendHandoffTimeline(session.hostHandoffTimeline, result.handoff, updatedAt),
+                } : {}),
+                updatedAt,
+            });
             await this.audit?.append(brainTurnAuditRecord({ profile, session, turnId: input.turnId, contextReceiptId: input.context.contextReceiptId, prompt: input.prompt, outcome: "succeeded" }));
             return result;
         } catch (error) {
-            await this.store.updateSession(sessionId, { status: "failed", updatedAt: this.now().toISOString() });
+            await this.store.updateSession(sessionId, { status: session.brainProfileId === "chatgpt.subscription.host" ? "waiting_host" : "failed", updatedAt: this.now().toISOString() });
             await this.audit?.append(brainTurnAuditRecord({ profile, session, turnId: input.turnId, contextReceiptId: input.context.contextReceiptId, prompt: input.prompt, outcome: "failed", errorCode: error instanceof Error ? error.message.split(":", 1)[0] : "BRAIN_TURN_FAILED" }));
             throw error;
         }
@@ -95,7 +104,10 @@ export class AgentSessionManager {
         if (session.status === "closed") throw new Error("BRAIN_SESSION_CLOSED");
         const profile = this.registry.getProfile(session.brainProfileId);
         const status = await this.registry.probe(profile.id);
-        if (status.status !== "ready") throw new Error(`BRAIN_CONNECTION_${status.status.toUpperCase()}:${status.statusReason ?? profile.id}`);
+        if (status.status !== "ready") {
+            if (profile.id === "chatgpt.subscription.host") await this.store.updateSession(sessionId, { status: "waiting_host", updatedAt: this.now().toISOString() });
+            throw new Error(`BRAIN_CONNECTION_${status.status.toUpperCase()}:${status.statusReason ?? profile.id}`);
+        }
         const grant = this.grants.issue({
             sessionId,
             connectionId: session.connectionId,
@@ -109,19 +121,29 @@ export class AgentSessionManager {
             const patch = await this.registry.getAdapter(profile.id).resumeSession({
                 sessionId,
                 ...(session.providerThreadId ? { providerThreadId: session.providerThreadId } : {}),
+                projectId: session.projectId,
+                ...(session.domainProjectId ? { domainProjectId: session.domainProjectId } : {}),
                 canvasId: session.canvasId,
                 grant,
+                ...(session.hostHandoff ? { hostHandoff: structuredClone(session.hostHandoff) } : {}),
             });
             assertAdapterPatchScope(session, patch);
             this.grants.revoke(session.permissionGrantId);
+            const updatedAt = this.now().toISOString();
+            const nextHandoff = patch.hostHandoff;
             return await this.store.updateSession(sessionId, {
                 ...(patch.providerThreadId ? { providerThreadId: patch.providerThreadId } : {}),
                 permissionGrantId: grant.id,
-                status: "ready",
-                updatedAt: this.now().toISOString(),
+                status: profile.id === "chatgpt.subscription.host" && (nextHandoff || session.hostHandoff) ? "waiting_host" : "ready",
+                ...(nextHandoff ? {
+                    hostHandoff: structuredClone(nextHandoff),
+                    hostHandoffTimeline: appendHandoffTimeline(session.hostHandoffTimeline, nextHandoff, updatedAt),
+                } : {}),
+                updatedAt,
             });
         } catch (error) {
             this.grants.revoke(grant.id);
+            if (profile.id === "chatgpt.subscription.host") await this.store.updateSession(sessionId, { status: "waiting_host", updatedAt: this.now().toISOString() });
             throw error;
         }
     }
@@ -162,6 +184,14 @@ export class AgentSessionManager {
         conversation.updatedAt = now;
         await this.store.saveConversation(conversation);
     }
+}
+
+function appendHandoffTimeline(current: BrainSession["hostHandoffTimeline"], handoff: ChatGPTHandoffReceipt, recordedAt: string) {
+    const timeline = current?.map((entry) => structuredClone(entry)) ?? [];
+    const previous = timeline.at(-1);
+    if (previous?.handoffId === handoff.handoffId && previous.status === handoff.status) return timeline;
+    timeline.push({ ...structuredClone(handoff), recordedAt });
+    return timeline.slice(-40);
 }
 
 function assertAdapterPatchScope(session: BrainSession, patch: Partial<BrainSession>) {

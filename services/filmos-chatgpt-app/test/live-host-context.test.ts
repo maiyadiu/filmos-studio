@@ -15,13 +15,15 @@ test("native Agent handoff exposes only the current Project Grant and Secure Tun
   const grants = new MemoryProjectGrantStore();
   const issued = await grants.issue(projectA, "native-agent-host");
   const audit = new MemoryAuditSink();
+  const dataSource = new MemoryFilmOSReadDataSource(projects);
   const proof = "native-host-transport-proof";
   const challenge = "live_context_12345678";
   const instance = createFilmOSChatGPTApp({
     enabled: true,
-    proposalHandoffEnabled: false,
+    proposalHandoffEnabled: true,
+    proposalSigningSecret: "native-agent-host-proposal-secret-123456",
     grants,
-    dataSource: new MemoryFilmOSReadDataSource(projects),
+    dataSource,
     audit,
     secureTunnelProof: proof,
   });
@@ -66,7 +68,8 @@ test("native Agent handoff exposes only the current Project Grant and Secure Tun
     } }),
   });
   assert.equal(handoff.status, 200);
-  assert.equal((await handoff.json() as any).status, "PENDING_CHATGPT");
+  const handoffBody = await handoff.json() as any;
+  assert.equal(handoffBody.status, "PENDING_CHATGPT");
 
   const client = new Client({ name: "chatgpt-live-context", version: "1.0.0" });
   const transport = new StreamableHTTPClientTransport(new URL(`${baseUrl}/mcp`), { requestInit: { headers: {
@@ -102,6 +105,21 @@ test("native Agent handoff exposes only the current Project Grant and Secure Tun
     const serialized = JSON.stringify(pending.structuredContent);
     assert.equal(serialized.includes(issued.token), false);
     assert.equal(serialized.includes("/Users/"), false);
+    const observedStatus = await (await fetch(`${baseUrl}/handoff/status?project_id=${projectA}`, { headers: { authorization } })).json() as any;
+    assert.equal(observedStatus.tool_name, "filmos_get_pending_agent_handoff");
+    assert.equal(observedStatus.handoff_id, handoffBody.handoff_id);
+
+    const current = await dataSource.read("filmos_get_project_context", {}, issued.grant);
+    const proposal = await client.callTool({ name: "filmos_prepare_proposal_export", arguments: {
+      proposal_type: "Candidate",
+      summary: "Return one bounded preview proposal",
+      items_json: JSON.stringify([{ item_id: "item-a", kind: "Candidate", target_uri: `filmos://project/${projectA}/shot/shot-a`, summary: "Preview only", payload: { framing: "close-up" } }]),
+      base_state_hash: current.state_hash,
+    } }) as any;
+    assert.equal(proposal.structuredContent.import_policy, "PREVIEW_AND_HUMAN_APPROVAL_ONLY");
+    const proposalStatus = await (await fetch(`${baseUrl}/handoff/status?project_id=${projectA}`, { headers: { authorization } })).json() as any;
+    assert.equal(proposalStatus.tool_name, "filmos_prepare_proposal_export");
+    assert.equal(proposalStatus.handoff_id, handoffBody.handoff_id);
 
     const denied = await otherClient.callTool({ name: "filmos_get_live_workbench_context", arguments: {} }) as any;
     assert.equal(denied.isError, true);
@@ -115,6 +133,14 @@ test("native Agent handoff exposes only the current Project Grant and Secure Tun
     assert.equal(crossProject.status, 400);
     assert.equal((await crossProject.json() as any).code, "project_scope_denied");
     assert.ok(audit.records.some((record) => record.action === "filmos_get_pending_agent_handoff" && record.outcome === "ALLOW"));
+    console.log("FILMOS_CHATGPT_REAL_HANDOFF_OBSERVATION_RECEIPT", JSON.stringify({
+      gate_id: "CHATGPT-HANDOFF-STATE-001",
+      status: "PASSED",
+      handoff_id_bound_to_observation: true,
+      observed_tools: ["filmos_get_pending_agent_handoff", "filmos_prepare_proposal_export"],
+      direct_apply_count: 0,
+      paid_provider_request_count: 0,
+    }));
   } finally {
     await otherClient.close().catch(() => undefined);
     await client.close().catch(() => undefined);

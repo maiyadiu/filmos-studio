@@ -1,10 +1,12 @@
 import type {
     AgentEventSink,
+    AgentHistoryMessage,
     AgentPermissionGrant,
     AgentRuntimeAdapter,
     AgentTurnInput,
     BrainRuntimeStatus,
     BrainSession,
+    ChatGPTHandoffReceipt,
     CreateBrainSessionInput,
     ResumeBrainSessionInput,
 } from "../contracts.js";
@@ -26,6 +28,9 @@ export type ChatGPTHostBridgeSession = {
     proposalHandoffEnabled: boolean;
     directApplyAvailable: false;
     externalConversationUrl?: string;
+    observedAt?: string;
+    proposalReceivedAt?: string;
+    observedHandoffId?: string;
 };
 
 export type ChatGPTHostBridgeHandoff = {
@@ -35,6 +40,8 @@ export type ChatGPTHostBridgeHandoff = {
     contextReceiptId: string;
     status: "waiting_for_host";
     directApplyAvailable: false;
+    createdAt: string;
+    expiresAt: string;
     externalConversationUrl?: string;
 };
 
@@ -53,7 +60,15 @@ export interface ChatGPTHostBridgeClient {
         contextReceiptId?: string;
         permissionGrant: AgentPermissionGrant;
     }): Promise<ChatGPTHostBridgeSession>;
-    refreshSession(input: { brainSessionId: string; hostSessionId: string; projectId: string }): Promise<ChatGPTHostBridgeSession>;
+    refreshSession(input: {
+        brainSessionId: string;
+        hostSessionId: string;
+        projectId: string;
+        domainProjectId?: string;
+        canvasId: string;
+        permissionGrant: AgentPermissionGrant;
+        hostHandoff?: ChatGPTHandoffReceipt;
+    }): Promise<ChatGPTHostBridgeSession>;
     prepareHandoff(input: {
         brainSessionId: string;
         hostSessionId: string;
@@ -112,17 +127,28 @@ export class ChatGPTHostedAdapter implements AgentRuntimeAdapter {
     }
 
     async resumeSession(input: ResumeBrainSessionInput): Promise<Partial<BrainSession>> {
-        const current = this.hostSessions.get(input.sessionId);
-        const hostSessionId = input.providerThreadId || current?.hostSessionId;
-        if (!current || !hostSessionId) throw new Error("CHATGPT_HOST_SESSION_CONTEXT_MISSING");
+        const hostSessionId = input.providerThreadId || this.hostSessions.get(input.sessionId)?.hostSessionId;
+        const projectId = requiredResumeField(input.projectId, "projectId");
+        const canvasId = requiredResumeField(input.canvasId, "canvasId");
+        const grant = input.grant;
+        if (!hostSessionId || !grant) throw new Error("CHATGPT_HOST_SESSION_CONTEXT_MISSING");
+        assertResumeScope(input, grant, this.profileId);
+        const hostProjectId = input.domainProjectId || projectId;
         const refreshed = await this.bridge.refreshSession({
             brainSessionId: input.sessionId,
             hostSessionId,
-            projectId: current.projectId,
+            projectId,
+            ...(input.domainProjectId ? { domainProjectId: input.domainProjectId } : {}),
+            canvasId,
+            permissionGrant: structuredClone(grant),
+            ...(input.hostHandoff ? { hostHandoff: structuredClone(input.hostHandoff) } : {}),
         });
-        assertHostSession(refreshed, current.projectId, hostSessionId);
+        assertHostSession(refreshed, hostProjectId, hostSessionId);
         this.hostSessions.set(input.sessionId, structuredClone(refreshed));
-        return { providerThreadId: refreshed.hostSessionId };
+        return {
+            providerThreadId: refreshed.hostSessionId,
+            ...(input.hostHandoff ? { hostHandoff: recoverHandoff(input.hostHandoff, refreshed) } : {}),
+        };
     }
 
     async sendTurn(input: AgentTurnInput, sink: AgentEventSink) {
@@ -146,14 +172,36 @@ export class ChatGPTHostedAdapter implements AgentRuntimeAdapter {
             context: structuredClone(input.context),
         });
         assertHandoff(handoff, host, input.context.contextReceiptId);
-        await sink({ type: "turn.completed", sessionId: input.session.id, turnId: input.turnId, at: new Date().toISOString() });
+        const receipt: ChatGPTHandoffReceipt = {
+            handoffId: handoff.handoffId,
+            hostSessionId: handoff.hostSessionId,
+            projectId: handoff.projectId,
+            contextReceiptId: handoff.contextReceiptId,
+            createdAt: handoff.createdAt,
+            expiresAt: handoff.expiresAt,
+            status: "waiting_host",
+            ...(handoff.externalConversationUrl ? { externalConversationUrl: handoff.externalConversationUrl } : {}),
+        };
+        await sink({ type: "host.handoff.prepared", sessionId: input.session.id, turnId: input.turnId, handoff: receipt, at: new Date().toISOString() });
         return {
             sessionId: input.session.id,
             turnId: input.turnId,
             providerThreadId: host.hostSessionId,
-            text: "ChatGPT Host Handoff 已准备；对话在 ChatGPT 官方宿主中继续。",
             status: "handoff_pending" as const,
+            handoff: receipt,
         };
+    }
+
+    async readHistory(session: BrainSession): Promise<AgentHistoryMessage[]> {
+        return (session.hostHandoffTimeline ?? []).map((entry, index) => ({
+            id: `chatgpt-handoff:${entry.handoffId}:${entry.status}:${index}`,
+            role: "system",
+            title: "ChatGPT Handoff",
+            text: handoffTimelineText(entry),
+            detail: { kind: "chatgpt_handoff", ...structuredClone(entry) },
+            at: entry.recordedAt,
+            source: "handoff_timeline",
+        }));
     }
 
     async cancelTurn(_sessionId: string): Promise<void> {
@@ -174,6 +222,14 @@ function assertCreateScope(input: CreateBrainSessionInput, grant: AgentPermissio
     if (grant.sessionId.trim() === "" || grant.connectionId !== profileId || grant.projectId !== input.projectId) {
         throw new Error("CHATGPT_HOST_GRANT_SCOPE_MISMATCH");
     }
+    if (grant.toolSurface !== "chatgpt_hosted") throw new Error("CHATGPT_HOST_TOOL_SURFACE_REQUIRED");
+}
+
+function assertResumeScope(input: ResumeBrainSessionInput, grant: AgentPermissionGrant, profileId: string) {
+    if (grant.sessionId !== input.sessionId || grant.connectionId !== profileId || grant.projectId !== input.projectId) {
+        throw new Error("CHATGPT_HOST_GRANT_SCOPE_MISMATCH");
+    }
+    if ((grant.domainProjectId || undefined) !== (input.domainProjectId || undefined)) throw new Error("CHATGPT_HOST_PROJECT_SCOPE_MISMATCH");
     if (grant.toolSurface !== "chatgpt_hosted") throw new Error("CHATGPT_HOST_TOOL_SURFACE_REQUIRED");
 }
 
@@ -199,4 +255,30 @@ function assertHandoff(value: ChatGPTHostBridgeHandoff, host: ChatGPTHostBridgeS
         throw new Error("CHATGPT_HOST_HANDOFF_SCOPE_MISMATCH");
     }
     if (value.directApplyAvailable !== false) throw new Error("CHATGPT_HOST_DIRECT_APPLY_FORBIDDEN");
+    if (!validIso(value.createdAt) || !validIso(value.expiresAt) || Date.parse(value.expiresAt) <= Date.parse(value.createdAt)) throw new Error("CHATGPT_HOST_HANDOFF_EXPIRY_INVALID");
 }
+
+function recoverHandoff(current: ChatGPTHandoffReceipt, host: ChatGPTHostBridgeSession): ChatGPTHandoffReceipt {
+    const now = Date.now();
+    if (Date.parse(current.expiresAt) <= now) return { ...current, status: "expired" };
+    if (host.observedHandoffId !== current.handoffId) return structuredClone(current);
+    if (host.status === "proposal_received" && atOrAfter(host.proposalReceivedAt, current.createdAt)) return { ...current, status: "proposal_received" };
+    if (host.status === "observed" && atOrAfter(host.observedAt, current.createdAt)) return { ...current, status: "host_observed" };
+    return structuredClone(current);
+}
+
+function handoffTimelineText(entry: ChatGPTHandoffReceipt) {
+    const receipt = `Handoff ${entry.handoffId} · 项目 ${entry.projectId} · Context ${entry.contextReceiptId} · 至 ${entry.expiresAt}`;
+    if (entry.status === "host_observed") return `ChatGPT 已读取。${receipt}`;
+    if (entry.status === "proposal_received") return `ChatGPT Proposal 已返回，可进入 Preview。${receipt}`;
+    if (entry.status === "expired") return `Handoff 已过期，可重新发送。${receipt}`;
+    return `已准备 Handoff，等待 ChatGPT 接管。${receipt}`;
+}
+
+function requiredResumeField(value: string | undefined, field: string) {
+    if (!value?.trim()) throw new Error(`CHATGPT_HOST_RESUME_SCOPE_REQUIRED:${field}`);
+    return value.trim();
+}
+
+function validIso(value: string) { return Number.isFinite(Date.parse(value)); }
+function atOrAfter(value: string | undefined, minimum: string) { return Boolean(value && validIso(value) && Date.parse(value) >= Date.parse(minimum)); }

@@ -24,6 +24,7 @@ import { AgentPolicyGateway } from "./policy-gateway.js";
 import { CanonicalAgentToolBroker, type AgentBrokerOutcome } from "./tool-broker.js";
 import { AgentRuntimeInstrumentation } from "./instrumentation.js";
 import { registerProductionToolProviders, type CanonicalCanvasToolExecutor } from "./tool-providers.js";
+import type { BrainSession } from "./contracts.js";
 
 type GenericAgentRuntimeOptions = {
     store?: BrainSessionStore;
@@ -105,17 +106,7 @@ export class GenericAgentRuntime {
     }
 
     async listConnections() {
-        return await Promise.all(this.registry.listProfiles().map(async (profile) => ({
-            profile,
-            status: this.registry.hasAdapter(profile.id)
-                ? await this.registry.probe(profile.id)
-                : {
-                    profileId: profile.id,
-                    status: profile.id === "chatgpt.subscription.host" ? "unavailable" as const : profile.availability === "disabled" ? "unavailable" as const : "unknown" as const,
-                    statusReason: profile.id === "chatgpt.subscription.host" ? "ChatGPT Host 状态由 Desktop Project Grant/Tunnel 控制面提供" : "该 Profile 使用独立显式 Adapter",
-                    checkedAt: new Date().toISOString(),
-                },
-        })));
+        return await probeConnectionList(this.registry);
     }
 
     async createSession(input: Parameters<AgentSessionManager["createSession"]>[0]) {
@@ -126,9 +117,19 @@ export class GenericAgentRuntime {
     }
 
     async resumeSession(sessionId: string, actorId: string) {
+        const previous = await this.store.getSession(sessionId);
+        if (!previous) throw new Error(`Unknown brain session: ${sessionId}`);
         const session = await this.manager.resumeSession(sessionId, actorId);
         this.hydratedSessions.add(sessionId);
-        return await this.captureContext(sessionId);
+        const captured = await this.captureContext(sessionId);
+        this.emitRecoveredHostState(previous, captured.session);
+        const adapter = this.registry.getAdapter(captured.session.brainProfileId);
+        const history = adapter.readHistory ? await adapter.readHistory(captured.session) : [];
+        return {
+            ...captured,
+            history,
+            historyStatus: historyStatus(captured.session.brainProfileId, Boolean(adapter.readHistory)),
+        };
     }
 
     async captureContext(sessionId: string) {
@@ -238,6 +239,16 @@ export class GenericAgentRuntime {
 
     private readonly emit: AgentEmit;
 
+    private emitRecoveredHostState(previous: BrainSession, current: BrainSession) {
+        const before = previous.hostHandoff;
+        const after = current.hostHandoff;
+        if (!after || (before?.handoffId === after.handoffId && before.status === after.status)) return;
+        const at = new Date().toISOString();
+        if (after.status === "host_observed") this.emit("agent_event", { type: "host.observed", sessionId: current.id, handoff: after, at });
+        if (after.status === "proposal_received") this.emit("agent_event", { type: "host.proposal.received", sessionId: current.id, handoff: after, at });
+        if (after.status === "expired") this.emit("agent_event", { type: "host.handoff.expired", sessionId: current.id, handoff: after, at });
+    }
+
     private async emitBrokerOutcome(outcome: AgentBrokerOutcome, sessionId: string, turnId: string) {
         const at = new Date().toISOString();
         if (outcome.status === "confirmation_required") {
@@ -257,4 +268,40 @@ export class GenericAgentRuntime {
         this.activeTurns.clear();
         this.hydratedSessions.clear();
     }
+}
+
+export async function probeConnectionList(registry: BrainProfileRegistry) {
+    return await Promise.all(registry.listProfiles().map(async (profile) => {
+        try {
+            const status = registry.hasAdapter(profile.id)
+                ? await registry.probe(profile.id)
+                : {
+                    profileId: profile.id,
+                    status: "unavailable" as const,
+                    statusReason: profile.availability === "disabled" ? "该 Profile 未启用" : "该 Profile 使用独立显式 Adapter",
+                    checkedAt: new Date().toISOString(),
+                };
+            return { profile, status };
+        } catch (error) {
+            return {
+                profile,
+                status: {
+                    profileId: profile.id,
+                    status: "error" as const,
+                    statusReason: error instanceof Error ? error.message : String(error),
+                    checkedAt: new Date().toISOString(),
+                },
+            };
+        }
+    }));
+}
+
+function historyStatus(profileId: string, supported: boolean) {
+    if (profileId === "codex.subscription") return { source: "provider" as const, complete: true };
+    if (profileId === "chatgpt.subscription.host") return { source: "handoff_timeline" as const, complete: true };
+    return {
+        source: "not_persisted" as const,
+        complete: false,
+        limitation: supported ? "该 Profile 未返回可恢复历史" : "API / Local Profile 当前不持久化 Provider 对话历史",
+    };
 }

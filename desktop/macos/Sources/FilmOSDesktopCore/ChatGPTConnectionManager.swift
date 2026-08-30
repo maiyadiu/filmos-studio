@@ -31,6 +31,7 @@ public struct ChatGPTExternalRequest: Equatable, Codable, Sendable {
     public let projectScope: String
     public let challengeID: String?
     public let resultHash: String?
+    public let handoffID: String?
     public let connectionID: String?
     public let mcpSessionID: String?
     public let expiresAt: Date?
@@ -42,6 +43,7 @@ public struct ChatGPTExternalRequest: Equatable, Codable, Sendable {
         projectScope: String,
         challengeID: String? = nil,
         resultHash: String? = nil,
+        handoffID: String? = nil,
         connectionID: String? = nil,
         mcpSessionID: String? = nil,
         expiresAt: Date? = nil
@@ -52,6 +54,7 @@ public struct ChatGPTExternalRequest: Equatable, Codable, Sendable {
         self.projectScope = projectScope
         self.challengeID = challengeID
         self.resultHash = resultHash
+        self.handoffID = handoffID
         self.connectionID = connectionID
         self.mcpSessionID = mcpSessionID
         self.expiresAt = expiresAt

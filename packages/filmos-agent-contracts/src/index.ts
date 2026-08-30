@@ -107,7 +107,35 @@ export interface AgentConnectionDescriptor {
     version?: string;
 }
 
-export type BrainSessionStatus = "creating" | "ready" | "running" | "awaiting_confirmation" | "completed" | "interrupted" | "failed" | "closed";
+export type BrainSessionStatus = "creating" | "ready" | "running" | "awaiting_confirmation" | "waiting_host" | "completed" | "interrupted" | "failed" | "closed";
+
+export type ChatGPTHandoffLifecycleStatus = "waiting_host" | "host_observed" | "proposal_received" | "expired" | "closed";
+
+export interface ChatGPTHandoffReceipt {
+    handoffId: string;
+    hostSessionId: string;
+    projectId: string;
+    contextReceiptId: string;
+    createdAt: string;
+    expiresAt: string;
+    status: ChatGPTHandoffLifecycleStatus;
+    externalConversationUrl?: string;
+}
+
+export interface ChatGPTHandoffTimelineEntry extends ChatGPTHandoffReceipt {
+    recordedAt: string;
+}
+
+export interface AgentHistoryMessage {
+    id: string;
+    role: "user" | "assistant" | "tool" | "system" | "error";
+    text: string;
+    title?: string;
+    detail?: unknown;
+    streamId?: string;
+    at?: string;
+    source: "provider" | "handoff_timeline" | "local_timeline";
+}
 
 export interface BrainSession {
     id: string;
@@ -125,6 +153,8 @@ export interface BrainSession {
     permissionGrantId: string;
     status: BrainSessionStatus;
     lastContextReceiptId?: string;
+    hostHandoff?: ChatGPTHandoffReceipt;
+    hostHandoffTimeline?: ChatGPTHandoffTimelineEntry[];
     createdAt: string;
     updatedAt: string;
     closedAt?: string;
@@ -160,8 +190,11 @@ export interface CreateBrainSessionInput {
 export interface ResumeBrainSessionInput {
     sessionId: string;
     providerThreadId?: string;
+    projectId?: string;
+    domainProjectId?: string;
     canvasId?: string;
     grant?: AgentPermissionGrant;
+    hostHandoff?: ChatGPTHandoffReceipt;
 }
 
 export type EntitySummary = {
@@ -251,6 +284,10 @@ export type NormalizedBrainEvent =
     | { type: "tool.proposed"; sessionId: string; turnId: string; request: AgentToolRequest; at: string }
     | { type: "confirmation.required"; sessionId: string; turnId: string; confirmation: AgentConfirmation; at: string }
     | { type: "tool.completed"; sessionId: string; turnId: string; result: AgentToolResult; at: string }
+    | { type: "host.handoff.prepared"; sessionId: string; turnId: string; handoff: ChatGPTHandoffReceipt; at: string }
+    | { type: "host.observed"; sessionId: string; handoff: ChatGPTHandoffReceipt; at: string }
+    | { type: "host.proposal.received"; sessionId: string; handoff: ChatGPTHandoffReceipt; at: string }
+    | { type: "host.handoff.expired"; sessionId: string; handoff: ChatGPTHandoffReceipt; at: string }
     | { type: "turn.failed"; sessionId: string; turnId: string; code: string; message: string; at: string }
     | { type: "turn.completed"; sessionId: string; turnId: string; at: string };
 
@@ -383,6 +420,7 @@ export interface AgentTurnResult {
     providerThreadId?: string;
     text?: string;
     status: "completed" | "interrupted" | "failed" | "handoff_pending";
+    handoff?: ChatGPTHandoffReceipt;
 }
 
 export interface AgentRuntimeAdapter {
@@ -392,6 +430,7 @@ export interface AgentRuntimeAdapter {
     createSession(input: CreateBrainSessionInput, grant: AgentPermissionGrant): Promise<Partial<BrainSession>>;
     resumeSession(input: ResumeBrainSessionInput): Promise<Partial<BrainSession>>;
     sendTurn(input: AgentTurnInput, sink: AgentEventSink): Promise<AgentTurnResult>;
+    readHistory?(session: BrainSession): Promise<AgentHistoryMessage[]>;
     cancelTurn(sessionId: string): Promise<void>;
     closeSession(sessionId: string): Promise<void>;
 }

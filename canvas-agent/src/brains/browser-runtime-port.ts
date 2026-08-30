@@ -60,7 +60,7 @@ export class BrowserModelRuntimePort implements ModelApiCompatibilityPort {
         });
     }
 
-    async resumeSession(input: ResumeBrainSessionInput, profileId = "browser.runtime") {
+    async resumeSession(input: ResumeBrainSessionInput, profileId: string) {
         return await this.transport.request<{ providerThreadId?: string }>({
             channel: "model",
             operation: "resume_session",
@@ -90,12 +90,12 @@ export class BrowserModelRuntimePort implements ModelApiCompatibilityPort {
         return result.result;
     }
 
-    async cancelTurn(sessionId: string) {
-        await this.transport.request({ channel: "model", operation: "cancel_turn", profileId: "browser.runtime", sessionId, payload: {} });
+    async cancelTurn(sessionId: string, profileId: string) {
+        await this.transport.request({ channel: "model", operation: "cancel_turn", profileId, sessionId, payload: {} });
     }
 
-    async closeSession(sessionId: string) {
-        await this.transport.request({ channel: "model", operation: "close_session", profileId: "browser.runtime", sessionId, payload: {} });
+    async closeSession(sessionId: string, profileId: string) {
+        await this.transport.request({ channel: "model", operation: "close_session", profileId, sessionId, payload: {} });
     }
 }
 
@@ -128,12 +128,26 @@ export class BrowserChatGPTHostBridgeClient implements ChatGPTHostBridgeClient {
     }
 
     async refreshSession(input: Parameters<ChatGPTHostBridgeClient["refreshSession"]>[0]): Promise<ChatGPTHostBridgeSession> {
+        const { permissionGrant, ...scopedInput } = input;
         return await this.transport.request({
             channel: "chatgpt_host",
             operation: "resume_session",
             profileId: "chatgpt.subscription.host",
             sessionId: input.brainSessionId,
-            payload: { input },
+            payload: {
+                input: {
+                    ...scopedInput,
+                    agentGrant: {
+                        id: permissionGrant.id,
+                        sessionId: permissionGrant.sessionId,
+                        connectionId: permissionGrant.connectionId,
+                        projectId: permissionGrant.projectId,
+                        ...(permissionGrant.domainProjectId ? { domainProjectId: permissionGrant.domainProjectId } : {}),
+                        expiresAt: permissionGrant.expiresAt,
+                        keyId: permissionGrant.keyId,
+                    },
+                },
+            },
         });
     }
 

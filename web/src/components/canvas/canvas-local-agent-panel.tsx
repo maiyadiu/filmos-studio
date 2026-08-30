@@ -31,7 +31,7 @@ import { isProjectAgentReadTool, isProjectAgentToolName, runProjectAgentTool } f
 import { AgentChatComposer, AgentChatMessage, AgentPendingToolCard, AgentWorkingMessage, type CanvasAgentChatAttachment } from "./canvas-agent-chat-ui";
 import { VoiceRecordingButton } from "@/components/conversation/voice-recording-button";
 import { AgentChatEmptyState } from "./canvas-agent-panel-chrome";
-import { AgentSessionClient, type BrainSessionView } from "@/film/agent/agent-client";
+import { AgentSessionClient, type AgentHistoryMessageView, type BrainSessionView } from "@/film/agent/agent-client";
 import { dispatchBrowserRuntimeRequest, type BrowserRuntimeRequest } from "@/film/agent/browser-runtime-bridge";
 
 const PANEL_MOTION_SECONDS = 0.5;
@@ -52,6 +52,16 @@ type AgentEventPayload = {
     message?: string;
     usage?: Record<string, unknown>;
     delta?: string;
+    handoff?: {
+        handoffId?: string;
+        hostSessionId?: string;
+        projectId?: string;
+        contextReceiptId?: string;
+        createdAt?: string;
+        expiresAt?: string;
+        status?: string;
+        externalConversationUrl?: string;
+    };
     confirmation?: { id?: string; sessionId?: string; requestId?: string; toolName?: string; summary?: string; impact?: string[] };
 };
 type AgentEventItem = { id?: string; type?: string; text?: unknown; message?: unknown; server?: string; tool?: string; status?: string; arguments?: unknown; result?: unknown; error?: { message?: string } };
@@ -674,8 +684,10 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
         setAgentState({ loadingThreads: true });
         try {
             if (genericRuntime) {
-                await agentSessionClient.resumeSession(threadId);
-                setAgentState({ activeThreadId: threadId, messages: [], activeTab: "chat", activity: "已恢复会话" });
+                const data = await agentSessionClient.resumeSession(threadId);
+                const history = normalizeGenericHistory(data.history);
+                if (!history.length && data.historyStatus.limitation) history.push({ id: `history-limit-${threadId}`, role: "system", text: data.historyStatus.limitation });
+                setAgentState({ activeThreadId: threadId, messages: history, activeTab: "chat", activity: "已恢复会话" });
                 await loadThreads();
                 return;
             }
@@ -800,6 +812,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
             pendingToolRef.current = pending;
             setAgentState({ pendingTool: pending, waiting: false, activity: "等待确认" });
         }
+        if (["host.handoff.prepared", "host.observed", "host.proposal.received", "host.handoff.expired"].includes(event.type || "")) setAgentState({ waiting: false, sending: false });
         if (event.type === "turn.completed" || event.type === "turn.failed" || event.type === "error") setAgentState({ waiting: false, sending: false });
         const item = formatAgentEvent(event);
         if (item) {
@@ -866,7 +879,20 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
                             />
                         ) : null}
                         {messages.map((item) => (
-                            <AgentChatMessage key={item.id} item={agentMessageToChatMessage(item)} theme={theme} user={user} isStreaming={(sending || waiting) && item.id === messages.at(-1)?.id && item.role === "assistant"} onQuickAction={(text) => void sendPrompt(text)} />
+                            <AgentChatMessage
+                                key={item.id}
+                                item={agentMessageToChatMessage(item)}
+                                theme={theme}
+                                user={user}
+                                isStreaming={(sending || waiting) && item.id === messages.at(-1)?.id && item.role === "assistant"}
+                                onQuickAction={(text) => void sendPrompt(text)}
+                                onOpenChatGPT={() => window.open("https://chatgpt.com/", "_blank", "noopener,noreferrer")}
+                                onOpenConnectionSettings={() => {
+                                    const handler = window.webkit?.messageHandlers?.filmosDesktop;
+                                    if (handler) handler.postMessage({ action: "openChatGPTConnection" });
+                                    else window.dispatchEvent(new CustomEvent("filmos:open-chatgpt-connection"));
+                                }}
+                            />
                         ))}
                         {pendingTool ? (
                             <AgentPendingToolCard
@@ -1209,6 +1235,15 @@ function agentAttachmentToChatAttachment(item: AgentAttachment): CanvasAgentChat
 
 function formatAgentEvent(event: AgentEventPayload): Omit<AgentChatItem, "id"> | null {
     const item = event.item;
+    if (["host.handoff.prepared", "host.observed", "host.proposal.received", "host.handoff.expired"].includes(event.type || "") && event.handoff) {
+        const status = event.type === "host.observed" ? "host_observed" : event.type === "host.proposal.received" ? "proposal_received" : event.type === "host.handoff.expired" ? "expired" : "waiting_host";
+        return {
+            role: "system",
+            title: "ChatGPT Handoff",
+            text: status === "expired" ? "Handoff 已过期，可重新发送。" : status === "proposal_received" ? "ChatGPT Proposal 已返回。" : status === "host_observed" ? "ChatGPT 已读取该 Handoff。" : "已准备 Handoff，等待 ChatGPT 接管。",
+            detail: { kind: "chatgpt_handoff", ...event.handoff, status },
+        };
+    }
     if (event.type === "item.completed" && item?.type === "error") return { role: "error", title: "错误", text: normalizeText(item.message), detail: item };
     if ((event.type === "item.updated" || event.type === "item.completed") && item?.type === "agent_message") return { role: "assistant", title: "Codex", text: stringText(item.text), meta: usageText(event), streamId: item.id };
     if (event.type === "item.completed" && isMcpToolItem(item) && isReadTool(String(item?.tool || ""))) return { role: "tool", title: `${toolName(String(item?.tool || ""))}完成`, text: item?.error?.message || toolSummary(item), detail: toolDetail(item) };
@@ -1265,6 +1300,18 @@ function brainSessionThread(session: BrainSessionView): AgentThreadSummary {
     };
 }
 
+function normalizeGenericHistory(history: AgentHistoryMessageView[]): AgentChatItem[] {
+    return history.map((item) => ({
+        id: item.id,
+        role: item.role,
+        text: item.text,
+        ...(item.title ? { title: item.title } : {}),
+        ...(item.detail !== undefined ? { detail: item.detail } : {}),
+        ...(item.streamId ? { streamId: item.streamId } : {}),
+        ...(item.at ? { meta: new Date(item.at).toLocaleString() } : {}),
+    }));
+}
+
 function usageText(event: AgentEventPayload) {
     const usage = event.usage;
     if (!usage || typeof usage !== "object") return undefined;
@@ -1281,6 +1328,10 @@ function activityText(event: AgentEventPayload) {
     if (name === "thread.started") return "已创建会话";
     if (name === "turn.started") return "思考中";
     if (name === "turn.completed") return "完成";
+    if (name === "host.handoff.prepared") return "等待 ChatGPT";
+    if (name === "host.observed") return "ChatGPT 已读取";
+    if (name === "host.proposal.received") return "Proposal 已返回";
+    if (name === "host.handoff.expired") return "Handoff 已过期";
     if (name === "turn.failed" || name === "error") return "出错";
     if (name === "item.started") return isMcpToolItem(event.item) ? `调用${toolName(String(event.item?.tool || ""))}` : "执行步骤";
     if (name === "item.completed") return isMcpToolItem(event.item) ? "工具完成" : "更新消息";
@@ -1292,6 +1343,10 @@ function eventTitle(event: AgentEventPayload) {
     if (event.type === "thread.started") return "已创建 Codex 会话";
     if (event.type === "turn.started") return "开始处理";
     if (event.type === "turn.completed") return "本轮完成";
+    if (event.type === "host.handoff.prepared") return "ChatGPT Handoff 已准备";
+    if (event.type === "host.observed") return "ChatGPT 已读取";
+    if (event.type === "host.proposal.received") return "ChatGPT Proposal 已返回";
+    if (event.type === "host.handoff.expired") return "ChatGPT Handoff 已过期";
     if (event.type === "stream.summary") return "流式摘要";
     if (event.type === "turn.failed" || event.type === "error") return "本轮失败";
     if (event.type === "item.started" && isMcpToolItem(item)) return `调用工具：${toolName(String(item?.tool || ""))}`;

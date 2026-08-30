@@ -36,7 +36,7 @@ test("handoff status is flat, project scoped, audited, and reveals no token or l
     const response = await fetch(`${baseUrl}/handoff/status?project_id=${projectA}`, { headers: { authorization: `Bearer ${issued.token}` } });
     assert.equal(response.status, 200);
     const body = await response.json() as any;
-    assert.deepEqual(Object.keys(body).sort(), ["authorized_project", "billing_mode", "challenge_id", "connection", "connection_id", "external_account_connected", "fallback_enabled", "last_chatgpt_mcp_request_at", "last_context_snapshot", "last_read_at", "local_mcp_ready", "mcp_destructive_tool_count", "mcp_manifest", "mcp_paid_tool_count", "mcp_read_tool_count", "mcp_session_id", "mcp_tool_count", "mcp_tool_names", "mcp_write_tool_count", "model_api_adapter_available", "observation_expires_at", "profile_id", "project_scope", "proposal_handoff_enabled", "request_id", "result_hash", "status_code", "tool_name"]);
+    assert.deepEqual(Object.keys(body).sort(), ["authorized_project", "billing_mode", "challenge_id", "connection", "connection_id", "external_account_connected", "fallback_enabled", "handoff_id", "last_chatgpt_mcp_request_at", "last_context_snapshot", "last_read_at", "local_mcp_ready", "mcp_destructive_tool_count", "mcp_manifest", "mcp_paid_tool_count", "mcp_read_tool_count", "mcp_session_id", "mcp_tool_count", "mcp_tool_names", "mcp_write_tool_count", "model_api_adapter_available", "observation_expires_at", "profile_id", "project_scope", "proposal_handoff_enabled", "request_id", "result_hash", "status_code", "tool_name"]);
     assert.deepEqual(body.authorized_project, { project_id: projectA, grant_id: issued.grant.grant_id, expires_at: issued.grant.expires_at });
     assert.equal(body.connection, "disconnected");
     assert.equal(body.local_mcp_ready, true);
@@ -48,6 +48,7 @@ test("handoff status is flat, project scoped, audited, and reveals no token or l
     assert.equal(body.fallback_enabled, false);
     assert.equal(body.mcp_tool_count, body.mcp_manifest.length);
     assert.equal(body.mcp_write_tool_count, 0);
+    assert.equal(body.handoff_id, null);
     assert.equal(JSON.stringify(body).includes(issued.token), false);
     assert.equal(JSON.stringify(body).includes("/Users/"), false);
 

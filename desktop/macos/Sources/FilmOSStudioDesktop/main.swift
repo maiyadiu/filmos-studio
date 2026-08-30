@@ -553,6 +553,9 @@ private final class WorkbenchWindow: NSObject, @preconcurrency WKNavigationDeleg
         if let grantID = snapshot.grantID { payload["authorizedGrantId"] = grantID }
         if let expiresAt = snapshot.grantExpiresAt { payload["grantExpiresAt"] = formatter.string(from: expiresAt) }
         if let readAt = snapshot.lastExternalRequest?.timestamp { payload["lastReadAt"] = formatter.string(from: readAt) }
+        if let toolName = snapshot.lastExternalRequest?.toolName { payload["lastExternalToolName"] = toolName }
+        if let requestID = snapshot.lastExternalRequest?.requestID { payload["lastExternalRequestId"] = requestID }
+        if let handoffID = snapshot.lastExternalRequest?.handoffID { payload["observedHandoffId"] = handoffID }
         guard let data = try? JSONSerialization.data(withJSONObject: payload), let json = String(data: data, encoding: .utf8) else { return }
         webView.evaluateJavaScript("window.filmOSChatGPTHostStatus=\(json);window.dispatchEvent(new CustomEvent('filmos:chatgpt-host-status',{detail:window.filmOSChatGPTHostStatus}));")
     }

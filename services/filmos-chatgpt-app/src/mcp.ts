@@ -155,6 +155,7 @@ async function callTool(name: string, input: Record<string, unknown>, options: F
         signingSecret: options.proposalSigningSecret,
       });
       const result = { package: proposal, file_name: `${proposal.proposal_id}.filmosproposal`, import_policy: "PREVIEW_AND_HUMAN_APPROVAL_ONLY" };
+      notifyRead(options, correlationId, name, `filmos://project/${options.grant.project_id}/proposal/${proposal.proposal_id}`, null, proposal.content_hash);
       await allowedAudit(options, correlationId, name, proposal.content_hash, byteSize(result));
       return { structuredContent: result, content: [{ type: "text" as const, text: "A signed local proposal package is ready. Nothing was applied to FilmOS." }] };
     }
