@@ -1,0 +1,125 @@
+#!/bin/sh
+set -eu
+
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+destination=${FILMOS_INSTALL_DESTINATION:-"$HOME/Applications/FilmOS Studio.app"}
+relaunch=false
+
+if [ "${1:-}" = "--relaunch" ]; then
+    relaunch=true
+    shift
+fi
+if [ "$#" -gt 1 ]; then
+    echo "usage: install-local-app [--relaunch] [destination.app]" >&2
+    exit 2
+fi
+if [ "$#" -eq 1 ]; then
+    destination=$1
+fi
+case "$destination" in
+    /*.app) ;;
+    *)
+        echo "installation destination must be an absolute .app path" >&2
+        exit 2
+        ;;
+esac
+
+destination_parent=$(dirname -- "$destination")
+mkdir -p "$destination_parent"
+staging=$(mktemp -d "$destination_parent/.filmos-install.XXXXXX")
+candidate="$staging/FilmOS Studio.app"
+cleanup() {
+    find "$staging" -type f -delete 2>/dev/null || true
+    find "$staging" -depth -type d -empty -delete 2>/dev/null || true
+}
+trap cleanup EXIT HUP INT TERM
+
+if [ "$relaunch" != true ]; then
+    existing_pids=$(
+        ps -axo pid=,comm= | awk '
+            {
+                pid = $1
+                $1 = ""
+                sub(/^[[:space:]]+/, "", $0)
+                if ($0 ~ /\/FilmOSStudioDesktop$/) print pid
+            }
+        '
+    )
+    if [ -n "$existing_pids" ]; then
+        echo "FilmOS Studio is running; rerun with --relaunch to replace every local copy with the stable installation" >&2
+        exit 2
+    fi
+fi
+
+if [ -z "${FILMOS_TUNNEL_CLIENT_RUNTIME_CACHE:-}" ] && [ -d "$destination/Contents/Helpers" ]; then
+    FILMOS_TUNNEL_CLIENT_RUNTIME_CACHE="$destination/Contents/Helpers" \
+        "$script_dir/build-unsigned-app" "$candidate"
+else
+    "$script_dir/build-unsigned-app" "$candidate"
+fi
+"$script_dir/verify-unsigned-app" "$candidate"
+
+running_pids=$(
+    ps -axo pid=,comm= | awk '
+        {
+            pid = $1
+            $1 = ""
+            sub(/^[[:space:]]+/, "", $0)
+            if ($0 ~ /\/FilmOSStudioDesktop$/) print pid
+        }
+    '
+)
+if [ -n "$running_pids" ]; then
+    for pid in $running_pids; do
+        kill -TERM "$pid"
+    done
+    attempts=0
+    while [ "$attempts" -lt 50 ]; do
+        alive=false
+        for pid in $running_pids; do
+            if kill -0 "$pid" 2>/dev/null; then alive=true; fi
+        done
+        if [ "$alive" = false ]; then break; fi
+        sleep 0.1
+        attempts=$((attempts + 1))
+    done
+    for pid in $running_pids; do
+        if kill -0 "$pid" 2>/dev/null; then
+            echo "installed FilmOS Studio did not exit cleanly: $pid" >&2
+            exit 1
+        fi
+    done
+fi
+
+backup_root="$HOME/Library/Application Support/FilmOS Studio/AppBackups"
+mkdir -p "$backup_root"
+if [ -e "$destination" ]; then
+    timestamp=$(date '+%Y%m%d-%H%M%S')
+    backup="$backup_root/FilmOS Studio-$timestamp.app"
+    if [ -e "$backup" ]; then
+        echo "backup destination already exists: $backup" >&2
+        exit 1
+    fi
+    mv "$destination" "$backup"
+    echo "PREVIOUS_APP_BACKUP $backup"
+fi
+
+if ! mv "$candidate" "$destination"; then
+    if [ -n "${backup:-}" ] && [ -e "$backup" ] && [ ! -e "$destination" ]; then
+        mv "$backup" "$destination"
+    fi
+    exit 1
+fi
+
+launch_services="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+if [ -x "$launch_services" ]; then
+    "$launch_services" -f "$destination" >/dev/null 2>&1 || true
+fi
+
+if [ "$relaunch" = true ]; then
+    open "$destination"
+fi
+
+trap - EXIT HUP INT TERM
+find "$staging" -depth -type d -empty -delete 2>/dev/null || true
+printf 'LOCAL_APP_INSTALLED %s\n' "$destination"

@@ -402,6 +402,7 @@ private final class WorkbenchWindow: NSObject, @preconcurrency WKNavigationDeleg
         window.titlebarAppearsTransparent = true
         window.minSize = NSSize(width: 960, height: 640)
         window.setFrameAutosaveName("FilmOSStudioWorkbench")
+        DesktopWindowLifecycle.configureReusable(window)
 
         super.init()
 

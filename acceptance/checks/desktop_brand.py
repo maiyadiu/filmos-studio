@@ -47,6 +47,11 @@ def main() -> None:
         ("<title>影策</title>",),
     )
     require_text(
+        ROOT / "web/src/pages/create/index.tsx",
+        ("FilmOS Studio · AI 影视创作工作台", "交给 FilmOS Studio", "FilmOS AI"),
+        ("影策",),
+    )
+    require_text(
         ROOT / "desktop/macos/Sources/FilmOSStudioDesktop/main.swift",
         (
             'backendEnvironment["CANVAS_DESKTOP_LOCAL_AUTH_ENABLED"] = "true"',

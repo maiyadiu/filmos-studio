@@ -25,6 +25,9 @@ description: 影策已实现功能的手工验证清单与未确认边界
 
 ## FilmOS macOS 本地数据与备份
 
+- [x] 主工作台与 ChatGPT 连接窗口关闭后保持可重用，程序坞再次打开不再访问已释放窗口；Swift 回归测试覆盖 `isReleasedWhenClosed = false` 合同。
+- [x] 本地更新统一安装到 `~/Applications/FilmOS Studio.app`，替换前将旧 App 备份到 FilmOS Application Support，并在 `--relaunch` 模式停止其他 FilmOS 桌面实例，避免程序坞同时出现两个运行图标。
+- [x] 在本机安装包上完成“关闭主窗口→程序坞重开→同一 PID 存活→无新增 Crash Report”的运行演练。
 - [x] 自包含 App 不依赖源码目录、Downloads 访问权限或 Bun，内置后端和 Web 服务只监听 `127.0.0.1`。
 - [x] 本地数据固定保存到 `~/Library/Application Support/FilmOS Studio/WorkbenchData`，并提供“打开 FilmOS 数据目录”菜单。
 - [x] `.filmosbackup` 使用 SQLite 一致性快照，保留资源及逐文件 SHA-256 manifest，排除凭据密钥、Cookie、CLI 登录凭据和 WebKit 缓存。

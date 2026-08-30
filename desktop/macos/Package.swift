@@ -15,6 +15,7 @@ let package = Package(
         .target(
             name: "FilmOSDesktopCore",
             linkerSettings: [
+                .linkedFramework("AppKit"),
                 .linkedFramework("Security"),
             ]
         ),

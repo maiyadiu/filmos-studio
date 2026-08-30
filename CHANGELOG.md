@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- 修复 macOS 主工作台窗口关闭后从程序坞重新打开时复用已释放 `NSWindow` 导致的 `EXC_BAD_ACCESS`；主窗口与 ChatGPT 连接窗口统一采用可重开生命周期，并新增稳定路径本地安装脚本，更新时可备份旧 App、停止重复实例、复用已校验的 Tunnel Client 并重新启动唯一安装副本。创作页 Hero 及其生成状态文案同步清除旧“影策”字样，统一为 FilmOS Studio / FilmOS AI 品牌。
 - 完成 RC1 前 Agent 生命周期收口：Browser API/Local 会话按真实 Profile 完成创建、取消与关闭，七种 Brain 连接探测独立且不发起 Provider 请求；ChatGPT Host 在进程重启后以新 Agent Grant 恢复原 Session/Project/Canvas，并以 `waiting_host` 、Handoff Receipt 及正式 Host 事件替代伪完成回复。
 - 对话恢复证据按 Provider 边界显示：Codex 从真实 `thread/read` 重建历史，ChatGPT 仅显示持久化 Handoff 时间线，API/Local 明确标注当前未持久化 Provider 对话，不编造历史。
 - 完成外部独立审计 P0 纠偏：七种 Brain Profile 统一进入生产 Generic Runtime，以单一 Canonical Tool Contract 生成 MCP/ChatGPT/Codex 工具面，所有写入经过 Production Tool Broker 的签名权限、单次人工确认和防重放边界；新增 Candidate 10/10 原子激活黑盒门禁与 Codex Subscription 真实拒绝/批准/重启恢复证据。

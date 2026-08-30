@@ -17,16 +17,33 @@ case "$architecture" in
     arm64)
         archive="tunnel-client-v${version}-darwin-arm64.zip"
         expected="15abf165f06050af642c948ba6bd6c905191dc5420a9422dadde2b49d892e2c6"
+        expected_tunnel_client="814b5e7ad378e6dfeb7eeebf12df37ff879cfe58fd504769cabfc3e3b4cf99f6"
+        expected_cloudflared="4cf6ca3f4dde4266cd5a61c55f3fe4d8e752914e9d6187a10bd0daf80d0440a1"
         ;;
     x86_64)
         archive="tunnel-client-v${version}-darwin-amd64.zip"
         expected="c683e15d84fb997f5af1cc7c4cb55008e19a555a9ed2ec0f89a5ff426d85f85c"
+        expected_tunnel_client=""
+        expected_cloudflared=""
         ;;
     *)
         echo "unsupported macOS architecture: $architecture" >&2
         exit 1
         ;;
 esac
+
+runtime_cache=${FILMOS_TUNNEL_CLIENT_RUNTIME_CACHE:-}
+if [ -n "$expected_tunnel_client" ] && [ -n "$runtime_cache" ] && [ -x "$runtime_cache/tunnel-client" ] && [ -x "$runtime_cache/cloudflared" ]; then
+    actual_tunnel_client=$(shasum -a 256 "$runtime_cache/tunnel-client" | awk '{print $1}')
+    actual_cloudflared=$(shasum -a 256 "$runtime_cache/cloudflared" | awk '{print $1}')
+    if [ "$actual_tunnel_client" = "$expected_tunnel_client" ] && [ "$actual_cloudflared" = "$expected_cloudflared" ]; then
+        mkdir -p "$destination"
+        install -m 0755 "$runtime_cache/tunnel-client" "$destination/tunnel-client"
+        install -m 0755 "$runtime_cache/cloudflared" "$destination/cloudflared"
+        printf 'TUNNEL_CLIENT_REUSED version=%s architecture=%s runtime_sha256=%s\n' "$version" "$architecture" "$actual_tunnel_client"
+        exit 0
+    fi
+fi
 
 parent=$(dirname -- "$destination")
 mkdir -p "$parent"

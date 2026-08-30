@@ -33,7 +33,7 @@ final class ChatGPTConnectionWindow: NSObject {
         )
         window.title = "ChatGPT 连接"
         window.contentView = content
-        window.isReleasedWhenClosed = false
+        DesktopWindowLifecycle.configureReusable(window)
         super.init()
 
         let title = NSTextField(labelWithString: "ChatGPT 连接")

@@ -35,6 +35,10 @@ def main() -> None:
     build_script = (PACKAGE / "scripts/build-unsigned-app").read_text(encoding="utf-8")
     runtime_source = (PACKAGE / "Sources/FilmOSStudioDesktop/DesktopChatGPTRuntime.swift").read_text(encoding="utf-8")
     manager_source = (PACKAGE / "Sources/FilmOSDesktopCore/ChatGPTConnectionManager.swift").read_text(encoding="utf-8")
+    workbench_source = (PACKAGE / "Sources/FilmOSStudioDesktop/main.swift").read_text(encoding="utf-8")
+    connection_window_source = (PACKAGE / "Sources/FilmOSStudioDesktop/ChatGPTConnectionWindow.swift").read_text(encoding="utf-8")
+    lifecycle_source = (PACKAGE / "Sources/FilmOSDesktopCore/DesktopWindowLifecycle.swift").read_text(encoding="utf-8")
+    install_script = (PACKAGE / "scripts/install-local-app").read_text(encoding="utf-8")
     for helper in ("FilmOSFilmCore", "FilmOSChatGPTMCP", "FilmOSChatGPTGrant", "tunnel-client", "cloudflared"):
         if helper not in build_script:
             raise RuntimeError(f"desktop bundle is missing ChatGPT helper contract: {helper}")
@@ -60,6 +64,15 @@ def main() -> None:
     )
     if not all(marker in runtime_source for marker in required_runtime_markers):
         raise RuntimeError("desktop ChatGPT runtime contract is incomplete")
+    if "window.isReleasedWhenClosed = false" not in lifecycle_source:
+        raise RuntimeError("reusable desktop windows must survive close and Dock reopen")
+    if "DesktopWindowLifecycle.configureReusable(window)" not in workbench_source:
+        raise RuntimeError("the main workbench window is missing its reopen lifecycle contract")
+    if "DesktopWindowLifecycle.configureReusable(window)" not in connection_window_source:
+        raise RuntimeError("the ChatGPT connection window is missing its reopen lifecycle contract")
+    for marker in ("AppBackups", "--relaunch", "LOCAL_APP_INSTALLED", "FilmOSStudioDesktop$/", "FILMOS_TUNNEL_CLIENT_RUNTIME_CACHE"):
+        if marker not in install_script:
+            raise RuntimeError(f"stable local app installer is missing: {marker}")
 
     environment = os.environ.copy()
     runtime_library = "/Library/Developer/CommandLineTools/Library/Developer/usr/lib"
@@ -77,6 +90,8 @@ def main() -> None:
         "bounded_reconnect": [1, 2, 5, 10, 30],
         "owned_process_shutdown": True,
         "clean_clone_contract_build": True,
+        "dock_reopen_lifecycle": True,
+        "stable_local_install": True,
         "tool_count_source": "MCP_HEALTH_MANIFEST_RUNTIME",
         "write_tools_gate": "DYNAMIC_ZERO_REQUIRED",
         "bundled_helpers": ["FilmOSFilmCore", "FilmOSChatGPTMCP", "FilmOSChatGPTGrant", "tunnel-client", "cloudflared"],
