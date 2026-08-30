@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 import { loadConfig, saveConfig } from "./config.js";
+import { createDefaultLocalRuntimeModules } from "./local-runtime-host.js";
 import { startLocalRuntimeServer } from "./local-runtime-server.js";
-import { createCanvasAgentHttpModule } from "./modules/canvas-agent-http.js";
 
 const config = loadConfig(true);
 const runtime = startLocalRuntimeServer({
     config,
-    modules: [createCanvasAgentHttpModule(config)],
+    modules: createDefaultLocalRuntimeModules(config),
     persistConfig: saveConfig,
 });
 

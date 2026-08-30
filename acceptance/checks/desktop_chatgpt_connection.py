@@ -42,6 +42,7 @@ def main() -> None:
     local_agent_panel_source = (ROOT / "web/src/components/canvas/canvas-local-agent-panel.tsx").read_text(encoding="utf-8")
     local_cli_settings_source = (ROOT / "web/src/pages/settings/local-cli-settings.tsx").read_text(encoding="utf-8")
     dreamina_module_source = (ROOT / "canvas-agent/src/modules/dreamina-http.ts").read_text(encoding="utf-8")
+    desktop_runtime_source = (ROOT / "canvas-agent/src/desktop-runtime.ts").read_text(encoding="utf-8")
     runtime_security_source = (ROOT / "canvas-agent/src/local-runtime-security.ts").read_text(encoding="utf-8")
     install_script = (PACKAGE / "scripts/install-local-app").read_text(encoding="utf-8")
     fingerprint_path = PACKAGE / "scripts/source-fingerprint"
@@ -91,6 +92,8 @@ def main() -> None:
             raise RuntimeError(f"Desktop Dreamina runtime binding is missing: {marker}")
     if "publicHealth: () => ({ dreamina_module_loaded: true })" not in dreamina_module_source:
         raise RuntimeError("Dreamina module health must prove that the module was loaded")
+    if "modules: createDefaultLocalRuntimeModules(config)" not in desktop_runtime_source:
+        raise RuntimeError("packaged Desktop Runtime must load the default Dreamina module composition")
     if "当前系统用户" not in local_cli_settings_source or "当前 Windows 用户" in local_cli_settings_source:
         raise RuntimeError("Dreamina settings copy must be platform-neutral")
     for marker in ("agent_profile_not_ready", "chatgpt_host_not_ready"):

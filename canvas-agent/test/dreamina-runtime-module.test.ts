@@ -25,6 +25,12 @@ const installed: DreaminaPublicStatus = {
     message: "Dreamina CLI 已安装，需要登录",
 };
 
+test("packaged Desktop Runtime loads the default Dreamina module composition", async () => {
+    const source = await fs.readFile(new URL("../src/desktop-runtime.ts", import.meta.url), "utf8");
+    assert.match(source, /createDefaultLocalRuntimeModules\(config\)/);
+    assert.doesNotMatch(source, /modules:\s*\[createCanvasAgentHttpModule\(config\)\]/);
+});
+
 test("Dreamina module stages generated and configured references when another optional Canvas root is absent", async () => {
     const configDir = await fs.mkdtemp(path.join(os.tmpdir(), "dreamina-module-reference-"));
     const canvasRoot = path.join(configDir, "canvas-workspace");
