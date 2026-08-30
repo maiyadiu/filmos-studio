@@ -2,14 +2,14 @@
   "evidence_status": "CLEAN_LOCAL_EVIDENCE_NOT_FROZEN",
   "raw_sources": [
     {
-      "bytes": 25666,
+      "bytes": 26237,
       "path": "CHANGELOG.md",
-      "sha256": "495a716673f21768384b765d0001bad4894518122e9036907b9ded4210ce62ea"
+      "sha256": "61d17278cf76508ce24d54266d1c1cf41c5460f7b65c49a0fe892dfa6605900a"
     },
     {
       "bytes": 3357,
       "path": "acceptance/MANIFEST.json",
-      "sha256": "d8907de8195782d1c56c7d8eef5590b92208831abceb3caaf4ce3255feb1216d"
+      "sha256": "a6dfdb6f825668981d73d3b437abebab16f51585f191a351647cf6dcf47f15a3"
     },
     {
       "bytes": 2187,
@@ -92,11 +92,11 @@
       "sha256": "ecaa6419e92c8245b06d00364c707aa88c9d29b973f8bbc9a0aa7726a2648073"
     }
   ],
-  "receipt": "acceptance/evidence/runs/20260830T000008Z-e62af357dc6e-rc-local/receipt.json",
-  "receipt_sha256": "c921d3fe3119831bad66cf85926ee7b3a6776b9fb19fe21f70a1a83e20f763d8",
+  "receipt": "acceptance/evidence/runs/20260830T044029Z-2cbabd8156ee-rc-local/receipt.json",
+  "receipt_sha256": "169785e02d0eaac6595dd57dd453de2444b87d5adb5ac0c25bc595ff3d6fbbc2",
   "reports": [
     {
-      "bytes": 4015,
+      "bytes": 5120,
       "check_ids": [
         "desktop-release-build",
         "desktop-chatgpt-connection",
@@ -105,12 +105,16 @@
         "agent-codex-controlled-write",
         "agent-tool-contract-single-source",
         "agent-candidate-activation",
+        "agent-browser-lifecycle",
+        "agent-connection-probe-isolation",
+        "chatgpt-host-restart-recovery",
+        "chatgpt-handoff-state",
         "mcp-actual-tool-count",
         "performance-local",
         "remote-acceptance-contract"
       ],
       "path": "acceptance/reports/KNOWN_LIMITATIONS.md",
-      "sha256": "45ef5014278599995cd88ceef14e3dc495f79845e51c11e280843e6a88111c54"
+      "sha256": "8dbcf89e671e82b7365ce3c8174a1926d210bc6f7fd1eff47b31dc8d7ef55f9d"
     },
     {
       "bytes": 1630,
@@ -120,7 +124,7 @@
         "desktop-backup-restore"
       ],
       "path": "acceptance/reports/MIGRATION_REPORT.md",
-      "sha256": "8b127d058ea3cd102cad7100868b867eb73ce2e9084941c16c5397342b3a730f"
+      "sha256": "0a43eb2299ea092d72fc25025547f54d91b30591874010021e336a2840aa8bbd"
     },
     {
       "bytes": 1386,
@@ -129,10 +133,10 @@
         "rc-recovery"
       ],
       "path": "acceptance/reports/UPSTREAM_COMPATIBILITY_REPORT.md",
-      "sha256": "c60f05d1f805dde65208e95e1202fbc66c09fe953877b6e90895cb6412baa6e2"
+      "sha256": "597bb7c40200df9e9741bd5679786036d0ee0bb479350ff460390b9382115534"
     },
     {
-      "bytes": 3781,
+      "bytes": 4741,
       "check_ids": [
         "desktop-local-auth",
         "desktop-backup-restore",
@@ -145,23 +149,27 @@
         "agent-codex-controlled-write",
         "agent-tool-contract-single-source",
         "agent-candidate-activation",
+        "agent-browser-lifecycle",
+        "agent-connection-probe-isolation",
+        "chatgpt-host-restart-recovery",
+        "chatgpt-handoff-state",
         "mcp-actual-tool-count",
         "acceptance-privacy"
       ],
       "path": "acceptance/reports/SECURITY_REPORT.md",
-      "sha256": "97b689952ff1fcce6c4f81ae92201ee19ddd5d2d24e93a5a06aa6cf353e8129a"
+      "sha256": "204b110899eefb65fb6af6c7286d197f412daedf258f9c4c62571407e23f0504"
     },
     {
-      "bytes": 1523,
+      "bytes": 1524,
       "check_ids": [
         "web-production-build",
         "performance-local"
       ],
       "path": "acceptance/reports/PERFORMANCE_REPORT.md",
-      "sha256": "a75bfc2c2f325e2f9e66b5dcd0b114f42eedf33f60e6221e61359ddb65b0bdf0"
+      "sha256": "b96b5d0c4d6ee2dd337d2699e9cc7c01340d60c2d29270fde422fc205c9a7341"
     },
     {
-      "bytes": 3258,
+      "bytes": 4247,
       "check_ids": [
         "desktop-backup-restore",
         "golden-abc-real-http",
@@ -172,14 +180,18 @@
         "agent-codex-controlled-write",
         "agent-tool-contract-single-source",
         "agent-candidate-activation",
+        "agent-browser-lifecycle",
+        "agent-connection-probe-isolation",
+        "chatgpt-host-restart-recovery",
+        "chatgpt-handoff-state",
         "mcp-actual-tool-count",
         "no-openai-model-api-billing"
       ],
       "path": "acceptance/reports/GOLDEN_TEST_REPORT.md",
-      "sha256": "9ff9fb9b51da5ce0bb916657e0a8ecdc868ed38652246439fb420fd8795ee67e"
+      "sha256": "bbc5eff8a480d4165e08c5448b03bb588a8e294532c77b4baa2f8ed1d4d2cb10"
     }
   ],
   "schema_version": "1.0.0",
-  "source_snapshot_sha256": "751b9775f896600514b1a502f7c87105b43a90af539b4b25194d482e72e090d1",
-  "started_from_commit": "e62af357dc6e8b1aefb0eee8fa23cd06acead92a"
+  "source_snapshot_sha256": "02fdb0f8690312907e10fde757f53e77b68904c2deda16b8161b2c147df40942",
+  "started_from_commit": "2cbabd8156ee65e614459e8d43bc665ee525e501"
 }

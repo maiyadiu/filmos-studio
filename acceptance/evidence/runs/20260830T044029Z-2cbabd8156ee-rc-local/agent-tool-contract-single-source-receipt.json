@@ -1,0 +1,20 @@
+{
+  "consumers": [
+    "runtime",
+    "mcp",
+    "model_api",
+    "local_model"
+  ],
+  "contract_file_sha256": "5a6dd7a1be28cf46c852c3825412aec89082b56c8662a84ccb8b780f8cf66ffc",
+  "contract_hash": "93a4038f424b6576ecd8b3020ddbd1f7cdd12ec52d3a03e7a4e24f7587461f7f",
+  "gate_id": "AGENT-TOOL-CONTRACT-SINGLE-SOURCE-001",
+  "schema_hash_count": 41,
+  "schema_version": "1.0.0",
+  "source_contracts": {
+    "canvas_project": "canvas-agent/src/schemas.ts",
+    "film_core": "canvas-agent/src/film/contracts.ts",
+    "risk_surface": "canvas-agent/src/brains/tool-manifest.ts"
+  },
+  "status": "PASSED",
+  "tool_count": 48
+}

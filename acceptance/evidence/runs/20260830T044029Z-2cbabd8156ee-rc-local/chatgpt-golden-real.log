@@ -1,0 +1,30 @@
+
+> @filmos/chatgpt-app@0.1.0 test:golden-real
+> npm run build:contracts && npm run build:widget && tsx --test --test-concurrency=1 test/real-film-core-golden.integration.ts
+
+
+> @filmos/chatgpt-app@0.1.0 build:contracts
+> npm --prefix ../../packages/filmos-tool-contracts run build
+
+
+> @filmos/tool-contracts@1.0.0 build
+> npm run generate && tsc -p tsconfig.json
+
+
+> @filmos/tool-contracts@1.0.0 generate
+> node scripts/generate.mjs
+
+
+> @filmos/chatgpt-app@0.1.0 build:widget
+> node scripts/build-widget.mjs
+
+{"kind":"TRACK14_REAL_GOLDEN_RECEIPT","golden_a":{"real_film_core_sqlite":true,"real_film_core_http":true,"candidate_id":"e8966b9c-c212-4c78-943f-42bd71a3fe33","asset_id":"c8d14811-3319-411e-a67a-4a67111d723a","scene_twin_id":"e6280764-3f7a-46ae-a9bd-19a25ba17128","review_id":"e5ea199a-57df-4ee3-a964-4a9e1864007a","mcp_tools_exercised":["search","fetch","project","content_unit","shot","asset","scene_twin","generation_attempts","review_queue","blockers","recent_changes","render_project"],"fallback_mock_used":false,"external_calls":0},"golden_b":{"real_export_file":true,"python_importer_cli":true,"preview_status":"PREVIEW_REQUIRES_HUMAN_APPROVAL","idempotent_replay":true,"formal_write_executed":false,"external_calls":0}}
+✔ Golden ChatGPT A/B use real Film Core SQLite/HTTP and the Python Preview importer (854.713167ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2984.340833

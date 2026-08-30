@@ -1,0 +1,66 @@
+{
+  "brain_profile_count": 7,
+  "duplicate_runtime_sources_detected": 0,
+  "feature_flag_count": 10,
+  "fixed_baseline": "5cbf078c134cc79cc3d86dde91687a24bd6b0188",
+  "gate_id": "AGENT-NATIVE-MULTIBRAIN-CONTRACT-001",
+  "gates": {
+    "A": "COVERED_BY_RC_LOCAL",
+    "B": "COVERED_BY_MCP_ACTUAL_TOOL_COUNT",
+    "C": "AUTOMATED_CANVAS_AGENT",
+    "D": "PASSED_NO_TEST_PROJECT_FALLBACK",
+    "E": "REQUIRES_RC_REAL_AGENT_RECEIPT",
+    "F": "PASSED_EXPLICIT_API_ONLY",
+    "G": "PASS_WITH_EXTERNAL_ACCOUNT_LIMITATION",
+    "H": "COVERED_BY_NO_OPENAI_MODEL_API_BILLING",
+    "I": "PASSED_SINGLE_SOURCE_CONTRACT",
+    "J": "PASS_WITH_LIMITATIONS"
+  },
+  "production_composition": {
+    "adapter_profile_ids": [
+      "codex.subscription",
+      "chatgpt.subscription.host",
+      "openai.api",
+      "anthropic.api",
+      "deepseek.api",
+      "local.model",
+      "human.only"
+    ],
+    "applied_by": "acceptance-human",
+    "canonical_confirmation_count": 1,
+    "controlled_write_execute_count": 1,
+    "controlled_write_node_count": 1,
+    "duplicate_confirmation_replay_blocked": true,
+    "enabled_profile_ids": [
+      "codex.subscription",
+      "chatgpt.subscription.host",
+      "openai.api",
+      "anthropic.api",
+      "deepseek.api",
+      "local.model",
+      "human.only"
+    ],
+    "gate_id": "AGENT-PRODUCTION-COMPOSITION-001",
+    "instrumentation": {
+      "broker_confirmation_count": 1,
+      "broker_execute_count": 7,
+      "broker_request_count": 7,
+      "legacy_direct_execute_count": 0
+    },
+    "proposed_by": "local.model",
+    "session_profile_ids": [
+      "chatgpt.subscription.host",
+      "openai.api",
+      "anthropic.api",
+      "deepseek.api",
+      "local.model",
+      "human.only"
+    ],
+    "status": "PASSED"
+  },
+  "rc1_tag_created_by_check": false,
+  "schema_version": "1.0.0",
+  "status": "PASSED",
+  "test_contract_count": 12,
+  "test_project_fallbacks_detected": []
+}

@@ -1,25 +1,29 @@
 # Known Limitations
 
 - Evidence status: `CLEAN_LOCAL_EVIDENCE_NOT_FROZEN`
-- Receipt: `acceptance/evidence/runs/20260830T000008Z-e62af357dc6e-rc-local/receipt.json`
-- Receipt SHA-256: `c921d3fe3119831bad66cf85926ee7b3a6776b9fb19fe21f70a1a83e20f763d8`
-- Started from Commit: `e62af357dc6e8b1aefb0eee8fa23cd06acead92a`
-- Source snapshot SHA-256: `751b9775f896600514b1a502f7c87105b43a90af539b4b25194d482e72e090d1`
+- Receipt: `acceptance/evidence/runs/20260830T044029Z-2cbabd8156ee-rc-local/receipt.json`
+- Receipt SHA-256: `169785e02d0eaac6595dd57dd453de2444b87d5adb5ac0c25bc595ff3d6fbbc2`
+- Started from Commit: `2cbabd8156ee65e614459e8d43bc665ee525e501`
+- Source snapshot SHA-256: `02fdb0f8690312907e10fde757f53e77b68904c2deda16b8161b2c147df40942`
 
 ## Machine evidence
 
 | Check | Status | Raw log | SHA-256 |
 | --- | --- | --- | --- |
-| `desktop-release-build` | `PASSED` | `acceptance/evidence/runs/20260830T000008Z-e62af357dc6e-rc-local/desktop-release-build.log` | `5cd9f0f313f3e10582bf86f2cac34593d8eb510d83e0641998112554f737d724` |
-| `desktop-chatgpt-connection` | `PASSED` | `acceptance/evidence/runs/20260830T000008Z-e62af357dc6e-rc-local/desktop-chatgpt-connection.log` | `dfb8f1e03449329bfddc67a368832db8cdc6c1dbc0460c97ef4e5498d667f606` |
-| `no-openai-model-api-billing` | `PASSED` | `acceptance/evidence/runs/20260830T000008Z-e62af357dc6e-rc-local/no-openai-model-api-billing.log` | `10abec4d2cf0d4256ae85df08f5d8dfb2d8acbcd3dd0b95ad3d0dc01cc3c1941` |
-| `agent-native-multibrain` | `PASSED` | `acceptance/evidence/runs/20260830T000008Z-e62af357dc6e-rc-local/agent-native-multibrain.log` | `59a78653e9092a07ad384960cca5c685dcf458b5a2dd9b35dd8a5c869ad05f0e` |
-| `agent-codex-controlled-write` | `PASSED` | `acceptance/evidence/runs/20260830T000008Z-e62af357dc6e-rc-local/agent-codex-controlled-write.log` | `cf9eb32bf39f458a0b160f875c6699cf7a561a1b80e35dd4c467db7d216dcafc` |
-| `agent-tool-contract-single-source` | `PASSED` | `acceptance/evidence/runs/20260830T000008Z-e62af357dc6e-rc-local/agent-tool-contract-single-source.log` | `01e2564063133a2ca06a8b81ec06e7c7352f2efe1c138fc9146b9f8d7ab386ec` |
-| `agent-candidate-activation` | `PASSED` | `acceptance/evidence/runs/20260830T000008Z-e62af357dc6e-rc-local/agent-candidate-activation.log` | `979b4b147308bb28f3f21ceefb743686879515d7c62e765e394e1cc0e02fa574` |
-| `mcp-actual-tool-count` | `PASSED` | `acceptance/evidence/runs/20260830T000008Z-e62af357dc6e-rc-local/mcp-actual-tool-count.log` | `16ff02ce1f68e336e6401fdca7d6c50410d7f9435749bde6f73074227b1536f3` |
-| `performance-local` | `PASSED` | `acceptance/evidence/runs/20260830T000008Z-e62af357dc6e-rc-local/performance-local.log` | `92e9f081d749f111ad12d0ef1522db1a6246670a0825d7479817a82edbc0883d` |
-| `remote-acceptance-contract` | `PASSED` | `acceptance/evidence/runs/20260830T000008Z-e62af357dc6e-rc-local/remote-acceptance-contract.log` | `153a86f8d976d712547c59ad7d9e0980986683010ffffe64b5cb2bb59f189663` |
+| `desktop-release-build` | `PASSED` | `acceptance/evidence/runs/20260830T044029Z-2cbabd8156ee-rc-local/desktop-release-build.log` | `570ef12fb336b8bd37f33a8bbbd1f2f2150dd575373f46c77631cde7a9350128` |
+| `desktop-chatgpt-connection` | `PASSED` | `acceptance/evidence/runs/20260830T044029Z-2cbabd8156ee-rc-local/desktop-chatgpt-connection.log` | `96c95c795bd15647d7617f3c397d51d3403c8a462a8e60884ddccd3dc5f9a74e` |
+| `no-openai-model-api-billing` | `PASSED` | `acceptance/evidence/runs/20260830T044029Z-2cbabd8156ee-rc-local/no-openai-model-api-billing.log` | `540af8691e5e9a3ea3ffd2673b553c1a30bfd5b38be35e9d29b3b48d12848ccd` |
+| `agent-native-multibrain` | `PASSED` | `acceptance/evidence/runs/20260830T044029Z-2cbabd8156ee-rc-local/agent-native-multibrain.log` | `5f349b93b9d6a417757032b31f5201c45755978aeed616e06fb6d5c1eb3ec8a9` |
+| `agent-codex-controlled-write` | `PASSED` | `acceptance/evidence/runs/20260830T044029Z-2cbabd8156ee-rc-local/agent-codex-controlled-write.log` | `cf9eb32bf39f458a0b160f875c6699cf7a561a1b80e35dd4c467db7d216dcafc` |
+| `agent-tool-contract-single-source` | `PASSED` | `acceptance/evidence/runs/20260830T044029Z-2cbabd8156ee-rc-local/agent-tool-contract-single-source.log` | `01e2564063133a2ca06a8b81ec06e7c7352f2efe1c138fc9146b9f8d7ab386ec` |
+| `agent-candidate-activation` | `PASSED` | `acceptance/evidence/runs/20260830T044029Z-2cbabd8156ee-rc-local/agent-candidate-activation.log` | `979b4b147308bb28f3f21ceefb743686879515d7c62e765e394e1cc0e02fa574` |
+| `agent-browser-lifecycle` | `PASSED` | `acceptance/evidence/runs/20260830T044029Z-2cbabd8156ee-rc-local/agent-browser-lifecycle.log` | `041995d43e5a443dda192996a5259b996c6967c2880fc943d6ec8a151e546074` |
+| `agent-connection-probe-isolation` | `PASSED` | `acceptance/evidence/runs/20260830T044029Z-2cbabd8156ee-rc-local/agent-connection-probe-isolation.log` | `dead8a017e412af5af878da9c673ef497039e0a3cc2d33cbd0af4293a1f42789` |
+| `chatgpt-host-restart-recovery` | `PASSED` | `acceptance/evidence/runs/20260830T044029Z-2cbabd8156ee-rc-local/chatgpt-host-restart-recovery.log` | `7c205b8738a0d9eeef94ed1290589c8d221a0e19c1d47dbfcd9c1e588cb6e5d7` |
+| `chatgpt-handoff-state` | `PASSED` | `acceptance/evidence/runs/20260830T044029Z-2cbabd8156ee-rc-local/chatgpt-handoff-state.log` | `25271324c10cfbae4c603c6311101b4909e18ef12f91e2b2e42c515e5409ff36` |
+| `mcp-actual-tool-count` | `PASSED` | `acceptance/evidence/runs/20260830T044029Z-2cbabd8156ee-rc-local/mcp-actual-tool-count.log` | `16ff02ce1f68e336e6401fdca7d6c50410d7f9435749bde6f73074227b1536f3` |
+| `performance-local` | `PASSED` | `acceptance/evidence/runs/20260830T044029Z-2cbabd8156ee-rc-local/performance-local.log` | `ac4251cba6667d9373ae1dbc2932edac69f3bf4b08407887cef1b4ff149ebacf` |
+| `remote-acceptance-contract` | `PASSED` | `acceptance/evidence/runs/20260830T044029Z-2cbabd8156ee-rc-local/remote-acceptance-contract.log` | `eb059821e814ed8d32c31bfdad2eda8752290693e63ee61e916e14f24fc131e6` |
 
 ## Scope and boundary
 
@@ -28,6 +32,7 @@
 - No paid Provider or model API generation was performed for this P0 correction; the Local-first chain uses `LOCAL_MANUAL_CANDIDATE_IMPORT`.
 - ChatGPT External Live Gate remains `BLOCKED_EXTERNAL_ACCOUNT`; local MCP, Widget and handoff checks do not replace independent account-side acknowledgement.
 - `NO-OPENAI-MODEL-API-001` proves the checked-in runtime has no model API endpoint path; the final external Live Gate must add its own time-bounded receipt.
+- Resume history is provider-specific: Codex is rebuilt from `thread/read`; ChatGPT shows the persisted Handoff timeline only; API and Local profiles currently state that Provider conversation history is not persisted instead of showing invented history.
 - Real user database migration and real rollback remain outside the synthetic recovery drill.
 - The app is an internal unsigned macOS build; signing, notarization and public distribution are not claimed.
 - The controlled-write operator entered one shortened expected node ID during the restart readback; the receipt preserves that typo and binds the recovered object to the complete DOM node ID instead of rewriting the historical trace.
