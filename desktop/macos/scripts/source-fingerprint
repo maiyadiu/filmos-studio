@@ -56,6 +56,13 @@ def source_paths() -> list[Path]:
         stderr=subprocess.PIPE,
     )
     items = [item.decode("utf-8") for item in result.stdout.split(b"\0") if item]
+    # Bun compile creates short-lived hidden `.*.bun-build` files inside source
+    # packages. They are deleted by the app builder and are never source input.
+    items = [
+        item
+        for item in items
+        if not (Path(item).name.startswith(".") and Path(item).name.endswith(".bun-build"))
+    ]
     return [ROOT / item for item in sorted(items)]
 
 
