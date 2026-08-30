@@ -23,6 +23,21 @@ if [ ! -x "$ROOT/packages/filmos-agent-tool-contracts/node_modules/.bin/tsx" ]; 
     (cd "$ROOT/packages/filmos-agent-tool-contracts" && npm ci --ignore-scripts)
 fi
 (cd "$ROOT/packages/filmos-agent-tool-contracts" && npm run build)
+# Bun materializes `file:` dependencies as package snapshots. On a clean clone
+# the first install happens before the generated package has a dist/ directory,
+# so refresh the built runtime files in each consumer without relying on a
+# developer machine's historical node_modules contents.
+for consumer in "$ROOT/web" "$ROOT/canvas-agent"; do
+    target="$consumer/node_modules/@filmos/agent-tool-contracts/dist"
+    mkdir -p "$target"
+    for artifact in "$ROOT/packages/filmos-agent-tool-contracts/dist/"*.js \
+        "$ROOT/packages/filmos-agent-tool-contracts/dist/"*.d.ts; do
+        filename=$(basename -- "$artifact")
+        if [ ! -f "$target/$filename" ] || ! cmp -s "$artifact" "$target/$filename"; then
+            cp "$artifact" "$target/$filename"
+        fi
+    done
+done
 if [ ! -x "$ROOT/packages/filmos-tool-contracts/node_modules/.bin/tsc" ]; then
     (cd "$ROOT/packages/filmos-tool-contracts" && npm ci --ignore-scripts)
 fi

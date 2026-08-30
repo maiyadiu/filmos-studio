@@ -1,18 +1,18 @@
 # Migration Report
 
 - Evidence status: `CLEAN_LOCAL_EVIDENCE_NOT_FROZEN`
-- Receipt: `.local/acceptance-artifacts/runs/20260829T235731Z-e2ed10924c7f-rc-local/receipt.json`
-- Receipt SHA-256: `7393946765b2f60348e8ae687f29b9c9f74793fa243b12bbf816df7387b99360`
-- Started from Commit: `e2ed10924c7fb7679ac80bc78281c6d3d9e3083e`
-- Source snapshot SHA-256: `8c93725a8ecffb63617df0e1c07fcdfb62e8aa6207156a3b42e67f82b81c7f08`
+- Receipt: `acceptance/evidence/runs/20260830T000008Z-e62af357dc6e-rc-local/receipt.json`
+- Receipt SHA-256: `c921d3fe3119831bad66cf85926ee7b3a6776b9fb19fe21f70a1a83e20f763d8`
+- Started from Commit: `e62af357dc6e8b1aefb0eee8fa23cd06acead92a`
+- Source snapshot SHA-256: `751b9775f896600514b1a502f7c87105b43a90af539b4b25194d482e72e090d1`
 
 ## Machine evidence
 
 | Check | Status | Raw log | SHA-256 |
 | --- | --- | --- | --- |
-| `rc-recovery` | `PASSED` | `acceptance/evidence/runs/20260829T235731Z-e2ed10924c7f-rc-local/rc-recovery.log` | `13e4a617c04e77ea548a9cb1e5e0a93f8a03551594195a3fd4617564dc7fca76` |
-| `upstream-compatibility` | `PASSED` | `acceptance/evidence/runs/20260829T235731Z-e2ed10924c7f-rc-local/upstream-compatibility.log` | `66e7c49bfb4ae161a4fdb8b7730098139e872387ca3e392bacbb206725bdb866` |
-| `desktop-backup-restore` | `PASSED` | `acceptance/evidence/runs/20260829T235731Z-e2ed10924c7f-rc-local/desktop-backup-restore.log` | `b2d2f16782af6cd4d468c620a14620eea74efbb151ec815420aa0a0840695fb5` |
+| `rc-recovery` | `PASSED` | `acceptance/evidence/runs/20260830T000008Z-e62af357dc6e-rc-local/rc-recovery.log` | `79f140a22090d3313bc95eb3acea2e724e6e518bf35a092eec9b528a0728ec74` |
+| `upstream-compatibility` | `PASSED` | `acceptance/evidence/runs/20260830T000008Z-e62af357dc6e-rc-local/upstream-compatibility.log` | `8bd984e565f24d406d56a0e4b105860f3ed2c635eb3a3e07ea80f537fdefe9bf` |
+| `desktop-backup-restore` | `PASSED` | `acceptance/evidence/runs/20260830T000008Z-e62af357dc6e-rc-local/desktop-backup-restore.log` | `b2d2f16782af6cd4d468c620a14620eea74efbb151ec815420aa0a0840695fb5` |
 
 ## Scope and boundary
 

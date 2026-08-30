@@ -1,0 +1,77 @@
+{
+  "billing_mode": "chatgpt_managed_subscription",
+  "credentials_emitted": false,
+  "gate_id": "AGENT-CODEX-SUBSCRIPTION-CONTROLLED-WRITE-001",
+  "openai_model_api_call_count": 0,
+  "operator_note": "Round 3 initially compared against an incorrectly shortened expected node ID; the receipt binds the full DOM ID captured after restart.",
+  "paid_generation_count": 0,
+  "private_paths_emitted": false,
+  "profile_id": "codex.subscription",
+  "project_name": "FilmOS_Acceptance_Project",
+  "provider_task_count": 0,
+  "raw_trace": {
+    "path": "acceptance/evidence/runs/agent-codex-subscription-controlled-write-001/audit-trace.jsonl",
+    "record_count": 20,
+    "sha256": "1229d784798b57332af6385e29a30bec0e8557a81582f837253bbd2f35cef7db"
+  },
+  "replay_protection": {
+    "production_confirmation_replay_test": "acceptance/checks/agent_native_multibrain.py",
+    "successful_execution_count_for_approved_request": 1
+  },
+  "round1": {
+    "audit_outcome": "rejected",
+    "confirmation_id": "2bf35bdd-2858-4090-a05a-db04befe629b",
+    "context_output_hash_after": "ee4b1071d0b398731eb9a38e5c59f216c5968db80f1468938336e9cda6a84b00",
+    "context_output_hash_before": "ee4b1071d0b398731eb9a38e5c59f216c5968db80f1468938336e9cda6a84b00",
+    "context_unchanged": true,
+    "decision": "rejected",
+    "node_count_after": 0,
+    "node_count_before": 0
+  },
+  "round2": {
+    "applied_by": "human",
+    "context_output_hash_after": "36b5c9641ead5601557d1600d575df6aa0b11fa3ccdb877e50d67111396cb12f",
+    "decision": "approved",
+    "node_count_after": 1,
+    "node_id": "text-1788043717147-0",
+    "node_title": "APPROVE_ME",
+    "postcondition_verified": true,
+    "proposed_by": "codex.subscription",
+    "request_success_count": 1
+  },
+  "round3": {
+    "generation_tool_count": 0,
+    "node_count_after_restart": 1,
+    "node_id_after_restart": "text-1788043717147-0",
+    "node_title_after_restart": "APPROVE_ME",
+    "provider_thread_hash": "5c2f6d0f97a013ca428bc1fa16af692f29e7acc82e899fa71f2ef28765edff68",
+    "runtime_restarted": true,
+    "session_id_same_as_round2": true,
+    "workbench_context_read_count": 1,
+    "write_tool_count": 0
+  },
+  "schema_version": "1.0.0",
+  "screenshots": {
+    "round1-confirmation-before-reject.png": {
+      "bytes": 111201,
+      "sha256": "ccf19d702bcc57b2bc6574720487ca62dba6bbe191cfd27db19b527f89d71020"
+    },
+    "round2-approved-one-node.png": {
+      "bytes": 129029,
+      "sha256": "4bc1f3e9e7c63aaf7a29e166f37eaf0f8dc4ebbb31ffd9b274911c0161e6dbb2"
+    },
+    "round2-confirmation-before-approve.png": {
+      "bytes": 118825,
+      "sha256": "7a1fdbd2d078d80439adf4d77b2550230e9f8365fb3bfb9e172d27fc9c46473a"
+    },
+    "round3-readonly-context-result.png": {
+      "bytes": 42404,
+      "sha256": "5406f444c13108e1c770f55f2374e1e0d925d5319ce713ff9d5d893c3bc5feb9"
+    },
+    "round3-restart-recovered-node.png": {
+      "bytes": 1436,
+      "sha256": "094283c71fa79312a21a57b8c63b1cd5d0709b3e4b914d4eac3cbc2ce855e3f0"
+    }
+  },
+  "status": "PASSED"
+}

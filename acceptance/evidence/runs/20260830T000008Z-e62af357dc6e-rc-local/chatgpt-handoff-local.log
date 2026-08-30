@@ -1,0 +1,56 @@
+
+> @filmos/chatgpt-app@0.1.0 test
+> npm run build:contracts && npm run build:widget && tsx --test --test-concurrency=1 test/*.test.ts
+
+
+> @filmos/chatgpt-app@0.1.0 build:contracts
+> npm --prefix ../../packages/filmos-tool-contracts run build
+
+
+> @filmos/tool-contracts@1.0.0 build
+> npm run generate && tsc -p tsconfig.json
+
+
+> @filmos/tool-contracts@1.0.0 generate
+> node scripts/generate.mjs
+
+
+> @filmos/chatgpt-app@0.1.0 build:widget
+> node scripts/build-widget.mjs
+
+✔ current Tool Contract remains compatible with the frozen v1 ChatGPT installation snapshot (0.58375ms)
+✔ additive tools are backward compatible but removed or narrowed v1 tools require migration (0.477292ms)
+✔ read and widget feature flags independently gate public MCP tools and resources (10.628208ms)
+✔ Project Grant expires, revokes, and never stores the raw token (1.661584ms)
+✔ security boundary redacts secret keys, token values, and absolute paths while reporting injection text (0.775458ms)
+✔ only loopback HTTP endpoints are accepted (0.10925ms)
+✔ handoff status is flat, project scoped, audited, and reveals no token or local path (22.65225ms)
+✔ proposal tools require both the service flag and an eligible Host profile (6.537625ms)
+✔ grant revoke only revokes the bearer grant and returns the stable receipt (9.925166ms)
+✔ proposal preview accepts exactly {package}, preserves the Core wrapper, and never applies (4.881ms)
+✔ proposal preview fails closed when the Core importer is not configured (2.499791ms)
+✔ handoff JSON body limit is 1 MiB and errors never return an Express stack (7.338833ms)
+✔ native Agent handoff exposes only the current Project Grant and Secure Tunnel scoped context (54.920584ms)
+✔ Golden ChatGPT A: authorized Candidate project is readable through streamable HTTP and writes stay hidden (48.876667ms)
+✔ project scope blocks cross-project fetch and token revocation fails a live session closed (11.400792ms)
+✔ first proven Secure Tunnel read marks ChatGPT reached FilmOS and writes a challenge receipt (11.100875ms)
+✔ Secure Tunnel observations expire by grant/session freshness and cannot cross project scope (143.229125ms)
+✔ a direct localhost client cannot spoof ChatGPT reachability without the ephemeral tunnel proof (11.086292ms)
+✔ Golden ChatGPT B: proposal handoff signs a local package and never applies it (41.96425ms)
+✔ media proxy serves only project-scoped bounded proxy media (6.657375ms)
+✔ Secure MCP Tunnel doctor fails closed without external account credentials (0.144ms)
+✔ Secure MCP Tunnel disconnect or missing client remains fail closed with no listener (0.395209ms)
+✔ proposal preview child receives only the fixed importer environment (0.06925ms)
+✔ server entrypoint recognizes decoded paths containing spaces and Unicode (0.551375ms)
+✔ ProjectOverviewWidget renders semantic project metrics (1.084625ms)
+✔ ContentUnitProgressWidget renders formal state axes (0.077916ms)
+✔ ShotReviewWidget renders review state and director bindings without an approval action (0.059834ms)
+✔ widget resources use the official ext-apps bridge bundle and no handwritten wildcard initialization (1.458583ms)
+ℹ tests 28
+ℹ suites 0
+ℹ pass 28
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1892.846292
