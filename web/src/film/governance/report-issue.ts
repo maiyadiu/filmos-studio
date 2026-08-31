@@ -55,6 +55,7 @@ declare global {
 }
 
 const nativeResolvers = new Map<string, { resolve: (value: { accepted: true }) => void; reject: (reason: Error) => void; timeout: number }>();
+let replayTimer: number | null = null;
 
 function installNativeReviewIssueIntake() {
     const handler = window.webkit?.messageHandlers?.filmosDesktop;
@@ -68,31 +69,18 @@ function installNativeReviewIssueIntake() {
         else if (result && typeof result === "object") pending.resolve({ accepted: true });
         else pending.reject(new Error("REVIEW_BUS_INVALID_RESPONSE"));
     };
-    window.filmOSReviewIssueIntake = (draft) => new Promise((resolve, reject) => {
-        const requestId = crypto.randomUUID();
-        const timeout = window.setTimeout(() => {
-            nativeResolvers.delete(requestId);
-            reject(new Error("REVIEW_BUS_TIMEOUT"));
-        }, 15_000);
-        nativeResolvers.set(requestId, { resolve, reject, timeout });
-        const payload: Record<string, unknown> = {
-            project_id: draft.context.projectId || "filmos-global",
-            what_happened: draft.occurred,
-            expected_result: draft.expected,
-            location: `${draft.context.surface}:${draft.context.pathname}`,
-            blocks_work: draft.blocking,
-            screenshot_refs: draft.attachments.map((item) => `local-evidence:${draft.issueId}:${item.id}`),
-            issue_id: draft.issueId,
-            route: draft.context.pathname,
-        };
-        if (draft.build.buildId !== "unknown") payload.app_build_id = draft.build.buildId;
-        if (draft.build.tree !== "unknown") payload.app_tree = draft.build.tree;
-        handler.postMessage({
-            action: "reviewIssueRequest",
-            requestId,
-            payload,
+    window.filmOSReviewIssueIntake = async (draft) => {
+        const payload = await buildReviewIssuePayload(draft);
+        return new Promise((resolve, reject) => {
+            const requestId = crypto.randomUUID();
+            const timeout = window.setTimeout(() => {
+                nativeResolvers.delete(requestId);
+                reject(new Error("REVIEW_BUS_TIMEOUT"));
+            }, 30_000);
+            nativeResolvers.set(requestId, { resolve, reject, timeout });
+            handler.postMessage({ action: "reviewIssueRequest", requestId, payload });
         });
-    });
+    };
 }
 
 if (typeof window !== "undefined") installNativeReviewIssueIntake();
@@ -180,8 +168,59 @@ export async function saveIssueDraft(draft: LocalIssueDraft) {
         return accepted;
     } catch {
         // Local durability is the Pilot fallback. Review Bus replay may happen later.
+        scheduleIssueDraftReplay();
         return draft;
     }
+}
+
+export async function replayPendingIssueDrafts(intake = typeof window === "undefined" ? undefined : window.filmOSReviewIssueIntake) {
+    if (!intake) return { pending: await countPendingIssueDrafts(), replayed: 0 };
+    const drafts: LocalIssueDraft[] = [];
+    await issueDraftStore.iterate<LocalIssueDraft, void>((draft) => {
+        if (draft.delivery === "LOCAL_PENDING_REVIEW_BUS") drafts.push(draft);
+    });
+    let replayed = 0;
+    for (const draft of drafts) {
+        try {
+            await intake(draft);
+            await issueDraftStore.setItem(draft.issueId, { ...draft, delivery: "REVIEW_BUS_ACCEPTED" });
+            replayed += 1;
+        } catch {
+            // Preserve the same immutable Issue ID for the next local retry.
+        }
+    }
+    return { pending: drafts.length - replayed, replayed };
+}
+
+export async function buildReviewIssuePayload(draft: LocalIssueDraft) {
+    const localEvidence = await Promise.all(draft.attachments.map(async (item) => {
+        const bytes = new Uint8Array(await item.content.arrayBuffer());
+        if (bytes.byteLength !== item.size) throw new Error("LOCAL_EVIDENCE_SIZE_MISMATCH");
+        const digest = await crypto.subtle.digest("SHA-256", bytes);
+        const evidenceUri = `filmos-evidence://${draft.issueId}/${item.id}`;
+        return {
+            evidence_id: item.id,
+            media_type: item.mediaType || "application/octet-stream",
+            size: bytes.byteLength,
+            sha256: hexadecimal(new Uint8Array(digest)),
+            evidence_uri: evidenceUri,
+            data_base64: bytesToBase64(bytes),
+        };
+    }));
+    const payload: Record<string, unknown> = {
+        project_id: draft.context.projectId || "filmos-global",
+        what_happened: draft.occurred,
+        expected_result: draft.expected,
+        location: `${draft.context.surface}:${draft.context.pathname}`,
+        blocks_work: draft.blocking,
+        screenshot_refs: localEvidence.map((item) => item.evidence_uri),
+        local_evidence: localEvidence,
+        issue_id: draft.issueId,
+        route: draft.context.pathname,
+    };
+    if (draft.build.buildId !== "unknown") payload.app_build_id = draft.build.buildId;
+    if (draft.build.tree !== "unknown") payload.app_tree = draft.build.tree;
+    return payload;
 }
 
 export async function countPendingIssueDrafts() {
@@ -190,4 +229,31 @@ export async function countPendingIssueDrafts() {
         if (draft.delivery === "LOCAL_PENDING_REVIEW_BUS") count += 1;
     });
     return count;
+}
+
+function hexadecimal(bytes: Uint8Array) {
+    return Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
+}
+
+function bytesToBase64(bytes: Uint8Array) {
+    let value = "";
+    for (let offset = 0; offset < bytes.length; offset += 0x8000) value += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+    return btoa(value);
+}
+
+function scheduleIssueDraftReplay(delay = 30_000) {
+    if (typeof window === "undefined" || !window.filmOSReviewIssueIntake || replayTimer !== null) return;
+    replayTimer = window.setTimeout(async () => {
+        replayTimer = null;
+        const result = await replayPendingIssueDrafts();
+        if (result.pending > 0) scheduleIssueDraftReplay(Math.min(delay * 2, 5 * 60_000));
+    }, delay);
+}
+
+if (typeof window !== "undefined" && window.filmOSReviewIssueIntake) {
+    queueMicrotask(async () => {
+        const result = await replayPendingIssueDrafts();
+        if (result.pending > 0) scheduleIssueDraftReplay();
+    });
+    window.addEventListener("online", () => scheduleIssueDraftReplay(0));
 }

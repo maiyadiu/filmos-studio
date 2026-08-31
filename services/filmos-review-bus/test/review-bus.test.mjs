@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
@@ -6,6 +7,7 @@ import test from "node:test";
 import { Worker } from "node:worker_threads";
 
 import { ReviewBusService, candidateBinding } from "../src/service.mjs";
+import { GitHubEvidenceVerifier } from "../src/github-evidence-verifier.mjs";
 import { allowedOrigin, createReviewBusHttp } from "../src/server.mjs";
 import { ReviewBusStore } from "../src/store.mjs";
 import { redactEvidence } from "../src/redaction.mjs";
@@ -17,7 +19,7 @@ const constitutionHash = "a61228c66e931cb977928f4d2864ab6556f3fcd163479e31ccebbc
 
 function fixture() {
   const store = new ReviewBusStore(":memory:");
-  const service = new ReviewBusService(store, { baseCommit: commit, taskPackageContentHash: taskHash });
+  const service = new ReviewBusService(store, { baseCommit: commit, taskPackageContentHash: taskHash, candidateEvidenceVerifier: verifiedCandidateEvidence });
   return { store, service };
 }
 
@@ -35,6 +37,18 @@ function createCoreIssue(service, suffix = "a") {
 const codexAssessment = { reproduced: true, root_cause: "host context is stale", call_chain: ["ui", "host"], files: ["web/agent.tsx"], minimal_change: ["refresh context"], regression_risk: "low", tests: ["host context test"], rollback: ["revert"] };
 const chatgptAssessment = { product_goal_fit: false, root_cause: "host context is stale", root_cause_explains_symptom: true, authority_risk: false, resolution_layer: "workflow", workflow_impact: "restores handoff", acceptance_gates: ["host ready"], scope_drift: false };
 function candidate(overrides = {}) { return { candidate_id: "candidate-1", base_commit: commit, candidate_commit: "d".repeat(40), tree: "e".repeat(40), branch: "fix/example", github_run: { id: 123, head_sha: "d".repeat(40), conclusion: "success" }, artifact_id: "artifact-1", artifact_digest: `sha256:${"f".repeat(64)}`, artifact_commit: "d".repeat(40), evidence_index_hash: "a".repeat(64), task_package_content_hash: taskHash, constitution_content_hash: constitutionHash, candidate_nonce: "nonce-1234567890-abcdef", changed_files: ["web/agent.tsx"], known_limitations: [], ...overrides }; }
+
+const verifiedCandidateEvidence = {
+  async verify(value) {
+    return { verified: true, candidate_commit: value.candidate_commit, tree: value.tree, branch: value.branch, github_run_id: String(value.github_run.id), github_run_conclusion: "success", artifact_id: String(value.artifact_id), artifact_digest: value.artifact_digest, artifact_commit: value.artifact_commit, evidence_index_hash: value.evidence_index_hash, checked_at: "2026-08-31T00:00:00.000Z" };
+  },
+};
+
+function coreConsensus(service, issueId) {
+  service.submitAssessment(issueId, "codex", codexAssessment);
+  service.submitAssessment(issueId, "chatgpt", chatgptAssessment);
+  service.setConsensus(issueId, { rootCause: "host context is stale", resolutionLayer: "workflow", allowedChangeScope: ["web/agent.tsx"], explicitNonGoals: ["Film Core"], implementationPlan: ["refresh"], acceptanceGates: ["host ready"], rollbackPlan: ["revert"], codexAccepted: true, chatgptAccepted: true });
+}
 
 test("Review Bus uses SQLite WAL, immutable events, and redacts the external evidence projection", () => {
   const directory = mkdtempSync(resolve(tmpdir(), "filmos-review-"));
@@ -71,15 +85,13 @@ test("blind assessment prevents anchoring until both experts submit", () => {
   store.close();
 });
 
-test("Core candidate needs consensus and Codex cannot self-approve external review", () => {
+test("Core candidate needs consensus and Codex cannot self-approve external review", async () => {
   const { service, store } = fixture();
   const issue = createCoreIssue(service, "consensus");
   const value = candidate();
-  assert.throws(() => service.submitCandidate(issue.issue_id, value), /IMPLEMENTATION_BLOCKED_NO_CONSENSUS/);
-  service.submitAssessment(issue.issue_id, "codex", codexAssessment);
-  service.submitAssessment(issue.issue_id, "chatgpt", chatgptAssessment);
-  service.setConsensus(issue.issue_id, { rootCause: "host context is stale", resolutionLayer: "workflow", allowedChangeScope: ["web/agent.tsx"], explicitNonGoals: ["Film Core"], implementationPlan: ["refresh"], acceptanceGates: ["host ready"], rollbackPlan: ["revert"], codexAccepted: true, chatgptAccepted: true });
-  const submitted = service.submitCandidate(issue.issue_id, value);
+  await assert.rejects(() => service.submitCandidate(issue.issue_id, value), /IMPLEMENTATION_BLOCKED_NO_CONSENSUS/);
+  coreConsensus(service, issue.issue_id);
+  const submitted = await service.submitCandidate(issue.issue_id, value);
   const binding = candidateBinding(submitted.active_candidate);
   assert.throws(() => service.recordVerdict(issue.issue_id, "codex", "EXTERNAL_APPROVED"), /REVIEW_CODEX_CANNOT_SELF_APPROVE/);
   assert.throws(() => service.recordVerdict(issue.issue_id, "codex", { verdict: "LOCAL_ACCEPTED", binding: { ...binding, candidate_commit: "0".repeat(40) } }), /CURRENT_CANDIDATE_BINDING_MISMATCH/);
@@ -92,7 +104,55 @@ test("Core candidate needs consensus and Codex cannot self-approve external revi
   store.close();
 });
 
-test("late findings require taxonomy and Codex responses cannot close ChatGPT findings", () => {
+test("Candidate A is append-only superseded before Candidate B and stale bindings cannot cross rounds", async () => {
+  const { service, store } = fixture();
+  const issue = createCoreIssue(service, "rounds");
+  coreConsensus(service, issue.issue_id);
+  const first = await service.submitCandidate(issue.issue_id, candidate());
+  const firstBinding = candidateBinding(first.active_candidate);
+  service.recordVerdict(issue.issue_id, "codex", { verdict: "LOCAL_ACCEPTED", binding: firstBinding });
+  service.addFinding(issue.issue_id, { finding_id: "finding-a", severity: "P0", summary: "Candidate A failed" });
+  const challenge = store.issueChallenge({ purpose: "CHATGPT_REVIEW_DECISION", issueId: issue.issue_id, candidateId: first.active_candidate.candidate_id, candidateCommit: first.active_candidate.candidate_commit });
+
+  const advanced = service.nextRound(issue.issue_id, "codex", new Date("2026-08-31T01:00:00.000Z"));
+  assert.equal(advanced.current_round, 2);
+  assert.equal(advanced.active_candidate, null);
+  assert.equal(advanced.candidate_history.length, 1);
+  assert.equal(advanced.candidate_history[0].lifecycle_status, "SUPERSEDED");
+  assert.equal(advanced.stale_candidate_bindings[0].candidate_id, "candidate-1");
+  assert.deepEqual(advanced.verdicts, { codex: null, chatgpt: null, machine: null });
+  assert.equal(advanced.dual_signoff, undefined);
+  assert.throws(() => store.consumeChallenge({ challengeId: challenge.challenge_id, nonce: challenge.nonce, purpose: "CHATGPT_REVIEW_DECISION", issueId: issue.issue_id, candidateId: "candidate-1", candidateCommit: "d".repeat(40) }), /REVIEW_REPLAY_BLOCKED/);
+
+  const second = await service.submitCandidate(issue.issue_id, candidate({ candidate_id: "candidate-2", candidate_commit: "c".repeat(40), tree: "b".repeat(40), github_run: { id: 456, head_sha: "c".repeat(40), conclusion: "success" }, artifact_id: "artifact-2", artifact_digest: `sha256:${"1".repeat(64)}`, artifact_commit: "c".repeat(40), candidate_nonce: "nonce-2222222222-abcdef" }));
+  assert.equal(second.active_candidate.candidate_id, "candidate-2");
+  assert.equal(second.candidate_history[0].candidate_id, "candidate-1");
+  assert.throws(() => service.decideFinding(issue.issue_id, "finding-a", "DISPUTE_ACCEPTED"), /STALE_CANDIDATE_BINDING/);
+  store.close();
+});
+
+test("candidate-bound ChatGPT review decision commits findings, verdict, and challenge atomically", async () => {
+  const { service, store } = fixture();
+  const issue = createCoreIssue(service, "atomic-decision");
+  coreConsensus(service, issue.issue_id);
+  const submitted = await service.submitCandidate(issue.issue_id, candidate());
+  const binding = candidateBinding(submitted.active_candidate);
+  const challenge = store.issueChallenge({ purpose: "CHATGPT_REVIEW_DECISION", issueId: issue.issue_id, candidateId: "candidate-1", candidateCommit: "d".repeat(40) });
+  store.db.exec("CREATE TRIGGER fail_review_decision BEFORE INSERT ON review_events WHEN NEW.event_type='chatgpt.review_decision' BEGIN SELECT RAISE(ABORT, 'FORCED_TRANSACTION_FAILURE'); END;");
+  const input = { candidate_id: "candidate-1", candidate_commit: "d".repeat(40), decision: { verdict: "CHANGES_REQUIRED", binding, findings: [{ finding_id: "finding-atomic", severity: "P1", summary: "needs repair" }] } };
+  const challengeBinding = { challengeId: challenge.challenge_id, nonce: challenge.nonce, purpose: "CHATGPT_REVIEW_DECISION", issueId: issue.issue_id, candidateId: "candidate-1", candidateCommit: "d".repeat(40) };
+  assert.throws(() => service.applyChatGPTReviewDecision(issue.issue_id, input, challengeBinding), /FORCED_TRANSACTION_FAILURE/);
+  assert.equal(service.requireIssue(issue.issue_id).findings.length, 0);
+  store.db.exec("DROP TRIGGER fail_review_decision");
+  const accepted = service.applyChatGPTReviewDecision(issue.issue_id, input, challengeBinding);
+  assert.equal(accepted.findings[0].candidate_id, "candidate-1");
+  assert.equal(accepted.findings[0].candidate_commit, "d".repeat(40));
+  assert.equal(accepted.verdicts.chatgpt, "CHANGES_REQUIRED");
+  assert.throws(() => service.applyChatGPTReviewDecision(issue.issue_id, { ...input, decision: { ...input.decision, findings: [] } }, challengeBinding), /REVIEW_REPLAY_BLOCKED/);
+  store.close();
+});
+
+test("late findings require taxonomy and Codex responses cannot close ChatGPT findings", async () => {
   const { service, store } = fixture();
   const issue = createCoreIssue(service, "finding");
   service.addFinding(issue.issue_id, { finding_id: "finding-1", severity: "P0", summary: "unsafe" });
@@ -107,6 +167,15 @@ test("late findings require taxonomy and Codex responses cannot close ChatGPT fi
   const escalated = service.nextRound(issue.issue_id);
   assert.equal(escalated.current_round, 3);
   assert.equal(escalated.state, "OWNER_DECISION_REQUIRED");
+  assert.throws(() => service.nextRound(issue.issue_id), /OWNER_DECISION_REQUIRED/);
+  assert.throws(
+    () => service.recordVerdict(issue.issue_id, "codex", { verdict: "LOCAL_ACCEPTED", binding: {} }),
+    /OWNER_DECISION_REQUIRED/,
+  );
+  await assert.rejects(
+    () => service.submitCandidate(issue.issue_id, candidate({ candidate_id: "blocked-owner-candidate" })),
+    /OWNER_DECISION_REQUIRED/,
+  );
   store.close();
 });
 
@@ -138,10 +207,10 @@ test("Chrome writeback challenge is one-time, candidate-bound, and replay protec
   }
 });
 
-test("Fast lane rejects core, provider, budget, and authority changes", () => {
+test("Fast lane rejects core, provider, budget, and authority changes", async () => {
   const { service, store } = fixture();
   const issue = service.createIssue({ issue_id: "FILMOS-ISSUE-fast", project_id: projectId, what_happened: "wording", expected_result: "clear wording", location: "button", blocks_work: false, lane: "fast" });
-  assert.throws(() => service.submitCandidate(issue.issue_id, candidate({ candidate_id: "micro", branch: "fix/micro", changed_files: ["film-core/schema.py"] })), /FAST_LANE_SCOPE_DENIED/);
+  await assert.rejects(() => service.submitCandidate(issue.issue_id, candidate({ candidate_id: "micro", branch: "fix/micro", changed_files: ["film-core/schema.py"] })), /FAST_LANE_SCOPE_DENIED/);
   store.close();
 });
 
@@ -156,19 +225,19 @@ test("Architecture Lane requires Requirement Delta and a complete A/B/C option m
   store.close();
 });
 
-test("candidate binding fails closed on wrong GitHub commit, artifact commit, or task hash", () => {
+test("candidate binding fails closed on wrong GitHub commit, artifact commit, or task hash", async () => {
   const { service, store } = fixture();
   const issue = service.createIssue({ issue_id: "FILMOS-ISSUE-binding", project_id: projectId, what_happened: "wording", expected_result: "clear", location: "button", blocks_work: false, lane: "fast" });
-  assert.throws(() => service.submitCandidate(issue.issue_id, candidate({ github_run: { id: 1, head_sha: "0".repeat(40), conclusion: "success" } })), /GITHUB_RUN_COMMIT_MISMATCH/);
-  assert.throws(() => service.submitCandidate(issue.issue_id, candidate({ artifact_commit: "0".repeat(40) })), /ARTIFACT_COMMIT_MISMATCH/);
-  assert.throws(() => service.submitCandidate(issue.issue_id, candidate({ task_package_content_hash: "0".repeat(64) })), /TASK_PACKAGE_HASH_MISMATCH/);
+  await assert.rejects(() => service.submitCandidate(issue.issue_id, candidate({ github_run: { id: 1, head_sha: "0".repeat(40), conclusion: "success" } })), /GITHUB_RUN_COMMIT_MISMATCH/);
+  await assert.rejects(() => service.submitCandidate(issue.issue_id, candidate({ artifact_commit: "0".repeat(40) })), /ARTIFACT_COMMIT_MISMATCH/);
+  await assert.rejects(() => service.submitCandidate(issue.issue_id, candidate({ task_package_content_hash: "0".repeat(64) })), /TASK_PACKAGE_HASH_MISMATCH/);
   store.close();
 });
 
 test("read-only artifact projection exposes the immutable artifact binding", async () => {
   const { service, store } = fixture();
   const issue = service.createIssue({ issue_id: "FILMOS-ISSUE-artifact", project_id: projectId, what_happened: "wording", expected_result: "clear", location: "button", blocks_work: false, lane: "fast" });
-  service.submitCandidate(issue.issue_id, candidate({ candidate_id: "artifact-candidate", branch: "fix/copy", changed_files: ["web/copy.ts"] }));
+  await service.submitCandidate(issue.issue_id, candidate({ candidate_id: "artifact-candidate", branch: "fix/copy", changed_files: ["web/copy.ts"] }));
   const constitution = JSON.parse(readFileSync(resolve(import.meta.dirname, "../../../governance/FILMOS_CONSTITUTION.json"), "utf8"));
   const token = "bus-token-1234567890-abcdefghijkl";
   const server = createReviewBusHttp({ service, store, busToken: token, bridgeToken: "bridge-token-1234567890-abcdefghijkl", constitution });
@@ -268,6 +337,39 @@ test("single issue intake always freezes a manifest and fails closed when eviden
   }
 });
 
+test("offline issue replay is idempotent and keeps screenshot bytes only in local Review Bus storage", async () => {
+  const { service, store } = fixture();
+  const constitution = JSON.parse(readFileSync(resolve(import.meta.dirname, "../../../governance/FILMOS_CONSTITUTION.json"), "utf8"));
+  const token = "bus-token-1234567890-abcdefghijkl";
+  const server = createReviewBusHttp({ service, store, busToken: token, bridgeToken: "bridge-token-1234567890-abcdefghijkl", constitution });
+  server.listen(0, "127.0.0.1");
+  await new Promise((resolvePromise) => server.once("listening", resolvePromise));
+  const port = server.address().port;
+  const bytes = Buffer.from("local screenshot bytes");
+  const digest = createHash("sha256").update(bytes).digest("hex");
+  const issueId = "FILMOS-ISSUE-local-replay";
+  const evidenceUri = `filmos-evidence://${issueId}/capture-1`;
+  const body = { project_id: projectId, what_happened: "preview drifted", expected_result: "stable preview", location: "project:/preview", blocks_work: true, issue_id: issueId, screenshot_refs: [evidenceUri], local_evidence: [{ evidence_id: "capture-1", media_type: "image/png", size: bytes.length, sha256: digest, evidence_uri: evidenceUri, data_base64: bytes.toString("base64") }] };
+  const headers = { authorization: `Bearer ${token}`, "content-type": "application/json" };
+  try {
+    const first = await fetch(`http://127.0.0.1:${port}/v1/issues`, { method: "POST", headers, body: JSON.stringify(body) });
+    const second = await fetch(`http://127.0.0.1:${port}/v1/issues`, { method: "POST", headers, body: JSON.stringify(body) });
+    assert.equal(first.status, 201);
+    assert.equal(second.status, 201);
+    assert.equal((await first.json()).content_hash, (await second.json()).content_hash);
+    assert.equal(store.events(issueId).filter((event) => event.event_type === "issue.observed").length, 1);
+    assert.deepEqual(JSON.parse(JSON.stringify(store.localEvidenceMetadata(issueId))), [{ evidence_id: "capture-1", media_type: "image/png", size: bytes.length, sha256: digest, evidence_uri: evidenceUri }]);
+    assert.equal(Buffer.from(store.db.prepare("SELECT content FROM local_evidence WHERE issue_id = ?").get(issueId).content).equals(bytes), true);
+    const external = JSON.stringify(service.readRedacted(issueId, projectId));
+    assert.equal(external.includes(bytes.toString("base64")), false);
+    assert.equal(external.includes("filename"), false);
+    assert.equal(service.requireIssue(issueId).evidence.manifest.completeness.screenshot, true);
+  } finally {
+    await new Promise((resolvePromise) => server.close(resolvePromise));
+    store.close();
+  }
+});
+
 test("Chrome pairing revoke invalidates the bridge token and every unused challenge", async () => {
   const { service, store } = fixture();
   const issue = createCoreIssue(service, "revoke");
@@ -288,3 +390,54 @@ test("Chrome pairing revoke invalidates the bridge token and every unused challe
     assert.equal((await denied.json()).code, "LOCAL_PAIRING_REQUIRED");
   } finally { await new Promise((resolve) => server.close(resolve)); store.close(); }
 });
+
+test("GitHub evidence verifier independently binds commit, tree, branch, successful Run, Artifact, and Evidence Index", async () => {
+  const releaseManifest = Buffer.from(JSON.stringify({ repository: "maiyadiu/filmos-studio", git_commit_sha: "d".repeat(40), git_tree_sha: "e".repeat(40), evidence_index_hash: "a".repeat(64) }));
+  const archive = storedZip("RELEASE_MANIFEST.json", releaseManifest);
+  const artifactDigest = `sha256:${createHash("sha256").update(archive).digest("hex")}`;
+  const value = candidate({ artifact_id: "789", artifact_digest: artifactDigest });
+  const fetchImpl = async (url) => {
+    const path = String(url);
+    if (path.endsWith(`/git/commits/${value.candidate_commit}`)) return jsonResponse({ sha: value.candidate_commit, tree: { sha: value.tree } });
+    if (path.includes("/commits/fix%2Fexample")) return jsonResponse({ sha: value.candidate_commit, commit: { tree: { sha: value.tree } } });
+    if (path.endsWith("/actions/runs/123")) return jsonResponse({ id: 123, head_sha: value.candidate_commit, head_branch: value.branch, status: "completed", conclusion: "success" });
+    if (path.endsWith("/actions/artifacts/789")) return jsonResponse({ id: 789, digest: artifactDigest, expired: false, archive_download_url: "https://artifact.local/archive.zip", workflow_run: { id: 123, head_sha: value.candidate_commit } });
+    if (path === "https://artifact.local/archive.zip") return new Response(archive, { status: 200, headers: { "content-length": String(archive.length) } });
+    return jsonResponse({ message: "not found" }, 404);
+  };
+  const verifier = new GitHubEvidenceVerifier({ token: "github-token-for-test", fetchImpl, now: () => new Date("2026-08-31T02:00:00.000Z") });
+  const receipt = await verifier.verify(value);
+  assert.equal(receipt.verified, true);
+  assert.equal(receipt.artifact_commit, value.candidate_commit);
+  assert.equal(receipt.evidence_index_hash, value.evidence_index_hash);
+  const failing = new GitHubEvidenceVerifier({ token: "github-token-for-test", fetchImpl: async (url) => String(url).endsWith("/actions/runs/123") ? jsonResponse({ id: 123, head_sha: value.candidate_commit, head_branch: value.branch, status: "completed", conclusion: "failure" }) : fetchImpl(url) });
+  await assert.rejects(() => failing.verify(value), /GITHUB_RUN_NOT_SUCCESSFUL/);
+});
+
+function jsonResponse(value, status = 200) {
+  return new Response(JSON.stringify(value), { status, headers: { "content-type": "application/json" } });
+}
+
+function storedZip(name, content) {
+  const filename = Buffer.from(name);
+  const local = Buffer.alloc(30);
+  local.writeUInt32LE(0x04034b50, 0);
+  local.writeUInt16LE(20, 4);
+  local.writeUInt32LE(content.length, 18);
+  local.writeUInt32LE(content.length, 22);
+  local.writeUInt16LE(filename.length, 26);
+  const central = Buffer.alloc(46);
+  central.writeUInt32LE(0x02014b50, 0);
+  central.writeUInt16LE(20, 4);
+  central.writeUInt16LE(20, 6);
+  central.writeUInt32LE(content.length, 20);
+  central.writeUInt32LE(content.length, 24);
+  central.writeUInt16LE(filename.length, 28);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(1, 8);
+  end.writeUInt16LE(1, 10);
+  end.writeUInt32LE(central.length + filename.length, 12);
+  end.writeUInt32LE(local.length + filename.length + content.length, 16);
+  return Buffer.concat([local, filename, content, central, filename, end]);
+}

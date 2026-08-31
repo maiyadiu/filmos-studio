@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { contextFromPathname, createLocalIssueDraft } from "../src/film/governance/report-issue";
+import { buildReviewIssuePayload, contextFromPathname, createLocalIssueDraft } from "../src/film/governance/report-issue";
 
 const build = {
     commit: "6ea93bfa08381264a1379fe938ade3a7513c7bba",
@@ -54,5 +54,17 @@ describe("usage issue intake", () => {
             { pathname: "/", now: "2026-08-31T00:00:00.000Z", build },
         );
         expect(draft.issueId).toMatch(/^FILMOS-ISSUE-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+    });
+
+    test("serializes screenshot bytes with a hash and local evidence URI without leaking the filename", async () => {
+        const content = new Blob(["pixel-bytes"], { type: "image/png" });
+        const draft = createLocalIssueDraft(
+            { occurred: "wrong frame", expected: "right frame", blocking: true, attachments: [{ id: "capture-1", name: "private-name.png", mediaType: "image/png", size: content.size, content }] },
+            { pathname: "/projects/project-1", issueId: "FILMOS-ISSUE-12345678-1234-4123-8123-123456789abc", now: "2026-08-31T00:00:00.000Z", build },
+        );
+        const payload = await buildReviewIssuePayload(draft);
+        expect(payload.screenshot_refs).toEqual(["filmos-evidence://FILMOS-ISSUE-12345678-1234-4123-8123-123456789abc/capture-1"]);
+        expect(payload.local_evidence).toEqual([expect.objectContaining({ evidence_id: "capture-1", media_type: "image/png", size: 11, sha256: "024c967fcf558e2884646fef5daf4e1ac54c180625d52dcb62bf41380e42b41e", data_base64: "cGl4ZWwtYnl0ZXM=" })]);
+        expect(JSON.stringify(payload)).not.toContain("private-name.png");
     });
 });

@@ -1,5 +1,5 @@
 const baseUrl = "http://127.0.0.1:17920";
-const purposes = new Set(["CHATGPT_ASSESSMENT", "CHATGPT_VERDICT", "FINDING_DECISION"]);
+const purposes = new Set(["CHATGPT_ASSESSMENT", "CHATGPT_VERDICT", "FINDING_DECISION", "CHATGPT_REVIEW_DECISION"]);
 
 export function validateEnvelope(value) {
   const expected = ["purpose", "issue_id", "candidate_id", "candidate_commit", "decision"];

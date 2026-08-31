@@ -242,11 +242,11 @@ private final class InternalWorkbenchCoordinator {
     }
 
     func submitReviewIssue(_ data: Data) async throws -> Data {
-        guard data.count <= 512 * 1024,
+        guard data.count <= 180 * 1024 * 1024,
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               Set(object.keys).isSubset(of: [
                   "project_id", "what_happened", "expected_result", "location",
-                  "blocks_work", "screenshot_refs", "issue_id", "evidence_items",
+                  "blocks_work", "screenshot_refs", "local_evidence", "issue_id", "evidence_items",
                   "app_build_id", "app_tree", "route",
               ])
         else { throw ReviewBusBridgeError.invalidRequest }
@@ -651,7 +651,7 @@ private final class WorkbenchWindow: NSObject, @preconcurrency WKNavigationDeleg
            requestID.range(of: "^[A-Fa-f0-9-]{36}$", options: .regularExpression) != nil,
            let payload = body["payload"] as? [String: Any],
            JSONSerialization.isValidJSONObject(payload),
-           let data = try? JSONSerialization.data(withJSONObject: payload), data.count <= 512 * 1024 {
+           let data = try? JSONSerialization.data(withJSONObject: payload), data.count <= 180 * 1024 * 1024 {
             onReviewIssueRequest?(requestID, data)
         }
     }

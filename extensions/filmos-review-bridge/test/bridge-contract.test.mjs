@@ -37,6 +37,12 @@ test("decision envelope rejects extra fields and wrong commit", () => {
   assert.throws(() => validateEnvelope({ ...envelope, candidate_commit: "wrong" }), /INVALID_CANDIDATE_COMMIT/);
 });
 
+test("candidate-bound aggregate review decisions are accepted by the exact bridge envelope", () => {
+  const aggregate = validateEnvelope({ ...envelope, purpose: "CHATGPT_REVIEW_DECISION", decision: { verdict: "CHANGES_REQUIRED", binding: {}, findings: [] } });
+  assert.equal(aggregate.purpose, "CHATGPT_REVIEW_DECISION");
+  assert.equal(aggregate.candidate_id, envelope.candidate_id);
+});
+
 test("one click can select the latest exact Decision code block without manual text selection", () => {
   const result = parseDecisionCandidates(["not json", JSON.stringify({ ...envelope, cookie: "reject" }), `\`\`\`json\n${JSON.stringify(envelope)}\n\`\`\``]);
   assert.deepEqual(result, envelope);
