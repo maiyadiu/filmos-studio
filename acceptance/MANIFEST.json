@@ -7,7 +7,7 @@
   },
   "evidence_index": {
     "path": "acceptance/EVIDENCE_INDEX.json",
-    "sha256": "fecedcd17e3c4e56b63067f16221bda8ec3d490cb2cf6dd72ea06129baef020b"
+    "sha256": "86a5db391aeda98b5ea25602ffa02566007b1808688ab2fd5a42caa6a71fb3fe"
   },
   "golden_project": {
     "path": "acceptance/FilmOS_Acceptance_Project/项目.json",
