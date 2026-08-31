@@ -425,6 +425,22 @@ def redact_log(value: bytes) -> bytes:
     return normalized.encode("utf-8")
 
 
+def json_artifact_from_log(value: bytes, check_id: str) -> object:
+    text = value.decode("utf-8")
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        for line in reversed(text.splitlines()):
+            candidate = line.strip()
+            if not candidate:
+                continue
+            try:
+                return json.loads(candidate)
+            except json.JSONDecodeError:
+                continue
+    raise RuntimeError(f"{check_id} passed without a machine-readable JSON artifact")
+
+
 def git_value(*args: str) -> str:
     result = subprocess.run(("git", *args), cwd=ROOT, text=True, capture_output=True, check=False)
     return result.stdout.strip() if result.returncode == 0 else ""
@@ -525,7 +541,7 @@ def run_check(check: Check, run_dir: Path, environment: dict[str, str]) -> dict[
     artifact = None
     artifact_name = CHECK_ARTIFACT_NAMES.get(check.check_id)
     if artifact_name and process.returncode == 0:
-        payload = json.loads(redacted.decode("utf-8"))
+        payload = json_artifact_from_log(redacted, check.check_id)
         artifact_path = run_dir / artifact_name
         artifact_path.write_bytes(json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2).encode() + b"\n")
         artifact = {
