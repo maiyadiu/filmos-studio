@@ -1,0 +1,397 @@
+#!/bin/sh
+set -eu
+
+usage() {
+    echo "usage: prepare-pilot-project-copy --source-data-dir <absolute WorkbenchData> --pilot-data-dir <absolute WorkbenchData> --project-id <id>" >&2
+    exit 2
+}
+
+source_data_dir=
+pilot_data_dir=
+project_id=
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --source-data-dir) [ "$#" -ge 2 ] || usage; source_data_dir=$2; shift 2 ;;
+        --pilot-data-dir) [ "$#" -ge 2 ] || usage; pilot_data_dir=$2; shift 2 ;;
+        --project-id) [ "$#" -ge 2 ] || usage; project_id=$2; shift 2 ;;
+        *) usage ;;
+    esac
+done
+[ -n "$source_data_dir" ] && [ -n "$pilot_data_dir" ] && [ -n "$project_id" ] || usage
+
+case "$source_data_dir:$pilot_data_dir" in
+    /*:/*) ;;
+    *) echo "source and Pilot data directories must be absolute" >&2; exit 2 ;;
+esac
+case "$project_id" in
+    *[!A-Za-z0-9._:-]*|"") echo "project ID contains unsupported characters" >&2; exit 2 ;;
+esac
+[ "$source_data_dir" != "$pilot_data_dir" ] || { echo "Pilot must never use the formal data directory" >&2; exit 2; }
+[ -f "$source_data_dir/open_ai_canvas.db" ] || { echo "source FilmOS database is missing" >&2; exit 1; }
+[ ! -e "$pilot_data_dir" ] || { echo "Pilot data directory already exists; refusing to overwrite it" >&2; exit 2; }
+
+python_executable=$(command -v python3 || true)
+sqlite_executable=$(command -v sqlite3 || true)
+[ -x "$python_executable" ] && [ -x "$sqlite_executable" ] || { echo "python3 and sqlite3 are required" >&2; exit 1; }
+user_home=$($python_executable -c 'from pathlib import Path; print(Path.home().resolve())')
+allowed_root=${FILMOS_PILOT_SUPPORT_ROOT:-"$user_home/Library/Application Support/FilmOS Studio Pilot"}
+case "$allowed_root" in /*) ;; *) echo "Pilot support root must be absolute" >&2; exit 2 ;; esac
+case "$pilot_data_dir" in
+    "$allowed_root"/WorkbenchData) ;;
+    *) echo "Pilot data directory must be $allowed_root/WorkbenchData" >&2; exit 2 ;;
+esac
+
+mkdir -p "$allowed_root"
+source_database_hash_before=$(shasum -a 256 "$source_data_dir/open_ai_canvas.db" | awk '{print $1}')
+staging=$(mktemp -d "$allowed_root/.pilot-copy.XXXXXX")
+cleanup() {
+    find "$staging" -type f -delete 2>/dev/null || true
+    find "$staging" -depth -type d -empty -delete 2>/dev/null || true
+}
+trap cleanup EXIT HUP INT TERM
+mkdir -p "$staging/WorkbenchData"
+pilot_database="$staging/WorkbenchData/open_ai_canvas.db"
+copy_audit="$staging/WorkbenchData/.pilot-copy-audit.json"
+"$sqlite_executable" "$source_data_dir/open_ai_canvas.db" ".backup '$pilot_database'"
+
+PILOT_PROJECT_ID="$project_id" "$python_executable" - "$pilot_database" "$copy_audit" <<'PY'
+import json
+import os
+import re
+import sqlite3
+import sys
+from pathlib import Path
+
+database = sys.argv[1]
+audit_path = Path(sys.argv[2])
+project_id = os.environ["PILOT_PROJECT_ID"]
+connection = sqlite3.connect(database)
+connection.execute("PRAGMA foreign_keys=OFF")
+tables = [row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")]
+
+def columns(table):
+    return {row[1]: row for row in connection.execute(f'PRAGMA table_info("{table}")')}
+
+def ids(table, where="", parameters=()):
+    if table not in tables:
+        return []
+    statement = f'SELECT id FROM "{table}"'
+    if where:
+        statement += " WHERE " + where
+    return [row[0] for row in connection.execute(statement, parameters)]
+
+def delete_not_in(table, column, retained):
+    if table not in tables or column not in columns(table):
+        return
+    if not retained:
+        connection.execute(f'DELETE FROM "{table}"')
+        return
+    placeholders = ",".join("?" for _ in retained)
+    connection.execute(
+        f'DELETE FROM "{table}" WHERE "{column}" IS NULL OR "{column}" NOT IN ({placeholders})',
+        tuple(retained),
+    )
+
+def text_values(table):
+    if table not in tables:
+        return
+    text_columns = [row[1] for row in connection.execute(f'PRAGMA table_info("{table}")') if "TEXT" in (row[2] or "").upper()]
+    if not text_columns:
+        return
+    selected = ",".join(f'"{name}"' for name in text_columns)
+    for row in connection.execute(f'SELECT {selected} FROM "{table}"'):
+        for value in row:
+            if isinstance(value, str) and value:
+                yield value
+
+def referenced_ids(patterns, source_tables):
+    found = set()
+    for table in source_tables:
+        for value in text_values(table) or ():
+            for pattern in patterns:
+                found.update(match for match in pattern.findall(value) if match)
+    return found
+
+def redact_json_secrets(value):
+    try:
+        parsed = json.loads(value)
+    except (TypeError, ValueError):
+        return value
+    sensitive = re.compile(r"(?:api_?key|secret|token|cookie|password|credential|authorization|code_verifier|headers_json|value_json)", re.I)
+    def walk(node):
+        if isinstance(node, dict):
+            return {key: ("" if sensitive.search(str(key)) else walk(item)) for key, item in node.items()}
+        if isinstance(node, list):
+            return [walk(item) for item in node]
+        return node
+    return json.dumps(walk(parsed), ensure_ascii=False, separators=(",", ":"))
+
+project = connection.execute("SELECT user_id, name FROM projects WHERE id = ?", (project_id,)).fetchone()
+if project is None:
+    raise SystemExit("project is not present in the copied database")
+owner_id, _ = project
+
+# First retain every row with the selected explicit project scope. This creates
+# a sanitized project aggregate, not a user database clone.
+for table in tables:
+    table_columns = columns(table)
+    if table == "projects":
+        connection.execute("DELETE FROM projects WHERE id <> ?", (project_id,))
+    elif "project_id" in table_columns:
+        connection.execute(f'DELETE FROM "{table}" WHERE project_id IS NULL OR project_id <> ?', (project_id,))
+
+unit_ids = ids("project_units", "project_id = ?", (project_id,))
+shot_ids = ids("shots", "project_id = ?", (project_id,))
+canvas_ids = ids("canvas_projects", "project_id = ?", (project_id,))
+task_ids = ids("tasks", "project_id = ?", (project_id,))
+session_ids = ids("sessions", "project_id = ?", (project_id,))
+workflow_ids = ids("workflow_instances", "project_id = ?", (project_id,))
+
+if "canvas_unit_links" in tables:
+    delete_not_in("canvas_unit_links", "canvas_id", canvas_ids)
+    delete_not_in("canvas_unit_links", "unit_id", unit_ids)
+delete_not_in("shot_asset_references", "shot_id", shot_ids)
+delete_not_in("messages", "session_id", session_ids)
+delete_not_in("session_files", "session_id", session_ids)
+delete_not_in("task_logs", "task_id", task_ids)
+delete_not_in("task_text_delta", "task_id", task_ids)
+delete_not_in("route_attempts", "task_id", task_ids)
+delete_not_in("comfy_bridge_requests", "task_id", task_ids)
+delete_not_in("workflow_step_instances", "workflow_instance_id", workflow_ids)
+workflow_template_version_ids = []
+if "workflow_instances" in tables and "template_version_id" in columns("workflow_instances"):
+    workflow_template_version_ids = [
+        row[0]
+        for row in connection.execute(
+            "SELECT DISTINCT template_version_id FROM workflow_instances WHERE template_version_id <> ''"
+        )
+    ]
+delete_not_in("workflow_template_versions", "id", workflow_template_version_ids)
+workflow_step_ids = ids("workflow_step_instances")
+if "workflow_step_tasks" in tables:
+    delete_not_in("workflow_step_tasks", "workflow_step_id", workflow_step_ids)
+    delete_not_in("workflow_step_tasks", "task_id", task_ids)
+if "results" in tables:
+    result_columns = columns("results")
+    task_clause = "1" if "task_id" not in result_columns or not task_ids else "task_id NOT IN (" + ",".join("?" for _ in task_ids) + ")"
+    session_clause = "1" if "session_id" not in result_columns or not session_ids else "session_id NOT IN (" + ",".join("?" for _ in session_ids) + ")"
+    connection.execute(f'DELETE FROM results WHERE ({task_clause}) AND ({session_clause})', tuple(task_ids) + tuple(session_ids))
+
+if "users" in tables:
+    connection.execute("DELETE FROM users WHERE id <> ?", (owner_id,))
+
+# Preserve the entire asset/version graph referenced by the selected project,
+# including references embedded in current project JSON documents.
+asset_ids = set()
+if "project_asset_links" in tables:
+    asset_ids.update(row[0] for row in connection.execute("SELECT asset_id FROM project_asset_links WHERE project_id = ? AND asset_id <> ''", (project_id,)))
+if "project_asset_candidates" in tables and "resolved_asset_id" in columns("project_asset_candidates"):
+    asset_ids.update(row[0] for row in connection.execute("SELECT resolved_asset_id FROM project_asset_candidates WHERE resolved_asset_id <> ''"))
+project_content_tables = [
+    table for table in tables
+    if "project_id" in columns(table) or table in {
+        "shot_asset_references", "messages", "results", "tasks", "sessions",
+        "workflow_step_instances", "workflow_step_tasks",
+    }
+]
+asset_ids.update(referenced_ids([
+    re.compile(r'["\'](?:assetId|asset_id)["\']\s*:\s*["\']([A-Za-z0-9._:-]+)'),
+    re.compile(r'\basset:([A-Za-z0-9._:-]+)'),
+], project_content_tables))
+
+referenced_version_ids = set()
+if "shot_asset_references" in tables:
+    referenced_version_ids.update(row[0] for row in connection.execute("SELECT asset_version_id FROM shot_asset_references WHERE asset_version_id <> ''"))
+if "asset_versions" in tables and referenced_version_ids:
+    placeholders = ",".join("?" for _ in referenced_version_ids)
+    asset_ids.update(row[0] for row in connection.execute(f"SELECT asset_id FROM asset_versions WHERE id IN ({placeholders})", tuple(referenced_version_ids)))
+delete_not_in("assets", "id", sorted(asset_ids))
+delete_not_in("asset_versions", "asset_id", sorted(asset_ids))
+asset_version_ids = ids("asset_versions")
+delete_not_in("asset_representations", "asset_version_id", asset_version_ids)
+delete_not_in("character_voice_bindings", "asset_version_id", asset_version_ids)
+
+voice_profile_ids = []
+if "character_voice_bindings" in tables:
+    voice_profile_ids = [row[0] for row in connection.execute("SELECT DISTINCT voice_profile_id FROM character_voice_bindings WHERE voice_profile_id <> ''")]
+delete_not_in("voice_profiles", "id", voice_profile_ids)
+
+resource_ids = set()
+if "asset_representations" in tables:
+    resource_ids.update(row[0] for row in connection.execute("SELECT resource_id FROM asset_representations WHERE resource_id <> ''"))
+if "voice_profiles" in tables and "sample_resource_id" in columns("voice_profiles"):
+    resource_ids.update(row[0] for row in connection.execute("SELECT sample_resource_id FROM voice_profiles WHERE sample_resource_id <> ''"))
+resource_scan_tables = project_content_tables + ["assets", "asset_versions", "asset_representations", "voice_profiles"]
+resource_ids.update(referenced_ids([
+    re.compile(r'["\'](?:resourceId|resource_id|sampleResourceId|sample_resource_id)["\']\s*:\s*["\']([A-Za-z0-9._:-]+)'),
+    re.compile(r'\bresource:([A-Za-z0-9._:-]+)'),
+    re.compile(r'/api/resources/([A-Za-z0-9._:-]+)/file'),
+], resource_scan_tables))
+delete_not_in("resources", "id", sorted(resource_ids))
+
+# Runtime state, authentication, shares, global preferences, provider wiring and
+# finance are never part of a project copy. Static, credential-free catalogs can
+# remain so the local UI can still describe capabilities without submitting.
+drop_rows = {
+    "admin_audit_events", "announcements", "api_call_logs", "auth_sessions",
+    "ark_private_asset_bindings", "billing_orders", "canvas_shares", "channel_model_price_tiers",
+    "channel_models", "comfy_bridges", "credit_accounts",
+    "credit_ledger_entries", "email_verification_codes", "model_channels",
+    "id_sequences", "logical_model_price_skus", "logical_model_revisions",
+    "logical_model_routes", "logical_models", "model_pricings",
+    "o_auth_states", "oauth_states", "redeem_batches", "redeem_codes",
+    "prompt_templates",
+    "resource_deletion_jobs", "route_attempts", "session_files", "system_settings",
+    "skills", "style_profiles",
+    "task_logs", "task_text_delta", "user_announcement_reads", "user_daily_activities",
+    "user_daily_upload_usages", "user_identities", "user_oss_settings",
+    "user_prompt_customizations", "user_skill_states", "wallet_transactions",
+}
+for table in tables:
+    if table in drop_rows:
+        connection.execute(f'DELETE FROM "{table}"')
+
+sensitive_column = re.compile(r"(?:api_?key|secret|token|cookie|password|credential|authorization|code_verifier|headers_json|value_json)", re.I)
+for table in tables:
+    info = list(connection.execute(f'PRAGMA table_info("{table}")'))
+    for _, name, kind, not_null, default, _ in info:
+        if not sensitive_column.search(name):
+            continue
+        replacement = b"" if "BLOB" in (kind or "").upper() else ""
+        connection.execute(f'UPDATE "{table}" SET "{name}" = ?', (replacement,))
+    for _, name, kind, _, _, _ in info:
+        if "TEXT" not in (kind or "").upper() or not re.search(r"(?:json|payload|metadata)", name, re.I):
+            continue
+        rows = list(connection.execute(f'SELECT rowid, "{name}" FROM "{table}" WHERE "{name}" IS NOT NULL AND "{name}" <> \'\''))
+        for rowid, value in rows:
+            redacted = redact_json_secrets(value)
+            if redacted != value:
+                connection.execute(f'UPDATE "{table}" SET "{name}" = ? WHERE rowid = ?', (redacted, rowid))
+
+if "resources" in tables:
+    resource_columns = columns("resources")
+    for name in ["storage_setting_id", "public_url"]:
+        if name in resource_columns:
+            connection.execute(f'UPDATE resources SET "{name}" = \'\'')
+
+if connection.execute("SELECT COUNT(*) FROM projects").fetchone()[0] != 1:
+    raise SystemExit("Pilot database must contain exactly one project")
+nonempty_secrets = 0
+for table in tables:
+    for _, name, _, _, _, _ in connection.execute(f'PRAGMA table_info("{table}")'):
+        if sensitive_column.search(name):
+            nonempty_secrets += connection.execute(
+                f'SELECT COUNT(*) FROM "{table}" WHERE "{name}" IS NOT NULL AND length("{name}") > 0'
+            ).fetchone()[0]
+if nonempty_secrets:
+    raise SystemExit(f"Pilot credential scan failed: {nonempty_secrets}")
+
+project_name = connection.execute("SELECT name FROM projects WHERE id = ?", (project_id,)).fetchone()[0]
+if not project_name.endswith("-PILOT"):
+    project_name += "-PILOT"
+    connection.execute("UPDATE projects SET name = ? WHERE id = ?", (project_name, project_id))
+
+local_object_keys = []
+remote_resource_count = 0
+if "resources" in tables:
+    for provider, object_key in connection.execute("SELECT lower(provider), object_key FROM resources"):
+        if provider in ("", "local"):
+            if not object_key or object_key.startswith(("/", "\\")) or ".." in Path(object_key).parts:
+                raise SystemExit("Pilot local resource has an unsafe object key")
+            local_object_keys.append(object_key)
+        else:
+            remote_resource_count += 1
+
+finance_tables = [table for table in drop_rows if re.search(r"(?:billing|credit|pricing|price_sku|redeem|wallet)", table)]
+finance_row_count = sum(connection.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0] for table in finance_tables if table in tables)
+if finance_row_count:
+    raise SystemExit(f"Pilot finance cleanup failed: {finance_row_count}")
+
+audit = {
+    "project_name": project_name,
+    "asset_count": connection.execute("SELECT COUNT(*) FROM assets").fetchone()[0] if "assets" in tables else 0,
+    "resource_count": connection.execute("SELECT COUNT(*) FROM resources").fetchone()[0] if "resources" in tables else 0,
+    "workflow_template_version_count": connection.execute("SELECT COUNT(*) FROM workflow_template_versions").fetchone()[0] if "workflow_template_versions" in tables else 0,
+    "local_object_keys": sorted(set(local_object_keys)),
+    "remote_resource_count": remote_resource_count,
+    "finance_row_count": finance_row_count,
+    "nonempty_secret_field_count": nonempty_secrets,
+}
+connection.commit()
+connection.execute("VACUUM")
+connection.close()
+audit_path.write_text(json.dumps(audit, ensure_ascii=False, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+PY
+
+pilot_project_name=$("$python_executable" -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["project_name"])' "$copy_audit")
+PILOT_SOURCE_DATA_DIR="$source_data_dir" PILOT_DEST_DATA_DIR="$staging/WorkbenchData" "$python_executable" - "$copy_audit" <<'PY'
+import json
+import os
+import shutil
+import sys
+from pathlib import Path
+
+audit_path = Path(sys.argv[1])
+audit = json.loads(audit_path.read_text(encoding="utf-8"))
+source_root = (Path(os.environ["PILOT_SOURCE_DATA_DIR"]) / "resources").resolve()
+destination_root = (Path(os.environ["PILOT_DEST_DATA_DIR"]) / "resources").resolve()
+copied = 0
+for object_key in audit["local_object_keys"]:
+    source = (source_root / object_key).resolve()
+    destination = (destination_root / object_key).resolve()
+    if source_root not in source.parents or destination_root not in destination.parents:
+        raise SystemExit("Pilot resource copy escaped the resource root")
+    if not source.is_file():
+        raise SystemExit(f"Pilot local resource is missing: {object_key}")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, destination)
+    copied += 1
+audit["local_resource_files_copied"] = copied
+audit_path.write_text(json.dumps(audit, ensure_ascii=False, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+PY
+database_hash=$(shasum -a 256 "$pilot_database" | awk '{print $1}')
+source_database_hash_after=$(shasum -a 256 "$source_data_dir/open_ai_canvas.db" | awk '{print $1}')
+[ "$source_database_hash_before" = "$source_database_hash_after" ] || { echo "source FilmOS database changed during Pilot copy" >&2; exit 1; }
+project_count=$("$sqlite_executable" -batch -noheader "$pilot_database" "SELECT COUNT(*) FROM projects;")
+[ "$project_count" = "1" ] || { echo "Pilot database contains more than the selected project" >&2; exit 1; }
+created_at=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
+PILOT_PROJECT_ID="$project_id" PILOT_PROJECT_NAME="$pilot_project_name" PILOT_DATABASE_HASH="$database_hash" PILOT_SOURCE_HASH="$source_database_hash_before" PILOT_CREATED_AT="$created_at" \
+    "$python_executable" - "$staging/WorkbenchData/PILOT_COPY_MANIFEST.json" "$copy_audit" <<'PY'
+import json
+import os
+import sys
+from pathlib import Path
+
+audit = json.loads(Path(sys.argv[2]).read_text(encoding="utf-8"))
+payload = {
+    "schema_version": 1,
+    "format": "filmos.pilot-project-copy/v1",
+    "project_id": os.environ["PILOT_PROJECT_ID"],
+    "project_name": os.environ["PILOT_PROJECT_NAME"],
+    "source_authority": "formal-project-scoped-sanitized-copy",
+    "project_content_scope": "complete-selected-project-aggregate",
+    "global_catalog_policy": "clear-user-and-provider-global-catalogs-retain-only-referenced-workflow-template-versions",
+    "source_database_mutated": False,
+    "source_database_sha256_before": os.environ["PILOT_SOURCE_HASH"],
+    "source_database_sha256_after": os.environ["PILOT_SOURCE_HASH"],
+    "pilot_database_sha256": os.environ["PILOT_DATABASE_HASH"],
+    "project_count": 1,
+    "asset_count": audit["asset_count"],
+    "resource_count": audit["resource_count"],
+    "workflow_template_version_count": audit["workflow_template_version_count"],
+    "local_resource_files_copied": audit["local_resource_files_copied"],
+    "remote_resource_metadata_count": audit["remote_resource_count"],
+    "finance_row_count": audit["finance_row_count"],
+    "nonempty_secret_field_count": audit["nonempty_secret_field_count"],
+    "external_network_requests": 0,
+    "external_paid_operations": 0,
+    "credentials_copied": False,
+    "created_at": os.environ["PILOT_CREATED_AT"],
+}
+Path(sys.argv[1]).write_text(json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+PY
+rm -f "$copy_audit"
+mv "$staging/WorkbenchData" "$pilot_data_dir"
+trap - EXIT HUP INT TERM
+find "$staging" -depth -type d -empty -delete 2>/dev/null || true
+printf 'PILOT_PROJECT_COPY_READY project_id=%s project_name=%s database_sha256=%s\n' "$project_id" "$pilot_project_name" "$database_hash"

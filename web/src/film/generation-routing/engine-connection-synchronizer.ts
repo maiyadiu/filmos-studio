@@ -1,11 +1,14 @@
 import {
     hashGenerationEngineConnection,
-    hashProjection,
     type GenerationEngineConnection,
 } from "@filmos/generation-contracts";
 
 import type { DreaminaCliStatus } from "@/services/local-dreamina-cli";
 import type { BrainGenerationRoutingConfig } from "./user-config";
+import {
+    localAccountBindingRef,
+    type LocalAccountBindingRefResolver,
+} from "./local-account-binding-ref";
 
 export type EngineConnectionObservation = {
     engineId: string;
@@ -80,6 +83,7 @@ export async function dreaminaConnectionObservation(input: {
     moduleAvailable: boolean;
     status?: DreaminaCliStatus;
     observedAt?: string;
+    accountBindingRefResolver?: LocalAccountBindingRefResolver;
 }): Promise<EngineConnectionObservation> {
     const observedAt = input.observedAt || new Date().toISOString();
     const status = !input.runtimeConnected
@@ -94,7 +98,7 @@ export async function dreaminaConnectionObservation(input: {
                         ? "auth_required"
                         : "not_configured";
     const accountBindingRef = input.status?.authenticated && input.status.accountBinding
-        ? await pseudonymousAccountBindingRef("dreamina_cli", input.status.accountBinding)
+        ? await pseudonymousAccountBindingRef("dreamina_cli", input.status.accountBinding, input.accountBindingRefResolver)
         : undefined;
     return {
         engineId: "dreamina_cli",
@@ -119,9 +123,10 @@ export async function configuredEngineConnectionObservation(input: {
     errorCode?: string;
     catalogSnapshotId?: string;
     catalogEvidenceSource?: string;
+    accountBindingRefResolver?: LocalAccountBindingRefResolver;
 }): Promise<EngineConnectionObservation> {
     const accountBindingRef = input.current.authScope === "account" && input.accountSource
-        ? await pseudonymousAccountBindingRef(input.current.engineId, input.accountSource)
+        ? await pseudonymousAccountBindingRef(input.current.engineId, input.accountSource, input.accountBindingRefResolver)
         : undefined;
     const status = !input.configured
         ? "not_configured"
@@ -158,11 +163,12 @@ export async function flovaProjectSelectionObservation(input: {
     authenticatedAccountSource?: string;
     observedAt?: string;
     errorCode?: string;
+    accountBindingRefResolver?: LocalAccountBindingRefResolver;
 }): Promise<EngineConnectionObservation> {
     if (input.current.engineId !== "flova_cli") throw new Error("FLOVA_CONNECTION_REQUIRED");
     const projectSelected = Boolean(input.externalProjectId?.trim());
     const accountBindingRef = projectSelected && input.doctorPassed && input.authenticatedAccountSource
-        ? await pseudonymousAccountBindingRef("flova_cli", input.authenticatedAccountSource)
+        ? await pseudonymousAccountBindingRef("flova_cli", input.authenticatedAccountSource, input.accountBindingRefResolver)
         : undefined;
     return {
         engineId: input.current.engineId,
@@ -176,10 +182,12 @@ export async function flovaProjectSelectionObservation(input: {
     };
 }
 
-export async function pseudonymousAccountBindingRef(engineId: string, sourceBinding: string): Promise<GenerationEngineConnection["accountBindingRef"]> {
-    const digest = await hashProjection("generation-engine-account-binding", "semantic", { engineId, sourceBinding });
-    const uuid = `${digest.slice(0, 8)}-${digest.slice(8, 12)}-4${digest.slice(13, 16)}-a${digest.slice(17, 20)}-${digest.slice(20, 32)}`;
-    return `filmos_acct_${uuid}` as GenerationEngineConnection["accountBindingRef"];
+export async function pseudonymousAccountBindingRef(
+    engineId: string,
+    sourceBinding: string,
+    resolver: LocalAccountBindingRefResolver = localAccountBindingRef,
+): Promise<GenerationEngineConnection["accountBindingRef"]> {
+    return await resolver(engineId, sourceBinding) as GenerationEngineConnection["accountBindingRef"];
 }
 
 function key(engineId: string, connectionId: string) {

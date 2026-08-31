@@ -1,0 +1,48 @@
+{
+  "schema_version": "filmos.current-known-gaps.v1",
+  "baseline_commit": "6ea93bfa08381264a1379fe938ade3a7513c7bba",
+  "gaps": [
+    {
+      "id": "BASE-TECHNICAL-PAID-GATE-001",
+      "severity": "P0",
+      "scope": "installed PILOT_BASE_0",
+      "status": "open_on_base_fixed_and_tested_in_candidate_pending_packaged_app_acceptance",
+      "detail": "Installed schema-2 base does not embed the paid-submit technical switch; zero-cost use is policy-only until the new Candidate is verified and atomically installed."
+    },
+    {
+      "id": "PILOT-APP-INSTALL-001",
+      "severity": "P0",
+      "scope": "candidate",
+      "status": "pending_final_integration",
+      "detail": "Development must not replace the current base. Final Candidate must pass acceptance, then atomically replace the single authoritative App path."
+    },
+    {
+      "id": "REVIEW-BUS-INTEGRATION-001",
+      "severity": "P0",
+      "scope": "candidate",
+      "status": "pending_integrated_runtime_gate",
+      "detail": "Desktop helper, token path, issue bridge and ChatGPT read-tool environment require one packaged-App runtime replay."
+    },
+    {
+      "id": "PILOT-REMOTE-RESOURCE-001",
+      "severity": "P1",
+      "scope": "project copy",
+      "status": "disclosed",
+      "detail": "Remote resource metadata can be retained without credentials; only referenced local resource files are physically copied. No external fetch occurs during enablement."
+    },
+    {
+      "id": "PILOT-GLOBAL-CATALOG-001",
+      "severity": "P1",
+      "scope": "project copy",
+      "status": "intentional_fail_closed_limitation",
+      "detail": "User/provider-global logical models, revisions, prompt templates, channels, pricing and external provider bindings are cleared from the Pilot copy. Only workflow template versions referenced by the selected project are retained; candidate runtime must rediscover approved local catalogs rather than silently copy global provider state."
+    },
+    {
+      "id": "UI-GOLDEN-ISSUE-ENTRY-001",
+      "severity": "P1",
+      "scope": "web",
+      "status": "pending_ui_golden",
+      "detail": "The single portal is mounted once and route-aware; final App still needs visual checks across global, project, canvas, Agent, Composer and error surfaces."
+    }
+  ]
+}

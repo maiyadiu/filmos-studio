@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "FilmOS Review Bridge",
+  "version": "1.1.0",
+  "description": "User-gesture-only ChatGPT Review Bus writeback for local FilmOS.",
+  "permissions": ["storage"],
+  "host_permissions": [
+    "https://chatgpt.com/*",
+    "http://127.0.0.1:17920/*"
+  ],
+  "background": {
+    "service_worker": "src/background.js",
+    "type": "module"
+  },
+  "content_scripts": [{
+    "matches": ["https://chatgpt.com/*"],
+    "js": ["src/content.js"],
+    "run_at": "document_idle"
+  }],
+  "options_page": "options.html",
+  "action": {"default_title": "FilmOS Review Bridge"}
+}

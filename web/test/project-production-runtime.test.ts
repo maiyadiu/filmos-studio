@@ -3,7 +3,8 @@ import { describe, expect, test } from "bun:test";
 import { hashEnvelope, hashProjection, type GenerationCatalogSnapshot, type GenerationEngineConnection } from "@filmos/generation-contracts";
 import { LocalProductionGenerationAuthority } from "@/film/generation-routing/local-production-authority";
 import { BoundProductionGenerationProviderAdapter } from "@/film/generation-routing/production-provider-adapters";
-import { buildProjectProductionBindings } from "@/film/generation-routing/project-production-authority-builder";
+import { buildProjectProductionBindings, buildProjectProductionBindingsV2, projectGenerationConnectionPolicyInputs } from "@/film/generation-routing/project-production-authority-builder";
+import { normalizeProjectProductionBindings } from "@/film/generation-routing/project-production-runtime";
 import { ProductionGenerationService } from "@/film/generation-routing/production-composition";
 
 const projectId = "ordinary-project-production-dry-run";
@@ -13,6 +14,78 @@ const now = "2026-08-31T08:00:00.000Z";
 const future = "2099-01-01T00:00:00.000Z";
 
 describe("ordinary project production authority", () => {
+    test("Policy V2 persists multiple connections, per-task routes, locks, budgets and external projects", async () => {
+        const primary = { connection: await readyConnection(connectionId), catalog: await readyCatalog(connectionId, "seedream-v1"), maxTasks: 5, maxTotalCostMicrounits: "100", costUnit: "credits" };
+        const secondaryId = "dreamina-local-secondary";
+        const secondary = { connection: await readyConnection(secondaryId), catalog: await readyCatalog(secondaryId, "seedance-v1", "video"), externalProjectId: "external-secondary", maxTasks: 2, maxTotalCostMicrounits: "200", costUnit: "credits" };
+        const bindings = await buildProjectProductionBindingsV2({
+            projectId,
+            connections: [primary, secondary],
+            defaultRoutes: {
+                text_to_image: { engineId: "dreamina_cli", connectionId, modelId: "seedream-v1" },
+                text_to_video: { engineId: "dreamina_cli", connectionId: secondaryId, modelId: "seedance-v1" },
+            },
+            defaultBrainProfileId: "codex.subscription",
+            allowedBrainProfileIds: ["codex.subscription"],
+            strictLockTaskKinds: ["text_to_image", "text_to_video"],
+            allowProviderUpload: false,
+            now,
+        });
+        expect(bindings.schemaVersion).toBe(2);
+        expect(bindings.connections.map((item) => item.connectionId)).toEqual([connectionId, secondaryId]);
+        expect(bindings.projectPolicy.defaultRoutes.text_to_video?.connectionId).toBe(secondaryId);
+        expect(bindings.projectPolicy.modelLocksByTask.text_to_video?.modelId).toBe("seedance-v1");
+        expect(bindings.projectPolicy.budgetGrantIdsByConnection[secondaryId]).toBe(`generation-grant-${projectId}-${secondaryId}`);
+        expect(bindings.projectPolicy.externalProjectBindings.dreamina_cli?.[0]).toMatchObject({ connectionId: secondaryId, externalProjectId: "external-secondary" });
+        expect(bindings.grants.find((item) => item.connectionId === secondaryId)?.maxTotalCost?.amountMicrounits).toBe("200");
+        const roundTripInputs = projectGenerationConnectionPolicyInputs(bindings);
+        expect(roundTripInputs).toEqual([
+            expect.objectContaining({ connection: expect.objectContaining({ connectionId }), maxTasks: 5, maxTotalCostMicrounits: "100", costUnit: "credits" }),
+            expect.objectContaining({ connection: expect.objectContaining({ connectionId: secondaryId }), externalProjectId: "external-secondary", maxTasks: 2, maxTotalCostMicrounits: "200", costUnit: "credits" }),
+        ]);
+        roundTripInputs[1]!.existingLedger!.consumedTasks = 1;
+        roundTripInputs[1]!.existingLedger!.consumedCostMicrounits = "25";
+        roundTripInputs[1]!.existingLedger!.lastEventSequence = 3;
+        const rebuilt = await buildProjectProductionBindingsV2({
+            projectId,
+            connections: roundTripInputs,
+            defaultRoutes: bindings.projectPolicy.defaultRoutes,
+            defaultBrainProfileId: bindings.brainPolicy?.defaultProfileId,
+            allowedBrainProfileIds: bindings.brainPolicy?.allowedProfileIds ?? [],
+            strictLockTaskKinds: Object.keys(bindings.projectPolicy.modelLocksByTask) as Array<keyof typeof bindings.projectPolicy.modelLocksByTask>,
+            allowProviderUpload: false,
+            now,
+        });
+        expect(rebuilt.ledgers.find((item) => item.connectionId === secondaryId)).toMatchObject({ consumedTasks: 1, consumedCostMicrounits: "25", lastEventSequence: 3 });
+        roundTripInputs[1]!.maxTotalCostMicrounits = "24";
+        await expect(buildProjectProductionBindingsV2({
+            projectId,
+            connections: roundTripInputs,
+            defaultRoutes: bindings.projectPolicy.defaultRoutes,
+            allowedBrainProfileIds: ["codex.subscription"],
+            strictLockTaskKinds: [],
+            allowProviderUpload: false,
+            now,
+        })).rejects.toThrow("PROJECT_GENERATION_BUDGET_BELOW_USAGE");
+    });
+
+    test("legacy bindings migrate losslessly to V2 while the V1 object remains rollback-readable", async () => {
+        const connection = await readyConnection();
+        const catalog = await readyCatalog();
+        const legacy = await buildProjectProductionBindings({
+            projectId, connection, catalog, taskKind: "text_to_image",
+            route: { engineId: "dreamina_cli", connectionId, modelId: "seedream-v1" },
+            allowedBrainProfileIds: ["codex.subscription"], strictLock: true, allowProviderUpload: false,
+            maxTasks: 5, maxTotalCostMicrounits: "100", costUnit: "credits", now,
+        });
+        const rollbackCopy = structuredClone(legacy);
+        const migrated = await normalizeProjectProductionBindings(legacy);
+        expect(migrated.projectPolicy.schemaVersion).toBe(2);
+        expect(migrated.projectPolicy.defaultRoutes).toEqual(rollbackCopy.projectPolicy.defaultRoutes);
+        expect(migrated.projectPolicy.modelLocksByTask).toEqual(rollbackCopy.projectLock?.taskLocks);
+        expect(legacy).toEqual(rollbackCopy);
+    });
+
     test("uses the same ProductionGenerationService and bound adapter without the Acceptance Mock", async () => {
         const connection = await readyConnection();
         const catalog = await readyCatalog();
@@ -80,11 +153,11 @@ describe("ordinary project production authority", () => {
     });
 });
 
-async function readyConnection(): Promise<GenerationEngineConnection> {
+async function readyConnection(id = connectionId): Promise<GenerationEngineConnection> {
     const base = {
         schemaVersion: 1 as const,
         entityVersion: 1,
-        connectionId,
+        connectionId: id,
         engineId: "dreamina_cli",
         enabled: true,
         authScope: "local_instance" as const,
@@ -98,33 +171,33 @@ async function readyConnection(): Promise<GenerationEngineConnection> {
     return { ...base, contentHash: await hashEnvelope("generation-engine-connection", base) };
 }
 
-async function readyCatalog(): Promise<GenerationCatalogSnapshot> {
+async function readyCatalog(id = connectionId, modelId = "seedream-v1", capability: "image" | "video" = "image"): Promise<GenerationCatalogSnapshot> {
     const parameterSchema = { type: "object", properties: { aspectRatio: { type: "string" }, resolution: { type: "string" } }, additionalProperties: false };
-    const descriptorHash = await hashProjection("generation-model-descriptor", "semantic", { engineId: "dreamina_cli", connectionId, modelId: "seedream-v1", modelVersion: "1" });
+    const descriptorHash = await hashProjection("generation-model-descriptor", "semantic", { engineId: "dreamina_cli", connectionId: id, modelId, modelVersion: "1" });
     const parameterSchemaHash = await hashProjection("generation-parameter-schema", "semantic", parameterSchema);
     const base = {
         schemaVersion: 1 as const,
-        snapshotId: "catalog-dreamina-ordinary-v1",
+        snapshotId: `catalog-${id}-${modelId}`,
         observedAt: now,
         expiresAt: future,
         engineId: "dreamina_cli",
-        connectionId,
+        connectionId: id,
         authScope: "local_instance",
         accountBindingRef: "filmos_acct_55555555-5555-4555-8555-555555555555",
         connectionInstanceRef: instanceRef,
-        catalogRevision: "dreamina-ordinary-r1",
+        catalogRevision: `dreamina-${id}-r1`,
         catalogValidUntil: future,
         evidence: { source: "runtime_discovery" as const, runtimeVersion: "dreamina-local-v1", sourceLocatorId: "dreamina-local-runtime", observedAt: now },
         models: [{
             schemaVersion: 1 as const,
             engineId: "dreamina_cli",
-            connectionId,
-            modelId: "seedream-v1",
-            providerModelId: "seedream-v1",
-            displayName: "Seedream V1",
+            connectionId: id,
+            modelId,
+            providerModelId: modelId,
+            displayName: modelId,
             modelVersion: "1",
-            capability: "image" as const,
-            operations: ["text_to_image" as const],
+            capability,
+            operations: [capability === "image" ? "text_to_image" as const : "text_to_video" as const],
             parameterSchema,
             constraints: { supportedAspectRatios: ["9:16"], supportedResolutionTiers: ["1080p"] },
             billing: { mode: "credits" as const, estimateAvailable: false, currencyOrUnit: "credits" },

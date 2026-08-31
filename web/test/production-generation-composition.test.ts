@@ -19,6 +19,8 @@ import {
     FILMOS_MOCK_GENERATION_ENGINE_ID,
     FilmOSMockGenerationProvider,
     ProductionGenerationService,
+    assertProductionReleaseSubmitAllowed,
+    productionReleasePolicyFromEnvironment,
     selectEffectiveGenerationRoute,
 } from "@/film/generation-routing/production-composition";
 import { defaultConfig } from "@/stores/use-config-store";
@@ -29,6 +31,50 @@ const submitNotAfter = "2026-08-31T01:00:00.000Z";
 const instance = "filmos_instance_22222222-2222-4222-8222-222222222222";
 
 describe("V2.4 production generation composition", () => {
+    test("Pilot release policy fails closed before every real or paid submit", () => {
+        const pilot = productionReleasePolicyFromEnvironment("false");
+        expect(() => assertProductionReleaseSubmitAllowed({ policy: pilot, engineId: "dreamina_cli", estimatedCostMicrounits: "0" }))
+            .toThrow("PILOT_EXTERNAL_PAID_SUBMIT_DISABLED");
+        expect(() => assertProductionReleaseSubmitAllowed({ policy: pilot, engineId: FILMOS_MOCK_GENERATION_ENGINE_ID, estimatedCostMicrounits: "1" }))
+            .toThrow("PILOT_EXTERNAL_PAID_SUBMIT_DISABLED");
+        expect(() => assertProductionReleaseSubmitAllowed({ policy: pilot, engineId: FILMOS_MOCK_GENERATION_ENGINE_ID, estimatedCostMicrounits: "0" }))
+            .not.toThrow();
+        expect(() => assertProductionReleaseSubmitAllowed({ policy: productionReleasePolicyFromEnvironment("true"), engineId: "dreamina_cli", estimatedCostMicrounits: "1" }))
+            .not.toThrow();
+    });
+
+    test("Pilot paid-submit policy cannot be bypassed through executeAuthorized", async () => {
+        const fixture = await createFixture();
+        const authority = new LocalProductionGenerationAuthority();
+        const backing = new FilmOSMockGenerationProvider();
+        const provider = {
+            engineId: backing.engineId,
+            supportsHardLockedReferences: backing.supportsHardLockedReferences,
+            doctor: backing.doctor.bind(backing),
+            getConnectionScope: backing.getConnectionScope.bind(backing),
+            refreshCatalog: backing.refreshCatalog.bind(backing),
+            preview: async () => ({ costUnit: "mock", estimatedCostMicrounits: "1", estimateAvailable: true, externalWritePerformed: false as const }),
+            submit: backing.submit.bind(backing),
+            getStatus: backing.getStatus.bind(backing),
+            reconcile: backing.reconcile.bind(backing),
+            downloadOutputs: backing.downloadOutputs.bind(backing),
+        };
+        let id = 0;
+        const composition = new ProductionGenerationService(
+            authority,
+            new Map([[provider.engineId, provider]]),
+            (prefix) => `${prefix}-pilot-${++id}`,
+            () => at,
+            productionReleasePolicyFromEnvironment("false"),
+        );
+        const preview = await composition.preview({ ...fixture.previewInput, generationAttemptId: "attempt-pilot-paid-bypass" });
+        const broker = await canonicalGenerationBrokerAuthorization("composition-pilot-paid-bypass");
+        await expect(composition.executeAuthorized({ proposalId: preview.proposal.proposalId, ...broker, ...fixture.approvalInput }))
+            .rejects.toThrow("PILOT_EXTERNAL_PAID_SUBMIT_DISABLED");
+        expect(backing.submitCount).toBe(0);
+        expect(authority.providerReceiptCount()).toBe(0);
+    });
+
     test("reject, approve, exactly-once, stale and restart recovery stay on one production chain", async () => {
         const fixture = await createFixture();
         const authority = new LocalProductionGenerationAuthority();

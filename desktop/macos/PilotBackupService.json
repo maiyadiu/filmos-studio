@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "service_id": "filmos-pilot-daily-backup",
+  "schedule": {
+    "kind": "daily",
+    "minimum_interval_hours": 24
+  },
+  "command": "desktop/macos/scripts/backup-pilot-data",
+  "restore_validation_command": "desktop/macos/scripts/restore-pilot-backup",
+  "source": "$HOME/Library/Application Support/FilmOS Studio Pilot/WorkbenchData",
+  "destination": "$HOME/Library/Application Support/FilmOS Studio Pilot/AutoBackups",
+  "database_snapshot": "sqlite-online-backup",
+  "source_mutation": false,
+  "external_network_requests": 0,
+  "external_paid_operations": 0,
+  "credentials_included": false,
+  "failure_policy": "fail-closed-and-preserve-source"
+}

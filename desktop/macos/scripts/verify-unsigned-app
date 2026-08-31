@@ -18,11 +18,13 @@ chatgpt_mcp="$bundle/Contents/Helpers/FilmOSChatGPTMCP"
 chatgpt_grant="$bundle/Contents/Helpers/FilmOSChatGPTGrant"
 local_runtime="$bundle/Contents/Helpers/FilmOSLocalRuntime"
 canvas_agent_mcp="$bundle/Contents/Helpers/FilmOSCanvasAgentMCP"
+review_bus="$bundle/Contents/Helpers/FilmOSReviewBus"
 tunnel_client="$bundle/Contents/Helpers/tunnel-client"
 cloudflared="$bundle/Contents/Helpers/cloudflared"
 icon="$bundle/Contents/Resources/FilmOSStudio.icns"
 runtime="$bundle/Contents/Resources/InternalRuntime.json"
 source_identity="$bundle/Contents/Resources/SourceIdentity.json"
+constitution="$bundle/Contents/Resources/FILMOS_CONSTITUTION.json"
 web_root="$bundle/Contents/Resources/Web"
 /usr/bin/plutil -lint "$plist" >/dev/null
 
@@ -34,17 +36,27 @@ runtime_lacks() {
     ! /usr/bin/plutil -extract "$1" raw -o - "$runtime" >/dev/null 2>&1
 }
 
-test "$(runtime_value schema_version)" = "2"
+test "$(runtime_value schema_version)" = "3"
 expected_support_name=${FILMOS_EXPECTED_APPLICATION_SUPPORT_DIRECTORY_NAME:-FilmOS Studio}
 test "$(runtime_value application_support_directory_name)" = "$expected_support_name"
 test "$(runtime_value backend_data_directory_name)" = "WorkbenchData"
+case "$(runtime_value release_channel)" in development|candidate|pilot|stable) ;; *) exit 1 ;; esac
+test -n "$(runtime_value build_id)"
+printf '%s\n' "$(runtime_value source_commit)" | grep -Eq '^[0-9a-f]{40,64}$'
+case "$(runtime_value review_bus_health_url)" in http://127.0.0.1:*/healthz) ;; *) exit 1 ;; esac
+case "$(runtime_value review_bus_issue_url)" in http://127.0.0.1:*/v1/issues) ;; *) exit 1 ;; esac
+case "$(runtime_value external_paid_submit_enabled)" in true|false) ;; *) exit 1 ;; esac
+if [ "$(runtime_value release_channel)" = "pilot" ]; then test "$(runtime_value external_paid_submit_enabled)" = "false"; fi
 case "$(runtime_value agent_runtime_profile)" in integration|filmos-candidate) ;; *) exit 1 ;; esac
 test "$(runtime_value agent_feature_flags_hash)" != ""
 runtime_lacks workspace_root
 runtime_lacks bun_executable
 runtime_lacks backend_data_directory
 
-test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist")" = "com.filmos.studio.localbeta"
+expected_bundle_identifier=${FILMOS_EXPECTED_BUNDLE_IDENTIFIER:-com.filmos.studio.localbeta}
+expected_display_name=${FILMOS_EXPECTED_APP_DISPLAY_NAME:-FilmOS Studio}
+test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist")" = "$expected_bundle_identifier"
+test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$plist")" = "$expected_display_name"
 test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$plist")" = "FilmOSStudioDesktop"
 test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconFile' "$plist")" = "FilmOSStudio"
 test "$(/usr/libexec/PlistBuddy -c 'Print :NSAppTransportSecurity:NSAllowsLocalNetworking' "$plist")" = "true"
@@ -61,11 +73,13 @@ test -x "$chatgpt_mcp"
 test -x "$chatgpt_grant"
 test -x "$local_runtime"
 test -x "$canvas_agent_mcp"
+test -x "$review_bus"
 test -x "$tunnel_client"
 test -x "$cloudflared"
 test -f "$icon"
 test -f "$runtime"
 test -f "$source_identity"
+test -f "$constitution"
 test -f "$web_root/index.html"
 # SourceIdentity is JSON. `plutil -lint` on macOS rejects JSON even though
 # `plutil -extract` can parse it, so the field extractions below are the parser
@@ -77,6 +91,9 @@ current_source_fingerprint=$("$script_dir/source-fingerprint")
 test "$embedded_source_fingerprint" = "$current_source_fingerprint"
 test "$(/usr/bin/plutil -extract git_commit_sha raw -o - "$source_identity")" = "$(git -C "$workspace_root" rev-parse HEAD)"
 test "$(/usr/bin/plutil -extract git_tree_sha raw -o - "$source_identity")" = "$(git -C "$workspace_root" rev-parse 'HEAD^{tree}')"
+test "$(/usr/bin/plutil -extract build_id raw -o - "$source_identity")" = "$(runtime_value build_id)"
+test "$(/usr/bin/plutil -extract release_channel raw -o - "$source_identity")" = "$(runtime_value release_channel)"
+test "$(/usr/bin/plutil -extract external_paid_submit_enabled raw -o - "$source_identity")" = "$(runtime_value external_paid_submit_enabled)"
 file "$binary" | grep -q 'Mach-O'
 file "$backend" | grep -q 'Mach-O'
 file "$web_server" | grep -q 'Mach-O'
@@ -85,6 +102,7 @@ file "$chatgpt_mcp" | grep -q 'Mach-O'
 file "$chatgpt_grant" | grep -q 'Mach-O'
 file "$local_runtime" | grep -q 'Mach-O'
 file "$canvas_agent_mcp" | grep -q 'Mach-O'
+file "$review_bus" | grep -q 'Mach-O'
 file "$tunnel_client" | grep -q 'Mach-O'
 file "$cloudflared" | grep -q 'Mach-O'
 

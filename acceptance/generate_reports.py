@@ -29,13 +29,22 @@ REPORT_SPECS = {
             "chatgpt-host-restart-recovery",
             "chatgpt-handoff-state",
             "mcp-actual-tool-count",
+            "architecture-drift-gate",
+            "review-bus-governance",
+            "review-cli-watcher",
+            "review-bridge-contract",
+            "pilot-project-copy",
+            "use-driven-dual-expert",
             "performance-local",
             "remote-acceptance-contract",
         ),
     ),
     "MIGRATION_REPORT.md": (
         "Migration Report",
-        ("rc-recovery", "upstream-compatibility", "desktop-backup-restore"),
+        (
+            "rc-recovery", "upstream-compatibility", "desktop-backup-restore",
+            "generation-routing-contracts", "pilot-project-copy", "use-driven-dual-expert",
+        ),
     ),
     "UPSTREAM_COMPATIBILITY_REPORT.md": (
         "Upstream Compatibility Report",
@@ -60,6 +69,12 @@ REPORT_SPECS = {
             "chatgpt-host-restart-recovery",
             "chatgpt-handoff-state",
             "mcp-actual-tool-count",
+            "architecture-drift-gate",
+            "review-bus-governance",
+            "review-cli-watcher",
+            "review-bridge-contract",
+            "pilot-project-copy",
+            "use-driven-dual-expert",
             "acceptance-privacy",
         ),
     ),
@@ -85,6 +100,12 @@ REPORT_SPECS = {
             "chatgpt-handoff-state",
             "mcp-actual-tool-count",
             "no-openai-model-api-billing",
+            "architecture-drift-gate",
+            "review-bus-governance",
+            "review-cli-watcher",
+            "review-bridge-contract",
+            "pilot-project-copy",
+            "use-driven-dual-expert",
         ),
     ),
 }
@@ -107,6 +128,11 @@ RAW_SOURCES = (
     "implementation/agent-native-multibrain/evidence/UI-01.json",
     "output/playwright/agent-native-multibrain.png",
     "output/playwright/chatgpt-host-boundary.png",
+    "governance/FILMOS_CONSTITUTION.json",
+    "implementation/use-driven-dual-expert-v1-1/PILOT_BASE_0_MANIFEST.json",
+    "implementation/use-driven-dual-expert-v1-1/CURRENT_CAPABILITY_MATRIX.json",
+    "implementation/use-driven-dual-expert-v1-1/CURRENT_KNOWN_GAPS.json",
+    "extensions/filmos-review-bridge/manifest.json",
 )
 
 
@@ -235,6 +261,10 @@ def report_notes(
             "receipt and its append-only audit trace as raw sources.\n"
             "- No paid Provider or model API generation was performed for this P0 correction; "
             "the Local-first chain uses `LOCAL_MANUAL_CANDIDATE_IMPORT`.\n"
+            "- Dreamina执行端口已达到 `READY_FOR_USER_AUTHORIZATION`；本轮只校验动态CLI身份、"
+            "Catalog和零提交硬门禁，未执行付费生成。\n"
+            "- Review Bus与Chrome Bridge均为本机开发治理；ChatGPT保持只读MCP，"
+            "Decision写回仍需用户在Chrome明确点击一次。\n"
             "- ChatGPT External Live Gate remains `BLOCKED_EXTERNAL_ACCOUNT`; local MCP, Widget "
             "and handoff checks do not replace independent account-side acknowledgement.\n"
             "- `NO-OPENAI-MODEL-API-001` proves the checked-in runtime has no model API "
@@ -258,7 +288,10 @@ def report_notes(
             "frozen Yingce Stable and Candidate objects and verifies both trees before the drill. "
             "No real user database is opened by this report. Upstream remains "
             "`C_MIGRATION_REQUIRED` until a separately authorized real migration and rollback "
-            "receipt exists."
+            "receipt exists. ProjectGenerationPolicy V1 is deterministically mapped to V2 "
+            "one-element connection, route, budget, binding and lock collections; the V1 reader "
+            "remains available for rollback. Pilot uses a project-scoped copy and never mutates "
+            "the only formal database."
         ),
         "UPSTREAM_COMPATIBILITY_REPORT.md": (
             "Pinned upstream compatibility and rollback tests bootstrap the exact frozen "
@@ -271,7 +304,9 @@ def report_notes(
             "The covered checks enforce loopback-only desktop auth, human-only approval, "
             "credential exclusion from backup/evidence, signed project scopes, replay-safe "
             "controlled writes, generated tool-risk schemas, ChatGPT preview boundaries and a "
-            "redacted evidence package. Browser sessions bind create/cancel/close to one Profile; "
+            "redacted evidence package. Review Bus binds loopback-only tokens, SQLite WAL events, "
+            "candidate commit/tree/artifact/nonce and replay-safe Chrome challenges; the extension "
+            "does not read Cookie or ChatGPT Token. Browser sessions bind create/cancel/close to one Profile; "
             "connection probes are non-networking and fail-soft. Runtime Key is Keychain-only, Tunnel and ChatGPT "
             "reachability remain separate states, and model API endpoint use is blocked. "
             "Passing local checks does not prove public deployment "
@@ -288,7 +323,9 @@ def report_notes(
             "Project, desktop backup/restore, production multi-brain composition, Candidate App "
             "activation, a real Codex Subscription reject/approve/restart drill and real local "
             "ChatGPT handoff. The final lifecycle gates add process-level Host restart, scoped "
-            "Grant rotation, formal waiting_host receipts and Handoff expiry recovery. Local "
+            "Grant rotation, formal waiting_host receipts and Handoff expiry recovery. V1.1 also "
+            "runs the single Issue/Evidence path, blind dual assessments, Consensus, three lanes, "
+            "Chrome one-click writeback, Pilot copy/backup, Policy V2 and Dreamina zero-submit readiness. Local "
             "Provider import is never relabeled as real CLI generation."
         ),
     }

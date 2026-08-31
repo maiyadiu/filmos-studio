@@ -1,5 +1,5 @@
 {
-  "schema_version": "1.2.0",
+  "schema_version": "1.3.0",
   "release_target": "filmos-v1.0.0-rc1",
   "canonical_remote": "maiyadiu/filmos-studio",
   "acceptance_project": "FilmOS_Acceptance_Project",
@@ -41,6 +41,19 @@
     "chatgpt_handoff_state",
     "desktop_managed_secure_mcp_tunnel",
     "no_openai_model_api_billing",
+    "pilot_base_fixed_commit",
+    "pilot_project_copy_backup_restore",
+    "filmos_constitution_hash_and_architecture_drift",
+    "single_issue_entry_and_usage_evidence_pack",
+    "review_bus_sqlite_wal_and_candidate_binding",
+    "codex_chatgpt_blind_dual_assessment",
+    "consensus_delta_record_and_dual_signoff",
+    "fast_core_architecture_evolution_lanes",
+    "chatgpt_read_only_review_mcp",
+    "chrome_user_gesture_one_click_writeback",
+    "review_coverage_and_late_finding_taxonomy",
+    "project_generation_policy_v2",
+    "dreamina_real_provider_ready_for_user_authorization",
     "real_cli_generation",
     "upstream_compatibility",
     "migration",
@@ -77,6 +90,9 @@
     "UNRECORDED_EXTERNAL_CALL",
     "UNPUSHED_ACCEPTANCE_EVIDENCE",
     "MUTATED_RC_TAG",
+    "SECOND_DATA_CANDIDATE_OR_BROKER_AUTHORITY",
+    "CORE_IMPLEMENTATION_WITHOUT_CONSENSUS",
+    "PAID_SUBMIT_WITHOUT_USER_AUTHORIZATION",
     "REMOTE_OTHER_THAN_MAIYADIU_FILMOS_STUDIO"
   ]
 }

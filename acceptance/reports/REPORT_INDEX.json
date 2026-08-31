@@ -1,15 +1,15 @@
 {
-  "evidence_status": "CLEAN_LOCAL_EVIDENCE_NOT_FROZEN",
+  "evidence_status": "DEVELOPMENT_EVIDENCE_DIRTY",
   "raw_sources": [
     {
-      "bytes": 27640,
+      "bytes": 28308,
       "path": "CHANGELOG.md",
-      "sha256": "8adf3b51061b331459ff84efa35bb126c9c8c80b9c8e98eb3e3ce468e442e056"
+      "sha256": "f0542f7610b06bd3b28db0488ac366f424acef76f659b189daf3e32e53e138dd"
     },
     {
       "bytes": 3357,
       "path": "acceptance/MANIFEST.json",
-      "sha256": "374b7c8e29fe87c1cd0f67bfd685ac52197e861e208757f93cca85e421e6a2a3"
+      "sha256": "a99b3c2182612e62436a6894a4abf69e480791e4dc10567f457f00be68650f90"
     },
     {
       "bytes": 2187,
@@ -90,13 +90,38 @@
       "bytes": 116663,
       "path": "output/playwright/chatgpt-host-boundary.png",
       "sha256": "ecaa6419e92c8245b06d00364c707aa88c9d29b973f8bbc9a0aa7726a2648073"
+    },
+    {
+      "bytes": 1954,
+      "path": "governance/FILMOS_CONSTITUTION.json",
+      "sha256": "a8dd0d55d8ff394a0271b5db3f83124c04efaf08401da0bc8c9b060fc732c4d9"
+    },
+    {
+      "bytes": 2104,
+      "path": "implementation/use-driven-dual-expert-v1-1/PILOT_BASE_0_MANIFEST.json",
+      "sha256": "851005d8b5204d21dc01820918feb5dc17453cb34bc5a005a6871956f2931199"
+    },
+    {
+      "bytes": 2586,
+      "path": "implementation/use-driven-dual-expert-v1-1/CURRENT_CAPABILITY_MATRIX.json",
+      "sha256": "e52bf4e72f60231c58e089403592e072c34394ec22b3ee8a0ad72efa9981f9a9"
+    },
+    {
+      "bytes": 2283,
+      "path": "implementation/use-driven-dual-expert-v1-1/CURRENT_KNOWN_GAPS.json",
+      "sha256": "b893afada77cbbf02224ce8c4504877f2f374e06f6b86aa983ae35c71897eea8"
+    },
+    {
+      "bytes": 596,
+      "path": "extensions/filmos-review-bridge/manifest.json",
+      "sha256": "39a584b68aaa4bf8a16284ec9973248bff298b32bc9d1b8d97531965b00527ad"
     }
   ],
-  "receipt": "acceptance/evidence/runs/20260830T165124Z-a45effee4fe2-rc-local/receipt.json",
-  "receipt_sha256": "5981dc29ba5859699790a97890d1de40fdeb58572b44b239a0b5585789f15cb1",
+  "receipt": ".local/acceptance-artifacts/runs/20260831T064657Z-6ea93bfa0838-rc-local/receipt.json",
+  "receipt_sha256": "99ca3581eb9e142ad23bef5a964e903688ebb18c5dd95e5f70f0bcbdfa6fd066",
   "reports": [
     {
-      "bytes": 5120,
+      "bytes": 6621,
       "check_ids": [
         "desktop-release-build",
         "desktop-chatgpt-connection",
@@ -110,33 +135,42 @@
         "chatgpt-host-restart-recovery",
         "chatgpt-handoff-state",
         "mcp-actual-tool-count",
+        "architecture-drift-gate",
+        "review-bus-governance",
+        "review-cli-watcher",
+        "review-bridge-contract",
+        "pilot-project-copy",
+        "use-driven-dual-expert",
         "performance-local",
         "remote-acceptance-contract"
       ],
       "path": "acceptance/reports/KNOWN_LIMITATIONS.md",
-      "sha256": "dd18f0dafac607691c8a727f280377b67252b5e76cf066863037393bf6f6ced9"
+      "sha256": "23b294a875ba99a96500ccea5561672924b13ddad7a8a148895e72562980a00e"
     },
     {
-      "bytes": 1630,
+      "bytes": 2502,
       "check_ids": [
         "rc-recovery",
         "upstream-compatibility",
-        "desktop-backup-restore"
+        "desktop-backup-restore",
+        "generation-routing-contracts",
+        "pilot-project-copy",
+        "use-driven-dual-expert"
       ],
       "path": "acceptance/reports/MIGRATION_REPORT.md",
-      "sha256": "a2dd2e393ea886024bbf4b347fc78ec69ea2bad275bf8da90544705719ebb2c0"
+      "sha256": "2d52e010c5c34fa851714e54dffe1f0164e695f9617461029c41135bda5793b1"
     },
     {
-      "bytes": 1386,
+      "bytes": 1389,
       "check_ids": [
         "upstream-compatibility",
         "rc-recovery"
       ],
       "path": "acceptance/reports/UPSTREAM_COMPATIBILITY_REPORT.md",
-      "sha256": "a357ff5f7783607e6dfe5fc7b69b8955648b0de02f89f4286610fe1443caf1b4"
+      "sha256": "c42c5572c200029b393e7dfc27d4caa9aaeda51af312461c971569dd395271f7"
     },
     {
-      "bytes": 4741,
+      "bytes": 6135,
       "check_ids": [
         "desktop-local-auth",
         "desktop-backup-restore",
@@ -154,22 +188,28 @@
         "chatgpt-host-restart-recovery",
         "chatgpt-handoff-state",
         "mcp-actual-tool-count",
+        "architecture-drift-gate",
+        "review-bus-governance",
+        "review-cli-watcher",
+        "review-bridge-contract",
+        "pilot-project-copy",
+        "use-driven-dual-expert",
         "acceptance-privacy"
       ],
       "path": "acceptance/reports/SECURITY_REPORT.md",
-      "sha256": "2fbc005db6a81720bbd825a02c98ef1fe6ddcc21b87c026c880b584d45871f58"
+      "sha256": "c1b6ea62af6d34a7462f5d688f29f2ec55e9b7e0c9cf13ddaa09ed907c6d3932"
     },
     {
-      "bytes": 1523,
+      "bytes": 1525,
       "check_ids": [
         "web-production-build",
         "performance-local"
       ],
       "path": "acceptance/reports/PERFORMANCE_REPORT.md",
-      "sha256": "5e38f1a8a1724e1600db40528d16d4fd4fd97b05e7d1a7ea1797038b33f32db3"
+      "sha256": "8d398b8ef2f6ac57b750f0257ee6233741d9e7b4a8556b882f823e436778e9da"
     },
     {
-      "bytes": 4247,
+      "bytes": 5646,
       "check_ids": [
         "desktop-backup-restore",
         "golden-abc-real-http",
@@ -185,13 +225,19 @@
         "chatgpt-host-restart-recovery",
         "chatgpt-handoff-state",
         "mcp-actual-tool-count",
-        "no-openai-model-api-billing"
+        "no-openai-model-api-billing",
+        "architecture-drift-gate",
+        "review-bus-governance",
+        "review-cli-watcher",
+        "review-bridge-contract",
+        "pilot-project-copy",
+        "use-driven-dual-expert"
       ],
       "path": "acceptance/reports/GOLDEN_TEST_REPORT.md",
-      "sha256": "52d8f86cad9bbb95c3764a9ea6f0158881e0b26cac2afa23308bb511f661977e"
+      "sha256": "b429ba6b3da965a422d818b706c86e3e60c7e7a4541dc0559453ebcf9557f2b3"
     }
   ],
   "schema_version": "1.0.0",
-  "source_snapshot_sha256": "4c45dfa7bf9e23947df9dd5136b0dcc038ec43bdea07e83e4720dc4c1f26b30b",
-  "started_from_commit": "a45effee4fe282db80f444cb18500533e270178f"
+  "source_snapshot_sha256": "4cb0029a8826ddbb70698198808de5f094dea9adce3deb2001a35d72f16849e6",
+  "started_from_commit": "6ea93bfa08381264a1379fe938ade3a7513c7bba"
 }

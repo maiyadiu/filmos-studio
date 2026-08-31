@@ -7,8 +7,11 @@ workspace_root=$(CDPATH= cd -- "$package_dir/../.." && pwd)
 destination=${1:-"$package_dir/.local/FilmOS Studio.app"}
 web_port=${FILMOS_DESKTOP_WEB_PORT:-43100}
 backend_port=${FILMOS_DESKTOP_BACKEND_PORT:-43101}
+review_bus_port=${FILMOS_DESKTOP_REVIEW_BUS_PORT:-17920}
 application_support_directory_name=${FILMOS_DESKTOP_APPLICATION_SUPPORT_DIRECTORY_NAME:-FilmOS Studio}
 agent_runtime_profile=${FILMOS_DESKTOP_RUNTIME_PROFILE:-integration}
+app_display_name=${FILMOS_DESKTOP_APP_DISPLAY_NAME:-FilmOS Studio}
+bundle_identifier=${FILMOS_DESKTOP_BUNDLE_IDENTIFIER:-com.filmos.studio.localbeta}
 icon_source="$package_dir/App/FilmOS图标.png"
 source_fingerprint_script="$script_dir/source-fingerprint"
 bun_executable=$(command -v bun || true)
@@ -28,13 +31,13 @@ case "$destination" in
         ;;
 esac
 
-case "$web_port:$backend_port" in
+case "$web_port:$backend_port:$review_bus_port" in
     *[!0-9:]*|:|*:|*::* )
         echo "desktop ports must be explicit integers" >&2
         exit 2
         ;;
 esac
-if [ "$web_port" -lt 1024 ] || [ "$web_port" -gt 65535 ] || [ "$backend_port" -lt 1024 ] || [ "$backend_port" -gt 65535 ] || [ "$web_port" -eq "$backend_port" ]; then
+if [ "$web_port" -lt 1024 ] || [ "$web_port" -gt 65535 ] || [ "$backend_port" -lt 1024 ] || [ "$backend_port" -gt 65535 ] || [ "$review_bus_port" -lt 1024 ] || [ "$review_bus_port" -gt 65535 ] || [ "$web_port" -eq "$backend_port" ] || [ "$web_port" -eq "$review_bus_port" ] || [ "$backend_port" -eq "$review_bus_port" ]; then
     echo "desktop ports must be distinct user ports" >&2
     exit 2
 fi
@@ -44,6 +47,8 @@ case "$application_support_directory_name" in
         exit 2
         ;;
 esac
+case "$app_display_name" in ""|*/*|*:*) echo "desktop display name is invalid" >&2; exit 2 ;; esac
+case "$bundle_identifier" in ""|*[!A-Za-z0-9.-]*) echo "desktop bundle identifier is invalid" >&2; exit 2 ;; esac
 
 if [ -e "$destination" ]; then
     echo "refusing to overwrite existing bundle: $destination" >&2
@@ -76,6 +81,26 @@ if [ ! -x "$source_fingerprint_script" ]; then
 fi
 
 source_identity_before=$("$source_fingerprint_script" --json)
+source_commit=$(printf '%s' "$source_identity_before" | /usr/bin/plutil -extract git_commit_sha raw -o - -)
+source_tree=$(printf '%s' "$source_identity_before" | /usr/bin/plutil -extract git_tree_sha raw -o - -)
+release_channel=${FILMOS_DESKTOP_RELEASE_CHANNEL:-}
+if [ -z "$release_channel" ]; then
+    if [ "$agent_runtime_profile" = "filmos-candidate" ]; then release_channel=candidate; else release_channel=development; fi
+fi
+case "$release_channel" in development|candidate|pilot|stable) ;; *) echo "invalid FilmOS release channel" >&2; exit 2 ;; esac
+external_paid_submit_enabled=${FILMOS_DESKTOP_EXTERNAL_PAID_SUBMIT_ENABLED:-false}
+case "$external_paid_submit_enabled" in true|false) ;; *) echo "paid submit switch must be true or false" >&2; exit 2 ;; esac
+if [ "$release_channel" = "pilot" ] && [ "$external_paid_submit_enabled" != "false" ]; then
+    echo "Pilot builds must fail closed for external paid submit" >&2
+    exit 2
+fi
+build_id=${FILMOS_DESKTOP_BUILD_ID:-"$release_channel-${source_commit%${source_commit#????????}}-${source_tree%${source_tree#????????}}"}
+case "$build_id" in ""|*[!A-Za-z0-9._-]*) echo "invalid FilmOS build ID" >&2; exit 2 ;; esac
+export VITE_FILMOS_BUILD_COMMIT="$source_commit"
+export VITE_FILMOS_BUILD_TREE="$source_tree"
+export VITE_FILMOS_BUILD_ID="$build_id"
+export VITE_FILMOS_RELEASE_CHANNEL="$release_channel"
+export VITE_FILMOS_EXTERNAL_PAID_SUBMIT_ENABLED="$external_paid_submit_enabled"
 
 swift build --package-path "$package_dir" -c release
 binary_dir=$(swift build --package-path "$package_dir" -c release --show-bin-path)
@@ -94,9 +119,9 @@ profile_environment="$staging/agent-runtime-profile.env"
 "$python_executable" "$workspace_root/scripts/agent_runtime_profile.py" shell --profile "$agent_runtime_profile" >"$profile_environment"
 . "$profile_environment"
 bun_artifact_manifest="$staging/bun-build-artifacts.before"
-find "$workspace_root/services/filmos-chatgpt-app" "$workspace_root/canvas-agent" -maxdepth 1 -type f -name '.*.bun-build' -print | LC_ALL=C sort >"$bun_artifact_manifest"
+find "$workspace_root" "$workspace_root/services/filmos-chatgpt-app" "$workspace_root/services/filmos-review-bus" "$workspace_root/canvas-agent" -maxdepth 1 -type f -name '.*.bun-build' -print | LC_ALL=C sort >"$bun_artifact_manifest"
 cleanup_bun_build_artifacts() {
-    find "$workspace_root/services/filmos-chatgpt-app" "$workspace_root/canvas-agent" -maxdepth 1 -type f -name '.*.bun-build' -print | while IFS= read -r artifact; do
+    find "$workspace_root" "$workspace_root/services/filmos-chatgpt-app" "$workspace_root/services/filmos-review-bus" "$workspace_root/canvas-agent" -maxdepth 1 -type f -name '.*.bun-build' -print | while IFS= read -r artifact; do
         if ! grep -F -x -q "$artifact" "$bun_artifact_manifest"; then
             rm -f -- "$artifact"
         fi
@@ -126,6 +151,12 @@ mkdir -p "$bundle/Contents/MacOS" "$bundle/Contents/Helpers" "$bundle/Contents/R
     npm run build:widget
     "$bun_executable" build --compile src/server.ts --outfile "$staging/FilmOSChatGPTMCP"
     "$bun_executable" build --compile src/grant-cli.ts --outfile "$staging/FilmOSChatGPTGrant"
+)
+
+(
+    cd "$workspace_root/services/filmos-review-bus"
+    npm run build
+    "$bun_executable" build --compile src/server.mjs --outfile "$staging/FilmOSReviewBus"
 )
 
 (
@@ -191,6 +222,25 @@ iconutil -c icns "$iconset" -o "$staging/FilmOSStudio.icns"
     --backend-health-url "http://127.0.0.1:$backend_port/api/health" \
     --application-support-directory-name "$application_support_directory_name" \
     --backend-data-directory-name "WorkbenchData"
+FILMOS_RUNTIME_RELEASE_CHANNEL="$release_channel" FILMOS_RUNTIME_BUILD_ID="$build_id" FILMOS_RUNTIME_PAID_SUBMIT="$external_paid_submit_enabled" FILMOS_RUNTIME_SOURCE_COMMIT="$source_commit" FILMOS_RUNTIME_REVIEW_BUS_PORT="$review_bus_port" \
+    "$python_executable" - "$staging/InternalRuntime.json" <<'PY'
+import json
+import os
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+payload = json.loads(path.read_text(encoding="utf-8"))
+payload["schema_version"] = 3
+payload["release_channel"] = os.environ["FILMOS_RUNTIME_RELEASE_CHANNEL"]
+payload["build_id"] = os.environ["FILMOS_RUNTIME_BUILD_ID"]
+payload["external_paid_submit_enabled"] = os.environ["FILMOS_RUNTIME_PAID_SUBMIT"] == "true"
+payload["source_commit"] = os.environ["FILMOS_RUNTIME_SOURCE_COMMIT"]
+port = os.environ["FILMOS_RUNTIME_REVIEW_BUS_PORT"]
+payload["review_bus_health_url"] = f"http://127.0.0.1:{port}/healthz"
+payload["review_bus_issue_url"] = f"http://127.0.0.1:{port}/v1/issues"
+path.write_text(json.dumps(payload, ensure_ascii=False, sort_keys=True), encoding="utf-8")
+PY
 
 install -m 0755 "$binary" "$bundle/Contents/MacOS/FilmOSStudioDesktop"
 install -m 0755 "$staging/FilmOSBackend" "$bundle/Contents/Helpers/FilmOSBackend"
@@ -200,17 +250,39 @@ install -m 0755 "$staging/FilmOSChatGPTMCP" "$bundle/Contents/Helpers/FilmOSChat
 install -m 0755 "$staging/FilmOSChatGPTGrant" "$bundle/Contents/Helpers/FilmOSChatGPTGrant"
 install -m 0755 "$staging/FilmOSLocalRuntime" "$bundle/Contents/Helpers/FilmOSLocalRuntime"
 install -m 0755 "$staging/FilmOSCanvasAgentMCP" "$bundle/Contents/Helpers/FilmOSCanvasAgentMCP"
+install -m 0755 "$staging/FilmOSReviewBus" "$bundle/Contents/Helpers/FilmOSReviewBus"
 install -m 0755 "$staging/tunnel-client-runtime/tunnel-client" "$bundle/Contents/Helpers/tunnel-client"
 install -m 0755 "$staging/tunnel-client-runtime/cloudflared" "$bundle/Contents/Helpers/cloudflared"
 install -m 0644 "$package_dir/App/Info.plist" "$bundle/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName $app_display_name" "$bundle/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleName $app_display_name" "$bundle/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $bundle_identifier" "$bundle/Contents/Info.plist"
 install -m 0644 "$staging/FilmOSStudio.icns" "$bundle/Contents/Resources/FilmOSStudio.icns"
 install -m 0644 "$staging/InternalRuntime.json" "$bundle/Contents/Resources/InternalRuntime.json"
-printf '%s\n' "$source_identity_before" >"$bundle/Contents/Resources/SourceIdentity.json"
+install -m 0644 "$workspace_root/governance/FILMOS_CONSTITUTION.json" "$bundle/Contents/Resources/FILMOS_CONSTITUTION.json"
+FILMOS_SOURCE_IDENTITY="$source_identity_before" FILMOS_BUILD_ID="$build_id" FILMOS_RELEASE_CHANNEL="$release_channel" FILMOS_PAID_SUBMIT="$external_paid_submit_enabled" \
+    "$python_executable" - "$bundle/Contents/Resources/SourceIdentity.json" <<'PY'
+import json
+import os
+import sys
+from pathlib import Path
+
+payload = json.loads(os.environ["FILMOS_SOURCE_IDENTITY"])
+payload["build_id"] = os.environ["FILMOS_BUILD_ID"]
+payload["release_channel"] = os.environ["FILMOS_RELEASE_CHANNEL"]
+payload["external_paid_submit_enabled"] = os.environ["FILMOS_PAID_SUBMIT"] == "true"
+Path(sys.argv[1]).write_text(json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
+PY
 /usr/bin/ditto "$workspace_root/web/dist" "$bundle/Contents/Resources/Web"
 /usr/bin/plutil -lint "$bundle/Contents/Info.plist" >/dev/null
 runtime="$bundle/Contents/Resources/InternalRuntime.json"
-test "$(/usr/bin/plutil -extract schema_version raw -o - "$runtime")" = "2"
+test "$(/usr/bin/plutil -extract schema_version raw -o - "$runtime")" = "3"
 test "$(/usr/bin/plutil -extract application_support_directory_name raw -o - "$runtime")" = "$application_support_directory_name"
+test "$(/usr/bin/plutil -extract release_channel raw -o - "$runtime")" = "$release_channel"
+test "$(/usr/bin/plutil -extract build_id raw -o - "$runtime")" = "$build_id"
+test "$(/usr/bin/plutil -extract external_paid_submit_enabled raw -o - "$runtime")" = "$external_paid_submit_enabled"
+test "$(/usr/bin/plutil -extract source_commit raw -o - "$runtime")" = "$source_commit"
+test "$(/usr/bin/plutil -extract review_bus_health_url raw -o - "$runtime")" = "http://127.0.0.1:$review_bus_port/healthz"
 test -n "$(/usr/bin/plutil -extract start_url raw -o - "$runtime")"
 source_identity_after=$("$source_fingerprint_script" --json)
 if [ "$source_identity_before" != "$source_identity_after" ]; then

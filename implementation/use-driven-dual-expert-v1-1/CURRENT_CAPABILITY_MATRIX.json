@@ -1,0 +1,55 @@
+{
+  "schema_version": "filmos.current-capability-matrix.v1",
+  "baseline_commit": "6ea93bfa08381264a1379fe938ade3a7513c7bba",
+  "baseline_classification": "PILOT_BASE_0_governance_freeze",
+  "capabilities": [
+    {
+      "id": "single-installed-app",
+      "baseline_status": "verified_source_identity",
+      "candidate_status": "implemented_pending_final_install",
+      "evidence": ["$HOME/Applications/FilmOS Studio.app", "desktop/macos/scripts/install-pilot-app"]
+    },
+    {
+      "id": "project-scoped-pilot-copy",
+      "baseline_status": "not_embedded",
+      "candidate_status": "implemented_and_script_tested",
+      "evidence": ["desktop/macos/scripts/prepare-pilot-project-copy", "desktop/macos/Tests/pilot-data-scripts.test.sh"]
+    },
+    {
+      "id": "daily-local-backup",
+      "baseline_status": "available_manual_product_backup",
+      "candidate_status": "pilot_scheduler_contract_implemented",
+      "evidence": ["desktop/macos/scripts/backup-pilot-data", "desktop/macos/PilotBackupService.json"]
+    },
+    {
+      "id": "single-issue-entry",
+      "baseline_status": "missing",
+      "candidate_status": "implemented_pending_ui_golden",
+      "evidence": ["web/src/components/governance/ReportIssuePortal.tsx", "web/src/film/governance/report-issue.ts"]
+    },
+    {
+      "id": "local-review-bus",
+      "baseline_status": "missing",
+      "candidate_status": "service_and_desktop_wiring_implemented_pending_packaged_app_acceptance",
+      "evidence": ["services/filmos-review-bus/src/server.mjs", "desktop/macos/Sources/FilmOSStudioDesktop/main.swift"]
+    },
+    {
+      "id": "build-identity-watermark",
+      "baseline_status": "source_identity_only",
+      "candidate_status": "commit_tree_build_channel_watermark_implemented",
+      "evidence": ["web/src/film/governance/build-identity.ts", "desktop/macos/scripts/build-unsigned-app"]
+    },
+    {
+      "id": "paid-submit-fail-closed",
+      "baseline_status": "policy_only_not_technically_proven",
+      "candidate_status": "implemented_and_dual_layer_tested",
+      "evidence": ["desktop/macos/scripts/build-unsigned-app", "web/src/film/generation-routing/production-composition.ts", "canvas-agent/src/modules/dreamina-http.ts"]
+    },
+    {
+      "id": "chatgpt-review-read-tools",
+      "baseline_status": "film_read_tools_only",
+      "candidate_status": "review_bus_environment_and_exact_12_read_tools_tested_pending_packaged_app_acceptance",
+      "evidence": ["desktop/macos/Sources/FilmOSDesktopCore/ReviewBusRuntimeContract.swift", "services/filmos-chatgpt-app/src/review-mcp.ts"]
+    }
+  ]
+}

@@ -10,6 +10,8 @@ import type { FilmOSReadDataSource } from "./data-source.js";
 import type { ProjectGrant } from "./grants.js";
 import type { ChatGPTHostContextStore } from "./host-context.js";
 import { prepareProposalPackage } from "./proposal.js";
+import { registerReviewReadTools, reviewReadManifest } from "./review-mcp.js";
+import type { ReviewReadSource } from "./review-source.js";
 import { SecurityBoundaryError } from "./security.js";
 import { WIDGETS } from "./widgets.js";
 
@@ -20,6 +22,8 @@ export type FilmOSMcpSessionOptions = {
   proposalHandoffEnabled: boolean;
   proposalSigningSecret?: string;
   readToolsEnabled?: boolean;
+  reviewRead?: ReviewReadSource;
+  reviewReadToolsEnabled?: boolean;
   widgetsEnabled?: boolean;
   liveGate?: { challengeId: string; tunneled: boolean };
   hostContext?: ChatGPTHostContextStore;
@@ -40,9 +44,9 @@ export type FilmOSMcpManifestEntry = {
   feature_flag: string | null;
 };
 
-export function buildFilmOSMcpManifest(options: Pick<FilmOSMcpSessionOptions, "readToolsEnabled" | "widgetsEnabled" | "proposalHandoffEnabled">): FilmOSMcpManifestEntry[] {
+export function buildFilmOSMcpManifest(options: Pick<FilmOSMcpSessionOptions, "readToolsEnabled" | "widgetsEnabled" | "proposalHandoffEnabled" | "reviewReadToolsEnabled">): FilmOSMcpManifestEntry[] {
   if (!(options.readToolsEnabled ?? true)) return [];
-  return filmosToolContract.tools.flatMap((tool) => {
+  const core = filmosToolContract.tools.flatMap((tool) => {
     const featureFlag = "feature_flag" in tool ? tool.feature_flag : undefined;
     if (featureFlag === "film.chatgpt_proposal_handoff" && !options.proposalHandoffEnabled) return [];
     const widget = "widget" in tool ? tool.widget : undefined;
@@ -55,6 +59,7 @@ export function buildFilmOSMcpManifest(options: Pick<FilmOSMcpSessionOptions, "r
         : "write";
     return [{ name: tool.name, risk, feature_flag: featureFlag ?? null }];
   });
+  return options.reviewReadToolsEnabled ? [...core, ...reviewReadManifest()] : core;
 }
 
 export function createFilmOSMcpServer(options: FilmOSMcpSessionOptions): McpServer {
@@ -81,6 +86,7 @@ export function createFilmOSMcpServer(options: FilmOSMcpSessionOptions): McpServ
   }
 
   const manifestNames = new Set(buildFilmOSMcpManifest(options).map((tool) => tool.name));
+  if ((options.readToolsEnabled ?? true) && options.reviewReadToolsEnabled && options.reviewRead) registerReviewReadTools(server, options.reviewRead, options.grant, options.audit);
   for (const tool of filmosToolContract.tools) {
     if (!manifestNames.has(tool.name)) continue;
     const widget = "widget" in tool ? tool.widget : undefined;

@@ -1,0 +1,20 @@
+#!/bin/sh
+set -eu
+
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+user_home=$(python3 -c 'from pathlib import Path; print(Path.home().resolve())')
+destination="$user_home/Applications/FilmOS Studio.app"
+
+FILMOS_INSTALL_DESTINATION="$destination" \
+FILMOS_DESKTOP_APP_DISPLAY_NAME="FilmOS Studio" \
+FILMOS_EXPECTED_APP_DISPLAY_NAME="FilmOS Studio" \
+FILMOS_DESKTOP_BUNDLE_IDENTIFIER="com.filmos.studio.localbeta" \
+FILMOS_EXPECTED_BUNDLE_IDENTIFIER="com.filmos.studio.localbeta" \
+FILMOS_DESKTOP_APPLICATION_SUPPORT_DIRECTORY_NAME="FilmOS Studio Pilot" \
+FILMOS_EXPECTED_APPLICATION_SUPPORT_DIRECTORY_NAME="FilmOS Studio Pilot" \
+FILMOS_DESKTOP_RUNTIME_PROFILE="filmos-candidate" \
+FILMOS_DESKTOP_RELEASE_CHANNEL="pilot" \
+FILMOS_DESKTOP_EXTERNAL_PAID_SUBMIT_ENABLED="false" \
+FILMOS_DESKTOP_WEB_PORT="43200" \
+FILMOS_DESKTOP_BACKEND_PORT="43201" \
+    "$script_dir/install-local-app" "$@"

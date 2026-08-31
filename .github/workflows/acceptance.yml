@@ -7,15 +7,20 @@ on:
       - acceptance/**
       - backend/**
       - canvas-agent/**
+      - cli/filmos-review/**
       - desktop/**
+      - extensions/filmos-review-bridge/**
       - film-contracts/**
       - film-core/**
+      - governance/**
+      - implementation/use-driven-dual-expert-v1-1/**
       - packages/filmos-tool-contracts/**
       - packages/filmos-agent-contracts/**
       - packages/filmos-agent-tool-contracts/**
       - packages/filmos-generation-contracts/**
       - scripts/**
       - services/filmos-chatgpt-app/**
+      - services/filmos-review-bus/**
       - web/**
       - .github/workflows/acceptance.yml
   push:

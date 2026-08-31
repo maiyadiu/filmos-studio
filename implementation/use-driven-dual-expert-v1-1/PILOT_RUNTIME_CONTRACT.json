@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "contract": "filmos.pilot-runtime/v1",
+  "base_manifest": "PILOT_BASE_0_MANIFEST.json",
+  "app": {
+    "display_name": "FilmOS Studio",
+    "bundle_identifier": "com.filmos.studio.localbeta",
+    "single_authoritative_app": "$HOME/Applications/FilmOS Studio.app",
+    "application_support_directory": "$HOME/Library/Application Support/FilmOS Studio Pilot",
+    "release_channel": "pilot",
+    "external_paid_submit_enabled": false
+  },
+  "project_copy": {
+    "command": "desktop/macos/scripts/prepare-pilot-project-copy",
+    "source_mode": "sqlite-online-backup",
+    "copy_scope": "complete-selected-project-aggregate",
+    "asset_resource_filter": "project-link-and-project-json-reference-closure",
+    "physical_resource_copy": "referenced-local-object-keys-only",
+    "global_catalog_policy": "clear-user-and-provider-global-catalogs-retain-only-referenced-workflow-template-versions",
+    "source_mutated": false,
+    "credentials_copied": false,
+    "finance_rows_copied": false
+  },
+  "daily_backup": {
+    "command": "desktop/macos/scripts/backup-pilot-data",
+    "restore_validation_command": "desktop/macos/scripts/restore-pilot-backup",
+    "service_contract": "desktop/macos/PilotBackupService.json",
+    "minimum_interval_hours": 24
+  },
+  "issue_intake": {
+    "ui": "web/src/components/governance/ReportIssuePortal.tsx",
+    "single_mount": "web/src/application.tsx",
+    "issue_id_format": "FILMOS-ISSUE-<UUID>",
+    "initial_state": "OBSERVED_IN_USE",
+    "review_bus_state_after_freeze": "EVIDENCE_REQUIRED_or_routed",
+    "offline_fallback": "LOCAL_PENDING_REVIEW_BUS"
+  },
+  "review_bus": {
+    "single_governance_root": "$HOME/Library/Application Support/FilmOS Studio/review-bus",
+    "health_url": "http://127.0.0.1:17920/healthz",
+    "issue_url": "http://127.0.0.1:17920/v1/issues",
+    "token_exposed_to_web": false,
+    "chatgpt_read_tools_enabled": true
+  },
+  "build_identity": {
+    "required_fields": [
+      "git_commit_sha",
+      "git_tree_sha",
+      "build_id",
+      "release_channel",
+      "external_paid_submit_enabled"
+    ],
+    "channels": [
+      "development",
+      "candidate",
+      "pilot",
+      "stable"
+    ]
+  }
+}

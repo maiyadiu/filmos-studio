@@ -36,6 +36,7 @@ const STABLE_DREAMINA_ERROR_CODES = new Set([
     "dreamina_command_invalid",
     "dreamina_command_timeout",
     "dreamina_environment_invalid",
+    "dreamina_external_paid_submit_disabled",
     "dreamina_generation_failed",
     "dreamina_idempotency_conflict",
     "dreamina_internal_error",

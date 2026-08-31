@@ -12,6 +12,7 @@ if ProcessInfo.processInfo.environment["FILMOS_DESKTOP_SMOKE_CHECK"] == "1" {
 private let backendServiceID: ServiceID = "backend"
 private let webServiceID: ServiceID = "web"
 private let localRuntimeServiceID: ServiceID = "local-runtime"
+private let reviewBusServiceID: ServiceID = "review-bus"
 
 @MainActor
 private final class InternalWorkbenchCoordinator {
@@ -24,6 +25,7 @@ private final class InternalWorkbenchCoordinator {
     let chatGPTConnectionManager: ChatGPTConnectionManager
     private let chatGPTRuntime: DesktopChatGPTRuntime
     private let localRuntimeHealthURL = URL(string: "http://127.0.0.1:17371/health")!
+    private let reviewBusTokenURL: URL
     private var startedServices: Set<ServiceID> = []
 
     init(bundle: Bundle = .main) throws {
@@ -47,6 +49,8 @@ private final class InternalWorkbenchCoordinator {
         let webExecutable = helpersDirectory.appendingPathComponent("FilmOSWeb")
         let localRuntimeExecutable = helpersDirectory.appendingPathComponent("FilmOSLocalRuntime")
         let canvasAgentMCPExecutable = helpersDirectory.appendingPathComponent("FilmOSCanvasAgentMCP")
+        let reviewBusExecutable = helpersDirectory.appendingPathComponent("FilmOSReviewBus")
+        let constitutionURL = bundleResources.appendingPathComponent("FILMOS_CONSTITUTION.json")
         let webRoot = bundleResources.appendingPathComponent("Web", isDirectory: true)
         let webEntry = webRoot.appendingPathComponent("index.html")
         let applicationRuntimeRoot = applicationSupportDirectory.appendingPathComponent(
@@ -58,6 +62,9 @@ private final class InternalWorkbenchCoordinator {
             isDirectory: true
         )
         let workingDirectory = applicationRuntimeRoot.appendingPathComponent("Runtime", isDirectory: true)
+        let reviewBusDirectory = ReviewBusRuntimeContract.canonicalDirectory(
+            applicationRuntimeRoot: applicationRuntimeRoot
+        )
 
         guard fileManager.isExecutableFile(atPath: backendExecutable.path) else {
             throw DesktopWorkbenchError.missingBundledBackend
@@ -71,15 +78,19 @@ private final class InternalWorkbenchCoordinator {
         guard fileManager.isExecutableFile(atPath: canvasAgentMCPExecutable.path) else {
             throw DesktopWorkbenchError.missingBundledCanvasAgentMCP
         }
+        guard fileManager.isExecutableFile(atPath: reviewBusExecutable.path), fileManager.isReadableFile(atPath: constitutionURL.path) else {
+            throw DesktopWorkbenchError.missingBundledReviewBus
+        }
         guard fileManager.fileExists(atPath: webEntry.path) else {
             throw DesktopWorkbenchError.missingBundledWebAssets
         }
         try fileManager.createDirectory(at: backendDataDirectory, withIntermediateDirectories: true)
         try fileManager.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: reviewBusDirectory, withIntermediateDirectories: true)
 
         let policy = try ServiceLaunchPolicy(
             allowedExecutableRoots: [helpersDirectory],
-            allowedWorkingDirectoryRoots: [applicationRuntimeRoot]
+            allowedWorkingDirectoryRoots: [applicationRuntimeRoot, reviewBusDirectory]
         )
         let supervisor = ServiceSupervisor(policy: policy)
         guard
@@ -115,6 +126,7 @@ private final class InternalWorkbenchCoordinator {
         localRuntimeEnvironment["FILMOS_AGENT_RUNTIME_PROFILE"] = configuration.agentRuntimeProfile
         localRuntimeEnvironment["FILMOS_AGENT_FEATURE_FLAGS_HASH"] = configuration.agentFeatureFlagsHash
         localRuntimeEnvironment["FILMOS_AGENT_GATEWAY_ENABLED"] = configuration.agentRuntimeProfile == "filmos-candidate" ? "true" : "false"
+        localRuntimeEnvironment["FILMOS_EXTERNAL_PAID_SUBMIT_ENABLED"] = configuration.externalPaidSubmitEnabled ? "true" : "false"
         localRuntimeEnvironment["FILMOS_CANVAS_AGENT_MCP_EXECUTABLE"] = canvasAgentMCPExecutable.path
         if let dreaminaCLIPath = Self.dreaminaCLIPath(homeDirectory: localRuntimeEnvironment["HOME"]) {
             // Finder/Dock launches do not inherit the user's interactive shell PATH.
@@ -131,6 +143,24 @@ private final class InternalWorkbenchCoordinator {
             executableURL: localRuntimeExecutable,
             workingDirectoryURL: localRuntimeDirectory,
             environment: localRuntimeEnvironment
+        ))
+
+        // Developer Governance has one machine-local authority, independent of
+        // the selected Pilot/business data root. A Pilot app must not create a
+        // second Review Bus or split ChatGPT/CLI/Extension observations.
+        var reviewBusEnvironment = Self.safeBaseEnvironment()
+        reviewBusEnvironment["FILMOS_REVIEW_BUS_HOST"] = "127.0.0.1"
+        reviewBusEnvironment["FILMOS_REVIEW_BUS_PORT"] = String(configuration.reviewBusHealthURL.port ?? 17920)
+        reviewBusEnvironment["FILMOS_REVIEW_BUS_LOCAL_DIR"] = reviewBusDirectory.path
+        reviewBusEnvironment["FILMOS_REVIEW_CONSTITUTION_PATH"] = constitutionURL.path
+        reviewBusEnvironment["FILMOS_REVIEW_BASE_COMMIT"] = configuration.sourceCommit
+        reviewBusEnvironment["PWD"] = reviewBusDirectory.path
+        try supervisor.register(ServiceDefinition(
+            id: reviewBusServiceID,
+            displayName: "FilmOS Review Bus",
+            executableURL: reviewBusExecutable,
+            workingDirectoryURL: reviewBusDirectory,
+            environment: reviewBusEnvironment
         ))
 
         var webEnvironment = Self.safeBaseEnvironment()
@@ -152,11 +182,14 @@ private final class InternalWorkbenchCoordinator {
             supervisor: supervisor,
             helpersDirectory: helpersDirectory,
             applicationRuntimeRoot: applicationRuntimeRoot,
+            reviewBusDirectory: reviewBusDirectory,
+            reviewBusHealthURL: configuration.reviewBusHealthURL,
             baseEnvironment: Self.safeBaseEnvironment()
         )
         self.configuration = configuration
         self.supervisor = supervisor
         self.chatGPTRuntime = chatGPTRuntime
+        reviewBusTokenURL = reviewBusDirectory.appendingPathComponent("review-bus.token")
         chatGPTConnectionManager = ChatGPTConnectionManager(operations: chatGPTRuntime)
         startURL = configuration.startURL
         dataDirectoryURL = backendDataDirectory
@@ -168,6 +201,11 @@ private final class InternalWorkbenchCoordinator {
 
     func prepare() async throws -> URL {
         try await chatGPTRuntime.prepareFilmCoreAuthority()
+        try await ensureService(
+            reviewBusServiceID,
+            displayName: "问题与双专家 Review Bus",
+            readiness: { [configuration] in await Self.reviewBusIsReady(at: configuration.reviewBusHealthURL) }
+        )
         try await ensureService(
             localRuntimeServiceID,
             displayName: "Agent Runtime",
@@ -195,11 +233,36 @@ private final class InternalWorkbenchCoordinator {
     func stopOwnedServices() {
         chatGPTConnectionManager.disconnect()
         chatGPTRuntime.stopOwnedServices()
-        for id in [webServiceID, backendServiceID, localRuntimeServiceID] where startedServices.contains(id) {
+        for id in [webServiceID, backendServiceID, localRuntimeServiceID, reviewBusServiceID] where startedServices.contains(id) {
             guard case .running = supervisor.state(for: id) else { continue }
             try? supervisor.stop(id)
         }
         startedServices.removeAll()
+    }
+
+    func submitReviewIssue(_ data: Data) async throws -> Data {
+        guard data.count <= 512 * 1024,
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              Set(object.keys).isSubset(of: [
+                  "project_id", "what_happened", "expected_result", "location",
+                  "blocks_work", "screenshot_refs", "issue_id", "evidence_items",
+                  "app_build_id", "app_tree", "route",
+              ])
+        else { throw ReviewBusBridgeError.invalidRequest }
+        let token = try String(contentsOf: reviewBusTokenURL, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard token.count >= 24 else { throw ReviewBusBridgeError.pairingUnavailable }
+        var request = URLRequest(url: configuration.reviewBusIssueURL)
+        request.httpMethod = "POST"
+        request.httpBody = data
+        request.timeoutInterval = 15
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        let (responseData, response) = try await URLSession.shared.data(for: request)
+        guard let response = response as? HTTPURLResponse, response.statusCode == 201,
+              responseData.count <= 512 * 1024,
+              (try? JSONSerialization.jsonObject(with: responseData)) != nil
+        else { throw ReviewBusBridgeError.rejected }
+        return responseData
     }
 
     private func ensureService(
@@ -333,6 +396,18 @@ private final class InternalWorkbenchCoordinator {
         return true
     }
 
+    private static func reviewBusIsReady(at url: URL) async -> Bool {
+        guard let data = await responseData(at: url),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              object["ok"] as? Bool == true,
+              object["service"] as? String == "filmos-review-bus",
+              object["schema_version"] as? String == "filmos.review-bus.v1",
+              object["external_network_requests"] as? Int == 0,
+              object["openai_model_api_calls"] as? Int == 0
+        else { return false }
+        return true
+    }
+
     private static func responseData(at url: URL) async -> Data? {
         var request = URLRequest(url: url)
         request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
@@ -356,6 +431,7 @@ private enum DesktopWorkbenchError: Error, LocalizedError {
     case missingBundledWebServer
     case missingBundledLocalRuntime
     case missingBundledCanvasAgentMCP
+    case missingBundledReviewBus
     case missingBundledWebAssets
     case invalidRuntimeEndpoints
     case serviceLaunchFailed(String)
@@ -375,6 +451,8 @@ private enum DesktopWorkbenchError: Error, LocalizedError {
             "应用缺少 Agent Runtime，请重新构建 FilmOS Studio.app。"
         case .missingBundledCanvasAgentMCP:
             "应用缺少 Canvas Agent MCP，请重新构建 FilmOS Studio.app。"
+        case .missingBundledReviewBus:
+            "应用缺少 Review Bus，统一问题入口不会降级为伪连接。"
         case .missingBundledWebAssets:
             "应用缺少内置工作台页面，请重新构建 FilmOS Studio.app。"
         case .invalidRuntimeEndpoints:
@@ -387,12 +465,27 @@ private enum DesktopWorkbenchError: Error, LocalizedError {
     }
 }
 
+private enum ReviewBusBridgeError: Error {
+    case invalidRequest
+    case pairingUnavailable
+    case rejected
+
+    var code: String {
+        switch self {
+        case .invalidRequest: "REVIEW_BUS_INVALID_REQUEST"
+        case .pairingUnavailable: "REVIEW_BUS_PAIRING_UNAVAILABLE"
+        case .rejected: "REVIEW_BUS_REJECTED"
+        }
+    }
+}
+
 @MainActor
 private final class WorkbenchWindow: NSObject, @preconcurrency WKNavigationDelegate, @preconcurrency WKUIDelegate, @preconcurrency WKScriptMessageHandler {
     let window: NSWindow
     var onOpenChatGPTConnection: (() -> Void)?
     var onWorkbenchProjectChanged: ((String, String?, String?) -> Void)?
     var onChatGPTHostRequest: ((String, String, Data) -> Void)?
+    var onReviewIssueRequest: ((String, Data) -> Void)?
 
     private let webView: WKWebView
     private let overlay = NSVisualEffectView()
@@ -549,6 +642,16 @@ private final class WorkbenchWindow: NSObject, @preconcurrency WKNavigationDeleg
            JSONSerialization.isValidJSONObject(payload),
            let data = try? JSONSerialization.data(withJSONObject: payload), data.count <= 256 * 1024 {
             onChatGPTHostRequest?(requestID, operation, data)
+            return
+        }
+        if action == "reviewIssueRequest",
+           Set(body.keys) == Set(["action", "requestId", "payload"]),
+           let requestID = body["requestId"] as? String,
+           requestID.range(of: "^[A-Fa-f0-9-]{36}$", options: .regularExpression) != nil,
+           let payload = body["payload"] as? [String: Any],
+           JSONSerialization.isValidJSONObject(payload),
+           let data = try? JSONSerialization.data(withJSONObject: payload), data.count <= 512 * 1024 {
+            onReviewIssueRequest?(requestID, data)
         }
     }
 
@@ -587,6 +690,18 @@ private final class WorkbenchWindow: NSObject, @preconcurrency WKNavigationDeleg
         Task {
             _ = try? await webView.callAsyncJavaScript(
                 "window.filmOSResolveChatGPTHostRequest?.(requestId, result, error);",
+                arguments: ["requestId": requestID, "result": result ?? NSNull(), "error": error ?? NSNull()],
+                in: nil,
+                contentWorld: .page
+            )
+        }
+    }
+
+    func resolveReviewIssueRequest(requestID: String, data: Data?, error: String?) {
+        let result = data.flatMap { try? JSONSerialization.jsonObject(with: $0) }
+        Task {
+            _ = try? await webView.callAsyncJavaScript(
+                "window.filmOSResolveReviewIssue?.(requestId, result, error);",
                 arguments: ["requestId": requestID, "result": result ?? NSNull(), "error": error ?? NSNull()],
                 in: nil,
                 contentWorld: .page
@@ -680,6 +795,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 } catch {
                     let code = (error as? DesktopChatGPTRuntimeError)?.bridgeErrorCode ?? "CHATGPT_HOST_REQUEST_FAILED"
                     workbenchWindow?.resolveChatGPTHostRequest(requestID: requestID, data: nil, error: code)
+                }
+            }
+        }
+        workbenchWindow.onReviewIssueRequest = { [weak self, weak workbenchWindow] requestID, payload in
+            guard let coordinator = self?.coordinator else {
+                workbenchWindow?.resolveReviewIssueRequest(requestID: requestID, data: nil, error: "REVIEW_BUS_UNAVAILABLE")
+                return
+            }
+            Task {
+                do {
+                    let result = try await coordinator.submitReviewIssue(payload)
+                    workbenchWindow?.resolveReviewIssueRequest(requestID: requestID, data: result, error: nil)
+                } catch {
+                    let code = (error as? ReviewBusBridgeError)?.code ?? "REVIEW_BUS_REQUEST_FAILED"
+                    workbenchWindow?.resolveReviewIssueRequest(requestID: requestID, data: nil, error: code)
                 }
             }
         }

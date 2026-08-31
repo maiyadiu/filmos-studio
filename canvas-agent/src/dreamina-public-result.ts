@@ -6,6 +6,7 @@ const PUBLIC_RUN_ERRORS = {
     dreamina_idempotency_conflict: { message: "同一幂等键不能用于不同 Dreamina 请求", statusCode: 409 },
     dreamina_login_required: { message: "Dreamina CLI 需要先登录", statusCode: 401 },
     dreamina_missing: { message: "未检测到 Dreamina CLI", statusCode: 404 },
+    dreamina_external_paid_submit_disabled: { message: "PILOT_EXTERNAL_PAID_SUBMIT_DISABLED", statusCode: 403 },
     dreamina_reference_invalid: { message: "Dreamina 参考素材无效或不受信任", statusCode: 400 },
     dreamina_reference_budget_exceeded: { message: "Dreamina 参考素材超出大小限制", statusCode: 413 },
     dreamina_generation_capacity_full: { message: "Dreamina 官方生成名额已满", statusCode: 409 },

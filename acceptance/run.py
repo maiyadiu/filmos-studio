@@ -78,6 +78,48 @@ CURRENT_CHECKS = (
 
 RC_LOCAL_CHECKS = CURRENT_CHECKS + (
     Check(
+        "architecture-drift-gate",
+        "FilmOS Constitution hash and architecture drift regression gates",
+        ("node", "--test", "governance/test/architecture-drift-gate.test.mjs"),
+        ROOT,
+        ("00-upstream", "02-film-core", "08-agent", "13-qa"),
+    ),
+    Check(
+        "review-bus-governance",
+        "SQLite WAL Review Bus, evidence, consensus, lane and Pilot gates",
+        ("npm", "test"),
+        ROOT / "services" / "filmos-review-bus",
+        ("08-agent", "13-qa", "14-chatgpt-app"),
+    ),
+    Check(
+        "review-cli-watcher",
+        "Codex local issue CLI and Review Watcher contract",
+        ("npm", "test"),
+        ROOT / "cli" / "filmos-review",
+        ("08-agent", "13-qa"),
+    ),
+    Check(
+        "review-bridge-contract",
+        "Chrome user-gesture, loopback, challenge, replay and revoke contract",
+        ("node", "--test", "extensions/filmos-review-bridge/test/bridge-contract.test.mjs"),
+        ROOT,
+        ("13-qa", "14-chatgpt-app"),
+    ),
+    Check(
+        "pilot-project-copy",
+        "Project-scoped Pilot copy, privacy reset, backup and restore contract",
+        ("sh", "desktop/macos/Tests/pilot-data-scripts.test.sh"),
+        ROOT,
+        ("01-desktop", "02-film-core", "11-migration", "13-qa"),
+    ),
+    Check(
+        "use-driven-dual-expert",
+        "V1.1 single issue entry, dual-expert governance, Policy V2 and zero-cost readiness binding",
+        (sys.executable, "acceptance/checks/use_driven_dual_expert.py"),
+        ROOT,
+        ("01-desktop", "03-project-ui", "08-agent", "10-providers", "11-migration", "13-qa", "14-chatgpt-app"),
+    ),
+    Check(
         "generation-routing-contracts",
         "V2.4 deterministic brain, catalog, route, authorization, prompt, budget and redaction contracts",
         ("npm", "test"),
@@ -310,6 +352,7 @@ REAL_AGENT_CHECKS = (
 
 
 CHECK_ARTIFACT_NAMES = {
+    "use-driven-dual-expert": "use-driven-dual-expert-receipt.json",
     "no-openai-model-api-billing": "no-openai-model-api-billing-receipt.json",
     "agent-native-multibrain": "agent-native-multibrain-receipt.json",
     "agent-codex-controlled-write": "agent-codex-controlled-write-receipt.json",
@@ -421,7 +464,7 @@ def resolve_film_core_python(environment: dict[str, str]) -> str | None:
             continue
         seen.add(candidate)
         executable = candidate if Path(candidate).is_absolute() else shutil.which(candidate)
-        if not executable:
+        if not executable or (Path(executable).is_absolute() and not Path(executable).is_file()):
             continue
         probe = subprocess.run(
             (

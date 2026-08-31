@@ -2,8 +2,8 @@ import {
     assertCatalogValidationSubmitReady,
     assertExecutionGuards,
     assertGenerationEngineConnectionRoutable,
-    assertProjectGenerationLock,
     assertProjectGenerationPolicy,
+    assertProjectGenerationTaskLock,
     compilePrompt,
     createAuthorizedGenerationSubmission,
     createBudgetReservation,
@@ -15,6 +15,7 @@ import {
     hashGenerationReferences,
     hashEnvelope,
     hashProjection,
+    projectGenerationTaskLockFromPolicy,
     verifyBudgetReservation,
     verifyGenerationRouteSnapshot,
     type AuthorizedGenerationSubmission,
@@ -38,6 +39,10 @@ import {
 
 export const FILMOS_ACCEPTANCE_PROJECT_NAME = "FilmOS_Acceptance_Project";
 export const FILMOS_MOCK_GENERATION_ENGINE_ID = "filmos_mock_generation";
+
+export function productionProviderKey(engineId: string, connectionId: string): string {
+    return `${engineId}\0${connectionId}`;
+}
 
 export type ProductionRouteInput = GenerationDefaultRoute & { taskKind: GenerationTaskKind };
 export type ProductionRouteSelection = ProductionRouteInput & { selectionSource: "explicit_task" | "node_override" | "project_default" | "global_default" };
@@ -305,12 +310,32 @@ export type ProductionAuthorizedCommand = {
     submitNotAfter: string;
 };
 
+export type ProductionReleasePolicy = {
+    externalPaidSubmitEnabled: boolean;
+};
+
+export function productionReleasePolicyFromEnvironment(value: string | undefined = import.meta.env.VITE_FILMOS_EXTERNAL_PAID_SUBMIT_ENABLED): ProductionReleasePolicy {
+    return { externalPaidSubmitEnabled: value === "true" };
+}
+
+export function assertProductionReleaseSubmitAllowed(input: {
+    policy: ProductionReleasePolicy;
+    engineId: string;
+    estimatedCostMicrounits: string;
+}) {
+    if (input.policy.externalPaidSubmitEnabled) return;
+    if (input.engineId !== FILMOS_MOCK_GENERATION_ENGINE_ID || input.estimatedCostMicrounits !== "0") {
+        throw new Error("PILOT_EXTERNAL_PAID_SUBMIT_DISABLED");
+    }
+}
+
 export class ProductionGenerationService {
     constructor(
         private readonly authority: ProductionGenerationAuthority,
         private readonly providers: ReadonlyMap<string, ProductionGenerationProviderAdapter>,
         private readonly issueId: (prefix: string) => string = (prefix) => `${prefix}-${crypto.randomUUID()}`,
         private readonly now: () => string = () => new Date().toISOString(),
+        private readonly releasePolicy: ProductionReleasePolicy = productionReleasePolicyFromEnvironment(),
     ) {}
 
     async requestSubmit(input: ProductionSubmitProposalCommand): Promise<ProductionConfirmationResult> {
@@ -359,8 +384,9 @@ export class ProductionGenerationService {
             nodeDraftVersion: input.nodeDraftVersion, selectionSource: selectedRoute.selectionSource, resolvedAt: at, createdAt: at,
         });
         assertProjectGenerationPolicy(input.projectPolicy, routeSnapshot);
-        if (input.projectLock) assertProjectGenerationLock(input.projectLock, input.taskKind, routeSnapshot, selected.map(({ descriptor: _descriptor, ...ref }) => ref), descriptorDetails(selected, input.catalog));
-        const provider = this.providers.get(selectedRoute.engineId);
+        const taskLock = projectGenerationTaskLockFromPolicy(input.projectPolicy, input.taskKind, input.projectLock);
+        if (taskLock) assertProjectGenerationTaskLock(taskLock, routeSnapshot, selected.map(({ descriptor: _descriptor, ...ref }) => ref), descriptorDetails(selected, input.catalog));
+        const provider = this.providerFor(selectedRoute.engineId, selectedRoute.connectionId);
         if (!provider) throw new Error("GENERATION_PROVIDER_ADAPTER_NOT_FOUND");
         const readiness = await provider.doctor();
         if (readiness.state !== "ready" && selectedRoute.engineId !== "manual_web") throw new Error(`GENERATION_PROVIDER_${readiness.state.toUpperCase()}`);
@@ -449,12 +475,17 @@ export class ProductionGenerationService {
         const authorization = await this.authority.loadAuthorized(authorizedSubmissionId);
         if (!authorization) throw new Error("AUTHORIZED_GENERATION_SUBMISSION_NOT_FOUND");
         const { preview, authorizedSubmission } = authorization;
-        const provider = this.providers.get(preview.routeSnapshot.engineId);
+        const provider = this.providerFor(preview.routeSnapshot.engineId, preview.routeSnapshot.connectionId);
         try {
             await verifyProductionAuthorizationBundle(authorization);
             const current = await this.authority.currentGuards(preview);
             assertExecutionGuards(current, preview.guards);
             assertCatalogValidationSubmitReady(authorization.catalogValidation, { now: this.now(), routeContentHash: preview.routeSnapshot.routeContentHash, descriptorSemanticHash: preview.descriptorReceipt.descriptorSemanticHash, accountBindingRef: preview.routeSnapshot.accountBindingRef, connectionInstanceRef: preview.routeSnapshot.connectionInstanceRef });
+            assertProductionReleaseSubmitAllowed({
+                policy: this.releasePolicy,
+                engineId: preview.routeSnapshot.engineId,
+                estimatedCostMicrounits: preview.proposal.estimatedCost?.amountMicrounits ?? "0",
+            });
             if (!provider) throw new Error("GENERATION_PROVIDER_ADAPTER_NOT_FOUND");
             if (preview.routeSnapshot.references.some((reference) => reference.hardLock) && !provider.supportsHardLockedReferences) throw new Error("GENERATION_REFERENCE_HARD_LOCK_UNSUPPORTED");
         } catch (error) {
@@ -487,6 +518,10 @@ export class ProductionGenerationService {
             ["qc.pending", candidate.candidateId, candidate.contentHash, candidate.outputHash],
         ], authorization.trace.length, "approved", receipt.externalSpendMicrounits, receipt.externalNetworkRequests > 0)];
         return { receipt, candidate, trace };
+    }
+
+    private providerFor(engineId: string, connectionId: string): ProductionGenerationProviderAdapter | undefined {
+        return this.providers.get(productionProviderKey(engineId, connectionId)) ?? this.providers.get(engineId);
     }
 
     async recover(generationAttemptId: string): Promise<ProductionCandidate> {

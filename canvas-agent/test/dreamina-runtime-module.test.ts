@@ -32,6 +32,68 @@ test("packaged Desktop Runtime explicitly loads Dreamina without unrelated optio
     assert.doesNotMatch(source, /createPortraitClearanceHttpModule/);
 });
 
+test("Pilot Runtime rejects Dreamina submit before CLI spawn while keeping read routes available", async () => {
+    const configDir = await fs.mkdtemp(path.join(os.tmpdir(), "dreamina-pilot-disabled-"));
+    let cliSpawns = 0;
+    let runtimeSubmits = 0;
+    const module = createDreaminaHttpModule({
+        ownerId: "owner-dreamina-pilot-0001",
+        configDir,
+        externalPaidSubmitEnabled: false,
+        dreamina: authenticatedLifecycleFixture(),
+        dreaminaRuntime: {
+            run: async () => { runtimeSubmits += 1; throw new Error("must not run"); },
+            generateToResult: async () => { throw new Error("must not run"); },
+            resumeToResult: async () => { throw new Error("must not run"); },
+            getTask: async () => { throw new DreaminaCliError("dreamina_task_not_found", "missing", 404); },
+            waitForTask: async () => { throw new Error("must not run"); },
+            refreshTask: async () => { throw new DreaminaCliError("dreamina_task_not_found", "missing", 404); },
+            listTasks: async () => [],
+            cancelTask: async () => { throw new Error("must not run"); },
+            deleteTask: async () => ({ deleted: true }),
+            enqueue: async () => { runtimeSubmits += 1; throw new Error("must not run"); },
+        },
+        generation: {
+            run: async () => { runtimeSubmits += 1; throw new Error("must not run"); },
+            submit: async () => { runtimeSubmits += 1; throw new Error("must not run"); },
+        },
+        runtimeDependencies: {
+            runProcess: async () => { cliSpawns += 1; throw new Error("must not spawn"); },
+        },
+    });
+    try {
+        const legacy = await invoke(module, "/dreamina/run", Buffer.from(JSON.stringify({
+            operation: "text2image",
+            idempotencyKey: "pilot-disabled-run-0001",
+            prompt: "must not submit",
+            resolutionType: "2k",
+        })), 403);
+        const production = await invoke(module, "/dreamina/generate", Buffer.from(JSON.stringify({
+            idempotencyKey: "pilot-disabled-generate-0001",
+            operation: "text-to-image",
+            model: "dreamina-image-3.0",
+            prompt: "must not submit",
+            settings: { resolution: "2k" },
+        })), 403);
+        assert.match(JSON.stringify(legacy), /dreamina_external_paid_submit_disabled/);
+        assert.match(JSON.stringify(production), /dreamina_external_paid_submit_disabled/);
+        assert.equal(runtimeSubmits, 0);
+        assert.equal(cliSpawns, 0);
+        assert.equal((await invoke(module, "/dreamina/status", undefined) as { ok?: boolean }).ok, true);
+        const catalogWithoutLogin = await invoke(module, "/dreamina/models", undefined, 401);
+        assert.doesNotMatch(JSON.stringify(catalogWithoutLogin), /external_paid_submit_disabled/);
+        const missingQuery = await invoke(module, "/dreamina/generate/query", Buffer.from(JSON.stringify({
+            idempotencyKey: "pilot-disabled-query-0001",
+        })), 404);
+        assert.doesNotMatch(JSON.stringify(missingQuery), /external_paid_submit_disabled/);
+        assert.equal(runtimeSubmits, 0);
+        assert.equal(cliSpawns, 0);
+    } finally {
+        await module.dispose?.();
+        await fs.rm(configDir, { recursive: true, force: true });
+    }
+});
+
 test("Dreamina module stages generated and configured references when another optional Canvas root is absent", async () => {
     const configDir = await fs.mkdtemp(path.join(os.tmpdir(), "dreamina-module-reference-"));
     const canvasRoot = path.join(configDir, "canvas-workspace");
@@ -273,6 +335,7 @@ test("Dreamina model catalog returns the last authenticated account cache scope 
         arbiter,
         dreamina: {
             ...lifecycleFixture(calls),
+            catalogIdentity: async () => catalogIdentityFixture(),
             status: async () => {
                 calls.push("status");
                 return { ...installed, state: "authenticated" as const, authenticated: true, accountBinding, sessionEpoch: 7, message: "authenticated" };
@@ -286,6 +349,22 @@ test("Dreamina model catalog returns the last authenticated account cache scope 
     assert.equal(response.accountBinding, accountBinding);
     assert.equal(response.sessionEpoch, session.sessionEpoch);
     assert.equal(Array.isArray(response.models), true);
+    assert.equal((response.evidence as { source?: string }).source, "verified_static_version_bound");
+    assert.deepEqual(response.evidence, {
+        source: "verified_static_version_bound",
+        adapterVersion: "filmos-dreamina-execution-port-v1",
+        supportedCliVersionRange: "=54f1bdf-dirty",
+        sourceEvidence: assertSourceEvidence(response.evidence),
+        manifestHash: (response.evidence as { manifestHash: string }).manifestHash,
+        cliVersion: catalogIdentityFixture().version,
+        cliCommit: catalogIdentityFixture().commit,
+        cliBuildTime: catalogIdentityFixture().buildTime,
+        executableSha256: catalogIdentityFixture().executableSha256,
+        sourceLocatorId: catalogIdentityFixture().sourceLocatorId,
+        catalogHash: (response.evidence as { catalogHash: string }).catalogHash,
+        verifiedAt: catalogIdentityFixture().observedAt,
+        expiresAt: "2026-09-01T00:00:00.000Z",
+    });
     assert.deepEqual(calls, []);
     await module.dispose?.();
     await fs.rm(configDir, { recursive: true, force: true });
@@ -305,6 +384,7 @@ test("Dreamina model catalog uses the last authenticated session scope without s
         arbiter,
         dreamina: {
             ...lifecycleFixture([]),
+            catalogIdentity: async () => catalogIdentityFixture(),
             status: async () => {
                 statusCalls += 1;
                 throw new Error("model catalog must not spawn Dreamina CLI status");
@@ -318,6 +398,7 @@ test("Dreamina model catalog uses the last authenticated session scope without s
         assert.equal(response.accountBinding, accountBinding);
         assert.equal(response.sessionEpoch, session.sessionEpoch);
         assert.equal(Array.isArray(response.models), true);
+        assert.equal((response.evidence as { source?: string }).source, "verified_static_version_bound");
         assert.equal(statusCalls, 0);
     } finally {
         await module.dispose?.();
@@ -1294,9 +1375,31 @@ function authenticatedLifecycleFixture() {
     return {
         status: async () => authenticated,
         statusWithSession: async () => ({ status: authenticated, session: undefined }),
+        catalogIdentity: async () => catalogIdentityFixture(),
         login: async () => authenticated,
         logout: async () => installed,
     };
+}
+
+function catalogIdentityFixture() {
+    return {
+        version: "54f1bdf-dirty",
+        commit: "54f1bdf",
+        buildTime: "2026-06-18T12:30:12Z",
+        executableSha256: "f80ed14c74a639e5341357e3063346e53d4c12f54edf549affcdd6bbb31669b1",
+        sourceLocatorId: `dreamina-cli-executable:${"a".repeat(64)}`,
+        observedAt: "2026-08-31T00:00:00.000Z",
+    };
+}
+
+function assertSourceEvidence(value: unknown): string[] {
+    const evidence = value as { sourceEvidence?: unknown; manifestHash?: unknown; catalogHash?: unknown };
+    assert(Array.isArray(evidence.sourceEvidence));
+    assert.match(String(evidence.manifestHash), /^[0-9a-f]{64}$/);
+    assert.match(String(evidence.catalogHash), /^[0-9a-f]{64}$/);
+    assert(evidence.sourceEvidence.includes("cli-version:54f1bdf-dirty"));
+    assert(evidence.sourceEvidence.includes(`executable-sha256:${catalogIdentityFixture().executableSha256}`));
+    return evidence.sourceEvidence;
 }
 
 function pngFixture() {

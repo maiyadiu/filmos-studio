@@ -45,6 +45,7 @@ export function GenerationEngineSettingsPane() {
     const initialize = useBrainGenerationRoutingStore((state) => state.initialize);
     const connections = useBrainGenerationRoutingStore((state) => state.config?.engineConnections ?? EMPTY_ENGINE_CONNECTIONS);
     const dreaminaCatalogState = useLocalDreaminaModelStore((state) => state.state);
+    const dreaminaCatalogEvidence = useLocalDreaminaModelStore((state) => state.snapshot?.evidence);
     useEffect(() => { void initialize(effectiveConfig); }, [effectiveConfig, initialize]);
     const state = (engineId: string, fallback: string) => {
         const connection = connections.find((item) => item.engineId === engineId);
@@ -63,7 +64,7 @@ export function GenerationEngineSettingsPane() {
             <div className="settings-section space-y-5">
                 <EngineHeader name="Dreamina CLI" transport="CLI" state={state("dreamina_cli", "复用本机 Runtime")} />
                 <LocalCliSettings />
-                <CatalogContractSummary state={dreaminaCatalogState} />
+                <CatalogContractSummary state={dreaminaCatalogState} evidence={dreaminaCatalogEvidence} />
                 <EngineHeader name="Flova CLI" transport="Project CLI" state={flovaState.label} />
                 <Alert
                     type="info"
@@ -83,12 +84,12 @@ export function GenerationEngineSettingsPane() {
     );
 }
 
-function CatalogContractSummary({ state }: { state: "idle" | "loading" | "ready" | "error" }) {
+function CatalogContractSummary({ state, evidence }: { state: "idle" | "loading" | "ready" | "error"; evidence?: Parameters<typeof catalogEvidenceLabel>[0] }) {
     return (
         <section aria-label="Dreamina Catalog 合同" className="rounded-md border border-border bg-background p-4 text-xs leading-6 text-foreground/65">
             <div className="flex flex-wrap items-center gap-2">
                 <strong className="text-sm text-foreground">Dreamina Catalog</strong>
-                <Tag>{state === "ready" ? catalogEvidenceLabel({ source: "runtime_discovery" }) : "Catalog 未加载"}</Tag>
+                <Tag>{state === "ready" && evidence ? catalogEvidenceLabel(evidence) : "Catalog 未加载"}</Tag>
                 <span>登录并发现目录后才允许精确选择 Model。</span>
             </div>
             <p className="mt-2"><strong>Catalog Evidence：</strong>标签由当前 Catalog Snapshot 的 evidence.source 投影；目录未加载时不伪造 Runtime 或 Static 证据。</p>

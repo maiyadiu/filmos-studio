@@ -21,6 +21,8 @@ SOURCE_SCOPES = (
     "film-core",
     "packages",
     "services/filmos-chatgpt-app",
+    "services/filmos-review-bus",
+    "governance/FILMOS_CONSTITUTION.json",
     "web",
     "scripts/agent_runtime_profile.py",
 )

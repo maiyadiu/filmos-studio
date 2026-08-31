@@ -1,0 +1,78 @@
+#!/bin/sh
+set -eu
+
+usage() {
+    echo "usage: restore-pilot-backup --archive <absolute .filmosbackup> --restore-data-dir <new absolute WorkbenchData>" >&2
+    exit 2
+}
+
+archive=
+restore_data_dir=
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --archive) [ "$#" -ge 2 ] || usage; archive=$2; shift 2 ;;
+        --restore-data-dir) [ "$#" -ge 2 ] || usage; restore_data_dir=$2; shift 2 ;;
+        *) usage ;;
+    esac
+done
+[ -n "$archive" ] && [ -n "$restore_data_dir" ] || usage
+case "$archive:$restore_data_dir" in /*:/*) ;; *) usage ;; esac
+
+python_executable=$(command -v python3 || true)
+[ -x "$python_executable" ] || { echo "python3 is required" >&2; exit 1; }
+user_home=$($python_executable -c 'from pathlib import Path; print(Path.home().resolve())')
+allowed_root=${FILMOS_PILOT_SUPPORT_ROOT:-"$user_home/Library/Application Support/FilmOS Studio Pilot"}
+case "$restore_data_dir" in "$allowed_root"/RestoreValidation/WorkbenchData) ;; *) echo "restore validation must use $allowed_root/RestoreValidation/WorkbenchData" >&2; exit 2 ;; esac
+[ -f "$archive" ] || { echo "Pilot backup archive is missing" >&2; exit 1; }
+[ ! -e "$restore_data_dir" ] || { echo "restore target already exists; refusing to overwrite it" >&2; exit 2; }
+
+restore_parent=$(dirname -- "$restore_data_dir")
+mkdir -p "$restore_parent"
+staging=$(mktemp -d "$restore_parent/.pilot-restore.XXXXXX")
+cleanup() {
+    find "$staging" -type f -delete 2>/dev/null || true
+    find "$staging" -depth -type d -empty -delete 2>/dev/null || true
+}
+trap cleanup EXIT HUP INT TERM
+
+"$python_executable" - "$archive" "$staging" <<'PY'
+import hashlib
+import json
+import sys
+import zipfile
+from pathlib import Path, PurePosixPath
+
+archive = Path(sys.argv[1])
+staging = Path(sys.argv[2]).resolve()
+with zipfile.ZipFile(archive) as bundle:
+    for item in bundle.infolist():
+        path = PurePosixPath(item.filename)
+        if path.is_absolute() or ".." in path.parts:
+            raise SystemExit("Pilot backup contains an unsafe path")
+    bundle.extractall(staging)
+
+manifest_path = staging / "manifest.json"
+copy_manifest_path = staging / "PILOT_COPY_MANIFEST.json"
+database_path = staging / "database" / "open_ai_canvas.db"
+if not manifest_path.is_file() or not copy_manifest_path.is_file() or not database_path.is_file():
+    raise SystemExit("Pilot backup is incomplete")
+manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+copy_manifest = json.loads(copy_manifest_path.read_text(encoding="utf-8"))
+digest = hashlib.sha256(database_path.read_bytes()).hexdigest()
+if digest != manifest.get("database_sha256"):
+    raise SystemExit("Pilot backup database hash mismatch")
+if manifest.get("credentials_included") is not False:
+    raise SystemExit("Pilot backup credentials policy is invalid")
+if copy_manifest.get("credentials_copied") is not False or copy_manifest.get("nonempty_secret_field_count") != 0 or copy_manifest.get("finance_row_count") != 0:
+    raise SystemExit("Pilot backup project-copy safety contract is invalid")
+PY
+
+mkdir -p "$staging/WorkbenchData"
+mv "$staging/database/open_ai_canvas.db" "$staging/WorkbenchData/open_ai_canvas.db"
+mv "$staging/PILOT_COPY_MANIFEST.json" "$staging/WorkbenchData/PILOT_COPY_MANIFEST.json"
+if [ -d "$staging/resources" ]; then mv "$staging/resources" "$staging/WorkbenchData/resources"; fi
+mv "$staging/manifest.json" "$staging/WorkbenchData/RESTORE_RECEIPT.json"
+mv "$staging/WorkbenchData" "$restore_data_dir"
+trap - EXIT HUP INT TERM
+cleanup
+printf 'PILOT_BACKUP_RESTORE_VALIDATED data_dir=%s\n' "$restore_data_dir"

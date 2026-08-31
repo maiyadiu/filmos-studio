@@ -17,6 +17,7 @@ final class DesktopChatGPTRuntime: ChatGPTConnectionOperating {
     private let grantStoreURL: URL
     private let authorizationHeaderURL: URL
     private let tunnelHealthURLFile: URL
+    private let reviewBusHealthURL: URL
     private var startedServices: Set<ServiceID> = []
     private var activeTransportProof: String?
     private var grantExpiresAt: Date?
@@ -28,11 +29,14 @@ final class DesktopChatGPTRuntime: ChatGPTConnectionOperating {
         supervisor: ServiceSupervisor,
         helpersDirectory: URL,
         applicationRuntimeRoot: URL,
+        reviewBusDirectory: URL,
+        reviewBusHealthURL: URL,
         baseEnvironment: [String: String],
         tokenStore: any SecureTokenStoring = KeychainTokenStore()
     ) throws {
         self.supervisor = supervisor
         self.tokenStore = tokenStore
+        self.reviewBusHealthURL = reviewBusHealthURL
         tunnelClientURL = helpersDirectory.appendingPathComponent("tunnel-client")
         grantCLIURL = helpersDirectory.appendingPathComponent("FilmOSChatGPTGrant")
         runtimeDirectory = applicationRuntimeRoot.appendingPathComponent("ChatGPTConnection", isDirectory: true)
@@ -78,6 +82,7 @@ final class DesktopChatGPTRuntime: ChatGPTConnectionOperating {
         mcpEnvironment["FILMOS_CHATGPT_PORT"] = "17840"
         mcpEnvironment["FILMOS_CHATGPT_LOCAL_DIR"] = mcpDirectory.path
         mcpEnvironment["FILMOS_CORE_BASE_URL"] = "http://127.0.0.1:17650/film"
+        mcpEnvironment.merge(ReviewBusRuntimeContract.chatGPTReadEnvironment(reviewBusDirectory: reviewBusDirectory, healthURL: reviewBusHealthURL)) { _, review in review }
         mcpEnvironment["PWD"] = runtimeDirectory.path
         try supervisor.register(ServiceDefinition(
             id: chatGPTMCPServiceID,
@@ -118,6 +123,9 @@ final class DesktopChatGPTRuntime: ChatGPTConnectionOperating {
             self.activeProjectID = nil
         }
         let renewed = try await ensureGrant(projectID: projectID)
+        guard await Self.endpointReady(reviewBusHealthURL.absoluteString) else {
+            throw DesktopChatGPTRuntimeError.reviewBusUnavailable
+        }
         let mcpReady = await Self.endpointReady("http://127.0.0.1:17840/health")
         if mcpReady, activeTransportProof == transportProof, !renewed { return }
         if startedServices.contains(chatGPTMCPServiceID), case .running = supervisor.state(for: chatGPTMCPServiceID) {
@@ -606,6 +614,7 @@ enum DesktopChatGPTRuntimeError: Error, LocalizedError {
     case missingHelper(String)
     case portOwnedByAnotherProcess(Int)
     case serviceUnavailable
+    case reviewBusUnavailable
     case grantUnavailable
     case tunnelDoctorFailed
     case hostPayloadInvalid
@@ -631,6 +640,7 @@ enum DesktopChatGPTRuntimeError: Error, LocalizedError {
         case let .missingHelper(name): "应用缺少内置连接组件：\(name)。"
         case let .portOwnedByAnotherProcess(port): "FilmOS 专用端口 \(port) 已被其他进程占用。"
         case .serviceUnavailable: "Film Core 或 MCP 未在预期时间内就绪。"
+        case .reviewBusUnavailable: "Review Bus 未就绪，禁止启动缺失问题只读工具的 ChatGPT MCP。"
         case .grantUnavailable: "无法建立同一项目的只读 Project Grant。"
         case .tunnelDoctorFailed: "Secure Tunnel doctor 未通过。"
         case .hostPayloadInvalid: "ChatGPT Host 上下文格式无效。"

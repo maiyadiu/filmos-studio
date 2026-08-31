@@ -1,5 +1,6 @@
 import type { LocalRuntimeTransport } from "@/services/local-runtime";
 import { LocalRuntimeClientError } from "@/services/local-runtime-session";
+import type { CatalogEvidence } from "@filmos/generation-contracts";
 
 const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
 
@@ -117,7 +118,46 @@ function parseCatalogSnapshot(value: unknown) {
         root.models.length > 128
     )
         throw new Error("Dreamina model catalog is invalid");
-    return { accountBinding: root.accountBinding, sessionEpoch: root.sessionEpoch as number, models: root.models.map(parseModel) };
+    return {
+        accountBinding: root.accountBinding,
+        sessionEpoch: root.sessionEpoch as number,
+        evidence: parseCatalogEvidence(root.evidence),
+        models: root.models.map(parseModel),
+    };
+}
+
+function parseCatalogEvidence(value: unknown): CatalogEvidence {
+    const evidence = record(value);
+    if (!evidence || evidence.source !== "verified_static_version_bound") throw new Error("Dreamina model catalog evidence is invalid");
+    if (
+        typeof evidence.adapterVersion !== "string" || !evidence.adapterVersion ||
+        typeof evidence.supportedCliVersionRange !== "string" || !evidence.supportedCliVersionRange ||
+        !Array.isArray(evidence.sourceEvidence) || !evidence.sourceEvidence.length || evidence.sourceEvidence.some((item) => typeof item !== "string" || !item) ||
+        typeof evidence.manifestHash !== "string" || !/^[0-9a-f]{64}$/.test(evidence.manifestHash) ||
+        typeof evidence.cliVersion !== "string" || !/^[A-Za-z0-9._+-]{1,120}$/.test(evidence.cliVersion) ||
+        typeof evidence.cliCommit !== "string" || !/^[a-f0-9]{7,64}$/i.test(evidence.cliCommit) ||
+        typeof evidence.cliBuildTime !== "string" || !Number.isFinite(Date.parse(evidence.cliBuildTime)) ||
+        typeof evidence.executableSha256 !== "string" || !/^[0-9a-f]{64}$/.test(evidence.executableSha256) ||
+        typeof evidence.sourceLocatorId !== "string" || !/^dreamina-cli-executable:[0-9a-f]{64}$/.test(evidence.sourceLocatorId) ||
+        typeof evidence.catalogHash !== "string" || !/^[0-9a-f]{64}$/.test(evidence.catalogHash) ||
+        typeof evidence.verifiedAt !== "string" || !Number.isFinite(Date.parse(evidence.verifiedAt)) ||
+        typeof evidence.expiresAt !== "string" || !Number.isFinite(Date.parse(evidence.expiresAt)) || Date.parse(evidence.expiresAt) <= Date.parse(evidence.verifiedAt)
+    ) throw new Error("Dreamina model catalog evidence is invalid");
+    return {
+        source: "verified_static_version_bound",
+        adapterVersion: evidence.adapterVersion,
+        supportedCliVersionRange: evidence.supportedCliVersionRange,
+        sourceEvidence: [...evidence.sourceEvidence] as string[],
+        manifestHash: evidence.manifestHash,
+        cliVersion: evidence.cliVersion,
+        cliCommit: evidence.cliCommit,
+        cliBuildTime: evidence.cliBuildTime,
+        executableSha256: evidence.executableSha256,
+        sourceLocatorId: evidence.sourceLocatorId,
+        catalogHash: evidence.catalogHash,
+        verifiedAt: evidence.verifiedAt,
+        expiresAt: evidence.expiresAt,
+    };
 }
 
 function parseModel(value: unknown): DreaminaLocalModel {

@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "manifest_type": "filmos.pilot-base/v1",
+  "pilot_base_id": "PILOT_BASE_0",
+  "repository": "maiyadiu/filmos-studio",
+  "git_commit_sha": "6ea93bfa08381264a1379fe938ade3a7513c7bba",
+  "git_tree_sha": "51896f7874e21cc9868cb1bfa33b302cd323a925",
+  "source_fingerprint_sha256": "9e0ce3036ddb45ab5f8e211af0a04dd4d9cd0f6ad6f417c44d681ef9eb6cfb70",
+  "classification": "pilot_base_governance_freeze",
+  "governance_channel": "pilot",
+  "stable": false,
+  "rc1": false,
+  "installed_app": {
+    "logical_path": "$HOME/Applications/FilmOS Studio.app",
+    "source_identity_verified": true,
+    "runtime_schema_version": 2,
+    "runtime_profile": "integration",
+    "release_channel_embedded": false,
+    "external_paid_submit_gate_embedded": false,
+    "technical_paid_submit_gate": "policy_only_on_base",
+    "last_service_observation": "previously_verified_running_not_currently_asserted"
+  },
+  "pilot_policy": {
+    "formal_project_source": "formal-project-selected-aggregate-sanitized-copy-only",
+    "pilot_project_name_suffix": "-PILOT",
+    "minimum_scope": {
+      "content_units": 1,
+      "scenes_min": 1,
+      "scenes_max": 2,
+      "shots_min": 5,
+      "shots_max": 10
+    },
+    "daily_backup_required": true,
+    "external_paid_submit_policy": "forbidden",
+    "candidate_must_embed_fail_closed_gate": true,
+    "external_network_requests_during_enablement": 0,
+    "openai_model_api_calls": 0,
+    "asset_uploads": 0,
+    "external_project_creations": 0
+  },
+  "allowed_capabilities": [
+    "project-and-content-unit-management",
+    "script-and-asset-editing",
+    "canvas-and-agent-collaboration",
+    "chatgpt-readonly-review",
+    "generation-preview",
+    "route-policy-lock-configuration",
+    "mock-provider-loop",
+    "backup-and-restart-recovery"
+  ],
+  "forbidden_capabilities": [
+    "batch-paid-generation",
+    "unattended-provider-submit",
+    "formal-project-only-copy-migration",
+    "automatic-external-project-creation",
+    "large-scale-asset-upload",
+    "unreviewed-database-migration",
+    "main-merge",
+    "rc1-tag"
+  ],
+  "immutable": true
+}

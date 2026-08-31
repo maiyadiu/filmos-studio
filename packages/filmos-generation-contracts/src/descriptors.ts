@@ -68,7 +68,10 @@ function stableCatalogEvidence(evidence: CatalogEvidence): Record<string, unknow
     if (evidence.source === "remote_catalog") return { source: evidence.source, ...(evidence.etag ? { etag: evidence.etag } : {}) };
     if (evidence.source === "verified_static_version_bound") return {
         source: evidence.source, adapterVersion: evidence.adapterVersion,
-        supportedCliVersionRange: evidence.supportedCliVersionRange, manifestHash: evidence.manifestHash, expiresAt: evidence.expiresAt,
+        supportedCliVersionRange: evidence.supportedCliVersionRange, manifestHash: evidence.manifestHash,
+        cliVersion: evidence.cliVersion, cliCommit: evidence.cliCommit, cliBuildTime: evidence.cliBuildTime,
+        executableSha256: evidence.executableSha256, sourceLocatorId: evidence.sourceLocatorId, catalogHash: evidence.catalogHash,
+        expiresAt: evidence.expiresAt,
     };
     return { source: evidence.source, enteredByActorRef: evidence.enteredByActorRef };
 }

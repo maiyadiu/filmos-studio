@@ -46,7 +46,7 @@ if [ "$CLEAN" = "1" ]; then
         "$ROOT/acceptance/verify_release_manifest.py" \
         "$RELEASE_MANIFEST" "$RECEIPT"
     "$ROOT/.local/acceptance-venv/bin/python" \
-        "$ROOT/acceptance/build_brain_generation_handoff.py" \
+        "$ROOT/acceptance/build_use_driven_dual_expert_handoff.py" \
         --receipt "$RECEIPT" \
         --release-manifest "$RELEASE_MANIFEST" \
         --artifact-root "$HANDOFF_ARTIFACT_ROOT"

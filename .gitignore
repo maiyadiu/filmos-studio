@@ -27,6 +27,7 @@ __pycache__/
 *.sqlite3
 *.bak
 *.tmp
+.*.bun-build
 /*.drawio.bkp
 /prompt-preferences-*-before.png
 /prompt*-before.png

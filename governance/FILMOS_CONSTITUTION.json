@@ -1,0 +1,25 @@
+{
+  "schema_version": "filmos.constitution.v1",
+  "constitution_version": "1.1.0",
+  "principles": [
+    {"id":"C-01","rule":"FilmOS starts with script creation and refinement, not only storyboards."},
+    {"id":"C-02","rule":"Projects and content units remain visually manageable."},
+    {"id":"C-03","rule":"Every ContentUnit can open its own infinite canvas."},
+    {"id":"C-04","rule":"Canvas, director controls, and production workflows remain integrated."},
+    {"id":"C-05","rule":"Local-first is the default; remote mode is explicit."},
+    {"id":"C-06","rule":"AI Brains are replaceable; FilmOS is their eyes and hands."},
+    {"id":"C-07","rule":"AI Brains and Generation Engines are separate domains."},
+    {"id":"C-08","rule":"Characters, wardrobe, scenes, architecture, style, space, and model versions can be locked."},
+    {"id":"C-09","rule":"Generation passes Route, Receipt, Candidate, QC, and Approved boundaries."},
+    {"id":"C-10","rule":"FilmOS permits no second data authority, Candidate authority, or Tool Broker."},
+    {"id":"C-11","rule":"Paid, upload, external-project, and irreversible actions require human confirmation."},
+    {"id":"C-12","rule":"Preserve Yingce upstream mergeability through adapters and extensions."},
+    {"id":"C-13","rule":"Real use takes priority over abstract feature accumulation."},
+    {"id":"C-14","rule":"Codex and ChatGPT jointly maintain FilmOS with distinct responsibilities."},
+    {"id":"C-15","rule":"Small reversible issues use Fast Lane; core issues require consensus; architecture changes use formal evolution."},
+    {"id":"C-16","rule":"Users decide product trade-offs and authorize high-risk actions; they do not shuttle engineering evidence."}
+  ],
+  "required_bindings": ["IssueSession","ConsensusRecord","TaskPackage","ReviewCandidate","PilotRelease"],
+  "amendment_lane": "architecture",
+  "content_hash": "a61228c66e931cb977928f4d2864ab6556f3fcd163479e31ccebbc6fccf39d41"
+}

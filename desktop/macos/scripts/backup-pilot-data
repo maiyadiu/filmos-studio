@@ -1,0 +1,74 @@
+#!/bin/sh
+set -eu
+
+usage() {
+    echo "usage: backup-pilot-data --pilot-data-dir <absolute WorkbenchData> [--backup-root <absolute directory>]" >&2
+    exit 2
+}
+
+pilot_data_dir=
+backup_root=
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --pilot-data-dir) [ "$#" -ge 2 ] || usage; pilot_data_dir=$2; shift 2 ;;
+        --backup-root) [ "$#" -ge 2 ] || usage; backup_root=$2; shift 2 ;;
+        *) usage ;;
+    esac
+done
+[ -n "$pilot_data_dir" ] || usage
+python_executable=$(command -v python3 || true)
+sqlite_executable=$(command -v sqlite3 || true)
+[ -x "$python_executable" ] && [ -x "$sqlite_executable" ] || { echo "python3 and sqlite3 are required" >&2; exit 1; }
+user_home=$($python_executable -c 'from pathlib import Path; print(Path.home().resolve())')
+allowed_root=${FILMOS_PILOT_SUPPORT_ROOT:-"$user_home/Library/Application Support/FilmOS Studio Pilot"}
+case "$allowed_root" in /*) ;; *) echo "Pilot support root must be absolute" >&2; exit 2 ;; esac
+[ -n "$backup_root" ] || backup_root="$allowed_root/AutoBackups"
+case "$pilot_data_dir:$backup_root" in
+    "$allowed_root"/WorkbenchData:"$allowed_root"/AutoBackups|"$allowed_root"/WorkbenchData:"$allowed_root"/AutoBackups/*) ;;
+    *) echo "Pilot data and backup directories must remain under the FilmOS Studio Pilot support root" >&2; exit 2 ;;
+esac
+[ -f "$pilot_data_dir/open_ai_canvas.db" ] || { echo "Pilot database is missing" >&2; exit 1; }
+[ -f "$pilot_data_dir/PILOT_COPY_MANIFEST.json" ] || { echo "Pilot copy manifest is missing" >&2; exit 1; }
+"$python_executable" - "$pilot_data_dir/PILOT_COPY_MANIFEST.json" <<'PY'
+import json
+import sys
+manifest = json.load(open(sys.argv[1], encoding="utf-8"))
+if manifest.get("credentials_copied") is not False or manifest.get("nonempty_secret_field_count") != 0 or manifest.get("finance_row_count") != 0:
+    raise SystemExit("Pilot copy safety contract is not satisfied")
+PY
+mkdir -p "$backup_root"
+timestamp=$(date -u '+%Y%m%dT%H%M%SZ')
+staging=$(mktemp -d "$backup_root/.pilot-backup.XXXXXX")
+cleanup() {
+    find "$staging" -type f -delete 2>/dev/null || true
+    find "$staging" -depth -type d -empty -delete 2>/dev/null || true
+}
+trap cleanup EXIT HUP INT TERM
+mkdir -p "$staging/database"
+"$sqlite_executable" "$pilot_data_dir/open_ai_canvas.db" ".backup '$staging/database/open_ai_canvas.db'"
+if [ -d "$pilot_data_dir/resources" ]; then /usr/bin/ditto "$pilot_data_dir/resources" "$staging/resources"; fi
+install -m 0600 "$pilot_data_dir/PILOT_COPY_MANIFEST.json" "$staging/PILOT_COPY_MANIFEST.json"
+database_hash=$(shasum -a 256 "$staging/database/open_ai_canvas.db" | awk '{print $1}')
+PILOT_DATABASE_HASH="$database_hash" PILOT_BACKUP_AT=$(date -u '+%Y-%m-%dT%H:%M:%SZ') "$python_executable" - "$staging/manifest.json" <<'PY'
+import json
+import os
+import sys
+from pathlib import Path
+
+payload = {
+    "schema_version": 1,
+    "format": "filmos.pilot-auto-backup/v1",
+    "database": "database/open_ai_canvas.db",
+    "database_sha256": os.environ["PILOT_DATABASE_HASH"],
+    "created_at": os.environ["PILOT_BACKUP_AT"],
+    "external_network_requests": 0,
+    "credentials_included": False,
+}
+Path(sys.argv[1]).write_text(json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+PY
+archive="$backup_root/FilmOS-Pilot-$timestamp.filmosbackup"
+(cd "$staging" && /usr/bin/zip -X -q -r "$archive" .)
+archive_hash=$(shasum -a 256 "$archive" | awk '{print $1}')
+trap - EXIT HUP INT TERM
+cleanup
+printf 'PILOT_BACKUP_READY archive=%s sha256=%s\n' "$archive" "$archive_hash"

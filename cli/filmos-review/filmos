@@ -1,0 +1,63 @@
+#!/usr/bin/env node
+import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { resolve } from "node:path";
+
+import { CodexReviewWatcher } from "./src/watcher.mjs";
+
+const [domain, action, ...argv] = process.argv.slice(2);
+const flags = parseFlags(argv);
+const baseUrl = process.env.FILMOS_REVIEW_BUS_BASE_URL ?? "http://127.0.0.1:17920";
+const tokenPath = resolve(process.env.FILMOS_REVIEW_BUS_AUTH_FILE ?? resolve(homedir(), "Library/Application Support/FilmOS Studio/review-bus/review-bus.token"));
+const token = process.env.FILMOS_REVIEW_BUS_TOKEN ?? (existsSync(tokenPath) ? readFileSync(tokenPath, "utf8").trim() : "");
+if (token.length < 24) fail("FILMOS_REVIEW_BUS_TOKEN_REQUIRED");
+
+try {
+  const output = await dispatch(domain, action, flags);
+  if (output !== undefined) process.stdout.write(`${JSON.stringify(output, null, 2)}\n`);
+} catch (error) { fail(error.message); }
+
+async function dispatch(scope, command, options) {
+  if (scope === "issue" && command === "create") return request("POST", "/v1/issues", readInput(options));
+  if (scope === "issue" && command === "capture") return request("POST", issuePath(options, "evidence/freeze"), readInput(options));
+  if (scope === "issue" && command === "assess-local") return request("POST", issuePath(options, "assessments/codex"), readInput(options));
+  if (scope === "issue" && command === "status") return request("GET", issuePath(options, "", true));
+  if (scope === "review" && command === "submit-candidate") return request("POST", issuePath(options, "candidates"), readInput(options));
+  if (scope === "review" && command === "findings") return request("GET", reviewPath(options, "findings"));
+  if (scope === "review" && command === "respond") return request("POST", issuePath(options, "finding-responses"), readInput(options));
+  if (scope === "review" && command === "next-pilot") {
+    const value = await request("GET", issuePath(options, "", true));
+    return { issue_id: value.issue_id, state: value.state, next_pilot_allowed: value.next_pilot_allowed, dual_signoff: value.dual_signoff ?? null };
+  }
+  if (scope === "review" && command === "watch") {
+    const projectId = required(options.project, "--project");
+    const watcher = new CodexReviewWatcher({ baseUrl, token, projectId, intervalMs: Number(options.interval ?? 2_000) });
+    const controller = new AbortController();
+    process.once("SIGINT", () => controller.abort());
+    await watcher.watch((issue) => process.stdout.write(`${JSON.stringify({ event: "review.changed", issue })}\n`), controller.signal).catch((error) => { if (!controller.signal.aborted) throw error; });
+    return undefined;
+  }
+  if (scope === "architecture" && command === "create") return request("POST", "/v1/issues", { ...readInput(options), lane: "architecture" });
+  if (scope === "architecture" && command === "options") return request("POST", issuePath(options, "architecture/options"), readInput(options));
+  if (scope === "architecture" && command === "status") return request("GET", issuePath(options, "", true));
+  fail("USAGE: filmos issue create|capture|assess-local|status; filmos review submit-candidate|findings|respond|watch|next-pilot; filmos architecture create|options|status");
+}
+
+async function request(method, path, body) {
+  const url = new URL(path, baseUrl);
+  const response = await fetch(url, { method, headers: { authorization: `Bearer ${token}`, ...(body ? { "content-type": "application/json" } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) });
+  const value = await response.json();
+  if (!response.ok) throw new Error(value.code ?? "REVIEW_BUS_REQUEST_FAILED");
+  return value;
+}
+
+function issuePath(options, suffix, withProject = false) {
+  const issue = encodeURIComponent(required(options.issue, "--issue"));
+  const path = `/v1/issues/${issue}${suffix ? `/${suffix}` : ""}`;
+  return withProject ? `${path}?project_id=${encodeURIComponent(required(options.project, "--project"))}` : path;
+}
+function reviewPath(options, suffix) { return `/v1/review/issues/${encodeURIComponent(required(options.issue, "--issue"))}/${suffix}?project_id=${encodeURIComponent(required(options.project, "--project"))}`; }
+function readInput(options) { const path = required(options.json, "--json"); return JSON.parse(readFileSync(resolve(path), "utf8")); }
+function required(value, label) { if (!value) throw new Error(`${label}_REQUIRED`); return value; }
+function parseFlags(values) { const result = {}; for (let i = 0; i < values.length; i += 2) { if (!values[i].startsWith("--")) fail(`INVALID_FLAG_${values[i]}`); result[values[i].slice(2)] = values[i + 1]; } return result; }
+function fail(message) { process.stderr.write(`${message}\n`); process.exit(1); }

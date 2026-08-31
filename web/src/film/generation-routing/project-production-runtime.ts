@@ -1,5 +1,7 @@
 import {
     hashProjection,
+    migrateProjectGenerationPolicyV1ToV2,
+    assertProjectGenerationPolicyV2,
     type BudgetLedger,
     type GenerationBudgetGrant,
     type GenerationCatalogSnapshot,
@@ -10,6 +12,7 @@ import {
     type ProjectBrainPolicy,
     type ProjectGenerationLock,
     type ProjectGenerationPolicy,
+    type ProjectGenerationPolicyV2,
 } from "@filmos/generation-contracts";
 
 import { hashCanvasAgentSnapshot, type CanvasAgentSnapshot } from "@/lib/canvas/canvas-agent-ops";
@@ -18,12 +21,14 @@ import { FilmCoreHttpProductionGenerationAuthority } from "./film-core-productio
 import { BoundProductionGenerationProviderAdapter, type ProductionProviderAdapterBinding } from "./production-provider-adapters";
 import {
     ProductionGenerationService,
+    productionProviderKey,
     type ProductionAuthorizedCommand,
     type ProductionGenerationProviderAdapter,
     type ProductionPreviewBundle,
 } from "./production-composition";
 
-export type ProjectProductionBindings = {
+export type ProjectProductionBindingsV1 = {
+    schemaVersion?: 1;
     brainPolicy?: ProjectBrainPolicy;
     connection: GenerationEngineConnection;
     catalog: GenerationCatalogSnapshot;
@@ -32,6 +37,18 @@ export type ProjectProductionBindings = {
     grant: GenerationBudgetGrant;
     ledger: BudgetLedger;
 };
+
+export type ProjectProductionBindingsV2 = {
+    schemaVersion: 2;
+    brainPolicy?: ProjectBrainPolicy;
+    connections: GenerationEngineConnection[];
+    catalogs: GenerationCatalogSnapshot[];
+    projectPolicy: ProjectGenerationPolicyV2;
+    grants: GenerationBudgetGrant[];
+    ledgers: BudgetLedger[];
+};
+
+export type ProjectProductionBindings = ProjectProductionBindingsV1 | ProjectProductionBindingsV2;
 
 export type ProjectProductionFixture = {
     bindings: ProjectProductionBindings;
@@ -63,12 +80,12 @@ export async function createProjectProductionFixture(input: {
         input.fetchImpl,
     );
     if (input.proposedBindings) {
-        bindings = await authority.ensureProjectAuthority(authorityProjectId, input.projectName, input.proposedBindings);
+        bindings = await normalizeProjectProductionBindings(await authority.ensureProjectAuthority(authorityProjectId, input.projectName, input.proposedBindings));
     } else {
         const stored = await authority.loadProjectAuthority<ProjectProductionBindings>(authorityProjectId);
         if (!stored) throw new Error("PROJECT_GENERATION_AUTHORITY_NOT_CONFIGURED");
         if (stored.projectName !== input.projectName) throw new Error("FILM_CORE_PROJECT_AUTHORITY_NAME_MISMATCH");
-        bindings = stored.bindings;
+        bindings = await normalizeProjectProductionBindings(stored.bindings);
     }
     assertProjectBindings(authorityProjectId, bindings);
     const providers = input.providers ?? defaultProviderMap(bindings);
@@ -88,13 +105,10 @@ export async function createProjectProductionFixture(input: {
             const taskKind = taskKindForMode(command.mode || node.metadata?.generationMode || "image", references.length > 0);
             const route = nodeRoute(node) ?? bindings!.projectPolicy.defaultRoutes[taskKind];
             if (!route) throw new Error("GENERATION_ROUTE_NEEDS_CONFIGURATION");
-            if (route.engineId !== bindings!.connection.engineId || route.connectionId !== bindings!.connection.connectionId) {
-                throw new Error("PROJECT_GENERATION_ROUTE_AUTHORITY_MISMATCH");
-            }
+            const routeAuthority = authorityForRoute(bindings!, route);
             const draftVersion = node.metadata?.generationDraftVersion || 0;
             const promptHash = await promptDraftHash(prompt);
             const guardStateHash = await projectCanvasGuardHash(snapshot, command.nodeId);
-            const guards = projectExecutionGuards(snapshot, command.nodeId, draftVersion, promptHash, guardStateHash, references, bindings!);
             return service.preview({
                 projectId: authorityProjectId,
                 projectName: command.projectName,
@@ -103,9 +117,9 @@ export async function createProjectProductionFixture(input: {
                 taskKind,
                 explicitTask: route,
                 projectPolicy: bindings!.projectPolicy,
-                projectLock: bindings!.projectLock,
-                connection: bindings!.connection,
-                catalog: bindings!.catalog,
+                projectLock: undefined,
+                connection: routeAuthority.connection,
+                catalog: routeAuthority.catalog,
                 promptIntent: {
                     subject: [prompt],
                     identityLocks: references.filter((reference) => reference.hardLock).map((reference) => reference.assetVersionId),
@@ -121,7 +135,7 @@ export async function createProjectProductionFixture(input: {
                 promptDraftContentHash: promptHash,
                 nodeDraftVersion: draftVersion,
                 userConfigRevision: command.userConfigRevision,
-                guards,
+                guards: projectExecutionGuards(snapshot, command.nodeId, draftVersion, promptHash, guardStateHash, references, bindings!, routeAuthority),
             });
         },
     };
@@ -129,38 +143,49 @@ export async function createProjectProductionFixture(input: {
 
 export function createProjectAuthorizedCommand(
     fixture: ProjectProductionFixture,
-    input: Omit<ProductionAuthorizedCommand, "grant" | "ledger" | "submitNotAfter"> & { confirmedAt: string },
+    input: Omit<ProductionAuthorizedCommand, "grant" | "ledger" | "submitNotAfter"> & { confirmedAt: string; connectionId?: string },
 ): ProductionAuthorizedCommand {
+    const budget = budgetAuthority(fixture.bindings, input.connectionId);
     return {
         ...input,
-        grant: fixture.bindings.grant,
-        ledger: fixture.bindings.ledger,
+        grant: budget.grant,
+        ledger: budget.ledger,
         submitNotAfter: new Date(Date.parse(input.confirmedAt) + 15 * 60 * 1000).toISOString(),
     };
 }
 
 function defaultProviderMap(bindings: ProjectProductionBindings): ReadonlyMap<string, ProductionGenerationProviderAdapter> {
-    const adapter = new BoundProductionGenerationProviderAdapter({
-        engineId: bindings.connection.engineId as ProductionProviderAdapterBinding["engineId"],
-        connection: bindings.connection,
-        catalog: bindings.catalog,
-        supportsHardLockedReferences: bindings.connection.engineId !== "manual_web",
-    });
-    return new Map([[adapter.engineId, adapter]]);
+    const authorities = isV2Bindings(bindings)
+        ? bindings.connections.map((connection) => authorityForRoute(bindings, { engineId: connection.engineId, connectionId: connection.connectionId }))
+        : [{ connection: bindings.connection, catalog: bindings.catalog }];
+    return new Map(authorities.map(({ connection, catalog }) => {
+        const adapter = new BoundProductionGenerationProviderAdapter({
+            engineId: connection.engineId as ProductionProviderAdapterBinding["engineId"],
+            connection,
+            catalog,
+            supportsHardLockedReferences: connection.engineId !== "manual_web",
+        });
+        return [productionProviderKey(connection.engineId, connection.connectionId), adapter] as const;
+    }));
 }
 
 function assertProjectBindings(projectId: string, bindings: ProjectProductionBindings) {
-    if (bindings.projectPolicy.projectId !== projectId || bindings.grant.projectId !== projectId || bindings.ledger.projectId !== projectId) {
+    const grants = isV2Bindings(bindings) ? bindings.grants : [bindings.grant];
+    const ledgers = isV2Bindings(bindings) ? bindings.ledgers : [bindings.ledger];
+    const connections = isV2Bindings(bindings) ? bindings.connections : [bindings.connection];
+    const catalogs = isV2Bindings(bindings) ? bindings.catalogs : [bindings.catalog];
+    if (bindings.projectPolicy.projectId !== projectId || grants.some((item) => item.projectId !== projectId) || ledgers.some((item) => item.projectId !== projectId)) {
         throw new Error("PROJECT_GENERATION_AUTHORITY_SCOPE_MISMATCH");
     }
-    if (bindings.projectLock && bindings.projectLock.projectId !== projectId) throw new Error("PROJECT_GENERATION_LOCK_SCOPE_MISMATCH");
+    if (!isV2Bindings(bindings) && bindings.projectLock && bindings.projectLock.projectId !== projectId) throw new Error("PROJECT_GENERATION_LOCK_SCOPE_MISMATCH");
     if (bindings.brainPolicy && bindings.brainPolicy.projectId !== projectId) throw new Error("PROJECT_BRAIN_POLICY_SCOPE_MISMATCH");
-    if (bindings.connection.engineId !== bindings.catalog.engineId || bindings.connection.connectionId !== bindings.catalog.connectionId) {
-        throw new Error("PROJECT_GENERATION_CATALOG_CONNECTION_MISMATCH");
+    if (isV2Bindings(bindings)) assertProjectGenerationPolicyV2(bindings.projectPolicy);
+    for (const connection of connections) authorityForRoute(bindings, { engineId: connection.engineId, connectionId: connection.connectionId });
+    for (const grant of grants) {
+        const ledger = ledgers.find((item) => item.grantId === grant.grantId);
+        if (!ledger || ledger.engineId !== grant.engineId || ledger.connectionId !== grant.connectionId) throw new Error("PROJECT_GENERATION_BUDGET_SCOPE_MISMATCH");
     }
-    if (bindings.grant.grantId !== bindings.ledger.grantId || bindings.grant.engineId !== bindings.connection.engineId) {
-        throw new Error("PROJECT_GENERATION_BUDGET_SCOPE_MISMATCH");
-    }
+    if (catalogs.length !== connections.length) throw new Error("PROJECT_GENERATION_CATALOG_CONNECTION_MISMATCH");
 }
 
 function requireBindings(bindings: ProjectProductionBindings | undefined): ProjectProductionBindings {
@@ -203,19 +228,70 @@ function projectExecutionGuards(
     guardStateHash: string,
     references: readonly GenerationReferenceBinding[],
     bindings: ProjectProductionBindings,
+    routeAuthority: ReturnType<typeof authorityForRoute>,
 ): GenerationExecutionGuardSet {
     return {
         primaryTarget: { guardKind: "canvas_state", canvasId: snapshot.projectId, nodeId, expectedRevision: draftVersion, expectedStateHash: guardStateHash },
         promptDraft: { guardKind: "versioned_entity", entityType: "prompt_draft", entityId: nodeId, expectedVersion: draftVersion, expectedContentHash: promptHash },
         projectPolicy: versionedGuard("project_generation_policy", bindings.projectPolicy.projectId, bindings.projectPolicy),
-        engineConnection: versionedGuard("generation_engine_connection", bindings.connection.connectionId, bindings.connection),
-        ...(bindings.projectLock ? { projectLock: versionedGuard("project_generation_lock", bindings.projectLock.projectId, bindings.projectLock) } : {}),
-        budgetGrant: versionedGuard("generation_budget_grant", bindings.grant.grantId, bindings.grant),
+        engineConnection: versionedGuard("generation_engine_connection", routeAuthority.connection.connectionId, routeAuthority.connection),
+        ...(!isV2Bindings(bindings) && bindings.projectLock ? { projectLock: versionedGuard("project_generation_lock", bindings.projectLock.projectId, bindings.projectLock) } : {}),
+        budgetGrant: versionedGuard("generation_budget_grant", routeAuthority.grant.grantId, routeAuthority.grant),
         dependencies: [
-            { guardKind: "versioned_entity", entityType: "generation_catalog_snapshot", entityId: bindings.catalog.snapshotId, expectedVersion: 1, expectedContentHash: bindings.catalog.contentHash },
+            { guardKind: "versioned_entity", entityType: "generation_catalog_snapshot", entityId: routeAuthority.catalog.snapshotId, expectedVersion: 1, expectedContentHash: routeAuthority.catalog.contentHash },
             ...references.map((reference) => ({ guardKind: "versioned_entity" as const, entityType: "asset_version", entityId: reference.assetVersionId, expectedVersion: 1, expectedContentHash: reference.assetVersionContentHash })),
         ],
     };
+}
+
+export async function normalizeProjectProductionBindings(bindings: ProjectProductionBindings): Promise<ProjectProductionBindingsV2> {
+    if (isV2Bindings(bindings)) {
+        assertProjectBindings(bindings.projectPolicy.projectId, bindings);
+        return structuredClone(bindings);
+    }
+    const policy = bindings.projectPolicy.schemaVersion === 2
+        ? bindings.projectPolicy
+        : await migrateProjectGenerationPolicyV1ToV2(bindings.projectPolicy, {
+            budgetGrantIdsByConnection: { [bindings.connection.connectionId]: bindings.grant.grantId },
+            projectLock: bindings.projectLock,
+            connectionIdByEngine: { [bindings.connection.engineId]: bindings.connection.connectionId },
+        });
+    const migrated: ProjectProductionBindingsV2 = {
+        schemaVersion: 2,
+        ...(bindings.brainPolicy ? { brainPolicy: structuredClone(bindings.brainPolicy) } : {}),
+        connections: [structuredClone(bindings.connection)],
+        catalogs: [structuredClone(bindings.catalog)],
+        projectPolicy: policy,
+        grants: [structuredClone(bindings.grant)],
+        ledgers: [structuredClone(bindings.ledger)],
+    };
+    assertProjectBindings(policy.projectId, migrated);
+    return migrated;
+}
+
+export function isV2Bindings(bindings: ProjectProductionBindings): bindings is ProjectProductionBindingsV2 {
+    return bindings.schemaVersion === 2 && Array.isArray((bindings as ProjectProductionBindingsV2).connections);
+}
+
+function authorityForRoute(bindings: ProjectProductionBindings, route: { engineId: string; connectionId: string }) {
+    const connections = isV2Bindings(bindings) ? bindings.connections : [bindings.connection];
+    const catalogs = isV2Bindings(bindings) ? bindings.catalogs : [bindings.catalog];
+    const connection = connections.find((item) => item.engineId === route.engineId && item.connectionId === route.connectionId);
+    const catalog = catalogs.find((item) => item.engineId === route.engineId && item.connectionId === route.connectionId);
+    if (!connection || !catalog) throw new Error("PROJECT_GENERATION_ROUTE_AUTHORITY_MISMATCH");
+    const budget = budgetAuthority(bindings, route.connectionId);
+    return { connection, catalog, ...budget };
+}
+
+function budgetAuthority(bindings: ProjectProductionBindings, connectionId?: string) {
+    if (!isV2Bindings(bindings)) return { grant: bindings.grant, ledger: bindings.ledger };
+    const resolvedConnectionId = connectionId ?? (bindings.connections.length === 1 ? bindings.connections[0]!.connectionId : undefined);
+    if (!resolvedConnectionId) throw new Error("PROJECT_GENERATION_BUDGET_CONNECTION_REQUIRED");
+    const grantId = bindings.projectPolicy.budgetGrantIdsByConnection[resolvedConnectionId];
+    const grant = bindings.grants.find((item) => item.grantId === grantId && item.connectionId === resolvedConnectionId);
+    const ledger = bindings.ledgers.find((item) => item.grantId === grantId && item.connectionId === resolvedConnectionId);
+    if (!grant || !ledger) throw new Error("PROJECT_GENERATION_BUDGET_SCOPE_MISMATCH");
+    return { grant, ledger };
 }
 
 function versionedGuard<const E extends string, T extends { entityVersion: number; contentHash: string }>(entityType: E, entityId: string, record: T) {

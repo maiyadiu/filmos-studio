@@ -14,6 +14,7 @@ import {
   createGenerationRouteSnapshot,
   createInlineDescriptorReceipt,
   createPseudonymousBindingRef,
+  createLocalHmacBindingRef,
   createRedactionReceipt,
   decideLocalConfigMigration,
   exactSelectedDescriptors,
@@ -27,6 +28,8 @@ import {
   hashProjectGenerationLock,
   hashProjectGenerationPolicy,
   hashGenerationReferences,
+  migrateProjectGenerationPolicyV1ToV2,
+  readProjectGenerationPolicyV2,
   selectEffectiveBrainProfile,
   assertGenerationEngineConnectionInvariant,
 } from "../dist/index.js";
@@ -80,6 +83,20 @@ test("account scoped generation connection cannot be ready without account bindi
   const connection = { schemaVersion: 1, entityVersion: 1, contentHash: "h", createdAt: at, updatedAt: at, connectionId: "dreamina-local", engineId: "dreamina_cli", enabled: true, authScope: "account", status: "ready", connectionInstanceRef: instance };
   assert.throws(() => assertGenerationEngineConnectionInvariant(connection), /ACCOUNT_BINDING/);
   assert.doesNotThrow(() => assertGenerationEngineConnectionInvariant({ ...connection, accountBindingRef: account }));
+});
+
+test("account reference uses a local-secret HMAC and never exposes or ordinary-hashes the source", async () => {
+  const secretA = new Uint8Array(32).fill(7);
+  const secretB = new Uint8Array(32).fill(8);
+  const source = "private-provider-account@example.invalid";
+  const first = await createLocalHmacBindingRef({ secret: secretA, namespace: "dreamina_cli", sourceBinding: source });
+  const repeated = await createLocalHmacBindingRef({ secret: secretA, namespace: "dreamina_cli", sourceBinding: source });
+  const rotatedMachine = await createLocalHmacBindingRef({ secret: secretB, namespace: "dreamina_cli", sourceBinding: source });
+  assert.equal(first, repeated);
+  assert.notEqual(first, rotatedMachine);
+  assert.doesNotMatch(first, /private|provider|example/i);
+  assert.match(first, /^filmos_acct_[0-9a-f-]{36}$/);
+  await assert.rejects(createLocalHmacBindingRef({ secret: new Uint8Array(16), namespace: "dreamina_cli", sourceBinding: source }), /SECRET_INVALID/);
 });
 
 function catalog() {
@@ -189,4 +206,60 @@ test("project policy and strict model lock fail closed without silent engine or 
   const lock = { ...lockBase, contentHash: await hashProjectGenerationLock(lockBase) };
   assert.deepEqual(assertProjectGenerationLock(lock, "text_to_image", route, receipt.payload.selectedDescriptors.map(({ descriptor, ...ref }) => ref), { providerModelId: "image-v1", modelVersion: "1", catalogRevision: "r1" }), { enforcement: "strict", warnings: [] });
   assert.throws(() => assertProjectGenerationLock(lock, "text_to_image", { ...route, modelId: "dreamina_cli::image-v2" }, receipt.payload.selectedDescriptors.map(({ descriptor, ...ref }) => ref), { providerModelId: "image-v2", modelVersion: "2", catalogRevision: "r2" }), /LOCKED_MODEL_UNAVAILABLE/);
+});
+
+test("ProjectGenerationPolicy V1 migrates losslessly to multi-connection V2 and the reader keeps V1 rollback compatibility", async () => {
+  const v1Base = {
+    schemaVersion: 1,
+    entityVersion: 3,
+    projectId: "project-v1",
+    allowedEngineIds: ["dreamina_cli", "runninghub"],
+    defaultRoutes: {
+      text_to_image: { engineId: "dreamina_cli", connectionId: "dreamina-a", modelId: "seedream-v1" },
+      text_to_video: { engineId: "dreamina_cli", connectionId: "dreamina-b", modelId: "seedance-v1" },
+      workflow: { engineId: "runninghub", connectionId: "runninghub-a", workflowId: "workflow-a" },
+    },
+    externalProjectBindings: {
+      runninghub: { connectionId: "runninghub-a", externalProjectId: "external-existing", bindingVersion: 2 },
+    },
+    uploadPolicy: { allowProviderUpload: false, requirePerSubmitPreview: true },
+    createdAt: at,
+    updatedAt: at,
+  };
+  const v1 = { ...v1Base, contentHash: await hashProjectGenerationPolicy(v1Base) };
+  const projectLock = {
+    schemaVersion: 1,
+    entityVersion: 1,
+    projectId: "project-v1",
+    taskLocks: { text_to_image: { engineId: "dreamina_cli", connectionId: "dreamina-a", modelId: "seedream-v1", enforcement: "strict" } },
+    createdAt: at,
+    updatedAt: at,
+    contentHash: "legacy-lock-hash",
+  };
+  const migration = {
+    budgetGrantIdsByConnection: {
+      "dreamina-a": "grant-dreamina-a",
+      "dreamina-b": "grant-dreamina-b",
+      "runninghub-a": "grant-runninghub-a",
+    },
+    projectLock,
+  };
+  const v2 = await migrateProjectGenerationPolicyV1ToV2(v1, migration);
+  assert.equal(v2.schemaVersion, 2);
+  assert.deepEqual(v2.allowedConnections, [
+    { engineId: "dreamina_cli", connectionId: "dreamina-a" },
+    { engineId: "dreamina_cli", connectionId: "dreamina-b" },
+    { engineId: "runninghub", connectionId: "runninghub-a" },
+  ]);
+  assert.deepEqual(v2.defaultRoutes, v1.defaultRoutes);
+  assert.deepEqual(v2.externalProjectBindings.runninghub, [{ connectionId: "runninghub-a", externalProjectId: "external-existing", bindingVersion: 2 }]);
+  assert.equal(v2.modelLocksByTask.text_to_image.modelId, "seedream-v1");
+  assert.equal(v2.budgetGrantIdsByConnection["dreamina-b"], "grant-dreamina-b");
+  assert.doesNotThrow(() => assertProjectGenerationPolicy(v2, { ...v1.defaultRoutes.text_to_video, taskKind: "text_to_video" }));
+  assert.throws(() => assertProjectGenerationPolicy(v2, { ...v1.defaultRoutes.text_to_video, connectionId: "dreamina-c", taskKind: "text_to_video" }), /CONNECTION_NOT_ALLOWED/);
+  const rollbackRead = await readProjectGenerationPolicyV2({ current: v1, migration });
+  assert.equal(rollbackRead.source, "v1_migrated");
+  assert.equal(rollbackRead.policy.contentHash, v2.contentHash);
+  const directRead = await readProjectGenerationPolicyV2({ current: v2, migration });
+  assert.equal(directRead.source, "v2");
 });

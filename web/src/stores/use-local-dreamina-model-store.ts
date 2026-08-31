@@ -15,6 +15,7 @@ type Dependencies = {
 type State = {
     state: "idle" | "loading" | "ready" | "error";
     models: DreaminaLocalModel[];
+    snapshot: CatalogSnapshot | null;
     cacheScope?: string;
     sync(signal?: AbortSignal): Promise<void>;
     ensureReady(signal?: AbortSignal): Promise<DreaminaLocalModel[]>;
@@ -35,7 +36,7 @@ export function createLocalDreaminaModelStore(dependencies: Dependencies) {
                 requestRevision++;
                 activeRequest?.controller.abort();
                 activeRequest = null;
-                set({ state: "idle", models: [], cacheScope: undefined });
+                set({ state: "idle", models: [], snapshot: null, cacheScope: undefined });
                 return Promise.reject(new Error("即梦本机模型目录尚未就绪"));
             }
             const current = get();
@@ -53,11 +54,11 @@ export function createLocalDreaminaModelStore(dependencies: Dependencies) {
                 const promise = dependencies
                     .loadSnapshot(dependencies.getClient(), controller.signal)
                     .then((snapshot) => {
-                        if (revision === requestRevision) set({ state: "ready", models: snapshot.models, cacheScope: dreaminaModelCacheScopeKey(snapshot) });
+                        if (revision === requestRevision) set({ state: "ready", models: snapshot.models, snapshot, cacheScope: dreaminaModelCacheScopeKey(snapshot) });
                         return snapshot.models;
                     })
                     .catch((error) => {
-                        if (revision === requestRevision) set({ state: "error", models: [], cacheScope: undefined });
+                        if (revision === requestRevision) set({ state: "error", models: [], snapshot: null, cacheScope: undefined });
                         throw error;
                     })
                     .finally(() => {
@@ -71,6 +72,7 @@ export function createLocalDreaminaModelStore(dependencies: Dependencies) {
         return {
             state: "idle",
             models: [],
+            snapshot: null,
             cacheScope: undefined,
             async sync(signal) {
                 try {

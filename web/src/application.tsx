@@ -7,6 +7,7 @@ import { RouterProvider } from "react-router";
 import "@/lib/plugins/builtin";
 
 import { AppProviders } from "@/components/layout/app-providers";
+import { ReportIssuePortal } from "@/components/governance/ReportIssuePortal";
 import { installDesktopBackupBridge } from "@/lib/desktop-backup-bridge";
 import { router } from "@/router";
 
@@ -17,6 +18,7 @@ createRoot(document.getElementById("root")!).render(
     <React.StrictMode>
         <AppProviders>
             <RouterProvider router={router} />
+            <ReportIssuePortal />
         </AppProviders>
     </React.StrictMode>,
 );

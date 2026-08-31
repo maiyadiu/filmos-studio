@@ -102,7 +102,7 @@ export type GenerationEngineConnection = MutableAuthorityRecord & {
 export type CatalogEvidence =
     | { source: "runtime_discovery"; runtimeVersion: string; sourceLocatorId: string; observedAt: string }
     | { source: "remote_catalog"; sourceLocatorId: string; observedAt: string; etag?: string }
-    | { source: "verified_static_version_bound"; adapterVersion: string; supportedCliVersionRange: string; sourceEvidence: string[]; manifestHash: string; verifiedAt: string; expiresAt: string }
+    | { source: "verified_static_version_bound"; adapterVersion: string; supportedCliVersionRange: string; sourceEvidence: string[]; manifestHash: string; cliVersion: string; cliCommit: string; cliBuildTime: string; executableSha256: string; sourceLocatorId: string; catalogHash: string; verifiedAt: string; expiresAt: string }
     | { source: "manual_unverified"; enteredByActorRef: string; observedAt: string };
 
 export type DescriptorAvailability = "available" | "unavailable" | "deprecated" | "requires_upgrade" | "unknown";
@@ -282,7 +282,7 @@ export type GenerationDefaultRoute = {
 
 export type GenerationDefaultPolicy = Partial<Record<GenerationTaskKind, GenerationDefaultRoute>>;
 
-export type ProjectGenerationPolicy = MutableAuthorityRecord & {
+export type ProjectGenerationPolicyV1 = MutableAuthorityRecord & {
     schemaVersion: 1;
     projectId: string;
     allowedEngineIds: string[];
@@ -315,6 +315,29 @@ export type ProjectGenerationTaskLock = {
     parameterPresetId?: string;
     enforcement: "strict" | "warn";
 };
+
+export type ProjectGenerationPolicyV2 = MutableAuthorityRecord & {
+    schemaVersion: 2;
+    projectId: string;
+    allowedConnections: Array<{
+        engineId: string;
+        connectionId: string;
+    }>;
+    defaultRoutes: GenerationDefaultPolicy;
+    externalProjectBindings: Record<string, Array<{
+        connectionId: string;
+        externalProjectId: string;
+        bindingVersion: number;
+    }>>;
+    budgetGrantIdsByConnection: Record<string, string>;
+    modelLocksByTask: Partial<Record<GenerationTaskKind, ProjectGenerationTaskLock>>;
+    uploadPolicy: {
+        allowProviderUpload: boolean;
+        requirePerSubmitPreview: boolean;
+    };
+};
+
+export type ProjectGenerationPolicy = ProjectGenerationPolicyV1 | ProjectGenerationPolicyV2;
 
 export type ProjectGenerationLock = MutableAuthorityRecord & {
     schemaVersion: 1;

@@ -10,7 +10,7 @@ import {
     LocalDreaminaGenerationError,
     type DreaminaGenerationResult,
 } from "../dreamina-generation.js";
-import { projectDreaminaModelCatalog } from "../dreamina-model-catalog.js";
+import { projectDreaminaCatalogEvidence, projectDreaminaModelCatalog } from "../dreamina-model-catalog.js";
 import { DreaminaProviderArtifactStore } from "../dreamina-provider-artifacts.js";
 import { projectDreaminaPublicRunError, projectDreaminaPublicRuntimeResult } from "../dreamina-public-result.js";
 import { DreaminaCliError, isStableDreaminaErrorCode } from "../dreamina-cli-process.js";
@@ -22,12 +22,12 @@ import {
     type DreaminaPublicGenerationTask,
     type DreaminaRuntimeResult,
 } from "../dreamina-cli-runtime.js";
-import { DreaminaCliService, type DreaminaPublicStatus } from "../dreamina-cli.js";
+import { DreaminaCliService, type DreaminaCliExecutableIdentity, type DreaminaPublicStatus } from "../dreamina-cli.js";
 import type { LocalRuntimeModule } from "../local-runtime.js";
 
 export type DreaminaHttpModuleOptions = {
     ownerId: string;
-    dreamina?: Pick<DreaminaCliService, "status" | "login" | "logout"> & Partial<Pick<DreaminaCliService, "statusWithSession">>;
+    dreamina?: Pick<DreaminaCliService, "status" | "login" | "logout"> & Partial<Pick<DreaminaCliService, "statusWithSession" | "catalogIdentity">>;
     dreaminaRuntime?: {
         run(input: unknown, options?: { signal?: AbortSignal }): Promise<DreaminaRuntimeResult>;
         generateToResult(input: unknown, options?: { signal?: AbortSignal; requestFingerprint?: string }): Promise<DreaminaGenerationResult>;
@@ -52,6 +52,7 @@ export type DreaminaHttpModuleOptions = {
     runtimeDependencies?: Partial<Pick<DreaminaCliRuntimeOptions,
         "discover" | "runProcess" | "now" | "sleep" | "maxPollAttempts" | "pollIntervalMs">>;
     arbiter?: DreaminaCliArbiter;
+    externalPaidSubmitEnabled?: boolean;
 };
 
 type ProviderTaskMetadata = {
@@ -60,6 +61,8 @@ type ProviderTaskMetadata = {
 };
 
 export function createDreaminaHttpModule(options: DreaminaHttpModuleOptions): LocalRuntimeModule {
+    const externalPaidSubmitEnabled = options.externalPaidSubmitEnabled
+        ?? process.env.FILMOS_EXTERNAL_PAID_SUBMIT_ENABLED !== "false";
     const configDir = options.configDir ?? CONFIG_DIR;
     const arbiter = options.arbiter ?? new DreaminaCliArbiter({
         stateFile: path.join(configDir, "dreamina-cli-arbiter.json"),
@@ -207,19 +210,30 @@ export function createDreaminaHttpModule(options: DreaminaHttpModuleOptions): Lo
                 path: "/dreamina/run",
                 scope: "dreamina:run",
                 legacy: true,
-                handler: runHandler((input, signal) => withTaskProjection(() => dreaminaRuntime.run(input, { signal }))),
+                handler: runHandler((input, signal) => {
+                    assertExternalPaidSubmitEnabled(externalPaidSubmitEnabled);
+                    return withTaskProjection(() => dreaminaRuntime.run(input, { signal }));
+                }),
             },
             {
                 method: "GET",
                 path: "/dreamina/models",
                 scope: "dreamina:models",
-                handler: modelsHandler((signal) => arbiter.readSession(signal)),
+                handler: modelsHandler(
+                    (signal) => arbiter.readSession(signal),
+                    (signal) => dreamina.catalogIdentity
+                        ? dreamina.catalogIdentity({ signal })
+                        : Promise.reject(new DreaminaCliError("dreamina_version_failed", "Dreamina CLI Catalog identity is unavailable", 502)),
+                ),
             },
             {
                 method: "POST",
                 path: "/dreamina/generate",
                 scope: "dreamina:generate",
-                handler: generationHandler((input, signal) => submitProductTask(input, signal)),
+                handler: generationHandler((input, signal) => {
+                    assertExternalPaidSubmitEnabled(externalPaidSubmitEnabled);
+                    return submitProductTask(input, signal);
+                }),
             },
             {
                 method: "GET",
@@ -394,26 +408,33 @@ function decodeStoreTaskCursor(cursor: string) {
     }
 }
 
-function modelsHandler(session: (signal: AbortSignal) => Promise<DreaminaCliSessionSnapshot>): RequestHandler {
-    return (req, res) => { void runModels(req, res, session); };
+function modelsHandler(
+    session: (signal: AbortSignal) => Promise<DreaminaCliSessionSnapshot>,
+    identity: (signal: AbortSignal) => Promise<DreaminaCliExecutableIdentity>,
+): RequestHandler {
+    return (req, res) => { void runModels(req, res, session, identity); };
 }
 
 async function runModels(
     req: Request,
     res: Response,
     session: (signal: AbortSignal) => Promise<DreaminaCliSessionSnapshot>,
+    identity: (signal: AbortSignal) => Promise<DreaminaCliExecutableIdentity>,
 ) {
     const controller = requestController(req, res);
     try {
         const result = await session(controller.signal);
         if (!result.accountBinding) throw loginRequired();
+        const executableIdentity = await identity(controller.signal);
         if (!cannotRespond(controller, res)) {
+            const models = projectDreaminaModelCatalog();
             res.json({
                 ok: true,
                 provider: "dreamina-cli",
                 accountBinding: result.accountBinding,
                 sessionEpoch: result.sessionEpoch,
-                models: projectDreaminaModelCatalog(),
+                evidence: projectDreaminaCatalogEvidence(models, executableIdentity),
+                models,
             });
         }
     } catch (error) {
@@ -710,4 +731,14 @@ function loginRequired() {
 
 function cancelled() {
     return new DreaminaCliError("dreamina_cancelled", "Dreamina 操作已取消", 499);
+}
+
+function assertExternalPaidSubmitEnabled(enabled: boolean) {
+    if (!enabled) {
+        throw new DreaminaCliError(
+            "dreamina_external_paid_submit_disabled",
+            "PILOT_EXTERNAL_PAID_SUBMIT_DISABLED",
+            403,
+        );
+    }
 }

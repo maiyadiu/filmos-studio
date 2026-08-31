@@ -14,6 +14,7 @@ test("Dreamina model discovery reads only the signed Runtime catalog", async () 
                     provider: "dreamina-cli",
                     accountBinding: "a".repeat(64),
                     sessionEpoch: 3,
+                    evidence: catalogEvidence(),
                     models: [
                         {
                             provider: "dreamina-cli",
@@ -243,6 +244,7 @@ test("Dreamina catalog readiness is loading immediately and shares one in-flight
             return {
                 accountBinding: "a".repeat(64),
                 sessionEpoch: 3,
+                evidence: catalogEvidence(),
                 models: [
                     {
                         provider: "dreamina-cli",
@@ -365,6 +367,7 @@ function catalogResponse() {
             provider: "dreamina-cli",
             accountBinding: "a".repeat(64),
             sessionEpoch: 3,
+            evidence: catalogEvidence(),
             models: [
                 {
                     provider: "dreamina-cli",
@@ -388,6 +391,7 @@ function catalogSnapshot(id: string, sessionEpoch: number) {
     return {
         accountBinding: "a".repeat(64),
         sessionEpoch,
+        evidence: catalogEvidence(),
         models: [
             {
                 provider: "dreamina-cli" as const,
@@ -402,5 +406,23 @@ function catalogSnapshot(id: string, sessionEpoch: number) {
                 source: "runtime-execution-contract" as const,
             },
         ],
+    };
+}
+
+function catalogEvidence() {
+    return {
+        source: "verified_static_version_bound" as const,
+        adapterVersion: "filmos-dreamina-execution-port-v1",
+        supportedCliVersionRange: "=54f1bdf-dirty",
+        sourceEvidence: ["cli-version:54f1bdf-dirty"],
+        manifestHash: "a".repeat(64),
+        cliVersion: "54f1bdf-dirty",
+        cliCommit: "54f1bdf",
+        cliBuildTime: "2026-06-18T12:30:12Z",
+        executableSha256: "b".repeat(64),
+        sourceLocatorId: `dreamina-cli-executable:${"c".repeat(64)}`,
+        catalogHash: "d".repeat(64),
+        verifiedAt: "2026-08-31T08:00:00.000Z",
+        expiresAt: "2099-01-01T00:00:00.000Z",
     };
 }

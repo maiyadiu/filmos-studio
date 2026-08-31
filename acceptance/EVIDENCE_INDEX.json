@@ -4,19 +4,29 @@
   "tracks": [
     {
       "track_id": "00-upstream",
-      "source_paths": ["scripts/upstream", "implementation/tracks/00-upstream"],
+      "source_paths": [
+        "scripts/upstream",
+        "implementation/tracks/00-upstream",
+        "governance",
+        "implementation/use-driven-dual-expert-v1-1"
+      ],
       "automated_tests": [
         "python3 -m unittest discover -s scripts/upstream/tests -v",
         "python3 acceptance/checks/reports.py",
-        "scripts/recovery/RC恢复演练 --synthetic"
+        "scripts/recovery/RC恢复演练 --synthetic",
+        "node --test governance/test/architecture-drift-gate.test.mjs"
       ],
       "golden_case_ids": [
         "UPSTREAM-COMPAT-001",
         "UPSTREAM-ROLLBACK-001",
-        "ACCEPTANCE-REPORT-BUNDLE-001"
+        "ACCEPTANCE-REPORT-BUNDLE-001",
+        "FILMOS-CONSTITUTION-HASH-001",
+        "ARCHITECTURE-DRIFT-GATE-001",
+        "UPSTREAM-EXTENSION-BOUNDARY-001"
       ],
       "required_local_check_ids": [
         "acceptance-reports",
+        "architecture-drift-gate",
         "rc-recovery",
         "upstream-compatibility"
       ],
@@ -30,6 +40,9 @@
       "track_id": "01-desktop",
       "source_paths": [
         "desktop/macos",
+        "desktop/macos/scripts/prepare-pilot-project-copy",
+        "desktop/macos/scripts/backup-pilot-data",
+        "desktop/macos/scripts/install-pilot-app",
         "backend/cmd/desktop-web",
         "backend/internal/service/desktop_local_channel.go",
         "backend/internal/service/auth.go",
@@ -45,7 +58,8 @@
         "python3 acceptance/checks/desktop_runtime.py",
         "python3 acceptance/checks/desktop_backup_restore.py",
         "python3 acceptance/checks/desktop_chatgpt_connection.py",
-        "python3 acceptance/checks/no_openai_model_api_billing.py"
+        "python3 acceptance/checks/no_openai_model_api_billing.py",
+        "sh desktop/macos/Tests/pilot-data-scripts.test.sh"
       ],
       "golden_case_ids": [
         "DESKTOP-LAUNCH-001",
@@ -55,7 +69,11 @@
         "DESKTOP-DATA-DIR-001",
         "DESKTOP-BACKUP-RESTORE-001",
         "DESKTOP-CHATGPT-CONNECTION-001",
-        "NO-OPENAI-MODEL-API-001"
+        "NO-OPENAI-MODEL-API-001",
+        "PILOT-BASE-FIXED-COMMIT-001",
+        "PILOT-PROJECT-COPY-001",
+        "PILOT-BACKUP-RESTORE-001",
+        "PILOT-NO-PAID-SUBMIT-001"
       ],
       "required_local_check_ids": [
         "desktop-brand",
@@ -64,7 +82,9 @@
         "desktop-runtime",
         "desktop-backup-restore",
         "desktop-chatgpt-connection",
-        "no-openai-model-api-billing"
+        "no-openai-model-api-billing",
+        "pilot-project-copy",
+        "use-driven-dual-expert"
       ],
       "required_final_check_ids": [
         "desktop-brand",
@@ -73,6 +93,8 @@
         "desktop-runtime",
         "desktop-backup-restore",
         "restart-recovery",
+        "pilot-project-copy",
+        "use-driven-dual-expert",
         "desktop-chatgpt-connection",
         "no-openai-model-api-billing"
       ]
@@ -87,7 +109,9 @@
         "backend/internal/service/desktop_backup.go",
         "acceptance/checks/full_chain.py",
         "acceptance/FilmOS_Acceptance_Project/项目.json",
-        "acceptance/checks/performance.py"
+        "acceptance/checks/performance.py",
+        "governance/FILMOS_CONSTITUTION.json",
+        "services/filmos-review-bus"
       ],
       "automated_tests": [
         "python3 acceptance/checks/film_core_environment.py",
@@ -107,7 +131,9 @@
         "RESTART-RECOVERY-001",
         "DESKTOP-BACKUP-RESTORE-001",
         "PRODUCTION-GENERATION-COMPOSITION-001",
-        "V2-4-FINAL-PRODUCTION-AUTHORITY-001"
+        "V2-4-FINAL-PRODUCTION-AUTHORITY-001",
+        "NO-SECOND-AUTHORITY-001",
+        "ARCHITECTURE-DRIFT-GATE-001"
       ],
       "required_local_check_ids": [
         "film-core-environment",
@@ -119,7 +145,8 @@
         "performance-local",
         "acceptance-reports",
         "rc-recovery",
-        "production-generation-composition"
+        "production-generation-composition",
+        "architecture-drift-gate"
       ],
       "required_final_check_ids": [
         "film-core-environment",
@@ -140,6 +167,8 @@
         "web/src/pages",
         "web/src/components/layout",
         "web/src/film/generation-routing",
+        "web/src/film/governance",
+        "web/src/components/governance",
         "web/src/stores/use-brain-generation-routing-store.ts",
         "web/src/components/canvas/canvas-config-composer.tsx",
         "web/src/film/generation-routing/production-composition.ts",
@@ -154,7 +183,8 @@
         "python3 acceptance/checks/production_generation_composition.py",
         "bun test test/generation-engine-settings-presentation.test.ts test/generation-route-preview-contract.test.ts",
         "node acceptance/checks/brain_generation_performance.mjs",
-        "python3 acceptance/checks/performance.py"
+        "python3 acceptance/checks/performance.py",
+        "python3 acceptance/checks/use_driven_dual_expert.py"
       ],
       "golden_case_ids": [
         "LOCAL-FIRST-UI-001",
@@ -164,7 +194,10 @@
         "GENERATION-COMPOSER-CANDIDATE-UI-001",
         "PERFORMANCE-LOCAL-001",
         "PRODUCTION-GENERATION-COMPOSITION-001",
-        "V2-4-FINAL-PRODUCTION-AUTHORITY-001"
+        "V2-4-FINAL-PRODUCTION-AUTHORITY-001",
+        "ISSUE-SINGLE-ENTRY-001",
+        "PROJECT-MULTI-CONNECTION-001",
+        "UI-GOLDEN-COMMIT-FRESHNESS-001"
       ],
       "required_local_check_ids": [
         "desktop-brand",
@@ -175,7 +208,8 @@
         "brain-generation-routing",
         "brain-generation-performance",
         "performance-local",
-        "production-generation-composition"
+        "production-generation-composition",
+        "use-driven-dual-expert"
       ],
       "required_final_check_ids": [
         "desktop-brand",
@@ -302,6 +336,9 @@
         "web/src/film/sync",
         "implementation/agent-native-multibrain",
         "implementation/tracks/08-agent-native-correction",
+        "services/filmos-review-bus",
+        "cli/filmos-review",
+        "governance",
         "acceptance/checks/agent_codex_controlled_write.py",
         "acceptance/checks/agent_lifecycle_receipt.py",
         "acceptance/checks/production_generation_composition.py",
@@ -330,7 +367,11 @@
         "cd canvas-agent && npx tsx --test test/agent-feature-flags.test.ts test/agent-session-migration.test.ts test/agent-rollback.test.ts",
         "cd web && bun test src/film/agent/feature-flags.test.mjs src/film/agent/agent-client.test.mjs",
         "scripts/recovery/RC恢复演练 --synthetic",
-        "python3 acceptance/checks/performance.py"
+        "python3 acceptance/checks/performance.py",
+        "cd services/filmos-review-bus && npm test",
+        "cd cli/filmos-review && npm test",
+        "node --test governance/test/architecture-drift-gate.test.mjs",
+        "python3 acceptance/checks/use_driven_dual_expert.py"
       ],
       "golden_case_ids": [
         "CODEX-AGENT-001",
@@ -355,7 +396,17 @@
         "BRAIN-GENERATION-PERFORMANCE-001",
         "PERFORMANCE-LOCAL-001",
         "PRODUCTION-GENERATION-COMPOSITION-001",
-        "V2-4-FINAL-PRODUCTION-AUTHORITY-001"
+        "V2-4-FINAL-PRODUCTION-AUTHORITY-001",
+        "CODEX-LOCAL-ASSESSMENT-001",
+        "BLIND-ASSESSMENT-001",
+        "CONSENSUS-DELTA-001",
+        "CONSENSUS-RECORD-001",
+        "DUAL-SIGNOFF-001",
+        "FAST-LANE-SCOPE-001",
+        "CORE-LANE-CONSENSUS-BEFORE-CODE-001",
+        "ARCHITECTURE-EVOLUTION-OPTIONS-001",
+        "REVIEW-CANDIDATE-IMMUTABLE-001",
+        "REVIEW-CODEX-CANNOT-SELF-CLOSE-001"
       ],
       "required_local_check_ids": [
         "film-core-environment",
@@ -374,7 +425,11 @@
         "mcp-actual-tool-count",
         "performance-local",
         "rc-recovery",
-        "production-generation-composition"
+        "production-generation-composition",
+        "review-bus-governance",
+        "review-cli-watcher",
+        "architecture-drift-gate",
+        "use-driven-dual-expert"
       ],
       "required_final_check_ids": [
         "film-core-environment",
@@ -434,6 +489,10 @@
         "web/src/components/canvas/canvas-config-composer.tsx",
         "web/src/pages/settings/local-cli-settings.tsx",
         "canvas-agent/src/modules/dreamina-http.ts",
+        "canvas-agent/src/dreamina-cli.ts",
+        "canvas-agent/src/dreamina-cli-process.ts",
+        "canvas-agent/src/dreamina-model-catalog.ts",
+        "web/src/film/generation-routing/dreamina-production-execution-port.ts",
         "web/src/film/generation-routing/production-composition.ts"
       ],
       "automated_tests": [
@@ -443,7 +502,9 @@
         "python3 acceptance/checks/brain_generation_routing.py",
         "python3 acceptance/checks/production_generation_composition.py",
         "node acceptance/checks/brain_generation_performance.mjs",
-        "cd web && bun test test/local-cli-settings.test.ts"
+        "cd web && bun test test/local-cli-settings.test.ts",
+        "cd canvas-agent && npm test",
+        "python3 acceptance/checks/use_driven_dual_expert.py"
       ],
       "golden_case_ids": [
         "PROVIDER-CANDIDATE-001",
@@ -454,7 +515,13 @@
         "FLOVA-DOCTOR-REAL-001",
         "ACCEPTANCE-FULL-CHAIN-001",
         "PRODUCTION-GENERATION-COMPOSITION-001",
-        "V2-4-FINAL-PRODUCTION-AUTHORITY-001"
+        "V2-4-FINAL-PRODUCTION-AUTHORITY-001",
+        "DREAMINA-COMMON-PRODUCTION-SERVICE-001",
+        "DREAMINA-CANONICAL-BROKER-001",
+        "DREAMINA-BUDGET-LEDGER-001",
+        "DREAMINA-EXACTLY-ONCE-001",
+        "DREAMINA-RESTART-RECOVERY-001",
+        "DREAMINA-FORMAL-CANDIDATE-001"
       ],
       "required_local_check_ids": [
         "golden-abc-real-http",
@@ -462,7 +529,9 @@
         "brain-generation-routing",
         "brain-generation-performance",
         "acceptance-full-chain",
-        "production-generation-composition"
+        "production-generation-composition",
+        "canvas-agent",
+        "use-driven-dual-expert"
       ],
       "required_final_check_ids": [
         "golden-abc-real-http",
@@ -480,14 +549,17 @@
         "scripts/upstream/rc_schema_adapter.py",
         "backend/internal/service/desktop_user_config.go",
         "packages/filmos-generation-contracts/src/migration.ts",
-        "implementation/brain-generation-routing/LOCAL_CONFIG_MIGRATION_PLAN.md"
+        "implementation/brain-generation-routing/LOCAL_CONFIG_MIGRATION_PLAN.md",
+        "implementation/use-driven-dual-expert-v1-1",
+        "desktop/macos/scripts/prepare-pilot-project-copy"
       ],
       "automated_tests": [
         "scripts/recovery/RC恢复演练 --synthetic",
         "python3 acceptance/checks/desktop_backup_restore.py",
         "cd packages/filmos-generation-contracts && npm test",
         "python3 -m unittest discover -s scripts/upstream/tests -v",
-        "python3 acceptance/checks/reports.py"
+        "python3 acceptance/checks/reports.py",
+        "sh desktop/macos/Tests/pilot-data-scripts.test.sh"
       ],
       "golden_case_ids": [
         "MIGRATION-REPLAY-001",
@@ -495,7 +567,10 @@
         "LOCAL-CONFIG-NO-LOGIN-DEPENDENCY-001",
         "GENERATION-ROUTING-MIGRATION-001",
         "GENERATION-ROUTING-ROLLBACK-001",
-        "ACCEPTANCE-REPORT-BUNDLE-001"
+        "ACCEPTANCE-REPORT-BUNDLE-001",
+        "PROJECT-POLICY-V1-MIGRATION-001",
+        "PILOT-PROJECT-COPY-001",
+        "PILOT-BACKUP-RESTORE-001"
       ],
       "required_local_check_ids": [
         "generation-routing-contracts",
@@ -503,7 +578,8 @@
         "desktop-backup-restore",
         "rc-recovery",
         "upstream-compatibility",
-        "acceptance-reports"
+        "acceptance-reports",
+        "pilot-project-copy"
       ],
       "required_final_check_ids": [
         "generation-routing-contracts",
@@ -559,7 +635,12 @@
         "tests/film-golden",
         "tests/film-rc",
         "acceptance",
-        "acceptance/checks/production_generation_composition.py"
+        "acceptance/checks/production_generation_composition.py",
+        "acceptance/checks/use_driven_dual_expert.py",
+        "governance",
+        "services/filmos-review-bus",
+        "extensions/filmos-review-bridge",
+        "cli/filmos-review"
       ],
       "automated_tests": [
         "python3 acceptance/checks/desktop_backup_restore.py",
@@ -586,7 +667,13 @@
         "cd services/filmos-chatgpt-app && npx tsx scripts/mcp-manifest-receipt.ts",
         "acceptance/run_real_agent",
         "python3 acceptance/run.py --suite rc-local",
-        "python3 acceptance/verify.py <receipt>"
+        "python3 acceptance/verify.py <receipt>",
+        "node --test governance/test/architecture-drift-gate.test.mjs",
+        "cd services/filmos-review-bus && npm test",
+        "cd cli/filmos-review && npm test",
+        "node --test extensions/filmos-review-bridge/test/bridge-contract.test.mjs",
+        "sh desktop/macos/Tests/pilot-data-scripts.test.sh",
+        "python3 acceptance/checks/use_driven_dual_expert.py"
       ],
       "golden_case_ids": [
         "GOLDEN-A-REAL",
@@ -613,7 +700,13 @@
         "BRAIN-GENERATION-ROUTING-V2.4-001",
         "BRAIN-GENERATION-PERFORMANCE-001",
         "GENERATION-COMPOSER-CANDIDATE-UI-001",
-        "PRODUCTION-GENERATION-COMPOSITION-001"
+        "PRODUCTION-GENERATION-COMPOSITION-001",
+        "USE-DRIVEN-DUAL-EXPERT-V1-1-001",
+        "USAGE-EVIDENCE-PACK-001",
+        "CONSENSUS-ROUNDTRIP-001",
+        "CHROME-USER-GESTURE-001",
+        "REVIEW-COVERAGE-MATRIX-001",
+        "UI-GOLDEN-COMMIT-FRESHNESS-001"
       ],
       "required_local_check_ids": [
         "acceptance-full-chain",
@@ -647,7 +740,13 @@
         "remote-acceptance-contract",
         "upstream-compatibility",
         "no-openai-model-api-billing",
-        "production-generation-composition"
+        "production-generation-composition",
+        "architecture-drift-gate",
+        "review-bus-governance",
+        "review-cli-watcher",
+        "review-bridge-contract",
+        "pilot-project-copy",
+        "use-driven-dual-expert"
       ],
       "required_final_check_ids": [
         "film-core-environment",
@@ -700,7 +799,10 @@
         "canvas-agent/test/chatgpt-host-lifecycle.test.ts",
         "web/test/agent-chatgpt-handoff-runtime.test.ts",
         "web/test/chatgpt-host-readiness.test.ts",
-        "services/filmos-chatgpt-app/src/host-context.ts"
+        "services/filmos-chatgpt-app/src/host-context.ts",
+        "services/filmos-chatgpt-app/src/review-mcp.ts",
+        "services/filmos-chatgpt-app/src/review-source.ts",
+        "extensions/filmos-review-bridge"
       ],
       "automated_tests": [
         "python3 acceptance/checks/film_core_environment.py",
@@ -711,7 +813,9 @@
         "npx tsx scripts/mcp-manifest-receipt.ts",
         "python3 acceptance/checks/no_openai_model_api_billing.py",
         "python3 acceptance/checks/agent_lifecycle_receipt.py CHATGPT-HOST-RESTART-RECOVERY-001",
-        "python3 acceptance/checks/agent_lifecycle_receipt.py CHATGPT-HANDOFF-STATE-001"
+        "python3 acceptance/checks/agent_lifecycle_receipt.py CHATGPT-HANDOFF-STATE-001",
+        "cd services/filmos-review-bus && npm test",
+        "node --test extensions/filmos-review-bridge/test/bridge-contract.test.mjs"
       ],
       "golden_case_ids": [
         "CHATGPT-MCP-001",
@@ -722,7 +826,12 @@
         "CHATGPT-LIVE-WORKBENCH-CONTEXT-001",
         "CHATGPT-HOST-RESTART-RECOVERY-001",
         "CHATGPT-HANDOFF-STATE-001",
-        "MCP-ACTUAL-TOOL-COUNT-001"
+        "MCP-ACTUAL-TOOL-COUNT-001",
+        "CHATGPT-MCP-READ-ONLY-001",
+        "CHATGPT-EXTERNAL-ASSESSMENT-001",
+        "CHROME-USER-GESTURE-001",
+        "CHROME-PAIRING-REVOKE-001",
+        "CHROME-NO-COOKIE-001"
       ],
       "required_local_check_ids": [
         "film-core-environment",
@@ -734,7 +843,10 @@
         "chatgpt-golden-real",
         "chatgpt-host-restart-recovery",
         "chatgpt-handoff-state",
-        "no-openai-model-api-billing"
+        "no-openai-model-api-billing",
+        "review-bus-governance",
+        "review-bridge-contract",
+        "use-driven-dual-expert"
       ],
       "required_final_check_ids": [
         "film-core-environment",

@@ -1,3 +1,5 @@
+import crypto from "node:crypto";
+
 import { z } from "zod";
 
 import {
@@ -5,7 +7,11 @@ import {
     dreaminaMaxReferenceImages,
     dreaminaVideoModelCapability,
 } from "./dreamina-cli-contract.js";
-import type { DreaminaModelDescriptor, DreaminaModelOperation } from "./local-runtime-contract.js";
+import type { DreaminaCatalogEvidence, DreaminaModelDescriptor, DreaminaModelOperation } from "./local-runtime-contract.js";
+import type { DreaminaCliExecutableIdentity } from "./dreamina-cli.js";
+
+const DREAMINA_CATALOG_ADAPTER_VERSION = "filmos-dreamina-execution-port-v1";
+const DREAMINA_CATALOG_CONTRACT_REVISION = "filmos-generation-contracts-v2.4";
 
 type CatalogEntry = {
     id: string;
@@ -65,6 +71,42 @@ export function projectDreaminaModelCatalog(
         },
         source: "runtime-execution-contract",
     }));
+}
+
+export function projectDreaminaCatalogEvidence(
+    models: readonly DreaminaModelDescriptor[],
+    identity: DreaminaCliExecutableIdentity,
+): DreaminaCatalogEvidence {
+    const catalogHash = crypto.createHash("sha256").update(JSON.stringify(models)).digest("hex");
+    const manifestHash = crypto.createHash("sha256").update(JSON.stringify({
+        adapterVersion: DREAMINA_CATALOG_ADAPTER_VERSION,
+        contractRevision: DREAMINA_CATALOG_CONTRACT_REVISION,
+        catalogHash,
+        identity,
+    })).digest("hex");
+    return {
+        source: "verified_static_version_bound",
+        adapterVersion: DREAMINA_CATALOG_ADAPTER_VERSION,
+        supportedCliVersionRange: `=${identity.version}`,
+        sourceEvidence: [
+            `contract:${DREAMINA_CATALOG_CONTRACT_REVISION}`,
+            `cli-version:${identity.version}`,
+            `cli-commit:${identity.commit}`,
+            `cli-build-time:${identity.buildTime}`,
+            `executable-sha256:${identity.executableSha256}`,
+            `source-locator:${identity.sourceLocatorId}`,
+            `catalog-sha256:${catalogHash}`,
+        ],
+        manifestHash,
+        cliVersion: identity.version,
+        cliCommit: identity.commit,
+        cliBuildTime: identity.buildTime,
+        executableSha256: identity.executableSha256,
+        sourceLocatorId: identity.sourceLocatorId,
+        catalogHash,
+        verifiedAt: identity.observedAt,
+        expiresAt: new Date(Date.parse(identity.observedAt) + 24 * 60 * 60_000).toISOString(),
+    };
 }
 
 function catalogOperationFor(operation: string): DreaminaModelOperation | undefined {

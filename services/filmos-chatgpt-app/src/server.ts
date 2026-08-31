@@ -1,4 +1,6 @@
 import { randomUUID, timingSafeEqual } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -13,6 +15,7 @@ import { ChatGPTHostContextStore } from "./host-context.js";
 import { authorizeMediaProxy, EmptyMediaProxyStore, MediaProxyError, type MediaProxyStore } from "./media.js";
 import { buildFilmOSMcpManifest, createFilmOSMcpServer } from "./mcp.js";
 import { PythonProposalPreviewAdapter, ProposalPreviewError, type ProposalPreviewAdapter } from "./proposal-preview.js";
+import { HttpReviewReadSource, type ReviewReadSource } from "./review-source.js";
 
 type TunnelContext = { tunneled: boolean; challengeId: string | null };
 type Session = { transport: StreamableHTTPServerTransport; grant: ProjectGrant; tunnel: TunnelContext };
@@ -50,6 +53,7 @@ export type FilmOSChatGPTAppOptions = {
   hostProfileId?: string;
   externalObservationTtlMs?: number;
   hostContext?: ChatGPTHostContextStore;
+  reviewRead?: ReviewReadSource;
 };
 
 export function createFilmOSChatGPTApp(options: FilmOSChatGPTAppOptions) {
@@ -65,6 +69,7 @@ export function createFilmOSChatGPTApp(options: FilmOSChatGPTAppOptions) {
     readToolsEnabled: options.readToolsEnabled,
     widgetsEnabled: options.widgetsEnabled,
     proposalHandoffEnabled,
+    reviewReadToolsEnabled: Boolean(options.reviewRead),
   });
   const manifestCounts = countManifestRisks(manifest);
   const observationTtlMs = boundedObservationTtl(options.externalObservationTtlMs);
@@ -94,6 +99,8 @@ export function createFilmOSChatGPTApp(options: FilmOSChatGPTAppOptions) {
     mcp_tool_names: manifest.map((tool) => tool.name),
     mcp_tool_count: manifest.length,
     ...manifestCounts,
+    review_bus_read_tools_enabled: Boolean(options.reviewRead),
+    review_bus_read_tool_count: manifest.filter((tool) => tool.feature_flag === "film.review_bus_readonly").length,
     external_account_connected: false,
     observation_scope: "authenticated_handoff_status_only",
   }));
@@ -134,6 +141,8 @@ export function createFilmOSChatGPTApp(options: FilmOSChatGPTAppOptions) {
       proposalSigningSecret: options.proposalSigningSecret,
       readToolsEnabled: options.readToolsEnabled,
       widgetsEnabled: options.widgetsEnabled,
+      reviewRead: options.reviewRead,
+      reviewReadToolsEnabled: Boolean(options.reviewRead),
       liveGate: tunnel.challengeId ? { challengeId: tunnel.challengeId, tunneled: tunnel.tunneled } : undefined,
       hostContext,
       onRead: (snapshot) => {
@@ -375,6 +384,9 @@ export async function startFromEnvironment(env: NodeJS.ProcessEnv = process.env)
   if (!["127.0.0.1", "::1", "localhost"].includes(host)) throw new Error("FilmOS ChatGPT MCP must bind to loopback");
   const port = Number(env.FILMOS_CHATGPT_PORT ?? 17840);
   const localDir = resolve(env.FILMOS_CHATGPT_LOCAL_DIR ?? ".local/filmos-chatgpt");
+  const reviewReadEnabled = env.FILMOS_REVIEW_BUS_READ_ENABLED === "true";
+  const reviewTokenFile = resolve(env.FILMOS_REVIEW_BUS_AUTH_FILE ?? resolve(homedir(), "Library/Application Support/FilmOS Studio/review-bus/review-bus.token"));
+  const reviewToken = reviewReadEnabled ? (env.FILMOS_REVIEW_BUS_TOKEN ?? readFileSync(reviewTokenFile, "utf8").trim()) : null;
   const grants = await JsonProjectGrantStore.open(resolve(localDir, "grants.json"));
   const instance = createFilmOSChatGPTApp({
     enabled,
@@ -396,6 +408,7 @@ export async function startFromEnvironment(env: NodeJS.ProcessEnv = process.env)
     connectionId: env.FILMOS_CHATGPT_CONNECTION_ID ?? "chatgpt.subscription.host",
     hostProfileId,
     externalObservationTtlMs: Number(env.FILMOS_CHATGPT_OBSERVATION_TTL_MS ?? 300_000),
+    reviewRead: reviewReadEnabled && reviewToken ? new HttpReviewReadSource(env.FILMOS_REVIEW_BUS_BASE_URL ?? "http://127.0.0.1:17920", reviewToken) : undefined,
   });
   const httpServer = instance.app.listen(port, host);
   return { ...instance, httpServer, host, port };

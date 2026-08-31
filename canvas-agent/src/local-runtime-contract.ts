@@ -56,6 +56,22 @@ export type DreaminaModelDescriptor = {
     source: "runtime-execution-contract";
 };
 
+export type DreaminaCatalogEvidence = {
+    source: "verified_static_version_bound";
+    adapterVersion: string;
+    supportedCliVersionRange: string;
+    sourceEvidence: string[];
+    manifestHash: string;
+    cliVersion: string;
+    cliCommit: string;
+    cliBuildTime: string;
+    executableSha256: string;
+    sourceLocatorId: string;
+    catalogHash: string;
+    verifiedAt: string;
+    expiresAt: string;
+};
+
 export type LocalRuntimeModuleDescriptor = {
     id: LocalRuntimeModuleId;
     displayName: string;

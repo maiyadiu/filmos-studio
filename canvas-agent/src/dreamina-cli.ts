@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import fs from "node:fs/promises";
 import path from "node:path";
 
 import { CONFIG_DIR } from "./config.js";
@@ -52,6 +53,15 @@ export type DreaminaCliServiceOptions = {
 
 export type DreaminaLifecycleOptions = { signal?: AbortSignal };
 
+export type DreaminaCliExecutableIdentity = {
+    version: string;
+    commit: string;
+    buildTime: string;
+    executableSha256: string;
+    sourceLocatorId: string;
+    observedAt: string;
+};
+
 export class DreaminaCliService {
     private readonly env: Record<string, string | undefined>;
     private readonly discover: (signal?: AbortSignal) => Promise<DreaminaInstallation>;
@@ -94,6 +104,27 @@ export class DreaminaCliService {
         this.flow = undefined;
         for (const controller of this.activeControllers) controller.abort();
         return this.finishLogout(epoch, options.signal);
+    }
+
+    async catalogIdentity(options: DreaminaLifecycleOptions = {}): Promise<DreaminaCliExecutableIdentity> {
+        const epoch = this.epoch;
+        this.assertEpoch(epoch);
+        assertLifecycleSignal(options.signal);
+        const installation = await this.discover(options.signal);
+        if (!installation.installed) throw new DreaminaCliError("dreamina_missing", "未检测到 Dreamina CLI", 404);
+        const executed = await this.executeInvocation(installation.executable, ["version"], 8_000, epoch, options.signal);
+        if (executed.result.exitCode !== 0) throw new DreaminaCliError("dreamina_version_failed", "Dreamina CLI 版本检测失败", 502);
+        const identity = parseExecutableIdentity(executed.result.stdout);
+        const resolved = await fs.realpath(installation.executable);
+        const executable = await fs.readFile(resolved);
+        const executableSha256 = crypto.createHash("sha256").update(executable).digest("hex");
+        const locatorHash = crypto.createHash("sha256").update(resolved).digest("hex");
+        return {
+            ...identity,
+            executableSha256,
+            sourceLocatorId: `dreamina-cli-executable:${locatorHash}`,
+            observedAt: this.now().toISOString(),
+        };
     }
 
     private async readStatus(epoch: number, signal?: AbortSignal): Promise<{ status: DreaminaPublicStatus; session: DreaminaCliSessionSnapshot }> {
@@ -363,6 +394,23 @@ function extractVersion(stdout: string) {
         // Fall through to the bounded plain-text marker.
     }
     return /(?:\bversion\s*[:=]?\s*|\bv)([0-9][A-Za-z0-9._+:-]{0,119})\b/i.exec(stdout)?.[1];
+}
+
+function parseExecutableIdentity(stdout: string): Pick<DreaminaCliExecutableIdentity, "version" | "commit" | "buildTime"> {
+    try {
+        const parsed = JSON.parse(stdout) as Record<string, unknown>;
+        const version = parsed.version;
+        const commit = parsed.commit;
+        const buildTime = parsed.build_time;
+        if (typeof version !== "string" || !/^[A-Za-z0-9._+-]{1,120}$/.test(version)
+            || typeof commit !== "string" || !/^[a-f0-9]{7,64}$/i.test(commit)
+            || typeof buildTime !== "string" || !Number.isFinite(Date.parse(buildTime))) {
+            throw new Error("invalid identity");
+        }
+        return { version, commit, buildTime };
+    } catch {
+        throw new DreaminaCliError("dreamina_version_failed", "Dreamina CLI 版本身份无法验证", 502);
+    }
 }
 
 function parseTotalCredit(stdout: string) {

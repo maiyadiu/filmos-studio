@@ -1,7 +1,7 @@
 import Foundation
 
 public struct InternalWorkbenchConfiguration: Equatable, Sendable {
-    public static let currentSchemaVersion = 2
+    public static let currentSchemaVersion = 3
     public static let agentFeatureFlagIDs = [
         "film.agent_native_brain_selector",
         "film.agent_generic_runtime",
@@ -18,11 +18,17 @@ public struct InternalWorkbenchConfiguration: Equatable, Sendable {
     public let startURL: URL
     public let webHealthURL: URL
     public let backendHealthURL: URL
+    public let reviewBusHealthURL: URL
+    public let reviewBusIssueURL: URL
     public let applicationSupportDirectoryName: String
     public let backendDataDirectoryName: String
     public let agentRuntimeProfile: String
     public let agentFeatureFlags: [String: Bool]
     public let agentFeatureFlagsHash: String
+    public let sourceCommit: String
+    public let releaseChannel: String
+    public let buildID: String
+    public let externalPaidSubmitEnabled: Bool
 
     public static func decode(_ data: Data) throws -> InternalWorkbenchConfiguration {
         let payload: Payload
@@ -42,6 +48,8 @@ public struct InternalWorkbenchConfiguration: Equatable, Sendable {
         let startURL = try loopbackHTTPURL(payload.startURL)
         let webHealthURL = try loopbackHTTPURL(payload.webHealthURL)
         let backendHealthURL = try loopbackHTTPURL(payload.backendHealthURL)
+        let reviewBusHealthURL = try loopbackHTTPURL(payload.reviewBusHealthURL)
+        let reviewBusIssueURL = try loopbackHTTPURL(payload.reviewBusIssueURL)
         guard sameOrigin(startURL, webHealthURL) else {
             throw InternalWorkbenchConfigurationError.inconsistentWebOrigin
         }
@@ -55,7 +63,14 @@ public struct InternalWorkbenchConfiguration: Equatable, Sendable {
         default: throw InternalWorkbenchConfigurationError.inconsistentAgentFeatureFlags
         }
         guard payload.agentFeatureFlags.values.allSatisfy({ $0 == expectedValue }),
-              payload.agentFeatureFlagsHash.range(of: "^[a-f0-9]{64}$", options: .regularExpression) != nil
+              payload.agentFeatureFlagsHash.range(of: "^[a-f0-9]{64}$", options: .regularExpression) != nil,
+              payload.sourceCommit.range(of: "^[a-f0-9]{40,64}$", options: .regularExpression) != nil,
+              payload.buildID.range(of: "^[A-Za-z0-9._-]{1,160}$", options: .regularExpression) != nil,
+              ["development", "candidate", "pilot", "stable"].contains(payload.releaseChannel),
+              payload.releaseChannel != "pilot" || payload.externalPaidSubmitEnabled == false,
+              reviewBusHealthURL.path == "/healthz",
+              reviewBusIssueURL.path == "/v1/issues",
+              sameOrigin(reviewBusHealthURL, reviewBusIssueURL)
         else {
             throw InternalWorkbenchConfigurationError.inconsistentAgentFeatureFlags
         }
@@ -64,11 +79,17 @@ public struct InternalWorkbenchConfiguration: Equatable, Sendable {
             startURL: startURL,
             webHealthURL: webHealthURL,
             backendHealthURL: backendHealthURL,
+            reviewBusHealthURL: reviewBusHealthURL,
+            reviewBusIssueURL: reviewBusIssueURL,
             applicationSupportDirectoryName: applicationSupportDirectoryName,
             backendDataDirectoryName: backendDataDirectoryName,
             agentRuntimeProfile: payload.agentRuntimeProfile,
             agentFeatureFlags: payload.agentFeatureFlags,
-            agentFeatureFlagsHash: payload.agentFeatureFlagsHash
+            agentFeatureFlagsHash: payload.agentFeatureFlagsHash,
+            sourceCommit: payload.sourceCommit,
+            releaseChannel: payload.releaseChannel,
+            buildID: payload.buildID,
+            externalPaidSubmitEnabled: payload.externalPaidSubmitEnabled
         )
     }
 
@@ -81,22 +102,34 @@ public struct InternalWorkbenchConfiguration: Equatable, Sendable {
         let startURL: String
         let webHealthURL: String
         let backendHealthURL: String
+        let reviewBusHealthURL: String
+        let reviewBusIssueURL: String
         let applicationSupportDirectoryName: String
         let backendDataDirectoryName: String
         let agentRuntimeProfile: String
         let agentFeatureFlags: [String: Bool]
         let agentFeatureFlagsHash: String
+        let sourceCommit: String
+        let releaseChannel: String
+        let buildID: String
+        let externalPaidSubmitEnabled: Bool
 
         enum CodingKeys: String, CodingKey {
             case schemaVersion = "schema_version"
             case startURL = "start_url"
             case webHealthURL = "web_health_url"
             case backendHealthURL = "backend_health_url"
+            case reviewBusHealthURL = "review_bus_health_url"
+            case reviewBusIssueURL = "review_bus_issue_url"
             case applicationSupportDirectoryName = "application_support_directory_name"
             case backendDataDirectoryName = "backend_data_directory_name"
             case agentRuntimeProfile = "agent_runtime_profile"
             case agentFeatureFlags = "agent_feature_flags"
             case agentFeatureFlagsHash = "agent_feature_flags_hash"
+            case sourceCommit = "source_commit"
+            case releaseChannel = "release_channel"
+            case buildID = "build_id"
+            case externalPaidSubmitEnabled = "external_paid_submit_enabled"
         }
     }
 
