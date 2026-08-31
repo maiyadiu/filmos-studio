@@ -28,8 +28,11 @@ export const FLOVA_EXTERNAL_GATE_STATES: ReadonlyArray<{ state: GenerationExtern
     { state: "BLOCKED_BY_VERIFIED_PROVIDER_CAPABILITY", label: "Flova 能力已验证但被上游阻断" },
 ];
 
-export function generationEngineExternalGatePresentation(engineId: string): { state: GenerationExternalGateState; label: string; detail: string } | undefined {
+export function generationEngineExternalGatePresentation(engineId: string, connection?: GenerationEngineConnection): { state: GenerationExternalGateState; label: string; detail: string } | undefined {
     if (engineId !== "flova_cli") return undefined;
+    if (connection?.status === "ready") return { state: "PASS_REAL_EXTERNAL", label: "Flova 可用", detail: "现有 Flova Project 已绑定，且当前 Doctor 与账号绑定均为 Ready。" };
+    if (connection?.status === "auth_required") return { state: "READY_FOR_USER_AUTHORIZATION", label: "Flova 待授权", detail: "已选择现有 Flova Project，但当前账号或 CLI 授权尚未形成可路由连接。" };
+    if (connection?.status === "blocked") return { state: "BLOCKED_BY_VERIFIED_PROVIDER_CAPABILITY", label: "Flova 能力已验证但被上游阻断", detail: "当前上游能力状态阻止路由，未执行外部写入。" };
     return {
         state: "READY_FOR_USER_SELECTION",
         label: "Flova 待选择",
@@ -47,6 +50,8 @@ export function GenerationEngineSettingsPane() {
         const connection = connections.find((item) => item.engineId === engineId);
         return connection ? `${connection.status} · ${connection.connectionId}` : fallback;
     };
+    const flovaConnection = connections.find((item) => item.engineId === "flova_cli");
+    const flovaState = generationEngineExternalGatePresentation("flova_cli", flovaConnection)!;
     return (
         <>
             <div className="settings-pane-header">
@@ -59,14 +64,14 @@ export function GenerationEngineSettingsPane() {
                 <EngineHeader name="Dreamina CLI" transport="CLI" state={state("dreamina_cli", "复用本机 Runtime")} />
                 <LocalCliSettings />
                 <CatalogContractSummary state={dreaminaCatalogState} />
-                <EngineHeader name="Flova CLI" transport="Project CLI" state={generationEngineExternalGatePresentation("flova_cli")!.label} />
+                <EngineHeader name="Flova CLI" transport="Project CLI" state={flovaState.label} />
                 <Alert
                     type="info"
                     showIcon
-                    message="Flova：READY_FOR_USER_SELECTION"
-                    description={generationEngineExternalGatePresentation("flova_cli")!.detail}
+                    message={`Flova：${flovaState.state}`}
+                    description={flovaState.detail}
                 />
-                <FlovaStateClosure />
+                <FlovaStateClosure connection={flovaConnection} />
                 <EngineHeader name="RunningHub" transport="Workflow API" state={state("runninghub", "复用现有单一配置")} />
                 <RunningHubSettingsPane />
                 <EngineHeader name="ComfyUI" transport="Bridge" state={state("comfyui", "复用现有 Bridge")} />
@@ -91,8 +96,8 @@ function CatalogContractSummary({ state }: { state: "idle" | "loading" | "ready"
     );
 }
 
-function FlovaStateClosure() {
-    const current = generationEngineExternalGatePresentation("flova_cli")!;
+function FlovaStateClosure({ connection }: { connection?: GenerationEngineConnection }) {
+    const current = generationEngineExternalGatePresentation("flova_cli", connection)!;
     return (
         <section aria-label="Flova 外部状态闭包" className="rounded-md border border-border bg-background p-4">
             <div className="flex flex-wrap items-center gap-2">

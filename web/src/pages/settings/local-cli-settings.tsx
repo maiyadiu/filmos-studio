@@ -3,6 +3,8 @@ import { CheckCircle2, Copy, ExternalLink, LogIn, LogOut, RefreshCw, Server, Squ
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { DreaminaAgentError, getDreaminaStatus, loginDreamina, logoutDreamina, type DreaminaCliStatus } from "@/services/local-dreamina-cli";
+import { dreaminaConnectionObservation } from "@/film/generation-routing/engine-connection-synchronizer";
+import { useBrainGenerationRoutingStore } from "@/stores/use-brain-generation-routing-store";
 import { getLocalRuntimeSessionClient, useLocalRuntimeStore, type LocalRuntimeConnectionState } from "@/stores/use-local-runtime-store";
 
 type PendingAction = "refresh" | "login" | "logout" | "";
@@ -90,6 +92,10 @@ export function LocalCliSettings() {
     const modules = useLocalRuntimeStore((state) => state.modules);
     const runtimeError = useLocalRuntimeStore((state) => state.error);
     const connect = useLocalRuntimeStore((state) => state.connect);
+    const dreaminaConnection = useBrainGenerationRoutingStore((state) => state.config?.engineConnections.find((item) => item.engineId === "dreamina_cli"));
+    const synchronizeEngineConnections = useBrainGenerationRoutingStore((state) => state.synchronizeEngineConnections);
+    const dreaminaConnectionRef = useRef(dreaminaConnection);
+    dreaminaConnectionRef.current = dreaminaConnection;
     const moduleAvailable = modules.some((module) => module.id === "dreamina");
     const [status, setStatus] = useState<DreaminaCliStatus>();
     const [pending, setPending] = useState<PendingAction>("");
@@ -98,6 +104,18 @@ export function LocalCliSettings() {
         controller: null,
     });
     const presentation = localCliSettingsPresentation({ connection, moduleAvailable, dreamina: status });
+
+    const synchronizeDreamina = useCallback(async (nextStatus?: DreaminaCliStatus) => {
+        const current = dreaminaConnectionRef.current;
+        if (!current) return;
+        const observation = await dreaminaConnectionObservation({
+            current,
+            runtimeConnected: connection === "connected",
+            moduleAvailable,
+            status: nextStatus,
+        });
+        await synchronizeEngineConnections([observation]);
+    }, [connection, moduleAvailable, synchronizeEngineConnections]);
 
     const refreshRuntime = useCallback(() => {
         const controller = new AbortController();
@@ -125,6 +143,7 @@ export function LocalCliSettings() {
                 const next = action === "login" ? await loginDreamina(client, options) : action === "logout" ? await logoutDreamina(client, options) : await getDreaminaStatus(client, options);
                 if (revision !== lifecycle.current.revision || controller.signal.aborted) return;
                 setStatus(next);
+                await synchronizeDreamina(next);
                 if (action === "logout") message.success("Dreamina CLI 已退出登录");
                 if (action === "login" && next.state === "login_pending") {
                     message.info("请打开官方验证页完成授权，再刷新状态");
@@ -140,7 +159,7 @@ export function LocalCliSettings() {
                 }
             }
         },
-        [connection, message, moduleAvailable],
+        [connection, message, moduleAvailable, synchronizeDreamina],
     );
 
     useEffect(() => {
@@ -150,6 +169,7 @@ export function LocalCliSettings() {
             lifecycle.current.controller = null;
             setStatus(undefined);
             setPending("");
+            void synchronizeDreamina(undefined);
             return;
         }
         const timer = window.setTimeout(() => {
@@ -161,7 +181,7 @@ export function LocalCliSettings() {
             lifecycle.current.controller?.abort();
             lifecycle.current.controller = null;
         };
-    }, [connection, moduleAvailable, runDreamina]);
+    }, [connection, moduleAvailable, runDreamina, synchronizeDreamina]);
 
     const openVerification = () => {
         if (status?.verificationUri) window.open(status.verificationUri, "_blank", "noopener,noreferrer");

@@ -90,11 +90,14 @@ test("production providers route read and confirmed write through one broker wit
     });
     assert.equal(completed.status, "completed");
     assert.equal(calls.length, 2);
-    assert.deepEqual(calls[1]?.metadata, {
-        canonicalRequestId: proposed.request.requestId,
-        canonicalSessionId: session.id,
-        canonicalContextReceiptId: captured.receipt.receiptId,
-    });
+    assert.equal(calls[1]?.metadata?.canonicalRequestId, proposed.request.requestId);
+    assert.equal(calls[1]?.metadata?.canonicalSessionId, session.id);
+    assert.equal(calls[1]?.metadata?.canonicalContextReceiptId, captured.receipt.receiptId);
+    assert.equal(calls[1]?.metadata?.canonicalConfirmationId, proposed.confirmation.id);
+    assert.equal(calls[1]?.metadata?.canonicalAuthorizedByActorRef, "human-owner");
+    assert.match(String(calls[1]?.metadata?.canonicalBrokerGrantId), /^[0-9a-f-]{36}$/);
+    assert.match(String(calls[1]?.metadata?.canonicalBrokerGrantContentHash), /^[a-f0-9]{64}$/);
+    assert.match(String(calls[1]?.metadata?.canonicalBrokerDecisionReceiptContentHash), /^[a-f0-9]{64}$/);
     assert.deepEqual(instrumentation.snapshot(), {
         broker_request_count: 2,
         broker_confirmation_count: 1,

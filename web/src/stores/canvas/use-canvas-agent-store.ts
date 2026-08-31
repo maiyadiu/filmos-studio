@@ -14,6 +14,13 @@ export type AgentPendingToolCall = {
     canonicalRequestId?: string;
     canonicalSessionId?: string;
     canonicalContextReceiptId?: string;
+    canonicalConfirmationId?: string;
+    canonicalBrokerGrantId?: string;
+    canonicalBrokerGrantContentHash?: string;
+    canonicalBrokerDecisionReceiptId?: string;
+    canonicalBrokerDecisionReceiptContentHash?: string;
+    canonicalAuthorizedByActorRef?: string;
+    canonicalConfirmedAt?: string;
     canonicalConfirmation?: { id: string; sessionId: string; summary: string; impact: string[] };
 };
 export type AgentThreadSummary = { id: string; preview: string; name?: string | null; cwd?: string; status?: string; source?: unknown; createdAt?: number; updatedAt?: number };

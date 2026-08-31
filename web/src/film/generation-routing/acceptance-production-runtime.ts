@@ -7,22 +7,23 @@ import {
     type GenerationBudgetGrant,
     type GenerationCatalogSnapshot,
     type GenerationEngineConnection,
-    type GenerationExecutionGuardSet,
-    type GenerationReferenceBinding,
     type ProjectGenerationLock,
     type ProjectGenerationPolicy,
 } from "@filmos/generation-contracts";
 
-import { hashCanvasAgentSnapshot, type CanvasAgentSnapshot } from "@/lib/canvas/canvas-agent-ops";
-import { CanvasNodeType, type CanvasNodeData } from "@/types/canvas";
-import { FilmCoreHttpProductionGenerationAuthority } from "./film-core-production-authority";
+import type { CanvasAgentSnapshot } from "@/lib/canvas/canvas-agent-ops";
 import {
     FILMOS_ACCEPTANCE_PROJECT_NAME,
     FILMOS_MOCK_GENERATION_ENGINE_ID,
     FilmOSMockGenerationProvider,
-    ProductionGenerationComposition,
-    type ProductionPreviewBundle,
+    type ProductionAuthorizedCommand,
 } from "./production-composition";
+import {
+    createProjectAuthorizedCommand,
+    createProjectProductionFixture,
+    type ProjectProductionBindings,
+    type ProjectProductionFixture,
+} from "./project-production-runtime";
 
 export const FILMOS_ACCEPTANCE_PROJECT_ID = "filmos-acceptance-project-v1";
 export const FILMOS_ACCEPTANCE_MOCK_CONNECTION_ID = "filmos-acceptance-mock-local";
@@ -206,245 +207,30 @@ export async function createAcceptanceMockBindings(projectId = FILMOS_ACCEPTANCE
     return { connection, catalog, projectPolicy, projectLock, grant, ledger };
 }
 
-export class AcceptanceProductionRuntime {
-    readonly composition: ProductionGenerationComposition;
+export type AcceptanceProviderFixture = ProjectProductionFixture & { bindings: AcceptanceMockBindings };
 
-    private constructor(
-        readonly bindings: AcceptanceMockBindings,
-        private readonly getSnapshot: () => CanvasAgentSnapshot,
-        authority: FilmCoreHttpProductionGenerationAuthority,
-    ) {
-        const provider = new FilmOSMockGenerationProvider();
-        this.composition = new ProductionGenerationComposition(authority, new Map([[provider.engineId, provider]]));
-    }
-
-    static async create(input: {
-        projectId: string;
-        domainProjectId?: string;
-        projectName: string;
-        getSnapshot: () => CanvasAgentSnapshot;
-        filmCoreBaseUrl?: string;
-        fetchImpl?: typeof fetch;
-    }): Promise<AcceptanceProductionRuntime> {
-        if (!isAcceptanceProductionProject(input)) throw new Error("MOCK_PROVIDER_ACCEPTANCE_PROJECT_ONLY");
-        const authorityProjectId = input.domainProjectId || input.projectId;
-        const proposedBindings = await createAcceptanceMockBindings(authorityProjectId);
-        let runtime: AcceptanceProductionRuntime;
-        const authority = new FilmCoreHttpProductionGenerationAuthority(
-            async (preview) => runtime.currentGuards(preview),
-            input.filmCoreBaseUrl,
-            input.fetchImpl,
-        );
-        const bindings = await authority.ensureAcceptanceAuthority(authorityProjectId, input.projectName, proposedBindings);
-        runtime = new AcceptanceProductionRuntime(bindings, input.getSnapshot, authority);
-        return runtime;
-    }
-
-    async preview(input: { nodeId: string; projectName: string; userConfigRevision: string }): Promise<ProductionPreviewBundle> {
-        const snapshot = this.getSnapshot();
-        const node = requireSnapshotNode(snapshot, input.nodeId);
-        const prompt = node.metadata?.composerContent ?? node.metadata?.prompt ?? "";
-        if (!prompt.trim()) throw new Error("GENERATION_PROMPT_REQUIRED");
-        const references = await acceptanceReferences(snapshot, input.nodeId);
-        if (!references.length) throw new Error("GENERATION_HARD_LOCK_REFERENCE_REQUIRED");
-        const draftVersion = node.metadata?.generationDraftVersion || 0;
-        const promptHash = await promptDraftHash(prompt);
-        const guardStateHash = await acceptanceCanvasGuardHash(snapshot, input.nodeId);
-        const projectId = snapshot.domainProjectId || snapshot.projectId;
-        const guards: GenerationExecutionGuardSet = {
-            primaryTarget: {
-                guardKind: "canvas_state",
-                canvasId: snapshot.projectId,
-                nodeId: input.nodeId,
-                expectedRevision: draftVersion,
-                expectedStateHash: guardStateHash,
-            },
-            promptDraft: {
-                guardKind: "versioned_entity",
-                entityType: "prompt_draft",
-                entityId: input.nodeId,
-                expectedVersion: draftVersion,
-                expectedContentHash: promptHash,
-            },
-            projectPolicy: versionedGuard("project_generation_policy", this.bindings.projectPolicy.projectId, this.bindings.projectPolicy),
-            engineConnection: versionedGuard("generation_engine_connection", this.bindings.connection.connectionId, this.bindings.connection),
-            projectLock: versionedGuard("project_generation_lock", this.bindings.projectLock.projectId, this.bindings.projectLock),
-            budgetGrant: versionedGuard("generation_budget_grant", this.bindings.grant.grantId, this.bindings.grant),
-            dependencies: [
-                {
-                    guardKind: "versioned_entity",
-                    entityType: "generation_catalog_snapshot",
-                    entityId: this.bindings.catalog.snapshotId,
-                    expectedVersion: 1,
-                    expectedContentHash: this.bindings.catalog.contentHash,
-                },
-                ...references.map((reference) => ({
-                    guardKind: "versioned_entity" as const,
-                    entityType: "asset_version",
-                    entityId: reference.assetVersionId,
-                    expectedVersion: 1,
-                    expectedContentHash: reference.assetVersionContentHash,
-                })),
-            ],
-        };
-        const generationAttemptId = `attempt-${crypto.randomUUID()}`;
-        return this.composition.preview({
-            projectId,
-            projectName: input.projectName,
-            nodeId: input.nodeId,
-            generationAttemptId,
-            taskKind: "text_to_image",
-            explicitTask: this.bindings.projectPolicy.defaultRoutes.text_to_image,
-            projectPolicy: this.bindings.projectPolicy,
-            projectLock: this.bindings.projectLock,
-            connection: this.bindings.connection,
-            catalog: this.bindings.catalog,
-            promptIntent: {
-                subject: [prompt], identityLocks: ["hard-locked references"], action: [], environment: [], sceneLayout: [],
-                camera: [], lens: [], composition: [], lighting: [], color: [], continuity: [], negativeConstraints: [],
-                deliveryRequirements: [node.metadata?.generationNativeSize || "9:16", node.metadata?.generationDeliveryResolution || "1080p"],
-            },
-            references,
-            normalizedParameters: {
-                aspectRatio: node.metadata?.generationNativeSize || "9:16",
-                resolution: node.metadata?.generationDeliveryResolution || "1080p",
-            },
-            promptDraftVersion: draftVersion,
-            promptDraftContentHash: promptHash,
-            nodeDraftVersion: draftVersion,
-            userConfigRevision: input.userConfigRevision,
-            guards,
-        });
-    }
-
-    reject(proposalId: string) {
-        return this.composition.reject(proposalId);
-    }
-
-    async approve(proposalId: string) {
-        const confirmationId = `confirmation-${crypto.randomUUID()}`;
-        const brokerDecisionReceiptId = `broker-decision-${crypto.randomUUID()}`;
-        const toolRequestId = `tool-request-${crypto.randomUUID()}`;
-        const submitNotAfter = new Date(Date.now() + 15 * 60 * 1000).toISOString();
-        const brokerGrantContentHash = await hashProjection("broker-grant", "envelope", { brokerGrantId: this.bindings.grant.brokerGrantId, proposalId, confirmationId });
-        const brokerDecisionReceiptContentHash = await hashProjection("broker-decision", "envelope", { brokerDecisionReceiptId, proposalId, confirmationId, decision: "approved" });
-        return this.composition.approve({
-            proposalId,
-            actorRef: "human-acceptance",
-            confirmationId,
-            brokerGrantId: this.bindings.grant.brokerGrantId,
-            brokerGrantContentHash,
-            brokerDecisionReceiptId,
-            brokerDecisionReceiptContentHash,
-            toolRequestId,
-            grant: this.bindings.grant,
-            ledger: this.bindings.ledger,
-            submitNotAfter,
-        });
-    }
-
-    submitAuthorized(authorizedSubmissionId: string) {
-        return this.composition.submitAuthorized(authorizedSubmissionId);
-    }
-
-    recover(generationAttemptId: string) {
-        return this.composition.recover(generationAttemptId);
-    }
-
-    private async currentGuards(preview?: ProductionPreviewBundle) {
-        const map = new Map<string, { version: number; contentHash: string }>();
-        if (!preview) return map;
-        for (const guard of [preview.guards.projectPolicy, preview.guards.engineConnection, ...(preview.guards.projectLock ? [preview.guards.projectLock] : []), ...(preview.guards.budgetGrant ? [preview.guards.budgetGrant] : []), ...preview.guards.dependencies]) {
-            if (guard.guardKind === "canvas_state") {
-                map.set(`canvas_state:${guard.canvasId}:${guard.nodeId ?? ""}`, { version: guard.expectedRevision, contentHash: guard.expectedStateHash });
-            } else {
-                map.set(`versioned_entity:${guard.entityType}:${guard.entityId}`, { version: guard.expectedVersion, contentHash: guard.expectedContentHash });
-            }
-        }
-        const snapshot = this.getSnapshot();
-        const node = requireSnapshotNode(snapshot, preview.nodeId);
-        const prompt = node.metadata?.composerContent ?? node.metadata?.prompt ?? "";
-        const draftVersion = node.metadata?.generationDraftVersion || 0;
-        map.set(`canvas_state:${snapshot.projectId}:${preview.nodeId}`, {
-            version: draftVersion,
-            contentHash: await acceptanceCanvasGuardHash(snapshot, preview.nodeId),
-        });
-        map.set(`versioned_entity:prompt_draft:${preview.nodeId}`, {
-            version: draftVersion,
-            contentHash: await promptDraftHash(prompt),
-        });
-        return map;
-    }
+export async function createAcceptanceProviderFixture(input: {
+    projectId: string;
+    domainProjectId?: string;
+    projectName: string;
+    getSnapshot: () => CanvasAgentSnapshot;
+    filmCoreBaseUrl?: string;
+    fetchImpl?: typeof fetch;
+}): Promise<AcceptanceProviderFixture> {
+    if (!isAcceptanceProductionProject(input)) throw new Error("MOCK_PROVIDER_ACCEPTANCE_PROJECT_ONLY");
+    const authorityProjectId = input.domainProjectId || input.projectId;
+    const provider = new FilmOSMockGenerationProvider();
+    return await createProjectProductionFixture({
+        ...input,
+        proposedBindings: await createAcceptanceMockBindings(authorityProjectId),
+        providers: new Map([[provider.engineId, provider]]),
+        requireHardLockReference: true,
+    }) as AcceptanceProviderFixture;
 }
 
-function versionedGuard<const E extends string, T extends { entityVersion: number; contentHash: string }>(entityType: E, entityId: string, record: T) {
-    return {
-        guardKind: "versioned_entity" as const,
-        entityType,
-        entityId,
-        expectedVersion: record.entityVersion,
-        expectedContentHash: record.contentHash,
-    };
-}
-
-function requireSnapshotNode(snapshot: CanvasAgentSnapshot, nodeId: string): CanvasNodeData {
-    const node = snapshot.nodes.find((item) => item.id === nodeId);
-    if (!node) throw new Error("GENERATION_TARGET_NODE_NOT_FOUND");
-    return node;
-}
-
-async function promptDraftHash(prompt: string) {
-    return hashProjection("prompt-draft", "semantic", { prompt });
-}
-
-async function acceptanceCanvasGuardHash(snapshot: CanvasAgentSnapshot, nodeId: string) {
-    const node = requireSnapshotNode(snapshot, nodeId);
-    const references = await acceptanceReferences(snapshot, nodeId);
-    return hashProjection("acceptance-generation-canvas-guard", "semantic", {
-        projectId: snapshot.projectId,
-        domainProjectId: snapshot.domainProjectId,
-        nodeId,
-        draftVersion: node.metadata?.generationDraftVersion || 0,
-        prompt: node.metadata?.composerContent ?? node.metadata?.prompt ?? "",
-        nativeSize: node.metadata?.generationNativeSize || "9:16",
-        deliveryResolution: node.metadata?.generationDeliveryResolution || "1080p",
-        references: references.map(({ bindingId: _bindingId, ...reference }) => reference),
-        legacyCanvasStateHash: hashCanvasAgentSnapshot({ ...snapshot, nodes: [], connections: [] }),
-    });
-}
-
-async function acceptanceReferences(snapshot: CanvasAgentSnapshot, nodeId: string): Promise<GenerationReferenceBinding[]> {
-    const sourceIds = snapshot.connections.filter((item) => item.toNodeId === nodeId).map((item) => item.fromNodeId);
-    const sources = sourceIds.map((id) => snapshot.nodes.find((item) => item.id === id)).filter((item): item is CanvasNodeData => Boolean(item));
-    const media = sources.filter((node) => node.type === CanvasNodeType.Image || node.metadata?.workflowKind === "character");
-    return Promise.all(media.map(async (node, ordinal) => {
-        const assetId = node.metadata?.assetId || `canvas-asset-${node.id}`;
-        const assetVersionId = `asset-version-${node.metadata?.assetId || node.id}`;
-        const assetVersionContentHash = await hashProjection("acceptance-asset-version", "semantic", {
-            assetId,
-            nodeId: node.id,
-            storageKey: node.metadata?.storageKey || "local-canvas",
-            mimeType: node.metadata?.mimeType || "image/png",
-            title: node.title,
-        });
-        const preparedRepresentationId = `prepared-${assetVersionContentHash.slice(0, 24)}`;
-        const preparedRepresentationContentHash = await hashProjection("acceptance-prepared-representation", "semantic", {
-            assetVersionId,
-            assetVersionContentHash,
-            mediaType: node.metadata?.mimeType || "image/png",
-        });
-        return {
-            bindingId: `binding-${node.id}`,
-            role: "subject_identity" as const,
-            assetId,
-            assetVersionId,
-            assetVersionContentHash,
-            mediaType: node.metadata?.mimeType || "image/png",
-            ordinal,
-            preparedRepresentationId,
-            preparedRepresentationContentHash,
-            weightMicrounits: 1_000_000,
-            hardLock: true,
-        };
-    }));
+export function createAcceptanceAuthorizedCommand(
+    fixture: AcceptanceProviderFixture,
+    input: Omit<ProductionAuthorizedCommand, "grant" | "ledger" | "submitNotAfter"> & { confirmedAt: string },
+): ProductionAuthorizedCommand {
+    return createProjectAuthorizedCommand(fixture as ProjectProductionFixture, input);
 }

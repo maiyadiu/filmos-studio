@@ -678,7 +678,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         : try await manager.publishPendingHostHandoff(payload)
                     workbenchWindow?.resolveChatGPTHostRequest(requestID: requestID, data: result, error: nil)
                 } catch {
-                    workbenchWindow?.resolveChatGPTHostRequest(requestID: requestID, data: nil, error: "CHATGPT_HOST_REQUEST_REJECTED")
+                    let code = (error as? DesktopChatGPTRuntimeError)?.bridgeErrorCode ?? "CHATGPT_HOST_REQUEST_FAILED"
+                    workbenchWindow?.resolveChatGPTHostRequest(requestID: requestID, data: nil, error: code)
                 }
             }
         }

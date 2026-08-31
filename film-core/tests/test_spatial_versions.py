@@ -747,7 +747,7 @@ def test_v3_to_latest_migration_preserves_history_fk_indexes_and_triggers(tmp_pa
         } <= triggers
         assert connection.execute(
             "SELECT MAX(version) AS version FROM schema_migrations"
-        ).fetchone()["version"] == 6
+        ).fetchone()["version"] == 7
 
     SQLiteDatabase(path)
     with database.connect() as connection:

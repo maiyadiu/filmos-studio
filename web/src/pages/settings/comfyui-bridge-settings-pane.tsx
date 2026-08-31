@@ -1,12 +1,14 @@
 import { App, Button, Form, Input, Popconfirm, Segmented, Select, Switch } from "antd";
 import { Copy, Download, Plus, RefreshCw, Trash2 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { WorkflowGraphEditor } from "@/components/workflow-graph-editor";
 import { WorkflowTestWorkbench } from "@/components/workflow-test-workbench";
 import { createComfyBridge, listComfyBridges, revokeComfyBridge, type ComfyBridgeSummary } from "@/services/api/comfy-bridge";
 import { normalizeWorkflowFieldMappings, useConfigStore, type ComfyBridgeConfig, type ComfyBridgeWorkflow, type WorkflowFieldMapping, type WorkflowGraphPreview } from "@/stores/use-config-store";
 import { useUserStore } from "@/stores/use-user-store";
+import { configuredEngineConnectionObservation } from "@/film/generation-routing/engine-connection-synchronizer";
+import { useBrainGenerationRoutingStore } from "@/stores/use-brain-generation-routing-store";
 
 type DiscoveredWorkflow = { workflowId: string; title?: string; fields?: WorkflowFieldMapping[]; workflowJson?: Record<string, unknown>; workflowGraph?: WorkflowGraphPreview; format?: "api" | "ui" };
 type BridgePlatform = "windows" | "linux";
@@ -17,6 +19,10 @@ export function ComfyUIBridgeSettingsPane() {
     const userId = useUserStore((state) => state.user?.id);
     const config = useConfigStore((state) => state.config.comfyBridge);
     const updateConfig = useConfigStore((state) => state.updateConfig);
+    const comfyConnection = useBrainGenerationRoutingStore((state) => state.config?.engineConnections.find((item) => item.engineId === "comfyui"));
+    const synchronizeEngineConnections = useBrainGenerationRoutingStore((state) => state.synchronizeEngineConnections);
+    const comfyConnectionRef = useRef(comfyConnection);
+    comfyConnectionRef.current = comfyConnection;
     const [bridges, setBridges] = useState<ComfyBridgeSummary[]>([]);
     const [bridgeName, setBridgeName] = useState("我的 ComfyUI");
     const [bridgeToken, setBridgeToken] = useState("");
@@ -53,8 +59,20 @@ export function ComfyUIBridgeSettingsPane() {
             const items = await listComfyBridges();
             setBridges(items);
             const currentBridgeExists = Boolean(config.bridgeId && items.some((item) => item.id === config.bridgeId));
+            const effectiveBridgeID = currentBridgeExists ? config.bridgeId : !config.bridgeId && items.length === 1 ? items[0].id : "";
             // Bridge 重连或页面刷新后，只有一个可用设备时自动恢复选择；工作流配置继续保留。
             if (!currentBridgeExists && !config.bridgeId && items.length === 1) update({ bridgeId: items[0].id });
+            const observedBridge = items.find((item) => item.id === effectiveBridgeID);
+            const currentConnection = comfyConnectionRef.current;
+            if (currentConnection) {
+                await synchronizeEngineConnections([await configuredEngineConnectionObservation({
+                    current: currentConnection,
+                    configured: Boolean(config.enabled && effectiveBridgeID),
+                    doctorPassed: Boolean(config.enabled && observedBridge?.online),
+                    offline: Boolean(config.enabled && effectiveBridgeID && !observedBridge?.online),
+                    catalogEvidenceSource: "runtime_discovery",
+                })]);
+            }
         } catch (error) {
             message.error(error instanceof Error ? `读取 Bridge 失败：${error.message}` : "读取 Bridge 失败");
         } finally {

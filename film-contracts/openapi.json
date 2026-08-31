@@ -5777,6 +5777,113 @@
         "x-implementation-state": "implemented"
       }
     },
+    "/generation-production/authority-trace": {
+      "get": {
+        "operationId": "filmGenerationProductionAuthorityTraceGet",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Filmgenerationproductionauthoritytraceget",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Generation Production Authority Trace Get",
+        "x-implementation-state": "implemented"
+      }
+    },
+    "/generation-production/authorization-reconciliation": {
+      "post": {
+        "operationId": "filmGenerationProductionAuthorizationReconciliation",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "title": "Payload",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Filmgenerationproductionauthorizationreconciliation",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Generation Production Authorization Reconciliation",
+        "x-implementation-state": "implemented"
+      }
+    },
+    "/generation-production/authorization-release": {
+      "post": {
+        "operationId": "filmGenerationProductionAuthorizationRelease",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "title": "Payload",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Filmgenerationproductionauthorizationrelease",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Generation Production Authorization Release",
+        "x-implementation-state": "implemented"
+      }
+    },
     "/generation-production/authorizations": {
       "post": {
         "operationId": "filmGenerationProductionAuthorizationPersist",
@@ -5862,49 +5969,6 @@
         "x-implementation-state": "implemented"
       }
     },
-    "/generation-production/candidates": {
-      "post": {
-        "operationId": "filmGenerationProductionCandidatePersist",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "additionalProperties": true,
-                "title": "Payload",
-                "type": "object"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Filmgenerationproductioncandidatepersist",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Generation Production Candidate Persist",
-        "x-implementation-state": "implemented"
-      }
-    },
     "/generation-production/candidates/by-attempt/{generationAttemptId}": {
       "get": {
         "operationId": "filmGenerationProductionCandidateGet",
@@ -5944,6 +6008,49 @@
           }
         },
         "summary": "Generation Production Candidate Get",
+        "x-implementation-state": "implemented"
+      }
+    },
+    "/generation-production/execution-results": {
+      "post": {
+        "operationId": "filmGenerationProductionExecutionResultPersist",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "title": "Payload",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Filmgenerationproductionexecutionresultpersist",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Generation Production Execution Result Persist",
         "x-implementation-state": "implemented"
       }
     },
@@ -6086,9 +6193,9 @@
         "x-implementation-state": "implemented"
       }
     },
-    "/generation-production/provider-receipts": {
+    "/generation-production/project-authority": {
       "post": {
-        "operationId": "filmGenerationProductionProviderReceiptPersist",
+        "operationId": "filmGenerationProductionProjectAuthorityPersist",
         "requestBody": {
           "content": {
             "application/json": {
@@ -6107,7 +6214,7 @@
               "application/json": {
                 "schema": {
                   "additionalProperties": true,
-                  "title": "Response Filmgenerationproductionproviderreceiptpersist",
+                  "title": "Response Filmgenerationproductionprojectauthoritypersist",
                   "type": "object"
                 }
               }
@@ -6125,7 +6232,49 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Generation Production Provider Receipt Persist",
+        "summary": "Generation Production Project Authority Persist",
+        "x-implementation-state": "implemented"
+      }
+    },
+    "/generation-production/project-authority/{projectId}": {
+      "get": {
+        "operationId": "filmGenerationProductionProjectAuthorityGet",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "title": "Projectid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Filmgenerationproductionprojectauthorityget",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Generation Production Project Authority Get",
         "x-implementation-state": "implemented"
       }
     },

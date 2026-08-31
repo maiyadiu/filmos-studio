@@ -1,29 +1,34 @@
 import type {
-    MockProviderTaskReceipt,
+    ProviderTaskReceipt,
     ProductionAuthorizationBundle,
     ProductionCandidate,
     ProductionGenerationAuthority,
     ProductionPreviewBundle,
     ProductionTraceEvent,
 } from "./production-composition";
+import { hashProjection } from "@filmos/generation-contracts";
 
 export type LocalProductionAuthoritySnapshot = {
     previews: ProductionPreviewBundle[];
     authorizations: ProductionAuthorizationBundle[];
-    receipts: MockProviderTaskReceipt[];
+    receipts: ProviderTaskReceipt[];
     candidates: ProductionCandidate[];
     rejections: Array<{ proposalId: string; decisionId: string; traceEvent: ProductionTraceEvent }>;
     guards: Array<[string, { version: number; contentHash: string }]>;
+    releasedAuthorizationIds?: string[];
+    reconciliationAuthorizationIds?: string[];
 };
 
 /** Local deterministic authority used by the candidate-only acceptance project and restart harness. */
 export class LocalProductionGenerationAuthority implements ProductionGenerationAuthority {
     private readonly previews = new Map<string, ProductionPreviewBundle>();
     private readonly authorizations = new Map<string, ProductionAuthorizationBundle>();
-    private readonly receipts = new Map<string, MockProviderTaskReceipt>();
+    private readonly receipts = new Map<string, ProviderTaskReceipt>();
     private readonly candidates = new Map<string, ProductionCandidate>();
     private readonly rejections = new Map<string, { decisionId: string; traceEvent: ProductionTraceEvent }>();
     private readonly guards = new Map<string, { version: number; contentHash: string }>();
+    private readonly releasedAuthorizations = new Set<string>();
+    private readonly reconciliationAuthorizations = new Set<string>();
 
     constructor(snapshot?: LocalProductionAuthoritySnapshot) {
         for (const item of snapshot?.previews || []) this.previews.set(item.proposal.proposalId, item);
@@ -32,6 +37,8 @@ export class LocalProductionGenerationAuthority implements ProductionGenerationA
         for (const item of snapshot?.candidates || []) this.candidates.set(item.generationAttemptId, item);
         for (const item of snapshot?.rejections || []) this.rejections.set(item.proposalId, { decisionId: item.decisionId, traceEvent: item.traceEvent });
         for (const item of snapshot?.guards || []) this.guards.set(item[0], item[1]);
+        for (const id of snapshot?.releasedAuthorizationIds || []) this.releasedAuthorizations.add(id);
+        for (const id of snapshot?.reconciliationAuthorizationIds || []) this.reconciliationAuthorizations.add(id);
     }
 
     async persistPreview(bundle: ProductionPreviewBundle): Promise<void> {
@@ -55,23 +62,44 @@ export class LocalProductionGenerationAuthority implements ProductionGenerationA
     async loadAuthorized(id: string) { const value = this.authorizations.get(id); return value && structuredClone(value); }
     async currentGuards() { return new Map(this.guards); }
     async loadProviderReceipt(key: string) { const value = this.receipts.get(key); return value && structuredClone(value); }
-    async persistProviderReceipt(receipt: MockProviderTaskReceipt) {
-        const existing = this.receipts.get(receipt.idempotencyKey);
-        if (existing && existing.contentHash !== receipt.contentHash) throw new Error("PROVIDER_RECEIPT_IDEMPOTENCY_CONFLICT");
+    async persistExecutionResult(authorization: ProductionAuthorizationBundle, receipt: ProviderTaskReceipt) {
+        const existingReceipt = this.receipts.get(receipt.idempotencyKey);
+        if (existingReceipt && existingReceipt.contentHash !== receipt.contentHash) throw new Error("PROVIDER_RECEIPT_IDEMPOTENCY_CONFLICT");
         this.receipts.set(receipt.idempotencyKey, structuredClone(receipt));
-    }
-    async persistCandidate(candidate: ProductionCandidate) {
-        const existing = this.candidates.get(candidate.generationAttemptId);
-        if (existing && existing.contentHash !== candidate.contentHash) throw new Error("GENERATION_CANDIDATE_DUPLICATE");
+        const generationAttemptId = authorization.preview.generationAttemptId;
+        const candidateBase = {
+            candidateId: `formal-candidate-${receipt.outputHash.slice(0, 24)}`,
+            generationPackageFilmEntityId: `formal-package-${authorization.authorizedSubmission.contentHash.slice(0, 24)}`,
+            generationAttemptEvidenceFilmEntityId: `formal-attempt-${receipt.contentHash.slice(0, 24)}`,
+            candidateFilmEntityId: `formal-candidate-${receipt.outputHash.slice(0, 24)}`,
+            generationAttemptId,
+            providerReceiptId: receipt.providerReceiptId,
+            outputAssetVersionId: receipt.outputAssetVersionId,
+            outputHash: receipt.outputHash,
+            qcState: "pending" as const,
+            approvalState: "not_approved" as const,
+        };
+        const candidate = { ...candidateBase, contentHash: await hashProjection("generation-candidate", "envelope", candidateBase) };
+        const existingCandidate = this.candidates.get(candidate.generationAttemptId);
+        if (existingCandidate && existingCandidate.contentHash !== candidate.contentHash) throw new Error("GENERATION_CANDIDATE_DUPLICATE");
         if (candidate.approvalState !== "not_approved" || candidate.qcState !== "pending") throw new Error("GENERATION_CANDIDATE_BOUNDARY_VIOLATION");
         this.candidates.set(candidate.generationAttemptId, structuredClone(candidate));
+        return structuredClone(candidate);
     }
     async loadCandidateByAttempt(attemptId: string) { const value = this.candidates.get(attemptId); return value && structuredClone(value); }
+    async releaseAuthorization(authorization: ProductionAuthorizationBundle) {
+        this.releasedAuthorizations.add(authorization.authorizedSubmission.authorizedSubmissionId);
+    }
+    async markReconciliationRequired(authorization: ProductionAuthorizationBundle) {
+        this.reconciliationAuthorizations.add(authorization.authorizedSubmission.authorizedSubmissionId);
+    }
 
     setGuard(key: string, value: { version: number; contentHash: string }) { this.guards.set(key, value); }
     providerReceiptCount() { return this.receipts.size; }
     candidateCount() { return this.candidates.size; }
     rejectionCount() { return this.rejections.size; }
+    releaseCount() { return this.releasedAuthorizations.size; }
+    reconciliationCount() { return this.reconciliationAuthorizations.size; }
     snapshot(): LocalProductionAuthoritySnapshot {
         return {
             previews: [...this.previews.values()].map((item) => structuredClone(item)),
@@ -80,6 +108,8 @@ export class LocalProductionGenerationAuthority implements ProductionGenerationA
             candidates: [...this.candidates.values()].map((item) => structuredClone(item)),
             rejections: [...this.rejections].map(([proposalId, value]) => ({ proposalId, decisionId: value.decisionId, traceEvent: structuredClone(value.traceEvent) })),
             guards: [...this.guards].map(([key, value]) => [key, { ...value }]),
+            releasedAuthorizationIds: [...this.releasedAuthorizations],
+            reconciliationAuthorizationIds: [...this.reconciliationAuthorizations],
         };
     }
 }

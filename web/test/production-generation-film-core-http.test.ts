@@ -1,22 +1,24 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-    AcceptanceProductionRuntime,
+    createAcceptanceAuthorizedCommand,
+    createAcceptanceProviderFixture,
     FILMOS_ACCEPTANCE_MOCK_CONNECTION_ID,
     FILMOS_ACCEPTANCE_MOCK_MODEL_ID,
     FILMOS_ACCEPTANCE_PROJECT_ID,
 } from "@/film/generation-routing/acceptance-production-runtime";
 import { executeCanonicalGenerationTool } from "@/film/generation-routing/canonical-tool-runtime";
-import { FILMOS_ACCEPTANCE_PROJECT_NAME, FILMOS_MOCK_GENERATION_ENGINE_ID } from "@/film/generation-routing/production-composition";
+import { FILMOS_ACCEPTANCE_PROJECT_NAME, FILMOS_MOCK_GENERATION_ENGINE_ID, type ProductionGenerationService } from "@/film/generation-routing/production-composition";
 import { CanvasNodeType, type CanvasNodeData } from "@/types/canvas";
 import { defaultConfig } from "@/stores/use-config-store";
+import { canonicalGenerationBrokerAuthorization } from "./helpers/canonical-agent-broker";
 
 const filmCoreBaseUrl = process.env.FILMOS_PRODUCTION_FILM_CORE_URL;
 
 describe("V2.4 candidate production runtime over real Film Core HTTP", () => {
     test.skipIf(!filmCoreBaseUrl)("Composer runtime persists preview, broker, provider receipt and candidate through loopback Film Core", async () => {
         const snapshot = acceptanceSnapshot();
-        const runtime = await AcceptanceProductionRuntime.create({
+        const runtime = await createAcceptanceProviderFixture({
             projectId: snapshot.projectId,
             domainProjectId: snapshot.domainProjectId,
             projectName: snapshot.title,
@@ -25,50 +27,74 @@ describe("V2.4 candidate production runtime over real Film Core HTTP", () => {
         });
 
         const rejected = await runtime.preview({ nodeId: "config-1", projectName: snapshot.title, userConfigRevision: "candidate-http-r1" });
-        const rejection = await runtime.reject(rejected.proposal.proposalId);
+        const rejection = await runtime.service.reject(rejected.proposal.proposalId);
         expect(rejection).toMatchObject({ event: "confirmation.rejected", externalCostMicrounits: "0", externalWrite: false });
 
         const stalePreview = await runtime.preview({ nodeId: "config-1", projectName: snapshot.title, userConfigRevision: "candidate-http-r1" });
-        const staleAuthorization = await runtime.approve(stalePreview.proposal.proposalId);
         snapshot.nodes[1] = withPrompt(snapshot.nodes[1], "changed after broker approval", 2);
-        await expect(runtime.submitAuthorized(staleAuthorization.authorizedSubmission.authorizedSubmissionId)).rejects.toThrow("GENERATION_SUBMISSION_STALE");
+        const staleBroker = await canonicalGenerationBrokerAuthorization("film-core-http-stale");
+        await expect(runtime.service.executeAuthorized(createAcceptanceAuthorizedCommand(runtime, {
+            proposalId: stalePreview.proposal.proposalId,
+            ...staleBroker,
+        }))).rejects.toThrow("GENERATION_SUBMISSION_STALE");
 
         snapshot.nodes[1] = withPrompt(snapshot.nodes[1], "locked acceptance portrait", 1);
         const approvedPreview = await runtime.preview({ nodeId: "config-1", projectName: snapshot.title, userConfigRevision: "candidate-http-r1" });
-        const approved = await runtime.approve(approvedPreview.proposal.proposalId);
+        const broker = await canonicalGenerationBrokerAuthorization("film-core-http");
         const submitted = await executeCanonicalGenerationTool("generation_submit", {
-            authorizedSubmissionId: approved.authorizedSubmission.authorizedSubmissionId,
+            proposalId: approvedPreview.proposal.proposalId,
         }, {
             projectId: snapshot.projectId,
             config: structuredClone(defaultConfig),
             routingConfig: null,
             snapshot,
             projectPolicy: runtime.bindings.projectPolicy,
-            productionPort: runtime,
+            productionPort: { executeAuthorized: (input) => runtime.service.executeAuthorized(createAcceptanceAuthorizedCommand(runtime, input)) },
+            brokerAuthorization: broker,
         });
         expect(submitted.ok).toBe(true);
         if (!submitted.ok) throw new Error(submitted.message);
-        const result = submitted.data as Awaited<ReturnType<AcceptanceProductionRuntime["submitAuthorized"]>>;
+        const result = submitted.data as Awaited<ReturnType<ProductionGenerationService["submitAuthorized"]>>;
         expect(result.receipt).toMatchObject({ externalNetworkRequests: 0, externalSpendMicrounits: "0", status: "succeeded" });
         expect(result.candidate).toMatchObject({ qcState: "pending", approvalState: "not_approved" });
 
-        const restarted = await AcceptanceProductionRuntime.create({
+        const restarted = await createAcceptanceProviderFixture({
             projectId: snapshot.projectId,
             domainProjectId: snapshot.domainProjectId,
             projectName: snapshot.title,
             getSnapshot: () => snapshot,
             filmCoreBaseUrl,
         });
-        expect((await restarted.recover(approvedPreview.generationAttemptId)).contentHash).toBe(result.candidate.contentHash);
-        const replay = await restarted.submitAuthorized(approved.authorizedSubmission.authorizedSubmissionId);
+        expect((await restarted.service.recover(approvedPreview.generationAttemptId)).contentHash).toBe(result.candidate.contentHash);
+        const replay = await restarted.service.submitAuthorized(result.receipt.authorizedSubmissionId);
         expect(replay.receipt.contentHash).toBe(result.receipt.contentHash);
         expect(replay.candidate.contentHash).toBe(result.candidate.contentHash);
+
+        const authorityTrace = await getJson(`${filmCoreBaseUrl}/generation-production/authority-trace`);
+        const projectAuthority = await getJson(`${filmCoreBaseUrl}/generation-production/project-authority/${FILMOS_ACCEPTANCE_PROJECT_ID}`);
+        expect(authorityTrace).toMatchObject({
+            formalCounts: { generation_package: 1, generation_attempt_evidence: 1, candidate: 1 },
+            activeFormalBindingCount: 1,
+            parallelCandidateWriteCount: 0,
+            legacyDirectSubmitCount: 0,
+            externalNetworkCount: 0,
+            externalSpend: "0",
+            approvalCount: 0,
+        });
+        expect(projectAuthority.bindings.ledger).toMatchObject({
+            reservedTasks: 0,
+            reservedCostMicrounits: "0",
+            consumedTasks: 1,
+            consumedCostMicrounits: "0",
+            openReservationIds: [],
+            lastEventSequence: 3,
+        });
 
         const output = process.env.FILMOS_PRODUCTION_HTTP_TRACE_OUTPUT;
         if (output) {
             await Bun.write(output, JSON.stringify({
                 schema_version: "1.0.0",
-                gate_id: "BRAIN-GENERATION-PRODUCTION-COMPOSITION-001",
+                gate_id: "V2-4-FINAL-PRODUCTION-AUTHORITY-001",
                 status: "PASSED",
                 runtime: "filmos-candidate",
                 film_core_transport: "loopback_http",
@@ -90,12 +116,31 @@ describe("V2.4 candidate production runtime over real Film Core HTTP", () => {
                 candidate_content_hash: result.candidate.contentHash,
                 candidate_qc_state: result.candidate.qcState,
                 candidate_approval_state: result.candidate.approvalState,
+                formal_counts: authorityTrace.formalCounts,
+                active_formal_binding_count: authorityTrace.activeFormalBindingCount,
+                parallel_candidate_write_count: authorityTrace.parallelCandidateWriteCount,
+                canonical_broker: {
+                    confirmation_id: broker.confirmationId,
+                    broker_grant_id: broker.brokerGrantId,
+                    broker_grant_content_hash: broker.brokerGrantContentHash,
+                    broker_decision_receipt_id: broker.brokerDecisionReceiptId,
+                    broker_decision_receipt_content_hash: broker.brokerDecisionReceiptContentHash,
+                    tool_request_id: broker.toolRequestId,
+                },
+                synthetic_broker_receipt_count: 0,
+                real_budget_ledger: projectAuthority.bindings.ledger,
                 external_network_request_count: 0,
                 external_spend_microunits: "0",
             }, null, 2) + "\n");
         }
     });
 });
+
+async function getJson(url: string) {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`FILM_CORE_HTTP_${response.status}`);
+    return await response.json() as Record<string, any>;
+}
 
 function acceptanceSnapshot() {
     const nodes: CanvasNodeData[] = [

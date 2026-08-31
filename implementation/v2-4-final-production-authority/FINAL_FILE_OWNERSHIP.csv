@@ -1,0 +1,10 @@
+authority,owner_path,allowed_callers,forbidden_parallel_owner
+production_service,web/src/film/generation-routing/production-composition.ts,project runtime; composer; acceptance fixture,acceptance runtime
+provider_adapters,web/src/film/generation-routing/production-provider-adapters.ts,production service; project registry,direct project provider calls
+broker,canvas-agent/src/brains/tool-broker.ts,generic agent runtime; acceptance broker helper,modal receipt synthesis
+film_core_generation,film-core/src/film_production_core/generation_production.py,Film Core API,web local candidate table
+formal_candidate,film-core/src/film_production_core/formal_service.py,generation production store,generation_production_records
+budget_ledger,film-core/src/film_production_core/generation_budget.py,generation production store,trace-only budget
+engine_sync,web/src/film/generation-routing/engine-connection-synchronizer.ts,engine settings; routing store,per-pane fake readiness
+project_policy,web/src/film/generation-routing/project-production-authority-builder.ts,project settings; project runtime,global-only fallback
+chatgpt_context,canvas-agent/src/canvas-context.ts,secure MCP; desktop bridge,truncated context hash

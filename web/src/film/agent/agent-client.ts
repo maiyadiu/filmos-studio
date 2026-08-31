@@ -75,6 +75,10 @@ export class AgentSessionClient {
         return this.post<{ outcome: { status: "completed"; request: Record<string, unknown>; result: { output?: unknown; outcome: string } } }>(`/agent/sessions/${segment(sessionId)}/tools`, input, signal);
     }
 
+    proposeTool(sessionId: string, input: { turnId: string; toolName: string; input?: Record<string, unknown>; ordinaryConfirmationEnabled?: boolean }, signal?: AbortSignal) {
+        return this.post<{ outcome: { status: "confirmation_required" | "completed"; request: Record<string, unknown>; confirmation?: { id: string; sessionId: string; title: string; summary: string; impact: string[]; expiresAt: string }; result?: { output?: unknown; outcome: string } } }>(`/agent/sessions/${segment(sessionId)}/tool-proposals`, input, signal);
+    }
+
     decideConfirmation(confirmationId: string, input: { sessionId: string; approved: boolean }, signal?: AbortSignal) {
         return this.post<{ outcome: unknown }>(`/agent/confirmations/${segment(confirmationId)}/decision`, input, signal);
     }

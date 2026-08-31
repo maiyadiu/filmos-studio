@@ -476,6 +476,7 @@ function responseError(response: Response, body: Record<string, unknown>) {
 
 const PUBLIC_RUNTIME_ERROR_MESSAGES: Record<string, string> = {
     agent_profile_not_ready: "所选 AI 大脑尚未连接，请检查对应连接与授权",
+    chatgpt_host_context_invalid: "ChatGPT Host 已连接，但当前工作台上下文未通过安全合同校验",
     chatgpt_host_not_ready: "ChatGPT Host 尚未就绪，请重新连接 Secure Tunnel 并授权当前项目",
     challenge_invalid: "本机会话挑战无效",
     invalid_public_key: "浏览器公钥无效",

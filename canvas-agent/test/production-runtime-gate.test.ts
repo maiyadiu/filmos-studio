@@ -116,7 +116,7 @@ test("production GenericAgentRuntime composes every profile and routes sessions 
                 actorId: "acceptance-human",
                 approved: true,
             }),
-            /AGENT_CONFIRMATION_WAITER_NOT_FOUND/,
+            /AGENT_CONFIRMATION_ALREADY_DECIDED:consumed/,
         );
         assert.equal(snapshot.nodes.length, 1);
         assert.equal(executions.filter((item) => item.name === "canvas_create_text_node").length, 1);

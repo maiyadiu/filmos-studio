@@ -21,7 +21,7 @@ describe("canonical generation tool runtime", () => {
             generation_compile_prompt: { projectId: "project-test", taskKind: "text_to_image", input: { engineId: "dreamina_cli", prompt: "test prompt" } },
             generation_preview_submission: { routeSnapshotId: "route-test" },
             generation_create_external_project: { engineId: "flova_cli", connectionId: "flova-local", input: {} },
-            generation_submit: { authorizedSubmissionId: "submission-test" },
+            generation_submit: { proposalId: "proposal-test" },
             generation_get_status: { taskId: "task-test" }, generation_reconcile: { taskId: "task-test" },
             generation_cancel: { taskId: "task-test" }, generation_download_outputs: { taskId: "task-test" },
             generation_import_candidate: { taskId: "task-test" }, generation_get_lineage: { generationAttemptId: "attempt-test" },
@@ -36,7 +36,7 @@ describe("canonical generation tool runtime", () => {
     test("preview is zero-cost and paid submit fails closed without authorization evidence", async () => {
         const preview = await executeCanonicalGenerationTool("generation_preview_submission", { routeSnapshotId: "route-test" }, context);
         expect(preview).toMatchObject({ ok: true, data: { externalCostMicrounits: "0", externalWritePerformed: false } });
-        const submit = await executeCanonicalGenerationTool("generation_submit", { authorizedSubmissionId: "submission-test" }, context);
+        const submit = await executeCanonicalGenerationTool("generation_submit", { proposalId: "proposal-test" }, context);
         expect(submit).toMatchObject({ ok: false, data: { code: "READY_FOR_USER_AUTHORIZATION", externalWritePerformed: false } });
     });
 });

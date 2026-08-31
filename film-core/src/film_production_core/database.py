@@ -4,7 +4,7 @@ import sqlite3
 from pathlib import Path
 
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 MIGRATION_001 = """
 CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -608,6 +608,105 @@ VALUES (6, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
 COMMIT;
 """
 
+MIGRATION_007 = """
+BEGIN IMMEDIATE;
+
+CREATE TABLE generation_production_traces (
+    trace_id TEXT PRIMARY KEY,
+    trace_kind TEXT NOT NULL CHECK (trace_kind IN ('project_authority', 'preview', 'rejection')),
+    project_id TEXT NOT NULL,
+    generation_attempt_id TEXT NOT NULL,
+    proposal_id TEXT,
+    content_hash TEXT NOT NULL CHECK (
+        length(content_hash) = 64
+        AND content_hash = lower(content_hash)
+        AND content_hash NOT GLOB '*[^0-9a-f]*'
+    ),
+    payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX idx_generation_project_authority
+ON generation_production_traces(project_id)
+WHERE trace_kind = 'project_authority';
+
+CREATE UNIQUE INDEX idx_generation_trace_preview
+ON generation_production_traces(proposal_id)
+WHERE trace_kind = 'preview';
+
+CREATE TABLE generation_authorized_submissions (
+    authorized_submission_id TEXT PRIMARY KEY,
+    generation_attempt_id TEXT NOT NULL UNIQUE,
+    proposal_id TEXT NOT NULL UNIQUE,
+    idempotency_key TEXT NOT NULL UNIQUE,
+    ledger_id TEXT NOT NULL,
+    reservation_id TEXT NOT NULL UNIQUE,
+    content_hash TEXT NOT NULL CHECK (
+        length(content_hash) = 64
+        AND content_hash = lower(content_hash)
+        AND content_hash NOT GLOB '*[^0-9a-f]*'
+    ),
+    payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE generation_provider_evidence (
+    provider_receipt_id TEXT PRIMARY KEY,
+    generation_attempt_id TEXT NOT NULL UNIQUE,
+    authorized_submission_id TEXT NOT NULL UNIQUE,
+    idempotency_key TEXT NOT NULL UNIQUE,
+    content_hash TEXT NOT NULL CHECK (
+        length(content_hash) = 64
+        AND content_hash = lower(content_hash)
+        AND content_hash NOT GLOB '*[^0-9a-f]*'
+    ),
+    payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
+    created_at TEXT NOT NULL,
+    FOREIGN KEY(authorized_submission_id) REFERENCES generation_authorized_submissions(authorized_submission_id)
+);
+
+CREATE TABLE generation_formal_bindings (
+    generation_attempt_id TEXT PRIMARY KEY,
+    generation_package_film_entity_id TEXT NOT NULL UNIQUE,
+    generation_attempt_evidence_film_entity_id TEXT NOT NULL UNIQUE,
+    candidate_film_entity_id TEXT NOT NULL UNIQUE,
+    candidate_content_hash TEXT NOT NULL CHECK (
+        length(candidate_content_hash) = 64
+        AND candidate_content_hash = lower(candidate_content_hash)
+        AND candidate_content_hash NOT GLOB '*[^0-9a-f]*'
+    ),
+    created_at TEXT NOT NULL
+);
+
+CREATE TRIGGER generation_production_traces_no_update
+BEFORE UPDATE ON generation_production_traces
+BEGIN SELECT RAISE(ABORT, 'generation production traces are append-only'); END;
+CREATE TRIGGER generation_production_traces_no_delete
+BEFORE DELETE ON generation_production_traces
+BEGIN SELECT RAISE(ABORT, 'generation production traces are append-only'); END;
+CREATE TRIGGER generation_authorized_submissions_no_update
+BEFORE UPDATE ON generation_authorized_submissions
+BEGIN SELECT RAISE(ABORT, 'generation authorized submissions are immutable'); END;
+CREATE TRIGGER generation_authorized_submissions_no_delete
+BEFORE DELETE ON generation_authorized_submissions
+BEGIN SELECT RAISE(ABORT, 'generation authorized submissions are immutable'); END;
+CREATE TRIGGER generation_provider_evidence_no_update
+BEFORE UPDATE ON generation_provider_evidence
+BEGIN SELECT RAISE(ABORT, 'generation provider evidence is immutable'); END;
+CREATE TRIGGER generation_provider_evidence_no_delete
+BEFORE DELETE ON generation_provider_evidence
+BEGIN SELECT RAISE(ABORT, 'generation provider evidence is immutable'); END;
+CREATE TRIGGER generation_production_records_deprecated_writes
+BEFORE INSERT ON generation_production_records
+WHEN NEW.record_kind IN ('authorization', 'provider_receipt', 'candidate')
+BEGIN SELECT RAISE(ABORT, 'DEPRECATED_ACCEPTANCE_TRACE_STORE is read-only for production authority kinds'); END;
+
+INSERT INTO schema_migrations(version, applied_at)
+VALUES (7, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
+
+COMMIT;
+"""
+
 MIGRATIONS = (
     (1, MIGRATION_001),
     (2, MIGRATION_002),
@@ -615,6 +714,7 @@ MIGRATIONS = (
     (4, MIGRATION_004),
     (5, MIGRATION_005),
     (6, MIGRATION_006),
+    (7, MIGRATION_007),
 )
 
 

@@ -264,7 +264,7 @@ final class DesktopChatGPTRuntime: ChatGPTConnectionOperating {
     func publishHostContext(_ context: Data, challengeID: String) async throws -> Data {
         let value = try Self.jsonObject(context)
         guard value["project_id"] as? String == activeProjectID else {
-            throw DesktopChatGPTRuntimeError.hostPublishRejected
+            throw DesktopChatGPTRuntimeError.hostPublishRejected(nil)
         }
         return try await publish(path: "/handoff/live-context", method: "PUT", challengeID: challengeID, key: "context", value: value)
     }
@@ -278,7 +278,7 @@ final class DesktopChatGPTRuntime: ChatGPTConnectionOperating {
         guard let token = activeGrantToken,
               let url = URL(string: "http://127.0.0.1:17840\(path)"),
               challengeID.range(of: "^live_[A-Za-z0-9_-]{8,96}$", options: .regularExpression) != nil else {
-            throw DesktopChatGPTRuntimeError.hostPublishRejected
+            throw DesktopChatGPTRuntimeError.hostPublishRejected(nil)
         }
         var request = URLRequest(url: url)
         request.httpMethod = method
@@ -288,9 +288,12 @@ final class DesktopChatGPTRuntime: ChatGPTConnectionOperating {
         request.timeoutInterval = 10
         request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
         let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
-              (try? JSONSerialization.jsonObject(with: data)) is [String: Any] else {
-            throw DesktopChatGPTRuntimeError.hostPublishRejected
+        guard let http = response as? HTTPURLResponse else {
+            throw DesktopChatGPTRuntimeError.hostPublishRejected(nil)
+        }
+        let responseObject = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        guard (200..<300).contains(http.statusCode), responseObject != nil else {
+            throw DesktopChatGPTRuntimeError.hostPublishRejected(responseObject?["code"] as? String)
         }
         return data
     }
@@ -606,7 +609,22 @@ enum DesktopChatGPTRuntimeError: Error, LocalizedError {
     case grantUnavailable
     case tunnelDoctorFailed
     case hostPayloadInvalid
-    case hostPublishRejected
+    case hostPublishRejected(String?)
+
+    var bridgeErrorCode: String {
+        switch self {
+        case .hostPayloadInvalid:
+            return "CHATGPT_HOST_PAYLOAD_INVALID"
+        case let .hostPublishRejected(upstreamCode):
+            guard let upstreamCode,
+                  upstreamCode.range(of: "^[A-Za-z0-9_]{1,80}$", options: .regularExpression) != nil else {
+                return "CHATGPT_HOST_PUBLISH_REJECTED"
+            }
+            return "CHATGPT_HOST_\(upstreamCode.uppercased())"
+        default:
+            return "CHATGPT_HOST_REQUEST_FAILED"
+        }
+    }
 
     var errorDescription: String? {
         switch self {

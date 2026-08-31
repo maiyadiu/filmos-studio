@@ -358,7 +358,7 @@ export function hashState(state: CanvasSnapshot) {
         filmExpectedVersion: state.filmExpectedVersion,
         filmContentHash: state.filmContentHash,
         viewport: state.viewport,
-    })).digest("hex").slice(0, 16);
+    })).digest("hex");
 }
 
 function compactContextNode(node: CanvasNode) {

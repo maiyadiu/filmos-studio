@@ -106,7 +106,8 @@
         "ACCEPTANCE-REPORT-BUNDLE-001",
         "RESTART-RECOVERY-001",
         "DESKTOP-BACKUP-RESTORE-001",
-        "PRODUCTION-GENERATION-COMPOSITION-001"
+        "PRODUCTION-GENERATION-COMPOSITION-001",
+        "V2-4-FINAL-PRODUCTION-AUTHORITY-001"
       ],
       "required_local_check_ids": [
         "film-core-environment",
@@ -162,7 +163,8 @@
         "BRAIN-GENERATION-PERFORMANCE-001",
         "GENERATION-COMPOSER-CANDIDATE-UI-001",
         "PERFORMANCE-LOCAL-001",
-        "PRODUCTION-GENERATION-COMPOSITION-001"
+        "PRODUCTION-GENERATION-COMPOSITION-001",
+        "V2-4-FINAL-PRODUCTION-AUTHORITY-001"
       ],
       "required_local_check_ids": [
         "desktop-brand",
@@ -352,7 +354,8 @@
         "BRAIN-GENERATION-ROUTING-V2.4-001",
         "BRAIN-GENERATION-PERFORMANCE-001",
         "PERFORMANCE-LOCAL-001",
-        "PRODUCTION-GENERATION-COMPOSITION-001"
+        "PRODUCTION-GENERATION-COMPOSITION-001",
+        "V2-4-FINAL-PRODUCTION-AUTHORITY-001"
       ],
       "required_local_check_ids": [
         "film-core-environment",
@@ -450,7 +453,8 @@
         "DREAMINA-DOCTOR-REAL-001",
         "FLOVA-DOCTOR-REAL-001",
         "ACCEPTANCE-FULL-CHAIN-001",
-        "PRODUCTION-GENERATION-COMPOSITION-001"
+        "PRODUCTION-GENERATION-COMPOSITION-001",
+        "V2-4-FINAL-PRODUCTION-AUTHORITY-001"
       ],
       "required_local_check_ids": [
         "golden-abc-real-http",

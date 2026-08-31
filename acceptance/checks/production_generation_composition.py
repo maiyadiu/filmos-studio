@@ -78,7 +78,7 @@ def main() -> int:
         )
         try:
             wait_for_health(f"http://127.0.0.1:{port}/film/health", sidecar)
-            web_log = run(("bun", "test", "test/production-generation-composition.test.ts", "test/production-generation-film-core-http.test.ts", "test/agent-browser-runtime-lifecycle.test.ts", "test/brain-generation-routing-config.test.ts", "test/canonical-generation-tool-runtime.test.ts"), ROOT / "web", environment)
+            web_log = run(("bun", "test", "test/production-generation-composition.test.ts", "test/production-generation-film-core-http.test.ts", "test/project-production-runtime.test.ts", "test/engine-connection-synchronizer.test.ts", "test/agent-browser-runtime-lifecycle.test.ts", "test/brain-generation-routing-config.test.ts", "test/canonical-generation-tool-runtime.test.ts"), ROOT / "web", environment)
         finally:
             sidecar.terminate()
             try:
@@ -114,6 +114,13 @@ def main() -> int:
         raise RuntimeError("provider success crossed the Candidate approval boundary")
     if trace["external_network_request_count"] != 0 or trace["external_spend_microunits"] != "0":
         raise RuntimeError("production composition external effect closure changed")
+    if trace.get("synthetic_broker_receipt_count") != 0 or http_trace.get("synthetic_broker_receipt_count") != 0:
+        raise RuntimeError("synthetic Broker receipt detected")
+    for broker in (trace.get("canonical_broker", {}), http_trace.get("canonical_broker", {})):
+        if not broker.get("confirmation_id") or not broker.get("broker_grant_id") or not broker.get("broker_decision_receipt_id"):
+            raise RuntimeError("Canonical Broker identity is missing")
+        if any(len(str(broker.get(field, ""))) != 64 for field in ("broker_grant_content_hash", "broker_decision_receipt_content_hash")):
+            raise RuntimeError("Canonical Broker hash evidence is incomplete")
     if not trace.get("hard_lock_unsupported_blocked") or not trace.get("tampered_authorization_blocked"):
         raise RuntimeError("reference hard-lock or authorization tamper gate was not proven")
     if trace.get("route_precedence_verified") != ["explicit_task", "node_override", "project_default", "global_default"]:
@@ -122,6 +129,8 @@ def main() -> int:
         raise RuntimeError("missing production route did not fail closed")
     if http_trace.get("status") != "PASSED" or http_trace.get("film_core_transport") != "loopback_http":
         raise RuntimeError("candidate runtime did not complete through real Film Core HTTP")
+    if http_trace.get("gate_id") != "V2-4-FINAL-PRODUCTION-AUTHORITY-001":
+        raise RuntimeError("final production authority gate id changed")
     if http_trace.get("approve_provider_submit_count") != 1 or http_trace.get("restart_provider_resubmit_count") != 0:
         raise RuntimeError("Film Core HTTP composition is not exactly-once across restart")
     if http_trace.get("legacy_direct_submit_count") != 0 or http_trace.get("candidate_count") != 1 or http_trace.get("approval_count") != 0:
@@ -130,10 +139,18 @@ def main() -> int:
         raise RuntimeError("Project Policy or Model Lock is not owned by Film Core")
     if http_trace.get("candidate_qc_state") != "pending" or http_trace.get("candidate_approval_state") != "not_approved":
         raise RuntimeError("Film Core HTTP composition crossed the Candidate boundary")
+    if http_trace.get("formal_counts") != {"generation_package": 1, "generation_attempt_evidence": 1, "candidate": 1}:
+        raise RuntimeError("Film Core formal generation lineage is not the unique Candidate authority")
+    if http_trace.get("active_formal_binding_count") != 1 or http_trace.get("parallel_candidate_write_count") != 0:
+        raise RuntimeError("parallel Candidate authority was detected")
+    ledger = http_trace.get("real_budget_ledger", {})
+    if any((ledger.get("reservedTasks") != 0, ledger.get("reservedCostMicrounits") != "0", ledger.get("consumedTasks") != 1,
+            ledger.get("consumedCostMicrounits") != "0", ledger.get("openReservationIds") != [], ledger.get("lastEventSequence") != 3)):
+        raise RuntimeError("real Film Core Budget Ledger did not close reserve -> submitted -> settled")
 
     receipt = {
         "schema_version": "1.0.0",
-        "gate_id": "PRODUCTION-GENERATION-COMPOSITION-001",
+        "gate_id": "V2-4-FINAL-PRODUCTION-AUTHORITY-001",
         "status": "PASSED",
         "project_name": "FilmOS_Acceptance_Project",
         "production_trace": trace,
@@ -163,8 +180,14 @@ def main() -> int:
         "legacy_direct_submit_count": 0,
         "candidate_count": 1,
         "approval_count": 0,
+        "formal_generation_lineage": http_trace["formal_counts"],
+        "parallel_candidate_write_count": 0,
+        "canonical_broker": http_trace["canonical_broker"],
+        "synthetic_broker_receipt_count": 0,
         "film_core_project_policy_authority": True,
         "film_core_model_lock_authority": True,
+        "ordinary_project_same_production_service": True,
+        "real_budget_ledger": ledger,
         "budget_reservation_cost_microunits": "0",
         "candidate_boundary": "QC_PENDING_NOT_APPROVED",
         "restart_recovered_without_resubmit": True,

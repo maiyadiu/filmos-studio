@@ -162,3 +162,12 @@ description: 影策已实现功能的手工验证清单与未确认边界
 - [x] Web 正式构建、Agent/Dreamina 专项测试与 Desktop 48 项 Swift 验收测试通过。
 - [ ] 用户从程序坞打开重新安装的 App，确认“生成引擎”显示即梦模块已加载并能读取当前账号登录状态。
 - [ ] 在已授权 Film Project 中重新打开 ChatGPT 连接，确认 Agent 先显示“Host 已就绪，等待 ChatGPT 接管”，外部 ChatGPT 完成真实读取后才显示“ChatGPT 已连接”。
+
+## V2.4 最终生产权威
+
+- [x] Acceptance 与普通项目共用 `ProductionGenerationService`；本地 Mock 仅作为 Provider Adapter，Provider 网络请求与费用均为 0。
+- [x] Composer 与 Agent 共用 Canonical Broker；Film Core 拒绝合成 Receipt，并只创建正式 GenerationPackage、GenerationAttemptEvidence 与 Candidate。
+- [x] Budget Reserve、Submit、Settle、Release、Reconcile 进入真实持久账本，重启后可按事件复核 Projection。
+- [x] Dreamina、Flova、RunningHub、ComfyUI 状态统一进入 Engine Connection 同步器；Project Policy、Model Lock 与 Budget 在项目设置中持久化。
+- [x] ChatGPT 当前项目上下文改为完整 SHA-256，并保留精确的 Host context invalid 错误。
+- [ ] 用户从最终固定 Commit 重装的 App 验证项目级生成设置、Engine 状态与 ChatGPT Host 交互文案。

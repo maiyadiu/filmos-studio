@@ -164,6 +164,21 @@ export class GenericAgentRuntime {
     }
 
     async requestTool(input: { sessionId: string; turnId?: string; toolName: string; toolInput: Record<string, unknown>; ordinaryConfirmationEnabled?: boolean }) {
+        const outcome = await this.proposeTool(input);
+        if (outcome.status === "completed") return outcome;
+        const session = await this.store.getSession(input.sessionId);
+        if (!session) throw new Error("BRAIN_SESSION_NOT_FOUND");
+        return await new Promise<AgentBrokerOutcome>((resolve, reject) => {
+            const timer = setTimeout(() => {
+                this.confirmationWaiters.delete(outcome.confirmation.id);
+                reject(new Error("AGENT_CONFIRMATION_EXPIRED"));
+            }, 5 * 60_000);
+            timer.unref();
+            this.confirmationWaiters.set(outcome.confirmation.id, { sessionId: session.id, resolve, reject, timer });
+        });
+    }
+
+    async proposeTool(input: { sessionId: string; turnId?: string; toolName: string; toolInput: Record<string, unknown>; ordinaryConfirmationEnabled?: boolean }) {
         const session = await this.store.getSession(input.sessionId);
         if (!session) throw new Error("BRAIN_SESSION_NOT_FOUND");
         const contextReceiptId = session.lastContextReceiptId;
@@ -184,19 +199,12 @@ export class GenericAgentRuntime {
         await this.emitBrokerOutcome(outcome, session.id, turnId);
         if (outcome.status === "completed") return outcome;
         await this.store.updateSession(session.id, { status: "awaiting_confirmation", updatedAt: new Date().toISOString() });
-        return await new Promise<AgentBrokerOutcome>((resolve, reject) => {
-            const timer = setTimeout(() => {
-                this.confirmationWaiters.delete(outcome.confirmation.id);
-                reject(new Error("AGENT_CONFIRMATION_EXPIRED"));
-            }, 5 * 60_000);
-            timer.unref();
-            this.confirmationWaiters.set(outcome.confirmation.id, { sessionId: session.id, resolve, reject, timer });
-        });
+        return outcome;
     }
 
     async decideConfirmation(input: { confirmationId: string; sessionId: string; actorId: string; approved: boolean }) {
         const waiter = this.confirmationWaiters.get(input.confirmationId);
-        if (!waiter || waiter.sessionId !== input.sessionId) throw new Error("AGENT_CONFIRMATION_WAITER_NOT_FOUND");
+        if (waiter && waiter.sessionId !== input.sessionId) throw new Error("AGENT_CONFIRMATION_WAITER_SCOPE_MISMATCH");
         const session = await this.store.getSession(input.sessionId);
         if (!session) throw new Error("BRAIN_SESSION_NOT_FOUND");
         const profile = this.registry.getProfile(session.brainProfileId);
@@ -213,17 +221,17 @@ export class GenericAgentRuntime {
                 currentContext: this.snapshot(),
             });
             await this.emitBrokerOutcome(outcome, session.id, this.activeTurns.get(session.id) || "confirmation");
-            waiter.resolve(outcome);
+            waiter?.resolve(outcome);
             await this.store.updateSession(session.id, { status: "running", updatedAt: new Date().toISOString() });
             return outcome;
         } catch (error) {
             const failure = input.approved ? error : new Error("AGENT_TOOL_REJECTED_BY_HUMAN");
-            waiter.reject(failure instanceof Error ? failure : new Error(String(failure)));
+            waiter?.reject(failure instanceof Error ? failure : new Error(String(failure)));
             await this.store.updateSession(session.id, { status: "running", updatedAt: new Date().toISOString() });
             if (input.approved) throw error;
             return { status: "rejected", confirmationId: input.confirmationId } as const;
         } finally {
-            clearTimeout(waiter.timer);
+            if (waiter) clearTimeout(waiter.timer);
             this.confirmationWaiters.delete(input.confirmationId);
         }
     }

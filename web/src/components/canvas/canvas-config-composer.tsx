@@ -13,13 +13,13 @@ import { CanvasPresetPicker, type CanvasPromptPreset } from "./canvas-preset-pic
 import type { CanvasGenerationMode, CanvasNodeMetadata, CanvasWorkspaceMode } from "@/types/canvas";
 import { useLocalDreaminaModelStore } from "@/stores/use-local-dreamina-model-store";
 import { useEffectiveConfig } from "@/stores/use-config-store";
-import { createGenerationRoutePreviewReceipt } from "@/film/generation-routing/preview-contract";
 import { buildRuntimeGenerationDescriptorOptions, generationCatalogDescriptorOptions, routableGenerationEngineOptions } from "@/film/generation-routing/runtime-catalog";
 import { useBrainGenerationRoutingStore } from "@/stores/use-brain-generation-routing-store";
 import type { CanvasAgentSnapshot } from "@/lib/canvas/canvas-agent-ops";
-import { AcceptanceProductionRuntime, createAcceptanceMockBindings, isAcceptanceProductionProject, type AcceptanceMockBindings } from "@/film/generation-routing/acceptance-production-runtime";
-import { FILMOS_MOCK_GENERATION_ENGINE_ID } from "@/film/generation-routing/production-composition";
-import { executeCanonicalGenerationTool } from "@/film/generation-routing/canonical-tool-runtime";
+import { createAcceptanceMockBindings, createAcceptanceProviderFixture, isAcceptanceProductionProject, type AcceptanceMockBindings, type AcceptanceProviderFixture } from "@/film/generation-routing/acceptance-production-runtime";
+import { FILMOS_MOCK_GENERATION_ENGINE_ID, type ProductionGenerationService } from "@/film/generation-routing/production-composition";
+import { createProjectProductionFixture, type ProjectProductionFixture } from "@/film/generation-routing/project-production-runtime";
+import { AgentSessionClient } from "@/film/agent/agent-client";
 
 type CanvasConfigComposerProps = {
     projectId: string;
@@ -327,6 +327,8 @@ function GenerationRouteComposer({
     const routingConfig = useBrainGenerationRoutingStore((state) => state.config);
     const routingDocument = useBrainGenerationRoutingStore((state) => state.document);
     const effectiveConfig = useEffectiveConfig();
+    const agentSessionClient = useMemo(() => new AgentSessionClient(), []);
+    const brokerSessionRef = useRef<string | null>(null);
     const acceptanceProject = isAcceptanceProductionProject({ projectId, domainProjectId, projectName });
     const [acceptanceBindings, setAcceptanceBindings] = useState<AcceptanceMockBindings | null>(null);
     const snapshotRef = useRef(snapshot);
@@ -368,14 +370,12 @@ function GenerationRouteComposer({
     const resolutionOptions = selectedDescriptor?.schema.resolutionTiers || [];
     const previewReady = metadata?.generationPreviewState === "ready";
     const referenceCount = Math.max(metadata?.references?.length || 0, connectedReferenceCount);
-    const productionMockSelected = acceptanceProject && engineId === FILMOS_MOCK_GENERATION_ENGINE_ID;
-    const createAcceptanceRuntime = () =>
-        AcceptanceProductionRuntime.create({
-            projectId,
-            domainProjectId,
-            projectName,
-            getSnapshot: () => snapshotRef.current,
-        });
+    const createProductionFixture = (): Promise<ProjectProductionFixture> => {
+        const common = { projectId, domainProjectId, projectName, getSnapshot: () => snapshotRef.current };
+        return acceptanceProject
+            ? createAcceptanceProviderFixture(common)
+            : createProjectProductionFixture(common);
+    };
     const persistPreview = (receipt: {
         generationAttemptId: string;
         routeSnapshotId: string;
@@ -404,117 +404,113 @@ function GenerationRouteComposer({
         if (!selectedDescriptor) return;
         setPreviewError(null);
         try {
-            if (productionMockSelected) {
-                const runtime = await createAcceptanceRuntime();
-                const bundle = await runtime.preview({ nodeId, projectName, userConfigRevision: routingDocument?.content_hash || "desktop-user-config-unavailable" });
-                persistPreview({
-                    generationAttemptId: bundle.generationAttemptId,
-                    routeSnapshotId: bundle.routeSnapshot.routeSnapshotId,
-                    routeSnapshotContentHash: bundle.routeSnapshot.contentHash,
-                    routeContentHash: bundle.routeSnapshot.routeContentHash,
-                    descriptorReceiptId: bundle.descriptorReceipt.descriptorReceiptId,
-                    compiledPromptReceiptId: bundle.compiledPromptReceipt.compiledPromptReceiptId,
-                    proposalId: bundle.proposal.proposalId,
-                    previewReceiptId: bundle.proposal.previewReceiptId,
-                    previewReceiptHash: bundle.proposal.previewReceiptHash,
-                });
-                return;
-            }
-            const receipt = await createGenerationRoutePreviewReceipt({
-                projectId,
-                nodeId,
-                engineId,
-                connectionId,
-                mode,
-                ...(metadata?.generationModelId ? { modelId: metadata.generationModelId } : {}),
-                ...(metadata?.generationWorkflowId ? { workflowId: metadata.generationWorkflowId } : {}),
-                prompt,
-                ...(metadata?.generationSkillId ? { skillId: metadata.generationSkillId } : {}),
-                nativeSize: metadata?.generationNativeSize || "descriptor-default",
-                deliveryResolution: metadata?.generationDeliveryResolution || "descriptor-default",
-                draftVersion,
-                descriptorKind: selectedDescriptor.kind,
-                descriptorId: selectedDescriptor.id,
+            const fixture = await createProductionFixture();
+            const bundle = await fixture.preview({ nodeId, projectName, mode, userConfigRevision: routingDocument?.content_hash || "desktop-user-config-unavailable" });
+            persistPreview({
+                generationAttemptId: bundle.generationAttemptId,
+                routeSnapshotId: bundle.routeSnapshot.routeSnapshotId,
+                routeSnapshotContentHash: bundle.routeSnapshot.contentHash,
+                routeContentHash: bundle.routeSnapshot.routeContentHash,
+                descriptorReceiptId: bundle.descriptorReceipt.descriptorReceiptId,
+                compiledPromptReceiptId: bundle.compiledPromptReceipt.compiledPromptReceiptId,
+                proposalId: bundle.proposal.proposalId,
+                previewReceiptId: bundle.proposal.previewReceiptId,
+                previewReceiptHash: bundle.proposal.previewReceiptHash,
             });
-            persistPreview(receipt);
         } catch (error) {
             setPreviewError(error instanceof Error ? error.message : "GENERATION_ROUTE_PREVIEW_FAILED");
             onChange({ generationPreviewHash: undefined, generationPreviewState: "draft", generationSubmissionState: "not_submitted" });
         }
     };
-    const submitProduction = () => {
-        if (!productionMockSelected || !metadata?.generationProposalId) {
+    const submitProduction = async () => {
+        if (!metadata?.generationProposalId) {
             onChange({ generationSubmissionState: "awaiting_authorization" });
             return;
         }
-        onChange({ generationSubmissionState: "awaiting_authorization" });
-        Modal.confirm({
-            title: "Production Tool Broker",
-            content: (
-                <div className="space-y-2 text-sm">
-                    <p>Engine：FilmOS Acceptance Mock</p>
-                    <p>Model：{selectedDescriptor?.label}</p>
-                    <p>Reference：Hard Lock · {metadata.references?.length || snapshot.connections.filter((item) => item.toNodeId === nodeId).length} 项</p>
-                    <p>费用：0 · 外部网络：0</p>
-                </div>
-            ),
-            okText: "批准并提交",
-            cancelText: "拒绝",
-            centered: true,
-            onCancel: async () => {
-                setSubmitting(true);
-                try {
-                    const runtime = await createAcceptanceRuntime();
-                    await runtime.reject(metadata.generationProposalId!);
-                    onChange({
-                        generationSubmissionState: "rejected",
-                        generationPreviewState: "draft",
-                        generationProposalId: undefined,
-                        generationPreviewHash: undefined,
-                        generationPreviewReceiptId: undefined,
-                    });
-                } catch (error) {
-                    setPreviewError(error instanceof Error ? error.message : "GENERATION_BROKER_REJECT_FAILED");
-                } finally {
-                    setSubmitting(false);
-                }
-            },
-            onOk: async () => {
-                setSubmitting(true);
-                setPreviewError(null);
-                try {
-                    const runtime = await createAcceptanceRuntime();
-                    const authorization = await runtime.approve(metadata.generationProposalId!);
-                    const authorizedSubmissionId = authorization.authorizedSubmission.authorizedSubmissionId;
-                    onChange({ generationAuthorizedSubmissionId: authorizedSubmissionId, generationSubmissionState: "authorized" });
-                    const result = await executeCanonicalGenerationTool(
-                        "generation_submit",
-                        { authorizedSubmissionId },
-                        {
-                            projectId,
-                            config: effectiveConfig,
-                            routingConfig,
-                            snapshot: snapshotRef.current,
-                            projectPolicy: runtime.bindings.projectPolicy,
-                            productionPort: runtime,
-                        },
-                    );
-                    if (!result.ok) throw new Error(result.message);
-                    const production = result.data as Awaited<ReturnType<AcceptanceProductionRuntime["submitAuthorized"]>>;
-                    onChange({
-                        generationProviderReceiptId: production.receipt.providerReceiptId,
-                        generationCandidateId: production.candidate.candidateId,
-                        generationSubmissionState: "candidate",
-                    });
-                } catch (error) {
-                    setPreviewError(error instanceof Error ? error.message : "GENERATION_PRODUCTION_SUBMIT_FAILED");
-                    onChange({ generationSubmissionState: "awaiting_authorization" });
-                    throw error;
-                } finally {
-                    setSubmitting(false);
-                }
-            },
-        });
+        setSubmitting(true);
+        setPreviewError(null);
+        let fixture: ProjectProductionFixture;
+        try {
+            fixture = await createProductionFixture();
+            const command = await fixture.service.requestSubmit({ proposalId: metadata.generationProposalId });
+            if (!brokerSessionRef.current) {
+                const created = await agentSessionClient.createSession({
+                    conversationId: `production-composer:${domainProjectId || projectId}:${nodeId}`,
+                    brainProfileId: "human.only",
+                });
+                brokerSessionRef.current = created.session.id;
+            }
+            const turnId = `production-submit:${metadata.generationProposalId}`;
+            const proposed = await agentSessionClient.proposeTool(brokerSessionRef.current, {
+                turnId,
+                toolName: command.toolName,
+                input: command.input,
+                ordinaryConfirmationEnabled: false,
+            });
+            if (proposed.outcome.status !== "confirmation_required" || !proposed.outcome.confirmation) throw new Error("CANONICAL_BROKER_CONFIRMATION_REQUIRED");
+            const confirmation = proposed.outcome.confirmation;
+            onChange({ generationSubmissionState: "awaiting_authorization" });
+            setSubmitting(false);
+            Modal.confirm({
+                title: confirmation.title,
+                content: (
+                    <div className="space-y-2 text-sm">
+                        <p>{confirmation.summary}</p>
+                        <p>Engine：{selectedConnection?.label || engineId}</p>
+                        <p>Model：{selectedDescriptor?.label}</p>
+                        <p>Reference：Hard Lock · {metadata.references?.length || snapshot.connections.filter((item) => item.toNodeId === nodeId).length} 项</p>
+                        <p>费用：0 · 外部网络：0</p>
+                        <p className="text-xs opacity-70">Confirmation：{confirmation.id}</p>
+                    </div>
+                ),
+                okText: "批准并提交",
+                cancelText: "拒绝",
+                centered: true,
+                onCancel: async () => {
+                    setSubmitting(true);
+                    try {
+                        await agentSessionClient.decideConfirmation(confirmation.id, { sessionId: confirmation.sessionId, approved: false });
+                        await fixture.service.reject(metadata.generationProposalId!, confirmation.id);
+                        onChange({
+                            generationSubmissionState: "rejected", generationPreviewState: "draft",
+                            generationProposalId: undefined, generationPreviewHash: undefined,
+                            generationPreviewReceiptId: undefined,
+                        });
+                    } catch (error) {
+                        setPreviewError(error instanceof Error ? error.message : "GENERATION_BROKER_REJECT_FAILED");
+                    } finally {
+                        setSubmitting(false);
+                    }
+                },
+                onOk: async () => {
+                    setSubmitting(true);
+                    setPreviewError(null);
+                    try {
+                        const decision = await agentSessionClient.decideConfirmation(confirmation.id, { sessionId: confirmation.sessionId, approved: true });
+                        const brokerOutcome = decision.outcome as { status?: string; result?: { output?: unknown } };
+                        const toolResult = brokerOutcome.result?.output as { ok?: boolean; message?: string; data?: unknown } | undefined;
+                        if (brokerOutcome.status !== "completed" || toolResult?.ok !== true) throw new Error(toolResult?.message || "GENERATION_CANONICAL_BROKER_EXECUTION_FAILED");
+                        const production = toolResult.data as Awaited<ReturnType<ProductionGenerationService["executeAuthorized"]>>;
+                        onChange({
+                            generationAuthorizedSubmissionId: production.receipt.authorizedSubmissionId,
+                            generationProviderReceiptId: production.receipt.providerReceiptId,
+                            generationCandidateId: production.candidate.candidateFilmEntityId,
+                            generationSubmissionState: "candidate",
+                        });
+                    } catch (error) {
+                        setPreviewError(error instanceof Error ? error.message : "GENERATION_PRODUCTION_SUBMIT_FAILED");
+                        onChange({ generationSubmissionState: "awaiting_authorization" });
+                        throw error;
+                    } finally {
+                        setSubmitting(false);
+                    }
+                },
+            });
+        } catch (error) {
+            setSubmitting(false);
+            setPreviewError(error instanceof Error ? error.message : "GENERATION_BROKER_PROPOSAL_FAILED");
+            onChange({ generationSubmissionState: "awaiting_authorization" });
+        }
     };
     return (
         <section className="mb-3 space-y-3 rounded-lg border p-3" style={{ borderColor: "var(--border)" }} aria-label="Generation Composer 路由">

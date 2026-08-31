@@ -1,0 +1,22 @@
+{
+  "schema_version": "1.0.0",
+  "record_kind": "FILMOS_V2_4_FINAL_PRODUCTION_AUTHORITY_RESOLUTION",
+  "status": "IMPLEMENTED_PENDING_FIXED_CANDIDATE_ACCEPTANCE",
+  "fixed_baseline": "1b0ff49a1aff900d0005254911bf09540a9ced86",
+  "scope": "V2.4_FINAL_PRODUCTION_AUTHORITY_ONLY",
+  "resolved_items": [
+    "common_production_generation_service",
+    "canonical_production_tool_broker",
+    "formal_film_core_generation_candidate_authority",
+    "real_generation_budget_ledger",
+    "engine_connection_and_catalog_sync",
+    "project_policy_model_lock_and_budget_binding",
+    "chatgpt_live_context_hash_and_exact_error"
+  ],
+  "acceptance_gate": "V2-4-FINAL-PRODUCTION-AUTHORITY-001",
+  "external_network_request_count": 0,
+  "external_paid_operation_count": 0,
+  "main_modified": false,
+  "rc1_tag_created": false,
+  "runtime_identity_location": "artifact-only RELEASE_MANIFEST.json"
+}

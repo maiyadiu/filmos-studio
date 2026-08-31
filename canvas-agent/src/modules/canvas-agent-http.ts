@@ -385,6 +385,17 @@ function createGenericAgentRoutes(generic: GenericAgentRuntime, config: LocalRun
             if (outcome.status !== "completed") throw new Error("AGENT_TOOL_OUTCOME_INCOMPLETE");
             res.json({ ok: true, outcome });
         }),
+        agentRoute("POST", "/agent/sessions/:sessionId/tool-proposals", "agent:tools:execute", async (req, res) => {
+            const body = jsonRecord(req);
+            const outcome = await generic.proposeTool({
+                sessionId: routeParam(req.params.sessionId),
+                turnId: requiredBodyString(body, "turnId"),
+                toolName: requiredBodyString(body, "toolName"),
+                toolInput: body.input && typeof body.input === "object" && !Array.isArray(body.input) ? body.input as Record<string, unknown> : {},
+                ...(typeof body.ordinaryConfirmationEnabled === "boolean" ? { ordinaryConfirmationEnabled: body.ordinaryConfirmationEnabled } : {}),
+            });
+            res.json({ ok: true, outcome });
+        }),
         agentRoute("GET", "/agent/diagnostics", "agent:profiles:read", async (_req, res) => {
             res.json({ ok: true, ...generic.diagnostics() });
         }),

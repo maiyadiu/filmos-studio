@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { canonicalize } from "json-canonicalize";
 
 import type {
     AgentConfirmation,
@@ -22,12 +23,24 @@ export type CanonicalAgentToolProvider = {
         manifest: AgentToolManifest;
         session: BrainSession;
         profile: BrainProfile;
+        authorization?: CanonicalBrokerExecutionAuthorization;
     }): Promise<{ output: unknown; postcondition?: Record<string, unknown> }>;
     verifyPostcondition?(input: {
         request: AgentToolRequest;
         postcondition: Record<string, unknown>;
         session: BrainSession;
     }): Promise<boolean>;
+};
+
+export type CanonicalBrokerExecutionAuthorization = {
+    confirmationId: string;
+    brokerGrantId: string;
+    brokerGrantContentHash: string;
+    brokerDecisionReceiptId: string;
+    brokerDecisionReceiptContentHash: string;
+    toolRequestId: string;
+    authorizedByActorRef: string;
+    confirmedAt: string;
 };
 
 type ProposalInput = {
@@ -155,9 +168,10 @@ export class CanonicalAgentToolBroker {
             this.validate(input);
             const provider = this.providers.get(input.manifest.name);
             if (!provider) throw new Error(`AGENT_TOOL_PROVIDER_UNAVAILABLE:${input.manifest.name}`);
+            const authorization = confirmation ? this.executionAuthorization(input, confirmation) : undefined;
             this.consumedRequestIds.add(input.request.requestId);
             this.instrumentation.brokerExecute();
-            const executed = await provider.execute({ request: input.request, manifest: input.manifest, session: input.session, profile: input.profile });
+            const executed = await provider.execute({ request: input.request, manifest: input.manifest, session: input.session, profile: input.profile, ...(authorization ? { authorization } : {}) });
             if (!["read", "draft"].includes(input.manifest.risk) && !executed.postcondition) throw new Error("AGENT_TOOL_POSTCONDITION_REQUIRED");
             if (executed.postcondition && provider.verifyPostcondition && !await provider.verifyPostcondition({ request: input.request, postcondition: executed.postcondition, session: input.session })) {
                 throw new Error("AGENT_TOOL_POSTCONDITION_FAILED");
@@ -198,6 +212,36 @@ export class CanonicalAgentToolBroker {
             throw error;
         }
     }
+
+    private executionAuthorization(input: PendingProposal, confirmation: AgentConfirmation): CanonicalBrokerExecutionAuthorization {
+        if (!confirmation.decidedBy || !confirmation.decidedAt) throw new Error("AGENT_CONFIRMATION_DECISION_RECEIPT_INCOMPLETE");
+        const grant = this.grants.get(input.session.permissionGrantId);
+        if (!grant) throw new Error("AGENT_GRANT_NOT_FOUND");
+        const brokerDecisionReceiptId = `broker-decision-${confirmation.id}`;
+        const decision = {
+            brokerDecisionReceiptId,
+            confirmationId: confirmation.id,
+            brokerGrantId: grant.id,
+            toolRequestId: input.request.requestId,
+            sessionId: input.session.id,
+            projectId: input.session.projectId,
+            toolName: input.manifest.name,
+            decision: "approved",
+            authorizedByActorRef: confirmation.decidedBy,
+            confirmedAt: confirmation.decidedAt,
+            contextReceiptId: input.request.contextReceiptId,
+        };
+        return {
+            confirmationId: confirmation.id,
+            brokerGrantId: grant.id,
+            brokerGrantContentHash: sha256(grant),
+            brokerDecisionReceiptId,
+            brokerDecisionReceiptContentHash: sha256(decision),
+            toolRequestId: input.request.requestId,
+            authorizedByActorRef: confirmation.decidedBy,
+            confirmedAt: confirmation.decidedAt,
+        };
+    }
 }
 
 function staleCode(code: string) {
@@ -208,4 +252,8 @@ function errorCode(error: unknown) {
     if (error && typeof error === "object" && "code" in error && typeof error.code === "string") return error.code;
     if (error instanceof Error) return error.message.split(":", 1)[0] || "AGENT_TOOL_FAILED";
     return "AGENT_TOOL_FAILED";
+}
+
+function sha256(value: unknown) {
+    return crypto.createHash("sha256").update(canonicalize(value)).digest("hex");
 }

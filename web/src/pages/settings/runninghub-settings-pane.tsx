@@ -1,6 +1,6 @@
 import { App, AutoComplete, Button, Form, Input, Popconfirm, Select, Segmented, Switch } from "antd";
 import { RefreshCw, Trash2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { WorkflowFieldMappingEditor } from "@/components/workflow-field-mapping-editor";
 import { WorkflowGraphEditor } from "@/components/workflow-graph-editor";
@@ -18,6 +18,8 @@ import {
     type RunningHubWorkflowKind,
     type WorkflowFieldMapping,
 } from "@/stores/use-config-store";
+import { configuredEngineConnectionObservation } from "@/film/generation-routing/engine-connection-synchronizer";
+import { useBrainGenerationRoutingStore } from "@/stores/use-brain-generation-routing-store";
 
 const capabilityOptions = [
     { label: "图片", value: "image" },
@@ -57,6 +59,10 @@ export function RunningHubSettingsPane() {
     const { message } = App.useApp();
     const config = useConfigStore((state) => state.config);
     const updateConfig = useConfigStore((state) => state.updateConfig);
+    const runningHubConnection = useBrainGenerationRoutingStore((state) => state.config?.engineConnections.find((item) => item.engineId === "runninghub"));
+    const synchronizeEngineConnections = useBrainGenerationRoutingStore((state) => state.synchronizeEngineConnections);
+    const runningHubConnectionRef = useRef(runningHubConnection);
+    runningHubConnectionRef.current = runningHubConnection;
     const runningHub = config.runningHub;
     const selected = runningHub.workflows.find((item) => item.workflowId.trim() === runningHub.workflowId.trim() && workflowKind(item) === runningHub.selectedKind);
     const selectedKey = selected ? workflowEntryKey(selected) : undefined;
@@ -134,6 +140,16 @@ export function RunningHubSettingsPane() {
                 workflowJson: kind === "workflow" ? result.workflowJson || {} : undefined,
             };
             persistWorkflow(item, capability);
+            const currentConnection = runningHubConnectionRef.current;
+            if (currentConnection) {
+                await synchronizeEngineConnections([await configuredEngineConnectionObservation({
+                    current: currentConnection,
+                    configured: true,
+                    doctorPassed: true,
+                    accountSource: `${runningHub.baseUrl}\0${runningHub.apiKey}`,
+                    catalogEvidenceSource: "remote_catalog",
+                })]);
+            }
             setWorkflowText(item.workflowJson ? JSON.stringify(item.workflowJson, null, 2) : "");
             setTitle(item.title || "");
             message.success(

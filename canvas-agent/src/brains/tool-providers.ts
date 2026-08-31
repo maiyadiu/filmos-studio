@@ -19,16 +19,32 @@ export type CanonicalToolExecutionMetadata = {
     canonicalRequestId: string;
     canonicalSessionId: string;
     canonicalContextReceiptId: string;
+    canonicalConfirmationId?: string;
+    canonicalBrokerGrantId?: string;
+    canonicalBrokerGrantContentHash?: string;
+    canonicalBrokerDecisionReceiptId?: string;
+    canonicalBrokerDecisionReceiptContentHash?: string;
+    canonicalAuthorizedByActorRef?: string;
+    canonicalConfirmedAt?: string;
 };
 
 abstract class BrowserBackedToolProvider implements CanonicalAgentToolProvider {
     constructor(protected readonly executor: CanonicalCanvasToolExecutor) {}
 
-    async execute({ request, manifest, session }: Parameters<CanonicalAgentToolProvider["execute"]>[0]) {
+    async execute({ request, manifest, session, authorization }: Parameters<CanonicalAgentToolProvider["execute"]>[0]) {
         const output = await this.executor.callTool(manifest.name, request.input, {
             canonicalRequestId: request.requestId,
             canonicalSessionId: session.id,
             canonicalContextReceiptId: request.contextReceiptId,
+            ...(authorization ? {
+                canonicalConfirmationId: authorization.confirmationId,
+                canonicalBrokerGrantId: authorization.brokerGrantId,
+                canonicalBrokerGrantContentHash: authorization.brokerGrantContentHash,
+                canonicalBrokerDecisionReceiptId: authorization.brokerDecisionReceiptId,
+                canonicalBrokerDecisionReceiptContentHash: authorization.brokerDecisionReceiptContentHash,
+                canonicalAuthorizedByActorRef: authorization.authorizedByActorRef,
+                canonicalConfirmedAt: authorization.confirmedAt,
+            } : {}),
         });
         return {
             output,

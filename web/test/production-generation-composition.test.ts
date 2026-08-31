@@ -18,10 +18,11 @@ import {
     FILMOS_ACCEPTANCE_PROJECT_NAME,
     FILMOS_MOCK_GENERATION_ENGINE_ID,
     FilmOSMockGenerationProvider,
-    ProductionGenerationComposition,
+    ProductionGenerationService,
     selectEffectiveGenerationRoute,
 } from "@/film/generation-routing/production-composition";
 import { defaultConfig } from "@/stores/use-config-store";
+import { canonicalGenerationBrokerAuthorization } from "./helpers/canonical-agent-broker";
 
 const at = "2026-08-31T00:00:00.000Z";
 const submitNotAfter = "2026-08-31T01:00:00.000Z";
@@ -33,7 +34,7 @@ describe("V2.4 production generation composition", () => {
         const authority = new LocalProductionGenerationAuthority();
         const provider = new FilmOSMockGenerationProvider();
         let id = 0;
-        const composition = new ProductionGenerationComposition(authority, new Map([[provider.engineId, provider]]), (prefix) => `${prefix}-${++id}`, () => at);
+        const composition = new ProductionGenerationService(authority, new Map([[provider.engineId, provider]]), (prefix) => `${prefix}-${++id}`, () => at);
 
         const rejected = await composition.preview({ ...fixture.previewInput, generationAttemptId: "attempt-reject" });
         const rejectedTrace = await composition.reject(rejected.proposal.proposalId, "decision-reject");
@@ -43,18 +44,19 @@ describe("V2.4 production generation composition", () => {
         expect(authority.providerReceiptCount()).toBe(0);
 
         const approvedPreview = await composition.preview({ ...fixture.previewInput, generationAttemptId: "attempt-approved" });
-        const approved = await composition.approve({ proposalId: approvedPreview.proposal.proposalId, ...fixture.approvalInput });
-        const toolResult = await executeCanonicalGenerationTool("generation_submit", { authorizedSubmissionId: approved.authorizedSubmission.authorizedSubmissionId }, {
+        const broker = await canonicalGenerationBrokerAuthorization("composition-approve");
+        const toolResult = await executeCanonicalGenerationTool("generation_submit", { proposalId: approvedPreview.proposal.proposalId }, {
             projectId: fixture.previewInput.projectId,
             config: structuredClone(defaultConfig),
             routingConfig: null,
             snapshot: { revision: 1, nodes: [], connections: [], selectedNodeIds: [] },
-            productionPort: composition,
+            productionPort: { executeAuthorized: (input) => composition.executeAuthorized({ ...input, grant: fixture.approvalInput.grant, ledger: fixture.approvalInput.ledger, submitNotAfter }) },
+            brokerAuthorization: broker,
         });
         expect(toolResult.ok).toBe(true);
         if (!toolResult.ok) throw new Error(toolResult.message);
-        const result = toolResult.data as Awaited<ReturnType<ProductionGenerationComposition["submitAuthorized"]>>;
-        const duplicate = await composition.submitAuthorized(approved.authorizedSubmission.authorizedSubmissionId);
+        const result = toolResult.data as Awaited<ReturnType<ProductionGenerationService["submitAuthorized"]>>;
+        const duplicate = await composition.submitAuthorized(result.receipt.authorizedSubmissionId);
         expect(provider.submitCount).toBe(1);
         expect(result.receipt.contentHash).toBe(duplicate.receipt.contentHash);
         expect(authority.providerReceiptCount()).toBe(1);
@@ -68,17 +70,16 @@ describe("V2.4 production generation composition", () => {
         expect(result.trace.every((item) => item.externalCostMicrounits === "0" && item.externalWrite === false)).toBe(true);
 
         const stalePreview = await composition.preview({ ...fixture.previewInput, generationAttemptId: "attempt-stale" });
-        const staleAuthorization = await composition.approve({ proposalId: stalePreview.proposal.proposalId, ...fixture.approvalInput });
         authority.setGuard("canvas_state:canvas-acceptance:node-image-1", { version: 2, contentHash: "changed-canvas-hash" });
-        await expect(composition.submitAuthorized(staleAuthorization.authorizedSubmission.authorizedSubmissionId)).rejects.toThrow("GENERATION_SUBMISSION_STALE");
+        await expect(composition.executeAuthorized({ proposalId: stalePreview.proposal.proposalId, ...fixture.approvalInput })).rejects.toThrow("GENERATION_SUBMISSION_STALE");
         expect(provider.submitCount).toBe(1);
         authority.setGuard("canvas_state:canvas-acceptance:node-image-1", { version: 1, contentHash: "canvas-state-hash" });
 
         const restartedAuthority = new LocalProductionGenerationAuthority(authority.snapshot());
         const restartedProvider = new FilmOSMockGenerationProvider();
-        const restarted = new ProductionGenerationComposition(restartedAuthority, new Map([[restartedProvider.engineId, restartedProvider]]), (prefix) => `${prefix}-restart`, () => at);
+        const restarted = new ProductionGenerationService(restartedAuthority, new Map([[restartedProvider.engineId, restartedProvider]]), (prefix) => `${prefix}-restart`, () => at);
         expect((await restarted.recover("attempt-approved")).contentHash).toBe(result.candidate.contentHash);
-        const recoveredSubmit = await restarted.submitAuthorized(approved.authorizedSubmission.authorizedSubmissionId);
+        const recoveredSubmit = await restarted.submitAuthorized(result.receipt.authorizedSubmissionId);
         expect(recoveredSubmit.receipt.contentHash).toBe(result.receipt.contentHash);
         expect(restartedProvider.submitCount).toBe(0);
 
@@ -99,6 +100,15 @@ describe("V2.4 production generation composition", () => {
                 external_network_request_count: 0,
                 external_spend_microunits: "0",
                 candidate_approved_count: 0,
+                canonical_broker: {
+                    confirmation_id: broker.confirmationId,
+                    broker_grant_id: broker.brokerGrantId,
+                    broker_grant_content_hash: broker.brokerGrantContentHash,
+                    broker_decision_receipt_id: broker.brokerDecisionReceiptId,
+                    broker_decision_receipt_content_hash: broker.brokerDecisionReceiptContentHash,
+                    tool_request_id: broker.toolRequestId,
+                },
+                synthetic_broker_receipt_count: 0,
             }, null, 2) + "\n");
         }
     });
@@ -110,19 +120,26 @@ describe("V2.4 production generation composition", () => {
         const unsupportedProvider = {
             engineId: FILMOS_MOCK_GENERATION_ENGINE_ID,
             supportsHardLockedReferences: false,
+            doctor: backingProvider.doctor.bind(backingProvider),
+            getConnectionScope: backingProvider.getConnectionScope.bind(backingProvider),
+            refreshCatalog: backingProvider.refreshCatalog.bind(backingProvider),
+            preview: backingProvider.preview.bind(backingProvider),
             submit: backingProvider.submit.bind(backingProvider),
+            getStatus: backingProvider.getStatus.bind(backingProvider),
+            reconcile: backingProvider.reconcile.bind(backingProvider),
+            downloadOutputs: backingProvider.downloadOutputs.bind(backingProvider),
         };
         let id = 0;
-        const composition = new ProductionGenerationComposition(authority, new Map([[unsupportedProvider.engineId, unsupportedProvider]]), (prefix) => `${prefix}-hard-lock-${++id}`, () => at);
+        const composition = new ProductionGenerationService(authority, new Map([[unsupportedProvider.engineId, unsupportedProvider]]), (prefix) => `${prefix}-hard-lock-${++id}`, () => at);
         const preview = await composition.preview({ ...fixture.previewInput, generationAttemptId: "attempt-hard-lock" });
-        const approved = await composition.approve({ proposalId: preview.proposal.proposalId, ...fixture.approvalInput });
-        await expect(composition.submitAuthorized(approved.authorizedSubmission.authorizedSubmissionId)).rejects.toThrow("GENERATION_REFERENCE_HARD_LOCK_UNSUPPORTED");
+        const broker = await canonicalGenerationBrokerAuthorization("composition-hard-lock");
+        await expect(composition.executeAuthorized({ proposalId: preview.proposal.proposalId, ...broker, ...fixture.approvalInput })).rejects.toThrow("GENERATION_REFERENCE_HARD_LOCK_UNSUPPORTED");
         expect(backingProvider.submitCount).toBe(0);
 
         const snapshot = authority.snapshot();
         snapshot.authorizations[0].authorizedSubmission.contentHash = "f".repeat(64);
-        const tampered = new ProductionGenerationComposition(new LocalProductionGenerationAuthority(snapshot), new Map([[backingProvider.engineId, backingProvider]]), undefined, () => at);
-        await expect(tampered.submitAuthorized(approved.authorizedSubmission.authorizedSubmissionId)).rejects.toThrow("AUTHORIZED_GENERATION_SUBMISSION_TAMPERED");
+        const tampered = new ProductionGenerationService(new LocalProductionGenerationAuthority(snapshot), new Map([[backingProvider.engineId, backingProvider]]), undefined, () => at);
+        await expect(tampered.submitAuthorized(snapshot.authorizations[0].authorizedSubmission.authorizedSubmissionId)).rejects.toThrow("AUTHORIZED_GENERATION_SUBMISSION_TAMPERED");
         expect(backingProvider.submitCount).toBe(0);
 
         await updateMachineTrace({
@@ -222,6 +239,6 @@ async function createFixture() {
             references: [{ bindingId: "binding-random", role: "subject_identity" as const, assetId: "asset-1", assetVersionId: "asset-version-1", assetVersionContentHash: "a".repeat(64), mediaType: "image/png", ordinal: 0, preparedRepresentationId: "prepared-1", preparedRepresentationContentHash: "b".repeat(64), weightMicrounits: 1_000_000, hardLock: true }],
             normalizedParameters: { aspectRatio: "9:16", resolution: "1080p" }, promptDraftVersion: 1, promptDraftContentHash: "prompt-draft-hash", nodeDraftVersion: 1, userConfigRevision: "config-r1", guards,
         },
-        approvalInput: { actorRef: "human-acceptance", confirmationId: "confirmation-mock", brokerGrantId: "broker-grant-mock", brokerGrantContentHash: "c".repeat(64), brokerDecisionReceiptId: "broker-decision-mock", brokerDecisionReceiptContentHash: "d".repeat(64), toolRequestId: "tool-request-mock", grant, ledger, submitNotAfter },
+        approvalInput: { grant, ledger, submitNotAfter },
     };
 }

@@ -35,6 +35,11 @@ import { AgentSessionClient, type AgentHistoryMessageView, type BrainSessionView
 import { dispatchBrowserRuntimeRequest, type BrowserRuntimeRequest } from "@/film/agent/browser-runtime-bridge";
 import { chatGPTHostReadiness } from "@/film/agent/chatgpt-host-readiness";
 import type { FilmOSDesktopChatGPTHostStatus } from "@/film/agent/workbench-context";
+import { useEffectiveConfig } from "@/stores/use-config-store";
+import { useBrainGenerationRoutingStore } from "@/stores/use-brain-generation-routing-store";
+import { executeCanonicalGenerationTool, isCanonicalGenerationTool, type CanonicalBrokerExecutionAuthorization, type CanonicalGenerationToolName } from "@/film/generation-routing/canonical-tool-runtime";
+import { createAcceptanceProviderFixture, isAcceptanceProductionProject } from "@/film/generation-routing/acceptance-production-runtime";
+import { createProjectAuthorizedCommand, createProjectProductionFixture } from "@/film/generation-routing/project-production-runtime";
 
 const PANEL_MOTION_SECONDS = 0.5;
 const MAX_ATTACHMENTS = 6;
@@ -105,6 +110,8 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
 }) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const user = useUserStore((state) => state.user);
+    const effectiveConfig = useEffectiveConfig();
+    const routingConfig = useBrainGenerationRoutingStore((state) => state.config);
     const { message, modal } = App.useApp();
     const {
         width,
@@ -569,6 +576,35 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
                                     const ids = new Set(snapshotRef.current.selectedNodeIds || []);
                                     return { nodes: snapshotRef.current.nodes.filter((node) => ids.has(node.id)) };
                                 })()
+                            : isCanonicalGenerationTool(payload.name)
+                              ? await (async () => {
+                                    const canonicalToolName = payload.name as CanonicalGenerationToolName;
+                                    const productionInput = {
+                                        projectId: snapshotRef.current.projectId,
+                                        domainProjectId: snapshotRef.current.domainProjectId,
+                                        projectName: snapshotRef.current.title || "",
+                                        getSnapshot: () => snapshotRef.current,
+                                    };
+                                    const productionFixture = payload.name === "generation_submit"
+                                        ? isAcceptanceProductionProject(productionInput)
+                                            ? await createAcceptanceProviderFixture(productionInput)
+                                            : await createProjectProductionFixture(productionInput)
+                                        : undefined;
+                                    const productionPort = productionFixture
+                                        ? {
+                                              executeAuthorized: (authorization: CanonicalBrokerExecutionAuthorization & { proposalId: string }) =>
+                                                  productionFixture.service.executeAuthorized(createProjectAuthorizedCommand(productionFixture, authorization)),
+                                          }
+                                        : undefined;
+                                    return await executeCanonicalGenerationTool(canonicalToolName, input, {
+                                        projectId: snapshotRef.current.projectId,
+                                        config: effectiveConfig,
+                                        routingConfig,
+                                        snapshot: snapshotRef.current,
+                                        ...(productionPort ? { productionPort } : {}),
+                                        ...(canonicalBrokerAuthorization(payload) ? { brokerAuthorization: canonicalBrokerAuthorization(payload)! } : {}),
+                                    });
+                                })()
                             : projectToolName
                               ? await runProjectAgentTool(projectToolName, input, snapshotRef.current.domainProjectId)
                               : snapshotRef.current;
@@ -997,6 +1033,22 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
         </motion.div>
     );
 });
+
+function canonicalBrokerAuthorization(payload: AgentPendingToolCall): CanonicalBrokerExecutionAuthorization | undefined {
+    const values = {
+        confirmationId: payload.canonicalConfirmationId,
+        brokerGrantId: payload.canonicalBrokerGrantId,
+        brokerGrantContentHash: payload.canonicalBrokerGrantContentHash,
+        brokerDecisionReceiptId: payload.canonicalBrokerDecisionReceiptId,
+        brokerDecisionReceiptContentHash: payload.canonicalBrokerDecisionReceiptContentHash,
+        toolRequestId: payload.canonicalRequestId,
+        actorRef: payload.canonicalAuthorizedByActorRef,
+        confirmedAt: payload.canonicalConfirmedAt,
+    };
+    return Object.values(values).every((value) => typeof value === "string" && value.length > 0)
+        ? values as CanonicalBrokerExecutionAuthorization
+        : undefined;
+}
 
 function CodexAccountBar({
     status,

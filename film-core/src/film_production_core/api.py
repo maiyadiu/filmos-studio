@@ -85,7 +85,7 @@ def create_app(database_path: str | Path | None = None) -> FastAPI:
     service = FilmService(repository)
     formal_service = FormalService(repository)
     impact_service = ImpactService(impact_repository, formal_service)
-    generation_production = GenerationProductionStore(database)
+    generation_production = GenerationProductionStore(database, formal_service)
     app = FastAPI(
         title="FilmOS Studio Film Core API",
         version="0.4.0",
@@ -422,6 +422,14 @@ def create_app(database_path: str | Path | None = None) -> FastAPI:
     def generation_production_acceptance_authority_get(projectId: str) -> dict:
         return generation_production.acceptance_authority(projectId)
 
+    @app.post("/generation-production/project-authority", operation_id="filmGenerationProductionProjectAuthorityPersist")
+    def generation_production_project_authority_persist(payload: Annotated[dict, Body()]) -> dict:
+        return generation_production.persist_project_authority(payload)
+
+    @app.get("/generation-production/project-authority/{projectId}", operation_id="filmGenerationProductionProjectAuthorityGet")
+    def generation_production_project_authority_get(projectId: str) -> dict:
+        return generation_production.project_authority(projectId)
+
     @app.get("/generation-production/previews/{proposalId}", operation_id="filmGenerationProductionPreviewGet")
     def generation_production_preview_get(proposalId: str) -> dict:
         return generation_production.preview(proposalId)
@@ -438,20 +446,28 @@ def create_app(database_path: str | Path | None = None) -> FastAPI:
     def generation_production_authorization_get(authorizedSubmissionId: str) -> dict:
         return generation_production.authorization(authorizedSubmissionId)
 
-    @app.post("/generation-production/provider-receipts", operation_id="filmGenerationProductionProviderReceiptPersist")
-    def generation_production_provider_receipt_persist(payload: Annotated[dict, Body()]) -> dict:
-        return generation_production.persist_provider_receipt(payload)
+    @app.post("/generation-production/authorization-release", operation_id="filmGenerationProductionAuthorizationRelease")
+    def generation_production_authorization_release(payload: Annotated[dict, Body()]) -> dict:
+        return generation_production.release_authorization(payload)
+
+    @app.post("/generation-production/authorization-reconciliation", operation_id="filmGenerationProductionAuthorizationReconciliation")
+    def generation_production_authorization_reconciliation(payload: Annotated[dict, Body()]) -> dict:
+        return generation_production.mark_authorization_reconciliation(payload)
 
     @app.get("/generation-production/provider-receipts/{idempotencyKey}", operation_id="filmGenerationProductionProviderReceiptGet")
     def generation_production_provider_receipt_get(idempotencyKey: str) -> dict:
         return generation_production.provider_receipt(idempotencyKey)
 
-    @app.post("/generation-production/candidates", operation_id="filmGenerationProductionCandidatePersist")
-    def generation_production_candidate_persist(payload: Annotated[dict, Body()]) -> dict:
-        return generation_production.persist_candidate(payload)
+    @app.post("/generation-production/execution-results", operation_id="filmGenerationProductionExecutionResultPersist")
+    def generation_production_execution_result_persist(payload: Annotated[dict, Body()]) -> dict:
+        return generation_production.persist_execution_result(payload)
 
     @app.get("/generation-production/candidates/by-attempt/{generationAttemptId}", operation_id="filmGenerationProductionCandidateGet")
     def generation_production_candidate_get(generationAttemptId: str) -> dict:
         return generation_production.candidate(generationAttemptId)
+
+    @app.get("/generation-production/authority-trace", operation_id="filmGenerationProductionAuthorityTraceGet")
+    def generation_production_authority_trace_get() -> dict:
+        return generation_production.authority_trace()
 
     return app

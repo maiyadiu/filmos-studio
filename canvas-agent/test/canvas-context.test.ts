@@ -29,7 +29,7 @@ test("builds semantic canvas context without media URLs", () => {
     assert.equal((context.nodes[2] as { generation?: { taskId?: string; progress?: number; stage?: string } }).generation?.progress, 42);
     assert.equal((context.nodes[2] as { generation?: { taskId?: string; progress?: number; stage?: string } }).generation?.stage, "rendering");
     assert.equal("url" in context.nodes[1], false);
-    assert.match(context.stateHash, /^[a-f0-9]{16}$/);
+    assert.match(context.stateHash, /^[a-f0-9]{64}$/);
 });
 
 test("finds real nodes and resources by semantic query", () => {

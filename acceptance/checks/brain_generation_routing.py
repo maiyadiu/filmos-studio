@@ -39,9 +39,15 @@ def main() -> int:
     require(
         "web/src/film/generation-routing/canonical-tool-runtime.ts",
         "CANONICAL_GENERATION_TOOL_NAMES",
-        "authorizedSubmissionId",
-        "context.productionPort.submitAuthorized",
+        "context.productionPort.executeAuthorized",
+        "context.brokerAuthorization",
         "externalWritePerformed: false",
+    )
+    require(
+        "web/src/film/generation-routing/production-composition.ts",
+        "authorizedSubmissionId",
+        "submitAuthorized",
+        "ProductionGenerationService",
     )
     require("packages/filmos-generation-contracts/src/catalog.ts", "CATALOG_VALIDATION_STALE", "CATALOG_VALIDATION_BINDING_MISMATCH")
     require("packages/filmos-generation-contracts/src/authorization.ts", "BROKER_AUTHORIZATION_EVIDENCE_INCOMPLETE", "GENERATION_SUBMISSION_STALE")

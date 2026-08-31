@@ -1,4 +1,13 @@
-import { GENERATION_ENGINES, assertGenerationEngineConnectionInvariant, type CatalogEvidence, type GenerationCatalogSnapshot, type GenerationEngineConnection } from "@filmos/generation-contracts";
+import {
+    GENERATION_ENGINES,
+    assertGenerationEngineConnectionInvariant,
+    hashEnvelope,
+    hashProjection,
+    type CatalogEvidence,
+    type GenerationCatalogSnapshot,
+    type GenerationEngineConnection,
+    type GenerationTaskKind,
+} from "@filmos/generation-contracts";
 
 import type { DreaminaLocalModel } from "@/services/local-dreamina-model-catalog";
 import type { ComfyBridgeWorkflow, RunningHubWorkflow } from "@/stores/use-config-store";
@@ -99,6 +108,111 @@ export function generationCatalogDescriptorOptions(catalog: GenerationCatalogSna
     return [...models, ...workflows, ...skills];
 }
 
+export async function createRuntimeGenerationCatalogSnapshot(input: {
+    connection: GenerationEngineConnection;
+    descriptors: readonly RuntimeGenerationDescriptorOption[];
+    evidence: CatalogEvidence;
+    observedAt?: string;
+    validityMs?: number;
+}): Promise<GenerationCatalogSnapshot> {
+    assertGenerationEngineConnectionInvariant(input.connection);
+    const observedAt = input.observedAt || new Date().toISOString();
+    const catalogValidUntil = new Date(Date.parse(observedAt) + (input.validityMs ?? 15 * 60_000)).toISOString();
+    const descriptors = input.descriptors.filter((item) => item.engineId === input.connection.engineId && item.connectionId === input.connection.connectionId && !item.disabled);
+    if (!descriptors.length) throw new Error("GENERATION_CATALOG_DESCRIPTOR_REQUIRED");
+    const models = await Promise.all(descriptors.filter((item) => item.kind === "model").map(async (item) => {
+        const parameterSchema = runtimeParameterSchema(item);
+        const semantic = {
+            engineId: item.engineId,
+            connectionId: item.connectionId,
+            modelId: item.id,
+            providerModelId: item.id,
+            modelVersion: "runtime-observed",
+            capability: item.capability,
+        };
+        return {
+            schemaVersion: 1 as const,
+            engineId: item.engineId,
+            connectionId: item.connectionId,
+            modelId: item.id,
+            providerModelId: item.id,
+            displayName: item.label,
+            modelVersion: "runtime-observed",
+            capability: item.capability,
+            operations: operationsFor(item),
+            parameterSchema,
+            constraints: {
+                supportedAspectRatios: item.schema.aspectRatios,
+                supportedResolutionTiers: item.schema.resolutionTiers,
+                supportedDurationsSeconds: item.schema.durationsSeconds,
+                supportedFps: item.schema.fps,
+                ...(item.schema.maxReferences === undefined ? {} : { maxReferences: item.schema.maxReferences }),
+            },
+            billing: { mode: "unknown" as const, estimateAvailable: false, currencyOrUnit: "unknown" },
+            availability: "available" as const,
+            descriptorHash: await hashProjection("generation-model-descriptor", "semantic", semantic),
+            parameterSchemaHash: await hashProjection("generation-parameter-schema", "semantic", parameterSchema),
+        };
+    }));
+    const workflows = await Promise.all(descriptors.filter((item) => item.kind === "workflow").map(async (item) => {
+        const inputSchema = runtimeParameterSchema(item);
+        const semantic = { engineId: item.engineId, connectionId: item.connectionId, workflowId: item.id, version: "runtime-observed", capability: item.capability, inputSchema };
+        return {
+            schemaVersion: 1 as const,
+            engineId: item.engineId,
+            connectionId: item.connectionId,
+            workflowId: item.id,
+            displayName: item.label,
+            version: "runtime-observed",
+            capability: item.capability,
+            operations: operationsFor(item),
+            inputSchema,
+            descriptorHash: await hashProjection("generation-workflow-descriptor", "semantic", semantic),
+            inputSchemaHash: await hashProjection("generation-workflow-schema", "semantic", inputSchema),
+        };
+    }));
+    const skills = await Promise.all(descriptors.filter((item) => item.kind === "skill").map(async (item) => {
+        const inputSchema = runtimeParameterSchema(item);
+        const semantic = { engineId: item.engineId, connectionId: item.connectionId, skillId: item.id, version: "runtime-observed", inputSchema };
+        return {
+            schemaVersion: 1 as const,
+            engineId: item.engineId,
+            connectionId: item.connectionId,
+            skillId: item.id,
+            displayName: item.label,
+            version: "runtime-observed",
+            operations: operationsFor(item),
+            inputSchema,
+            descriptorHash: await hashProjection("generation-skill-descriptor", "semantic", semantic),
+        };
+    }));
+    const catalogRevision = await hashProjection("generation-catalog-revision", "semantic", {
+        engineId: input.connection.engineId,
+        connectionId: input.connection.connectionId,
+        connectionVersion: input.connection.entityVersion,
+        descriptors: [...models.map((item) => item.descriptorHash), ...workflows.map((item) => item.descriptorHash), ...skills.map((item) => item.descriptorHash)],
+        evidence: input.evidence,
+    });
+    const base = {
+        schemaVersion: 1 as const,
+        snapshotId: `catalog-${catalogRevision.slice(0, 24)}`,
+        observedAt,
+        expiresAt: catalogValidUntil,
+        engineId: input.connection.engineId,
+        connectionId: input.connection.connectionId,
+        authScope: input.connection.authScope,
+        ...(input.connection.accountBindingRef ? { accountBindingRef: input.connection.accountBindingRef } : {}),
+        connectionInstanceRef: input.connection.connectionInstanceRef,
+        catalogRevision,
+        catalogValidUntil,
+        evidence: input.evidence,
+        models,
+        workflows,
+        skills,
+    };
+    return { ...base, contentHash: await hashEnvelope("generation-catalog", base) };
+}
+
 export function catalogEvidenceLabel(evidence: CatalogEvidence | { source: CatalogEvidence["source"] }): string {
     if (evidence.source === "runtime_discovery") return "Runtime Discovery";
     if (evidence.source === "remote_catalog") return "Remote Catalog";
@@ -133,6 +247,22 @@ function numericOptions(field: { options?: unknown[]; min?: unknown; max?: unkno
     if (field?.options) return field.options.map(Number).filter(Number.isFinite);
     const min = Number(field?.min); const max = Number(field?.max);
     return Number.isInteger(min) && Number.isInteger(max) && min <= max ? integerRange(min, max) : [];
+}
+
+function runtimeParameterSchema(item: RuntimeGenerationDescriptorOption): Record<string, unknown> {
+    const properties: Record<string, unknown> = {};
+    if (item.schema.aspectRatios.length) properties.aspectRatio = { type: "string", enum: [...item.schema.aspectRatios] };
+    if (item.schema.resolutionTiers.length) properties.resolution = { type: "string", enum: [...item.schema.resolutionTiers] };
+    if (item.schema.durationsSeconds.length) properties.durationSeconds = { type: "number", enum: [...item.schema.durationsSeconds] };
+    if (item.schema.fps.length) properties.fps = { type: "number", enum: [...item.schema.fps] };
+    return { type: "object", properties, additionalProperties: false };
+}
+
+function operationsFor(item: RuntimeGenerationDescriptorOption): GenerationTaskKind[] {
+    if (item.capability === "video") return ["text_to_video", "image_to_video", "first_frame_video", "first_last_frame_video"];
+    if (item.capability === "audio") return ["audio"];
+    if (item.capability === "image") return ["text_to_image", "reference_to_image", "image_to_image"];
+    return ["workflow"];
 }
 
 function integerRange(min: number, max: number) { return Array.from({ length: max - min + 1 }, (_value, index) => min + index); }

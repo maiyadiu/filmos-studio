@@ -233,6 +233,9 @@ export function publicAgentRuntimeFailure(error: unknown) {
     if (code === "BRAIN_CONNECTION_UNAVAILABLE" || code === "BRAIN_CONNECTION_NEEDS_AUTH" || code === "BRAIN_CONNECTION_ERROR") {
         return new LocalRuntimeSessionError("agent_profile_not_ready", "所选 AI 大脑尚未连接，请检查对应连接与授权", 409);
     }
+    if (code === "CHATGPT_HOST_INVALID_LIVE_CONTEXT" || code === "CHATGPT_HOST_PAYLOAD_INVALID") {
+        return new LocalRuntimeSessionError("chatgpt_host_context_invalid", "ChatGPT Host 已连接，但当前工作台上下文未通过安全合同校验", 409);
+    }
     if (/^(?:CHATGPT_HOST|CHATGPT_DESKTOP|CHATGPT_CONNECTION)_/.test(code)) {
         return new LocalRuntimeSessionError("chatgpt_host_not_ready", "ChatGPT Host 尚未就绪，请重新连接 Secure Tunnel 并授权当前项目", 409);
     }

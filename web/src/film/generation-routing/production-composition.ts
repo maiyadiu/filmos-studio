@@ -80,8 +80,8 @@ export type ProductionTraceEvent = {
     timestamp: string;
     actor: string;
     brokerDecision: "none" | "rejected" | "approved";
-    externalCostMicrounits: "0";
-    externalWrite: false;
+    externalCostMicrounits: string;
+    externalWrite: boolean;
 };
 
 export type ProductionPreviewBundle = {
@@ -92,7 +92,16 @@ export type ProductionPreviewBundle = {
     descriptorReceipt: ResolvedGenerationDescriptorReceipt;
     compiledPromptReceipt: CompiledPromptReceipt;
     routeSnapshot: GenerationRouteSnapshot;
-    proposal: { proposalId: string; proposalHash: string; previewReceiptId: string; previewReceiptHash: string; externalCostMicrounits: "0"; externalWritePerformed: false };
+    proposal: {
+        proposalId: string;
+        proposalHash: string;
+        previewReceiptId: string;
+        previewReceiptHash: string;
+        estimatedCost?: { unit: string; amountMicrounits: string };
+        estimateAvailable: boolean;
+        externalCostMicrounits: "0";
+        externalWritePerformed: false;
+    };
     guards: GenerationExecutionGuardSet;
     catalog: GenerationCatalogSnapshot;
     connection: GenerationEngineConnection;
@@ -108,7 +117,20 @@ export type ProductionAuthorizationBundle = {
     trace: ProductionTraceEvent[];
 };
 
-export type MockProviderTaskReceipt = {
+export type ProviderReadiness = {
+    state: "ready" | "not_installed" | "not_configured" | "auth_required" | "degraded" | "offline" | "blocked";
+    code: string;
+    checkedAt: string;
+};
+
+export type ProviderCostPreview = {
+    costUnit: string;
+    estimatedCostMicrounits: string;
+    estimateAvailable: boolean;
+    externalWritePerformed: false;
+};
+
+export type ProviderTaskReceipt = {
     providerReceiptId: string;
     providerTaskId: string;
     authorizedSubmissionId: string;
@@ -117,14 +139,48 @@ export type MockProviderTaskReceipt = {
     outputAssetVersionId: string;
     contentHash: string;
     status: "succeeded";
-    externalNetworkRequests: 0;
-    externalSpendMicrounits: "0";
+    externalNetworkRequests: number;
+    externalSpendMicrounits: string;
     submittedAt: string;
     completedAt: string;
 };
 
+export type MockProviderTaskReceipt = ProviderTaskReceipt & {
+    externalNetworkRequests: 0;
+    externalSpendMicrounits: "0";
+};
+
+export type ProviderTaskLookup = {
+    providerTaskId: string;
+    authorizedSubmissionId: string;
+    idempotencyKey: string;
+};
+
+export type ProviderTaskStatus = {
+    providerTaskId: string;
+    state: "queued" | "running" | "succeeded" | "failed" | "submission_unknown";
+    observedAt: string;
+    receipt?: ProviderTaskReceipt;
+};
+
+export type ProviderOutputReceipt = {
+    outputAssetVersionId: string;
+    outputHash: string;
+    mediaType: string;
+    contentHash: string;
+};
+
+export type AuthorizedProviderSubmission = {
+    projectName: string;
+    authorization: ProductionAuthorizationBundle;
+    now: string;
+};
+
 export type ProductionCandidate = {
     candidateId: string;
+    generationPackageFilmEntityId: string;
+    generationAttemptEvidenceFilmEntityId: string;
+    candidateFilmEntityId: string;
     generationAttemptId: string;
     providerReceiptId: string;
     outputAssetVersionId: string;
@@ -141,23 +197,50 @@ export interface ProductionGenerationAuthority {
     reserveAndAuthorize(bundle: ProductionAuthorizationBundle): Promise<void>;
     loadAuthorized(authorizedSubmissionId: string): Promise<ProductionAuthorizationBundle | undefined>;
     currentGuards(preview?: ProductionPreviewBundle): Promise<ReadonlyMap<string, { version: number; contentHash: string }>>;
-    loadProviderReceipt(idempotencyKey: string): Promise<MockProviderTaskReceipt | undefined>;
-    persistProviderReceipt(receipt: MockProviderTaskReceipt): Promise<void>;
-    persistCandidate(candidate: ProductionCandidate): Promise<void>;
+    loadProviderReceipt(idempotencyKey: string): Promise<ProviderTaskReceipt | undefined>;
+    persistExecutionResult(authorization: ProductionAuthorizationBundle, receipt: ProviderTaskReceipt): Promise<ProductionCandidate>;
+    releaseAuthorization(authorization: ProductionAuthorizationBundle, reasonCode: string): Promise<void>;
+    markReconciliationRequired(authorization: ProductionAuthorizationBundle, reasonCode: string): Promise<void>;
     loadCandidateByAttempt(generationAttemptId: string): Promise<ProductionCandidate | undefined>;
 }
 
-export interface ProductionGenerationProvider {
+export interface ProductionGenerationProviderAdapter {
     readonly engineId: string;
     readonly supportsHardLockedReferences: boolean;
-    submit(input: { projectName: string; authorization: ProductionAuthorizationBundle; now: string }): Promise<MockProviderTaskReceipt>;
+    doctor(): Promise<ProviderReadiness>;
+    getConnectionScope(): Promise<GenerationEngineConnection>;
+    refreshCatalog(): Promise<GenerationCatalogSnapshot>;
+    preview?(input: { route: GenerationRouteSnapshot; catalog: GenerationCatalogSnapshot }): Promise<ProviderCostPreview>;
+    submit(input: AuthorizedProviderSubmission): Promise<ProviderTaskReceipt>;
+    getStatus(input: ProviderTaskLookup): Promise<ProviderTaskStatus>;
+    reconcile(input: ProviderTaskLookup): Promise<ProviderTaskStatus>;
+    downloadOutputs(input: ProviderTaskReceipt): Promise<ProviderOutputReceipt[]>;
 }
 
-export class FilmOSMockGenerationProvider implements ProductionGenerationProvider {
+/** @deprecated Use ProductionGenerationProviderAdapter. */
+export type ProductionGenerationProvider = ProductionGenerationProviderAdapter;
+
+export class FilmOSMockGenerationProvider implements ProductionGenerationProviderAdapter {
     readonly engineId = FILMOS_MOCK_GENERATION_ENGINE_ID;
     readonly supportsHardLockedReferences = true;
     private readonly receipts = new Map<string, MockProviderTaskReceipt>();
     submitCount = 0;
+
+    async doctor(): Promise<ProviderReadiness> {
+        return { state: "ready", code: "FILMOS_MOCK_READY", checkedAt: new Date().toISOString() };
+    }
+
+    async getConnectionScope(): Promise<GenerationEngineConnection> {
+        throw new Error("MOCK_PROVIDER_CONNECTION_SCOPE_FIXTURE_REQUIRED");
+    }
+
+    async refreshCatalog(): Promise<GenerationCatalogSnapshot> {
+        throw new Error("MOCK_PROVIDER_CATALOG_FIXTURE_REQUIRED");
+    }
+
+    async preview(): Promise<ProviderCostPreview> {
+        return { costUnit: "mock", estimatedCostMicrounits: "0", estimateAvailable: true, externalWritePerformed: false };
+    }
 
     async submit(input: { projectName: string; authorization: ProductionAuthorizationBundle; now: string }): Promise<MockProviderTaskReceipt> {
         if (input.projectName !== FILMOS_ACCEPTANCE_PROJECT_NAME) throw new Error("MOCK_PROVIDER_ACCEPTANCE_PROJECT_ONLY");
@@ -184,15 +267,57 @@ export class FilmOSMockGenerationProvider implements ProductionGenerationProvide
         this.receipts.set(key, receipt);
         return receipt;
     }
+
+    async getStatus(input: ProviderTaskLookup): Promise<ProviderTaskStatus> {
+        const receipt = this.receipts.get(input.idempotencyKey);
+        return receipt
+            ? { providerTaskId: receipt.providerTaskId, state: "succeeded", observedAt: receipt.completedAt, receipt }
+            : { providerTaskId: input.providerTaskId, state: "submission_unknown", observedAt: new Date().toISOString() };
+    }
+
+    async reconcile(input: ProviderTaskLookup): Promise<ProviderTaskStatus> {
+        return this.getStatus(input);
+    }
+
+    async downloadOutputs(input: ProviderTaskReceipt): Promise<ProviderOutputReceipt[]> {
+        const output = { outputAssetVersionId: input.outputAssetVersionId, outputHash: input.outputHash, mediaType: "image/png" };
+        return [{ ...output, contentHash: await hashProjection("provider-output-receipt", "envelope", output) }];
+    }
 }
 
-export class ProductionGenerationComposition {
+export type ProductionSubmitProposalCommand = { proposalId: string };
+export type ProductionConfirmationResult = {
+    toolName: "generation_submit";
+    input: { proposalId: string };
+    risk: "paid";
+};
+export type ProductionAuthorizedCommand = {
+    proposalId: string;
+    actorRef: string;
+    confirmationId: string;
+    brokerGrantId: string;
+    brokerGrantContentHash: string;
+    brokerDecisionReceiptId: string;
+    brokerDecisionReceiptContentHash: string;
+    toolRequestId: string;
+    grant: GenerationBudgetGrant;
+    ledger: BudgetLedger;
+    submitNotAfter: string;
+};
+
+export class ProductionGenerationService {
     constructor(
         private readonly authority: ProductionGenerationAuthority,
-        private readonly providers: ReadonlyMap<string, ProductionGenerationProvider>,
+        private readonly providers: ReadonlyMap<string, ProductionGenerationProviderAdapter>,
         private readonly issueId: (prefix: string) => string = (prefix) => `${prefix}-${crypto.randomUUID()}`,
         private readonly now: () => string = () => new Date().toISOString(),
     ) {}
+
+    async requestSubmit(input: ProductionSubmitProposalCommand): Promise<ProductionConfirmationResult> {
+        const preview = await this.authority.loadPreview(input.proposalId);
+        if (!preview) throw new Error("GENERATION_PROPOSAL_NOT_FOUND");
+        return { toolName: "generation_submit", input: { proposalId: preview.proposal.proposalId }, risk: "paid" };
+    }
 
     async preview(input: {
         projectId: string; projectName: string; nodeId: string; generationAttemptId: string; taskKind: GenerationTaskKind;
@@ -235,13 +360,22 @@ export class ProductionGenerationComposition {
         });
         assertProjectGenerationPolicy(input.projectPolicy, routeSnapshot);
         if (input.projectLock) assertProjectGenerationLock(input.projectLock, input.taskKind, routeSnapshot, selected.map(({ descriptor: _descriptor, ...ref }) => ref), descriptorDetails(selected, input.catalog));
+        const provider = this.providers.get(selectedRoute.engineId);
+        if (!provider) throw new Error("GENERATION_PROVIDER_ADAPTER_NOT_FOUND");
+        const readiness = await provider.doctor();
+        if (readiness.state !== "ready" && selectedRoute.engineId !== "manual_web") throw new Error(`GENERATION_PROVIDER_${readiness.state.toUpperCase()}`);
+        const costPreview = provider.preview
+            ? await provider.preview({ route: routeSnapshot, catalog: input.catalog })
+            : { costUnit: input.catalog.models[0]?.billing.currencyOrUnit || "unknown", estimatedCostMicrounits: "0", estimateAvailable: false, externalWritePerformed: false as const };
+        if (costPreview.externalWritePerformed !== false) throw new Error("GENERATION_PREVIEW_EXTERNAL_WRITE_FORBIDDEN");
         const proposalHash = await hashProjection("generation-submission-proposal", "semantic", { projectId: input.projectId, nodeId: input.nodeId, routeContentHash: routeSnapshot.routeContentHash });
         const proposalId = this.issueId("proposal");
-        const previewReceiptHash = await hashProjection("generation-preview-receipt", "envelope", { proposalId, proposalHash, routeSnapshotContentHash: routeSnapshot.contentHash, externalCostMicrounits: "0", externalWritePerformed: false });
+        const previewCost = { unit: costPreview.costUnit, amountMicrounits: costPreview.estimatedCostMicrounits };
+        const previewReceiptHash = await hashProjection("generation-preview-receipt", "envelope", { proposalId, proposalHash, routeSnapshotContentHash: routeSnapshot.contentHash, estimatedCost: previewCost, estimateAvailable: costPreview.estimateAvailable, externalCostMicrounits: "0", externalWritePerformed: false });
         const bundle: ProductionPreviewBundle = {
             projectId: input.projectId, projectName: input.projectName, nodeId: input.nodeId, generationAttemptId: input.generationAttemptId,
             descriptorReceipt, compiledPromptReceipt, routeSnapshot,
-            proposal: { proposalId, proposalHash, previewReceiptId: this.issueId("preview"), previewReceiptHash, externalCostMicrounits: "0", externalWritePerformed: false },
+            proposal: { proposalId, proposalHash, previewReceiptId: this.issueId("preview"), previewReceiptHash, estimatedCost: previewCost, estimateAvailable: costPreview.estimateAvailable, externalCostMicrounits: "0", externalWritePerformed: false },
             guards: input.guards, catalog: input.catalog, connection: input.connection,
             trace: await buildTrace(input.projectId, input.nodeId, input.generationAttemptId, at, [
                 ["draft.created", input.generationAttemptId, input.promptDraftContentHash, input.promptDraftContentHash],
@@ -265,11 +399,7 @@ export class ProductionGenerationComposition {
         return traceEvent;
     }
 
-    async approve(input: {
-        proposalId: string; actorRef: string; confirmationId: string; brokerGrantId: string; brokerGrantContentHash: string;
-        brokerDecisionReceiptId: string; brokerDecisionReceiptContentHash: string; toolRequestId: string;
-        grant: GenerationBudgetGrant; ledger: BudgetLedger; submitNotAfter: string;
-    }): Promise<ProductionAuthorizationBundle> {
+    private async authorize(input: ProductionAuthorizedCommand): Promise<ProductionAuthorizationBundle> {
         const preview = await this.authority.loadPreview(input.proposalId);
         if (!preview) throw new Error("GENERATION_PROPOSAL_NOT_FOUND");
         const at = this.now();
@@ -284,7 +414,8 @@ export class ProductionGenerationComposition {
             grants: preview.routeSnapshot.references.map((reference) => ({ bindingId: reference.bindingId, assetVersionId: reference.assetVersionId, assetVersionContentHash: reference.assetVersionContentHash, ...(reference.preparedRepresentationId ? { preparedRepresentationId: reference.preparedRepresentationId, preparedRepresentationContentHash: reference.preparedRepresentationContentHash } : {}), permission: "provider_local_read" as const, destinationScope: `filmos_${preview.routeSnapshot.engineId}_input`, authorizedAt: at })),
             authorizationEvidence: { confirmationId: input.confirmationId, brokerGrantId: input.brokerGrantId, brokerGrantContentHash: input.brokerGrantContentHash, brokerDecisionReceiptId: input.brokerDecisionReceiptId, brokerDecisionReceiptContentHash: input.brokerDecisionReceiptContentHash, toolRequestId: input.toolRequestId, authorizedByActorRef: input.actorRef, confirmedAt: at }, createdAt: at,
         });
-        const budgetReservation = await createBudgetReservation({ reservationId: this.issueId("budget-reservation"), ledger: input.ledger, grant: input.grant, generationAttemptId: preview.generationAttemptId, routeSnapshotId: preview.routeSnapshot.routeSnapshotId, routeContentHash: preview.routeSnapshot.routeContentHash, reservedTasks: 1, reservedCost: { unit: "mock", amountMicrounits: "0" }, expiresAt: input.submitNotAfter, createdAt: at });
+        const reservedCost = preview.proposal.estimatedCost ?? { unit: input.ledger.costUnit || input.grant.maxTotalCost?.unit || "unknown", amountMicrounits: "0" };
+        const budgetReservation = await createBudgetReservation({ reservationId: this.issueId("budget-reservation"), ledger: input.ledger, grant: input.grant, generationAttemptId: preview.generationAttemptId, routeSnapshotId: preview.routeSnapshot.routeSnapshotId, routeContentHash: preview.routeSnapshot.routeContentHash, reservedTasks: 1, reservedCost, expiresAt: input.submitNotAfter, createdAt: at });
         const authorizedSubmission = await createAuthorizedGenerationSubmission({
             schemaVersion: 1, authorizedSubmissionId: this.issueId("authorized-submission"), generationAttemptId: preview.generationAttemptId,
             routeSnapshotId: preview.routeSnapshot.routeSnapshotId, routeSnapshotContentHash: preview.routeSnapshot.contentHash, routeContentHash: preview.routeSnapshot.routeContentHash,
@@ -309,34 +440,52 @@ export class ProductionGenerationComposition {
         return bundle;
     }
 
-    async submitAuthorized(authorizedSubmissionId: string): Promise<{ receipt: MockProviderTaskReceipt; candidate: ProductionCandidate; trace: ProductionTraceEvent[] }> {
+    async executeAuthorized(input: ProductionAuthorizedCommand): Promise<{ receipt: ProviderTaskReceipt; candidate: ProductionCandidate; trace: ProductionTraceEvent[] }> {
+        const authorization = await this.authorize(input);
+        return await this.submitAuthorized(authorization.authorizedSubmission.authorizedSubmissionId);
+    }
+
+    async submitAuthorized(authorizedSubmissionId: string): Promise<{ receipt: ProviderTaskReceipt; candidate: ProductionCandidate; trace: ProductionTraceEvent[] }> {
         const authorization = await this.authority.loadAuthorized(authorizedSubmissionId);
         if (!authorization) throw new Error("AUTHORIZED_GENERATION_SUBMISSION_NOT_FOUND");
         const { preview, authorizedSubmission } = authorization;
-        await verifyProductionAuthorizationBundle(authorization);
-        const current = await this.authority.currentGuards(preview);
-        assertExecutionGuards(current, preview.guards);
-        assertCatalogValidationSubmitReady(authorization.catalogValidation, { now: this.now(), routeContentHash: preview.routeSnapshot.routeContentHash, descriptorSemanticHash: preview.descriptorReceipt.descriptorSemanticHash, accountBindingRef: preview.routeSnapshot.accountBindingRef, connectionInstanceRef: preview.routeSnapshot.connectionInstanceRef });
-        const storedReceipt = await this.authority.loadProviderReceipt(authorizedSubmission.idempotencyKey);
         const provider = this.providers.get(preview.routeSnapshot.engineId);
-        if (!provider) throw new Error("GENERATION_PROVIDER_ADAPTER_NOT_FOUND");
-        if (preview.routeSnapshot.references.some((reference) => reference.hardLock) && !provider.supportsHardLockedReferences) throw new Error("GENERATION_REFERENCE_HARD_LOCK_UNSUPPORTED");
-        const at = this.now();
-        const receipt = storedReceipt ?? await provider.submit({ projectName: preview.projectName, authorization, now: at });
-        if (!storedReceipt) await this.authority.persistProviderReceipt(receipt);
-        let candidate = await this.authority.loadCandidateByAttempt(preview.generationAttemptId);
-        if (!candidate) {
-            const candidateBase = { candidateId: this.issueId("candidate"), generationAttemptId: preview.generationAttemptId, providerReceiptId: receipt.providerReceiptId, outputAssetVersionId: receipt.outputAssetVersionId, outputHash: receipt.outputHash, qcState: "pending" as const, approvalState: "not_approved" as const };
-            candidate = { ...candidateBase, contentHash: await hashProjection("generation-candidate", "envelope", candidateBase) };
-            await this.authority.persistCandidate(candidate);
+        try {
+            await verifyProductionAuthorizationBundle(authorization);
+            const current = await this.authority.currentGuards(preview);
+            assertExecutionGuards(current, preview.guards);
+            assertCatalogValidationSubmitReady(authorization.catalogValidation, { now: this.now(), routeContentHash: preview.routeSnapshot.routeContentHash, descriptorSemanticHash: preview.descriptorReceipt.descriptorSemanticHash, accountBindingRef: preview.routeSnapshot.accountBindingRef, connectionInstanceRef: preview.routeSnapshot.connectionInstanceRef });
+            if (!provider) throw new Error("GENERATION_PROVIDER_ADAPTER_NOT_FOUND");
+            if (preview.routeSnapshot.references.some((reference) => reference.hardLock) && !provider.supportsHardLockedReferences) throw new Error("GENERATION_REFERENCE_HARD_LOCK_UNSUPPORTED");
+        } catch (error) {
+            await this.authority.releaseAuthorization(authorization, error instanceof Error ? error.message : "GENERATION_PRE_SUBMIT_VALIDATION_FAILED");
+            throw error;
         }
+        const storedReceipt = await this.authority.loadProviderReceipt(authorizedSubmission.idempotencyKey);
+        const at = this.now();
+        let receipt = storedReceipt;
+        if (!receipt) {
+            try {
+                receipt = await provider!.submit({ projectName: preview.projectName, authorization, now: at });
+            } catch (error) {
+                const code = error instanceof Error ? error.message : "PROVIDER_SUBMISSION_UNKNOWN";
+                if (code.startsWith("READY_FOR_USER_") || code.startsWith("MANUAL_GENERATION_") || code === "GENERATION_PROVIDER_NOT_READY") {
+                    await this.authority.releaseAuthorization(authorization, code);
+                } else {
+                    await this.authority.markReconciliationRequired(authorization, code);
+                }
+                throw error;
+            }
+        }
+        let candidate = await this.authority.loadCandidateByAttempt(preview.generationAttemptId);
+        if (!candidate) candidate = await this.authority.persistExecutionResult(authorization, receipt);
         const trace = [...authorization.trace, ...await buildTrace(preview.projectId, preview.nodeId, preview.generationAttemptId, at, [
             ["provider.submitted", receipt.providerTaskId, receipt.contentHash, authorizedSubmission.authorizedSubmissionSemanticHash],
             ["provider.succeeded", receipt.providerReceiptId, receipt.contentHash, receipt.outputHash],
             ["output.downloaded", receipt.outputAssetVersionId, receipt.outputHash, receipt.outputHash],
             ["candidate.imported", candidate.candidateId, candidate.contentHash, candidate.outputHash],
             ["qc.pending", candidate.candidateId, candidate.contentHash, candidate.outputHash],
-        ], authorization.trace.length, "approved")];
+        ], authorization.trace.length, "approved", receipt.externalSpendMicrounits, receipt.externalNetworkRequests > 0)];
         return { receipt, candidate, trace };
     }
 
@@ -344,6 +493,10 @@ export class ProductionGenerationComposition {
         const candidate = await this.authority.loadCandidateByAttempt(generationAttemptId);
         if (!candidate) throw new Error("GENERATION_RECOVERY_RECEIPT_NOT_FOUND");
         return candidate;
+    }
+
+    async reconcile(input: { generationAttemptId: string }): Promise<ProductionCandidate> {
+        return await this.recover(input.generationAttemptId);
     }
 }
 
@@ -396,6 +549,16 @@ function descriptorCapability(selected: ReturnType<typeof exactSelectedDescripto
     return "workflow";
 }
 
-async function buildTrace(projectId: string, nodeId: string, generationAttemptId: string, timestamp: string, entries: Array<[ProductionTraceEventName, string, string, string]>, offset = 0, brokerDecision: ProductionTraceEvent["brokerDecision"] = "none"): Promise<ProductionTraceEvent[]> {
-    return entries.map(([event, objectId, contentHash, semanticHash], index) => ({ sequence: offset + index + 1, event, objectId, contentHash, semanticHash, projectId, nodeId, generationAttemptId, timestamp, actor: "filmos-production-composition", brokerDecision, externalCostMicrounits: "0", externalWrite: false }));
+async function buildTrace(
+    projectId: string,
+    nodeId: string,
+    generationAttemptId: string,
+    timestamp: string,
+    entries: Array<[ProductionTraceEventName, string, string, string]>,
+    offset = 0,
+    brokerDecision: ProductionTraceEvent["brokerDecision"] = "none",
+    externalCostMicrounits = "0",
+    externalWrite = false,
+): Promise<ProductionTraceEvent[]> {
+    return entries.map(([event, objectId, contentHash, semanticHash], index) => ({ sequence: offset + index + 1, event, objectId, contentHash, semanticHash, projectId, nodeId, generationAttemptId, timestamp, actor: "filmos-production-composition", brokerDecision, externalCostMicrounits, externalWrite }));
 }

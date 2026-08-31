@@ -4,6 +4,7 @@ import hashlib
 import json
 import re
 import sqlite3
+import threading
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -47,7 +48,11 @@ class GenerationBudgetRepository:
     """Single SQLite authority for budget state and append-only recovery evidence."""
 
     def __init__(self, path: Path):
-        self.connection = sqlite3.connect(path, isolation_level=None)
+        # FastAPI executes synchronous handlers in worker threads.  Keep the
+        # single budget authority connection usable across those workers while
+        # serializing every transaction/read through one re-entrant lock.
+        self._lock = threading.RLock()
+        self.connection = sqlite3.connect(path, isolation_level=None, check_same_thread=False)
         self.connection.row_factory = sqlite3.Row
         self.connection.executescript("""
         PRAGMA foreign_keys=ON;
@@ -94,17 +99,19 @@ class GenerationBudgetRepository:
 
     @contextmanager
     def _transaction(self) -> Iterator[None]:
-        self.connection.execute("BEGIN IMMEDIATE")
-        try:
-            yield
-        except BaseException:
-            self.connection.execute("ROLLBACK")
-            raise
-        else:
-            self.connection.execute("COMMIT")
+        with self._lock:
+            self.connection.execute("BEGIN IMMEDIATE")
+            try:
+                yield
+            except BaseException:
+                self.connection.execute("ROLLBACK")
+                raise
+            else:
+                self.connection.execute("COMMIT")
 
     def close(self) -> None:
-        self.connection.close()
+        with self._lock:
+            self.connection.close()
 
     @staticmethod
     def _grant_projection(grant_id: str, scope: BudgetScope, max_tasks: int,
@@ -146,6 +153,19 @@ class GenerationBudgetRepository:
             self.connection.execute("INSERT INTO generation_budget_ledgers VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
                                     (ledger_id, grant_id, scope_json, 0, "0", 0, "0", "[]", 0,
                                      "active", 1, _hash("budget-ledger", "envelope", ledger)))
+
+    def ensure(self, grant_id: str, ledger_id: str, scope: BudgetScope,
+               max_tasks: int, max_cost_microunits: str | None) -> dict:
+        with self._lock:
+            existing = self.connection.execute(
+                "SELECT ledger_id FROM generation_budget_ledgers WHERE ledger_id=? AND grant_id=?",
+                (ledger_id, grant_id),
+            ).fetchone()
+            if existing is None:
+                self.create(grant_id, ledger_id, scope, max_tasks, max_cost_microunits)
+            snapshot = self.snapshot(ledger_id)
+            self._assert_scope(snapshot["scope_json"], scope)
+            return snapshot
 
     def _require_fresh_ledger(self, ledger_id: str, expected_version: int,
                               expected_content_hash: str,
@@ -251,51 +271,112 @@ class GenerationBudgetRepository:
                 scope: BudgetScope | None = None, route_snapshot_id: str = "route-snapshot",
                 expires_at: str = "9999-12-31T23:59:59Z",
                 occurred_at: str = "1970-01-01T00:00:00Z") -> dict:
+        with self._transaction():
+            return self._reserve_current_transaction(
+                reservation_id=reservation_id, ledger_id=ledger_id,
+                generation_attempt_id=generation_attempt_id,
+                route_content_hash=route_content_hash, tasks=tasks,
+                cost_microunits=cost_microunits, idempotency_key=idempotency_key,
+                expected_version=expected_version, expected_content_hash=expected_content_hash,
+                scope=scope, route_snapshot_id=route_snapshot_id,
+                expires_at=expires_at, occurred_at=occurred_at,
+            )
+
+    def authorize_submission(self, *, payload: dict, ledger_id: str,
+                             reservation_id: str, reservation_event_key: str,
+                             expected_version: int, expected_content_hash: str,
+                             scope: BudgetScope, occurred_at: str,
+                             cost_microunits: str) -> dict:
+        authorized = payload.get("authorizedSubmission") or {}
+        preview = payload.get("preview") or {}
+        route = preview.get("routeSnapshot") or {}
+        authorization_id = str(authorized.get("authorizedSubmissionId") or "")
+        attempt_id = str(preview.get("generationAttemptId") or "")
+        proposal_id = str((preview.get("proposal") or {}).get("proposalId") or "")
+        idempotency_key = str(authorized.get("idempotencyKey") or "")
+        content_hash = str(authorized.get("contentHash") or "")
+        if not all((authorization_id, attempt_id, proposal_id, idempotency_key)):
+            raise ValueError("GENERATION_AUTHORIZATION_FIELDS_REQUIRED")
+        if not re.fullmatch(r"[0-9a-f]{64}", content_hash):
+            raise ValueError("GENERATION_AUTHORIZATION_HASH_INVALID")
+        existing = self.connection.execute(
+            "SELECT payload_json FROM generation_authorized_submissions WHERE authorized_submission_id=?",
+            (authorization_id,),
+        ).fetchone()
+        if existing is not None:
+            return {"authorization": json.loads(existing["payload_json"]), "ledger": self.snapshot(ledger_id)}
+        with self._transaction():
+            ledger = self._reserve_current_transaction(
+                reservation_id=reservation_id, ledger_id=ledger_id,
+                generation_attempt_id=attempt_id,
+                route_content_hash=str(route.get("routeContentHash") or ""),
+                tasks=1, cost_microunits=cost_microunits,
+                idempotency_key=reservation_event_key,
+                expected_version=expected_version,
+                expected_content_hash=expected_content_hash,
+                scope=scope,
+                route_snapshot_id=str(route.get("routeSnapshotId") or "route-snapshot"),
+                expires_at=str((payload.get("budgetReservation") or {}).get("expiresAt") or "9999-12-31T23:59:59Z"),
+                occurred_at=occurred_at,
+            )
+            self.connection.execute(
+                "INSERT INTO generation_authorized_submissions(authorized_submission_id,generation_attempt_id,proposal_id,idempotency_key,ledger_id,reservation_id,content_hash,payload_json,created_at) VALUES(?,?,?,?,?,?,?,?,?)",
+                (authorization_id, attempt_id, proposal_id, idempotency_key, ledger_id,
+                 reservation_id, content_hash, _canonical(payload), occurred_at),
+            )
+            return {"authorization": payload, "ledger": ledger}
+
+    def _reserve_current_transaction(self, *, reservation_id: str, ledger_id: str,
+                                     generation_attempt_id: str, route_content_hash: str,
+                                     tasks: int, cost_microunits: str,
+                                     idempotency_key: str, expected_version: int,
+                                     expected_content_hash: str, scope: BudgetScope | None,
+                                     route_snapshot_id: str, expires_at: str,
+                                     occurred_at: str) -> dict:
         cost = _amount(cost_microunits)
         if tasks < 1:
             raise ValueError("BUDGET_RESERVATION_INVALID")
-        with self._transaction():
-            if self._event_exists(idempotency_key, "reserved", reservation_id):
-                return self.snapshot(ledger_id)
-            ledger, grant = self._require_fresh_ledger(ledger_id, expected_version, expected_content_hash)
-            resolved_scope = scope or BudgetScope(**json.loads(ledger["scope_json"]))
-            self._assert_scope(ledger["scope_json"], resolved_scope)
-            next_tasks = ledger["reserved_tasks"] + ledger["consumed_tasks"] + tasks
-            next_cost = (_amount(ledger["reserved_cost_microunits"])
-                         + _amount(ledger["consumed_cost_microunits"]) + cost)
-            if next_tasks > grant["max_tasks"] or (grant["max_cost_microunits"] is not None
-                                                    and next_cost > _amount(grant["max_cost_microunits"])):
-                raise ValueError("BUDGET_LIMIT_EXCEEDED")
-            reservation_semantic = {
-                "ledger_id": ledger_id, "budget_grant_id": ledger["grant_id"],
-                "generation_attempt_id": generation_attempt_id, "route_snapshot_id": route_snapshot_id,
-                "route_content_hash": route_content_hash, "scope": asdict(resolved_scope),
-                "budget_grant_expected_version": grant["version"],
-                "budget_grant_expected_content_hash": grant["content_hash"],
-                "ledger_expected_version": expected_version,
-                "ledger_expected_content_hash": expected_content_hash,
-                "reserved_tasks": tasks, "reserved_cost_microunits": cost_microunits,
-                "expires_at": expires_at}
-            semantic_hash = _hash("budget-reservation", "semantic", reservation_semantic)
-            envelope = {**reservation_semantic, "reservation_id": reservation_id,
-                        "budget_reservation_semantic_hash": semantic_hash, "created_at": occurred_at}
-            self.connection.execute(
-                "INSERT INTO generation_budget_reservations VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                (reservation_id, ledger_id, ledger["grant_id"], generation_attempt_id,
-                 route_snapshot_id, route_content_hash, ledger["scope_json"], grant["version"],
-                 grant["content_hash"], expected_version, expected_content_hash, tasks,
-                 cost_microunits, expires_at, semantic_hash,
-                 _hash("budget-reservation", "envelope", envelope)))
-            effects = {"reservedTasksDelta": tasks, "reservedCostMicrounitsDelta": cost_microunits,
-                       "consumedTasksDelta": 0, "consumedCostMicrounitsDelta": "0"}
-            sequence = self._append_event(
-                ledger=ledger, event_type="reserved", reservation_id=reservation_id,
-                generation_attempt_id=generation_attempt_id, effects=effects,
-                reason_code="authorized", occurred_at=occurred_at, idempotency_key=idempotency_key)
-            open_ids = json.loads(ledger["open_reservation_ids_json"])
-            open_ids.append(reservation_id)
-            return self._update_ledger(ledger, effects=effects, sequence=sequence,
-                                       open_reservation_ids=open_ids)
+        if self._event_exists(idempotency_key, "reserved", reservation_id):
+            return self.snapshot(ledger_id)
+        ledger, grant = self._require_fresh_ledger(ledger_id, expected_version, expected_content_hash)
+        resolved_scope = scope or BudgetScope(**json.loads(ledger["scope_json"]))
+        self._assert_scope(ledger["scope_json"], resolved_scope)
+        next_tasks = ledger["reserved_tasks"] + ledger["consumed_tasks"] + tasks
+        next_cost = (_amount(ledger["reserved_cost_microunits"])
+                     + _amount(ledger["consumed_cost_microunits"]) + cost)
+        if next_tasks > grant["max_tasks"] or (grant["max_cost_microunits"] is not None
+                                                and next_cost > _amount(grant["max_cost_microunits"])):
+            raise ValueError("BUDGET_LIMIT_EXCEEDED")
+        reservation_semantic = {
+            "ledger_id": ledger_id, "budget_grant_id": ledger["grant_id"],
+            "generation_attempt_id": generation_attempt_id, "route_snapshot_id": route_snapshot_id,
+            "route_content_hash": route_content_hash, "scope": asdict(resolved_scope),
+            "budget_grant_expected_version": grant["version"],
+            "budget_grant_expected_content_hash": grant["content_hash"],
+            "ledger_expected_version": expected_version,
+            "ledger_expected_content_hash": expected_content_hash,
+            "reserved_tasks": tasks, "reserved_cost_microunits": cost_microunits,
+            "expires_at": expires_at}
+        semantic_hash = _hash("budget-reservation", "semantic", reservation_semantic)
+        envelope = {**reservation_semantic, "reservation_id": reservation_id,
+                    "budget_reservation_semantic_hash": semantic_hash, "created_at": occurred_at}
+        self.connection.execute(
+            "INSERT INTO generation_budget_reservations VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (reservation_id, ledger_id, ledger["grant_id"], generation_attempt_id,
+             route_snapshot_id, route_content_hash, ledger["scope_json"], grant["version"],
+             grant["content_hash"], expected_version, expected_content_hash, tasks,
+             cost_microunits, expires_at, semantic_hash,
+             _hash("budget-reservation", "envelope", envelope)))
+        effects = {"reservedTasksDelta": tasks, "reservedCostMicrounitsDelta": cost_microunits,
+                   "consumedTasksDelta": 0, "consumedCostMicrounitsDelta": "0"}
+        sequence = self._append_event(
+            ledger=ledger, event_type="reserved", reservation_id=reservation_id,
+            generation_attempt_id=generation_attempt_id, effects=effects,
+            reason_code="authorized", occurred_at=occurred_at, idempotency_key=idempotency_key)
+        open_ids = json.loads(ledger["open_reservation_ids_json"])
+        open_ids.append(reservation_id)
+        return self._update_ledger(ledger, effects=effects, sequence=sequence,
+                                   open_reservation_ids=open_ids)
 
     def transition_reservation(self, *, ledger_id: str, reservation_id: str,
                                event_type: str, actual_cost_microunits: str | None,
@@ -465,35 +546,39 @@ class GenerationBudgetRepository:
             return updated
 
     def snapshot(self, ledger_id: str) -> dict:
-        row = self.connection.execute("SELECT * FROM generation_budget_ledgers WHERE ledger_id=?",
-                                      (ledger_id,)).fetchone()
-        if not row:
-            raise KeyError(ledger_id)
-        return dict(row)
+        with self._lock:
+            row = self.connection.execute("SELECT * FROM generation_budget_ledgers WHERE ledger_id=?",
+                                          (ledger_id,)).fetchone()
+            if not row:
+                raise KeyError(ledger_id)
+            return dict(row)
 
     def event_count(self, ledger_id: str) -> int:
-        return int(self.connection.execute(
-            "SELECT count(*) FROM generation_budget_events WHERE ledger_id=?", (ledger_id,)).fetchone()[0])
+        with self._lock:
+            return int(self.connection.execute(
+                "SELECT count(*) FROM generation_budget_events WHERE ledger_id=?", (ledger_id,)).fetchone()[0])
 
     def event_types(self, ledger_id: str) -> list[str]:
-        return [row[0] for row in self.connection.execute(
-            "SELECT event_type FROM generation_budget_events WHERE ledger_id=? ORDER BY sequence",
-            (ledger_id,))]
+        with self._lock:
+            return [row[0] for row in self.connection.execute(
+                "SELECT event_type FROM generation_budget_events WHERE ledger_id=? ORDER BY sequence",
+                (ledger_id,))]
 
     def verify_ledger_against_events(self, ledger_id: str) -> None:
-        ledger = self.snapshot(ledger_id)
-        totals = {"reserved_tasks": 0, "reserved_cost": 0, "consumed_tasks": 0, "consumed_cost": 0}
-        sequence = 0
-        for row in self.connection.execute(
-                "SELECT * FROM generation_budget_events WHERE ledger_id=? ORDER BY sequence", (ledger_id,)):
-            if row["sequence"] != sequence + 1:
-                raise ValueError("BUDGET_LEDGER_INCONSISTENT")
-            effects = json.loads(row["effects_json"])
-            totals["reserved_tasks"] += effects["reservedTasksDelta"]
-            totals["reserved_cost"] += _delta(effects["reservedCostMicrounitsDelta"])
-            totals["consumed_tasks"] += effects["consumedTasksDelta"]
-            totals["consumed_cost"] += _delta(effects["consumedCostMicrounitsDelta"])
-            sequence = row["sequence"]
+        with self._lock:
+            ledger = self.snapshot(ledger_id)
+            totals = {"reserved_tasks": 0, "reserved_cost": 0, "consumed_tasks": 0, "consumed_cost": 0}
+            sequence = 0
+            for row in self.connection.execute(
+                    "SELECT * FROM generation_budget_events WHERE ledger_id=? ORDER BY sequence", (ledger_id,)):
+                if row["sequence"] != sequence + 1:
+                    raise ValueError("BUDGET_LEDGER_INCONSISTENT")
+                effects = json.loads(row["effects_json"])
+                totals["reserved_tasks"] += effects["reservedTasksDelta"]
+                totals["reserved_cost"] += _delta(effects["reservedCostMicrounitsDelta"])
+                totals["consumed_tasks"] += effects["consumedTasksDelta"]
+                totals["consumed_cost"] += _delta(effects["consumedCostMicrounitsDelta"])
+                sequence = row["sequence"]
         actual = (ledger["reserved_tasks"], _amount(ledger["reserved_cost_microunits"]),
                   ledger["consumed_tasks"], _amount(ledger["consumed_cost_microunits"]),
                   ledger["last_event_sequence"])

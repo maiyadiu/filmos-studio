@@ -27,7 +27,7 @@ test("workbench context returns explicit project mapping and canonical canvas gu
     assert.equal(context.domainProjectId, "project-1");
     assert.equal(context.contentUnitId, "unit-1");
     assert.equal(context.canvasRevision, 7);
-    assert.equal(typeof context.canvasStateHash, "string");
+    assert.match(context.canvasStateHash, /^[0-9a-f]{64}$/);
     assert.deepEqual(context.assetVersionIds, ["asset-version-1"]);
 });
 

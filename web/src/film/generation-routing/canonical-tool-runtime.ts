@@ -5,6 +5,17 @@ import type { AiConfig } from "@/stores/use-config-store";
 import type { BrainGenerationRoutingConfig } from "./user-config";
 import { isAcceptanceProductionProject } from "./acceptance-production-runtime";
 
+export type CanonicalBrokerExecutionAuthorization = {
+    confirmationId: string;
+    brokerGrantId: string;
+    brokerGrantContentHash: string;
+    brokerDecisionReceiptId: string;
+    brokerDecisionReceiptContentHash: string;
+    toolRequestId: string;
+    actorRef: string;
+    confirmedAt: string;
+};
+
 export const CANONICAL_GENERATION_TOOL_NAMES = [
     "generation_list_engines", "generation_get_engine_status", "generation_refresh_catalog", "generation_list_models",
     "generation_list_workflows", "generation_list_skills", "generation_select_effective_route", "generation_resolve_route_binding",
@@ -22,7 +33,8 @@ type RuntimeContext = {
     snapshot: CanvasAgentSnapshot;
     nodeRoute?: GenerationDefaultRoute;
     projectPolicy?: ProjectGenerationPolicy;
-    productionPort?: { submitAuthorized(authorizedSubmissionId: string): Promise<unknown> };
+    productionPort?: { executeAuthorized(input: CanonicalBrokerExecutionAuthorization & { proposalId: string }): Promise<unknown> };
+    brokerAuthorization?: CanonicalBrokerExecutionAuthorization;
 };
 
 type Result = { ok: true; message: string; data: unknown } | { ok: false; message: string; data?: unknown };
@@ -100,9 +112,10 @@ export async function executeCanonicalGenerationTool(name: CanonicalGenerationTo
     }
     if (name === "generation_create_external_project") return gated("EXTERNAL_PROJECT_CREATION_AUTHORIZATION_REQUIRED", "外部项目创建需要独立 Broker Decision Receipt。");
     if (name === "generation_submit") {
-        const authorizedSubmissionId = required(input.authorizedSubmissionId, "authorizedSubmissionId");
+        const proposalId = required(input.proposalId, "proposalId");
         if (!context.productionPort) return gated("READY_FOR_USER_AUTHORIZATION", "当前 Runtime 尚未绑定用户批准的 Production Composition；未执行 Provider 请求。");
-        const receipt = await context.productionPort.submitAuthorized(authorizedSubmissionId);
+        if (!context.brokerAuthorization) return gated("CANONICAL_BROKER_AUTHORIZATION_REQUIRED", "generation_submit 必须消费 Canonical Broker 的真实确认、Grant 与 Decision Receipt。");
+        const receipt = await context.productionPort.executeAuthorized({ proposalId, ...context.brokerAuthorization });
         return success("已通过 Production Tool Broker 执行精确 Authorized Submission。", receipt);
     }
     if (name === "generation_cancel") return gated("GENERATION_CANCEL_AUTHORIZATION_REQUIRED", "取消外部任务需要精确 Task Receipt 与 Broker 确认。");

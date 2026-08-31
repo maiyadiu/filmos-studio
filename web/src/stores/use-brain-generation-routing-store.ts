@@ -11,6 +11,7 @@ import {
     type BrainGenerationRoutingConfig,
     type DesktopUserConfigDocument,
 } from "@/film/generation-routing/user-config";
+import { EngineConnectionSynchronizer, type EngineConnectionObservation } from "@/film/generation-routing/engine-connection-synchronizer";
 import type { AiConfig } from "@/stores/use-config-store";
 
 type RoutingStore = {
@@ -22,9 +23,11 @@ type RoutingStore = {
     setGlobalDefault(profileId: UserSelectableBrainProfileId): Promise<void>;
     updateBinding(profileId: UserSelectableBrainProfileId, patch: Partial<Pick<BrainProfileBinding, "enabled" | "channelId" | "modelId" | "providerKind" | "protocol" | "modelCapabilityEvidence">>): Promise<void>;
     setGenerationDefault(taskKind: GenerationTaskKind, route: { engineId: string; connectionId: string; modelId?: string; workflowId?: string; skillId?: string }): Promise<void>;
+    synchronizeEngineConnections(observations: readonly EngineConnectionObservation[]): Promise<void>;
 };
 
 let initialization: Promise<void> | undefined;
+const engineConnectionSynchronizer = new EngineConnectionSynchronizer();
 
 export const useBrainGenerationRoutingStore = create<RoutingStore>((set, get) => {
     const save = async (next: BrainGenerationRoutingConfig) => {
@@ -79,6 +82,12 @@ export const useBrainGenerationRoutingStore = create<RoutingStore>((set, get) =>
             const current = get().config;
             if (!current) throw new Error("BRAIN_ROUTING_CONFIG_NOT_READY");
             await save({ ...current, generationDefaults: { ...current.generationDefaults, [taskKind]: route } });
+        },
+        synchronizeEngineConnections: async (observations) => {
+            const current = get().config;
+            if (!current) throw new Error("BRAIN_ROUTING_CONFIG_NOT_READY");
+            const synchronized = await engineConnectionSynchronizer.synchronize(current, observations);
+            if (synchronized.config !== current) await save(synchronized.config);
         },
     };
 });

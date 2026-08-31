@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from typing import Any, cast
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from film_production_core.errors import (
     ContentHashConflict,
@@ -42,6 +42,7 @@ from film_production_core.formal_models import (
     FormalRecordCreateRequest,
     GeneratedResultState,
     GenerationAttemptEvidence,
+    GenerationExecutionEvidenceBinding,
     GenerationPackage,
     ImportedOutputReference,
     ManualResultImportRequest,
@@ -107,6 +108,15 @@ def hash_json(value: Any) -> str:
 
 def hash_text(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def production_entity_id(generation_attempt_id: str, role: str) -> str:
+    digest = bytearray(hashlib.sha256(
+        f"filmos:production-generation:{generation_attempt_id}:{role}".encode("utf-8")
+    ).digest()[:16])
+    digest[6] = (digest[6] & 0x0F) | 0x40
+    digest[8] = (digest[8] & 0x3F) | 0x80
+    return str(UUID(bytes=bytes(digest)))
 
 
 class FormalService:
@@ -917,6 +927,154 @@ class FormalService:
             audit_event_ids=event_ids,
         )
 
+    def import_production_result(
+        self, authorization: dict[str, Any], receipt: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Persist the single formal GenerationPackage/Attempt/Candidate authority."""
+        preview = authorization["preview"]
+        route = preview["routeSnapshot"]
+        descriptor = preview["descriptorReceipt"]
+        compiled = preview["compiledPromptReceipt"]
+        catalog_validation = authorization["catalogValidation"]
+        input_authorization = authorization["inputAuthorization"]
+        authorized = authorization["authorizedSubmission"]
+        attempt_id = str(preview["generationAttemptId"])
+        prompt_id = production_entity_id(attempt_id, "prompt")
+        package_id = production_entity_id(attempt_id, "package")
+        evidence_id = production_entity_id(attempt_id, "evidence")
+        candidate_id = production_entity_id(attempt_id, "candidate")
+        prompt_body = {
+            "states": {
+                "creative_stage": "authored", "execution_state": "ready",
+                "review_state": "pending", "lock_state": "unlocked",
+                "delivery_state": "not_ready", "stale_state": "fresh",
+            },
+            "director_ir_hash": compiled["compiledPromptSemanticHash"],
+            "visual_lock_hash": route["referenceHash"],
+            "model_capability_profile": str(route.get("modelId") or route.get("workflowId") or route.get("skillId") or route["engineId"]),
+            "prompt_text": compiled["text"],
+        }
+        prompt_content_hash = hash_json(prompt_body)
+        execution_binding = GenerationExecutionEvidenceBinding(
+            generation_attempt_id=preview["generationAttemptId"],
+            route_snapshot_id=route["routeSnapshotId"],
+            route_snapshot_content_hash=route["contentHash"],
+            route_content_hash=route["routeContentHash"],
+            descriptor_receipt_id=descriptor["descriptorReceiptId"],
+            descriptor_receipt_content_hash=descriptor["contentHash"],
+            descriptor_semantic_hash=descriptor["descriptorSemanticHash"],
+            catalog_validation_receipt_id=catalog_validation["catalogValidationReceiptId"],
+            catalog_validation_receipt_content_hash=catalog_validation["contentHash"],
+            catalog_validation_semantic_hash=catalog_validation["catalogValidationSemanticHash"],
+            provider_input_authorization_snapshot_id=input_authorization["authorizationSnapshotId"],
+            provider_input_authorization_content_hash=input_authorization["contentHash"],
+            authorization_scope_hash=input_authorization["authorizationScopeHash"],
+            authorized_submission_id=authorized["authorizedSubmissionId"],
+            authorized_submission_content_hash=authorized["contentHash"],
+            authorized_submission_semantic_hash=authorized["authorizedSubmissionSemanticHash"],
+            idempotency_key=authorized["idempotencyKey"],
+        ).model_dump(mode="json")
+        parameters = route["normalizedParameters"]
+        parameter_hash = hash_json(parameters)
+        prompt_hash = hash_text(compiled["text"])
+        prompt_guard = {
+            "film_entity_id": prompt_id,
+            "version": 1,
+            "content_hash": prompt_content_hash,
+        }
+        input_hash = hash_json({
+            "prompt_draft": prompt_guard,
+            "host_project_id": preview["projectId"],
+            "provider_id": route["engineId"],
+            "capability_id": route["capability"],
+            "parameter_hash": parameter_hash,
+            "prompt_hash": prompt_hash,
+            "execution_evidence": execution_binding,
+        })
+        package_body = {
+            "prompt_draft_id": prompt_id,
+            "host_project_id": preview["projectId"],
+            "provider_id": route["engineId"],
+            "capability_id": route["capability"],
+            "parameters": parameters,
+            "parameter_hash": parameter_hash,
+            "prompt_hash": prompt_hash,
+            "input_hash": input_hash,
+            "submission_state": ProviderSubmissionState.NOT_SUBMITTED.value,
+            "execution_evidence": execution_binding,
+        }
+        output = {
+            "film_representation_id": production_entity_id(attempt_id, "representation"),
+            "host_resource_id": receipt["outputAssetVersionId"],
+            "output_kind": route["capability"],
+            "content_hash": receipt["outputHash"],
+            "mime_type": production_mime_type(route["capability"]),
+            "bytes": 0,
+        }
+        evidence_body = {
+            "generation_package_id": package_id,
+            "provider_id": route["engineId"],
+            "provider_task_id": receipt["providerTaskId"],
+            "receipt_id": receipt["providerReceiptId"],
+            "receipt_hash": receipt["contentHash"],
+            "receipt_captured_at": receipt["completedAt"],
+            "parameter_hash": parameter_hash,
+            "prompt_hash": prompt_hash,
+            "input_hash": input_hash,
+            "parameters": parameters,
+            "manual_import_source_id": f"production:{authorized['authorizedSubmissionId']}",
+            "imported_by": input_authorization["authorizationEvidence"]["authorizedByActorRef"],
+            "imported_at": receipt["completedAt"],
+            "authorization_evidence_id": input_authorization["authorizationEvidence"]["brokerDecisionReceiptId"],
+            "outputs": [output],
+        }
+        candidate_body = {
+            "generation_package_id": package_id,
+            "generation_attempt_evidence_id": evidence_id,
+            "host": {"host_project_id": preview["projectId"]},
+            "states": candidate_states().model_dump(mode="json"),
+            "output_hash": receipt["outputHash"],
+        }
+        records = [
+            (EntityType.PROMPT_DRAFT, prompt_body, prompt_id),
+            (EntityType.GENERATION_PACKAGE, package_body, package_id),
+            (EntityType.GENERATION_ATTEMPT_EVIDENCE, evidence_body, evidence_id),
+            (EntityType.CANDIDATE, candidate_body, candidate_id),
+        ]
+        try:
+            entities, event_ids = self._persist(
+                records,
+                actor_kind=ActorKind.SYSTEM,
+                command_type="production_generation.import",
+                command_payload={
+                    "generationAttemptId": preview["generationAttemptId"],
+                    "authorizedSubmissionId": authorized["authorizedSubmissionId"],
+                    "providerReceiptId": receipt["providerReceiptId"],
+                },
+            )
+        except Exception as error:
+            entities = []
+            for entity_type, body, entity_id in records:
+                try:
+                    entity = self.formal_record(entity_id)
+                except EntityNotFound:
+                    raise error
+                if entity.ref.entity_type != entity_type.value or entity.ref.content_hash != hash_json(body):
+                    raise DomainRuleViolation(
+                        "production_generation_idempotency_conflict",
+                        "A deterministic production entity is bound to different evidence",
+                    ) from error
+                entities.append(entity)
+            event_ids = []
+        candidate = cast(Candidate, entities[3])
+        return {
+            "generationPackageFilmEntityId": package_id,
+            "generationAttemptEvidenceFilmEntityId": evidence_id,
+            "candidateFilmEntityId": candidate_id,
+            "candidateContentHash": candidate.ref.content_hash,
+            "auditEventIds": event_ids,
+        }
+
     def create_review(self, request: ReviewCreateRequest) -> Review:
         candidate = cast(
             Candidate,
@@ -1147,6 +1305,15 @@ def candidate_states() -> FormalStateAxes:
         delivery_state="not_ready",
         stale_state="fresh",
     )
+
+
+def production_mime_type(capability: str) -> str:
+    return {
+        "image": "image/png",
+        "video": "video/mp4",
+        "audio": "audio/wav",
+        "workflow": "application/json",
+    }.get(capability, "application/octet-stream")
 
 
 def enum_value(value: Any) -> str:

@@ -1,4 +1,4 @@
-import type { MockProviderTaskReceipt, ProductionAuthorizationBundle, ProductionCandidate, ProductionGenerationAuthority, ProductionPreviewBundle, ProductionTraceEvent } from "./production-composition";
+import type { ProviderTaskReceipt, ProductionAuthorizationBundle, ProductionCandidate, ProductionGenerationAuthority, ProductionPreviewBundle, ProductionTraceEvent } from "./production-composition";
 import type { AcceptanceMockBindings } from "./acceptance-production-runtime";
 
 const DEFAULT_FILM_CORE_BASE_URL = "http://127.0.0.1:17650/film";
@@ -29,6 +29,17 @@ export class FilmCoreHttpProductionGenerationAuthority implements ProductionGene
         if (stored.projectId !== projectId || stored.projectName !== projectName) throw new Error("FILM_CORE_ACCEPTANCE_AUTHORITY_MISMATCH");
         return stored.bindings;
     }
+    async ensureProjectAuthority<TBindings>(projectId: string, projectName: string, bindings: TBindings): Promise<TBindings> {
+        await this.request("/generation-production/project-authority", { method: "POST", body: { projectId, projectName, bindings } });
+        const stored = await this.read<{ projectId: string; projectName: string; bindings: TBindings }>(
+            await this.fetchImpl(`${this.baseUrl}/generation-production/project-authority/${encodeURIComponent(projectId)}`, { credentials: "omit", cache: "no-store" }),
+        );
+        if (stored.projectId !== projectId || stored.projectName !== projectName) throw new Error("FILM_CORE_PROJECT_AUTHORITY_MISMATCH");
+        return stored.bindings;
+    }
+    async loadProjectAuthority<TBindings>(projectId: string): Promise<{ projectId: string; projectName: string; bindings: TBindings } | undefined> {
+        return this.optional<{ projectId: string; projectName: string; bindings: TBindings }>(`/generation-production/project-authority/${encodeURIComponent(projectId)}`);
+    }
     async loadPreview(proposalId: string) {
         return this.optional<ProductionPreviewBundle>(`/generation-production/previews/${encodeURIComponent(proposalId)}`);
     }
@@ -45,13 +56,16 @@ export class FilmCoreHttpProductionGenerationAuthority implements ProductionGene
         return this.guardReader(preview);
     }
     async loadProviderReceipt(key: string) {
-        return this.optional<MockProviderTaskReceipt>(`/generation-production/provider-receipts/${encodeURIComponent(key)}`);
+        return this.optional<ProviderTaskReceipt>(`/generation-production/provider-receipts/${encodeURIComponent(key)}`);
     }
-    async persistProviderReceipt(receipt: MockProviderTaskReceipt) {
-        await this.request("/generation-production/provider-receipts", { method: "POST", body: receipt });
+    async persistExecutionResult(authorization: ProductionAuthorizationBundle, receipt: ProviderTaskReceipt) {
+        return await this.request<ProductionCandidate>("/generation-production/execution-results", { method: "POST", body: { authorization, receipt } });
     }
-    async persistCandidate(candidate: ProductionCandidate) {
-        await this.request("/generation-production/candidates", { method: "POST", body: candidate });
+    async releaseAuthorization(authorization: ProductionAuthorizationBundle, reasonCode: string) {
+        await this.request("/generation-production/authorization-release", { method: "POST", body: { authorization, reasonCode } });
+    }
+    async markReconciliationRequired(authorization: ProductionAuthorizationBundle, reasonCode: string) {
+        await this.request("/generation-production/authorization-reconciliation", { method: "POST", body: { authorization, reasonCode } });
     }
     async loadCandidateByAttempt(attemptId: string) {
         return this.optional<ProductionCandidate>(`/generation-production/candidates/by-attempt/${encodeURIComponent(attemptId)}`);
