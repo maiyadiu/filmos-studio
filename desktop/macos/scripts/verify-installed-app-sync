@@ -4,6 +4,7 @@ set -eu
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 bundle=${1:-"$HOME/Applications/FilmOS Studio.app"}
 identity="$bundle/Contents/Resources/SourceIdentity.json"
+runtime="$bundle/Contents/Resources/InternalRuntime.json"
 
 if [ ! -d "$bundle" ]; then
     echo "installed FilmOS Studio.app is missing: $bundle" >&2
@@ -13,8 +14,14 @@ if [ ! -f "$identity" ]; then
     echo "installed FilmOS Studio.app has no source identity: $identity" >&2
     exit 1
 fi
+if [ ! -f "$runtime" ]; then
+    echo "installed FilmOS Studio.app has no runtime contract: $runtime" >&2
+    exit 1
+fi
 
-"$script_dir/verify-unsigned-app" "$bundle" >/dev/null
+support_name=$(/usr/bin/plutil -extract application_support_directory_name raw -o - "$runtime")
+FILMOS_EXPECTED_APPLICATION_SUPPORT_DIRECTORY_NAME="$support_name" \
+    "$script_dir/verify-unsigned-app" "$bundle" >/dev/null
 embedded=$(/usr/bin/plutil -extract source_fingerprint_sha256 raw -o - "$identity")
 current=$("$script_dir/source-fingerprint")
 if [ "$embedded" != "$current" ]; then
