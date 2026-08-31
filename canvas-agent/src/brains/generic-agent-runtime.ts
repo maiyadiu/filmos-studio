@@ -60,6 +60,7 @@ export class GenericAgentRuntime {
     readonly policy: AgentPolicyGateway;
     readonly broker: CanonicalAgentToolBroker;
     private readonly hydratedSessions = new Set<string>();
+    private readonly sessionHydrations = new Map<string, Promise<BrainSession>>();
     private readonly activeTurns = new Map<string, string>();
     private readonly confirmationWaiters = new Map<string, ConfirmationWaiter>();
     private readonly actorId: string;
@@ -146,12 +147,7 @@ export class GenericAgentRuntime {
     }
 
     async sendTurn(sessionId: string, input: { turnId: string; prompt: string; localImagePaths?: string[]; localSkills?: Array<{ type: "skill"; name: string; path: string }> }, emit: AgentEmit) {
-        const session = await this.store.getSession(sessionId);
-        if (!session) throw new Error(`Unknown brain session: ${sessionId}`);
-        if (!this.hydratedSessions.has(sessionId)) {
-            await this.manager.resumeSession(sessionId, this.actorId);
-            this.hydratedSessions.add(sessionId);
-        }
+        await this.ensureSessionHydrated(sessionId);
         const captured = await this.captureContext(sessionId);
         this.activeTurns.set(sessionId, input.turnId);
         try {
@@ -266,7 +262,7 @@ export class GenericAgentRuntime {
                     .find((item) => item.conversationId === reviewConversationId(issueId) && !["closed", "failed"].includes(item.status));
                 if (existing) {
                     if (existing.executionProfile !== "review_coordinator" || existing.workspacePath !== workspacePath) throw new Error("REVIEW_CODEX_SESSION_WORKSPACE_MISMATCH");
-                    if (!this.hydratedSessions.has(existing.id)) await this.resumeSession(existing.id, this.actorId);
+                    await this.ensureSessionHydrated(existing.id);
                     return (await this.store.getSession(existing.id)) ?? existing;
                 }
                 return (await this.createSession({
@@ -319,6 +315,41 @@ export class GenericAgentRuntime {
         if (after.status === "expired") this.emit("agent_event", { type: "host.handoff.expired", sessionId: current.id, handoff: after, at });
     }
 
+    private async ensureSessionHydrated(sessionId: string) {
+        const active = this.sessionHydrations.get(sessionId);
+        if (active) return await active;
+        const hydration = this.hydrateSessionIfRequired(sessionId);
+        this.sessionHydrations.set(sessionId, hydration);
+        try {
+            return await hydration;
+        } finally {
+            if (this.sessionHydrations.get(sessionId) === hydration) this.sessionHydrations.delete(sessionId);
+        }
+    }
+
+    private async hydrateSessionIfRequired(sessionId: string) {
+        const session = await this.store.getSession(sessionId);
+        if (!session) throw new Error(`Unknown brain session: ${sessionId}`);
+        let requiresResume = !this.hydratedSessions.has(sessionId);
+        if (!requiresResume) {
+            try {
+                this.grants.validate(session.permissionGrantId, {
+                    sessionId,
+                    connectionId: session.connectionId,
+                    projectId: session.projectId,
+                });
+            } catch (error) {
+                if (!isRecoverableGrantLoss(error)) throw error;
+                requiresResume = true;
+                this.hydratedSessions.delete(sessionId);
+            }
+        }
+        if (!requiresResume) return session;
+        const resumed = await this.manager.resumeSession(sessionId, this.actorId);
+        this.hydratedSessions.add(sessionId);
+        return resumed;
+    }
+
     private async emitBrokerOutcome(outcome: AgentBrokerOutcome, sessionId: string, turnId: string) {
         const at = new Date().toISOString();
         if (outcome.status === "confirmation_required") {
@@ -339,7 +370,13 @@ export class GenericAgentRuntime {
         this.confirmationWaiters.clear();
         this.activeTurns.clear();
         this.hydratedSessions.clear();
+        this.sessionHydrations.clear();
     }
+}
+
+function isRecoverableGrantLoss(error: unknown) {
+    const code = error instanceof Error ? error.message.split(":", 1)[0] : String(error);
+    return code === "AGENT_GRANT_NOT_FOUND" || code === "AGENT_GRANT_EXPIRED";
 }
 
 export function contextSnapshotForSession(session: BrainSession, liveSnapshot: () => WorkbenchContextSnapshot): WorkbenchContextSnapshot {
