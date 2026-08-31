@@ -1,7 +1,9 @@
 const maxChapterHeadingLength = 120;
 const chineseChapterNumber = "[零〇○一二两三四五六七八九十百千万亿壹贰叁肆伍陆柒捌玖拾佰仟\\d]+";
 const englishChapterNumber = "(?:\\d+|[ivxlcdm]+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)";
-const chapterTitleSuffix = "(?:\\s*[-—–:：·.]\\s*.*|\\s+.*)?";
+const chapterTitleSeparator = "[-—–:：·.|｜]";
+const chapterTitleSuffix = `(?:\\s*${chapterTitleSeparator}\\s*.*|\\s+.*)?`;
+const collectionRangePattern = new RegExp(`^第\\s*${chineseChapterNumber}\\s*[-—–~～至到]\\s*${chineseChapterNumber}\\s*[章节卷回部篇集季幕]${chapterTitleSuffix}$`, "i");
 const chapterHeadingPatterns = [
     new RegExp(`^(?:正文\\s*)?第\\s*${chineseChapterNumber}\\s*[章节卷回部篇集季幕]${chapterTitleSuffix}$`, "i"),
     new RegExp(`^(?:卷|篇|部|集|季|幕)\\s*${chineseChapterNumber}${chapterTitleSuffix}$`, "i"),
@@ -29,6 +31,19 @@ function chapterTitleFromLine(line: string) {
 
     // 只把较短且整行符合章节结构的文本当作标题，避免正文中提到“第一章”时误切分。
     return chapterHeadingPatterns.some((pattern) => pattern.test(candidate)) ? title : null;
+}
+
+function isCollectionRangeHeading(line: string) {
+    const trimmed = line.trim();
+    if (!trimmed || Array.from(trimmed).length > maxChapterHeadingLength) return false;
+    const candidate = trimmed
+        .replace(/^[#＃]{1,6}\s*/, "")
+        .replace(/^[\s=_*~\-—–]+|[\s=_*~\-—–]+$/g, "")
+        .normalize("NFKC")
+        .replace(/[【】\[\]「」『』〈〉《》〖〗]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+    return collectionRangePattern.test(candidate);
 }
 
 export function decodeNovelText(buffer: ArrayBuffer) {
@@ -65,6 +80,11 @@ export function splitTextIntoChapters(text: string) {
     }
     if (current) sections.push(current);
     if (!sections.length) return [{ title: "第 1 章", plainText: normalized }];
-    if (preface.some((line) => line.trim())) sections.unshift({ title: "序章", lines: preface });
+    if (preface.some((line) => line.trim())) {
+        // “第001—020集 完整剧本”是整批说明，不是第 1 集。保留说明文本，
+        // 但折入首集正文，避免额外制造一个“序章”导致 20 集显示为 21 章。
+        if (preface.some(isCollectionRangeHeading)) sections[0].lines = [...preface, "", ...sections[0].lines];
+        else sections.unshift({ title: "序章", lines: preface });
+    }
     return sections.map((section): ImportedNovelChapter => ({ title: section.title, plainText: section.lines.join("\n").trim() }));
 }

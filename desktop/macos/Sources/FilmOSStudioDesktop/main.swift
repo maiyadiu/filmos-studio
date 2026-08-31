@@ -863,6 +863,30 @@ private final class WorkbenchWindow: NSObject, @preconcurrency WKNavigationDeleg
         return nil
     }
 
+    func webView(
+        _ webView: WKWebView,
+        runOpenPanelWith parameters: WKOpenPanelParameters,
+        initiatedByFrame frame: WKFrameInfo,
+        completionHandler: @escaping @MainActor @Sendable ([URL]?) -> Void
+    ) {
+        guard frame.isMainFrame,
+              ["127.0.0.1", "localhost"].contains(frame.securityOrigin.host) else {
+            completionHandler(nil)
+            return
+        }
+
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = parameters.allowsDirectories
+        panel.allowsMultipleSelection = parameters.allowsMultipleSelection
+        panel.canCreateDirectories = false
+        panel.prompt = "选择"
+        panel.message = "选择要导入 FilmOS Studio 的本地文件"
+        panel.beginSheetModal(for: window) { response in
+            completionHandler(response == .OK ? panel.urls : nil)
+        }
+    }
+
     private func showNavigationError() {
         showError("工作台页面暂时无法载入。现有服务不会被结束，你可以直接重试。") { [weak self] in
             self?.webView.reload()

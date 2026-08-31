@@ -47,6 +47,28 @@ Epilogue: 重逢
         expect(chapters.map((chapter) => chapter.title)).toEqual(["第001集 归乡", "第002集：雨夜", "第三幕 告别"]);
         expect(chapters.map((chapter) => chapter.plainText)).toEqual(["第一集正文", "第二集正文", "第三幕正文"]);
     });
+
+    test("001-020 集 Markdown 范围标题不占章且竖线集标题完整拆分", () => {
+        const episodes = Array.from({ length: 20 }, (_, index) => {
+            const number = String(index + 1).padStart(3, "0");
+            return `# 第${number}集 | 第${number}集标题\n**目标时长：55秒**\n第${number}集正文`;
+        }).join("\n\n");
+        const chapters = splitTextIntoChapters(`# 《月老到底管了个啥？》
+## 第001—020集 完整文学性对白剧本 V3.2
+
+> 基准：项目当前执行索引。
+
+---
+
+${episodes}`);
+
+        expect(chapters).toHaveLength(20);
+        expect(chapters[0].title).toBe("第001集 | 第001集标题");
+        expect(chapters[19].title).toBe("第020集 | 第020集标题");
+        expect(chapters[0].plainText).toContain("第001—020集 完整文学性对白剧本 V3.2");
+        expect(chapters[0].plainText).toContain("第001集正文");
+        expect(chapters[19].plainText).toContain("第020集正文");
+    });
 });
 
 describe("decodeNovelText", () => {
