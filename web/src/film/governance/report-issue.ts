@@ -20,6 +20,28 @@ export type IssueAttachment = {
 export const MAX_ISSUE_ATTACHMENTS = 5;
 export const MAX_ISSUE_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 
+type ClipboardFileItem = {
+    kind?: string;
+    getAsFile?: () => File | null;
+};
+
+export function issueEvidenceFilesFromClipboard(clipboardData: {
+    files?: ArrayLike<File>;
+    items?: ArrayLike<ClipboardFileItem>;
+}) {
+    const candidates = [
+        ...Array.from(clipboardData.items || []).flatMap((item) => item.kind === "file" ? [item.getAsFile?.()].filter((file): file is File => Boolean(file)) : []),
+        ...Array.from(clipboardData.files || []),
+    ];
+    const seen = new Set<string>();
+    return candidates.filter((file) => {
+        const key = `${file.name}\u0000${file.type}\u0000${file.size}\u0000${file.lastModified}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+    });
+}
+
 export function selectPastedIssueEvidence(files: File[], currentCount: number) {
     const media = files.filter((file) => file.type.startsWith("image/") || file.type.startsWith("video/"));
     const withinSize = media.filter((file) => file.size <= MAX_ISSUE_ATTACHMENT_BYTES);

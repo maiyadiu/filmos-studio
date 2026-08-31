@@ -1,47 +1,21 @@
-import { useDeferredValue, useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent, type ReactNode } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { App, Button, Dropdown, Form, Input, InputNumber, Modal, Popconfirm, Tooltip } from "antd";
-import CharacterCount from "@tiptap/extension-character-count";
-import Color from "@tiptap/extension-color";
-import Highlight from "@tiptap/extension-highlight";
-import Placeholder from "@tiptap/extension-placeholder";
-import TextAlign from "@tiptap/extension-text-align";
-import { TextStyle } from "@tiptap/extension-text-style";
-import { EditorContent, useEditor, type Editor } from "@tiptap/react";
-import StarterKit from "@tiptap/starter-kit";
 import {
-    AlignCenter,
-    AlignJustify,
-    AlignLeft,
-    AlignRight,
-    Bold,
     Check,
-    ChevronDown,
     Code2,
     Crosshair,
-    Eraser,
     Eye,
     FileUp,
     GripVertical,
-    Highlighter,
-    Italic,
-    Link2,
-    List,
-    ListOrdered,
     LayoutGrid,
-    Minus,
     MoreHorizontal,
     MoveVertical,
     Plus,
-    Quote,
-    Redo2,
     Save,
     Search,
-    Strikethrough,
     Trash2,
-    Underline,
-    Undo2,
     UsersRound,
     X,
 } from "lucide-react";
@@ -93,7 +67,7 @@ export default function ProjectChaptersView({ detail, refreshProject, onCreateCa
     const [orderedIds, setOrderedIds] = useState(() => detail.units.map((unit) => unit.id));
     const [draggedId, setDraggedId] = useState("");
     const [draftTitle, setDraftTitle] = useState("");
-    const [draftHtml, setDraftHtml] = useState("");
+    const [draftMarkdown, setDraftMarkdown] = useState("");
     const [documentView, setDocumentView] = useState<ChapterDocumentView>(() => parseChapterDocumentView(localStorage.getItem(`project-chapter-document-view:${detail.project.id}`)));
     const [dirty, setDirty] = useState(false);
     const [extractingCharacters, setExtractingCharacters] = useState(false);
@@ -168,8 +142,8 @@ export default function ProjectChaptersView({ detail, refreshProject, onCreateCa
         mutationFn: () => selectedUnitQuery.data?.unit
             ? updateProjectUnit(detail.project.id, selectedUnitQuery.data.unit.id, {
                 title: draftTitle.trim(),
-                sourceText: draftHtml,
-                status: stripHtml(draftHtml) ? "ready" : "draft",
+                sourceText: plainTextToHtml(draftMarkdown),
+                status: draftMarkdown.trim() ? "ready" : "draft",
             })
             : Promise.reject(new Error("请选择章节")),
         onSuccess: ({ unit }) => { queryClient.setQueryData(["project-unit", detail.project.id, unit.id], { unit }); setDirty(false); refreshProject(); message.success("章节已保存"); },
@@ -183,7 +157,7 @@ export default function ProjectChaptersView({ detail, refreshProject, onCreateCa
     const importMutation = useMutation({
         mutationFn: (chapters: Array<{ title: string; plainText: string }>) => importProjectUnits(detail.project.id, chapters.map((chapter) => ({ kind: "chapter", title: chapter.title, sourceText: plainTextToHtml(chapter.plainText) }))),
         onSuccess: ({ units }) => { setImportOpen(false); if (units[0]) { setSelectedId(units[0].id); navigate(`/projects/${detail.project.id}/chapters/${units[0].id}`); } refreshProject(); message.success(`已导入 ${units.length} 章`); },
-        onError: (error) => message.error(error instanceof Error ? error.message : "小说导入失败"),
+        onError: (error) => message.error(error instanceof Error ? error.message : "整本剧本导入失败"),
     });
     const reorderMutation = useMutation({
         mutationFn: (unitIds: string[]) => reorderProjectUnits(detail.project.id, unitIds),
@@ -207,47 +181,30 @@ export default function ProjectChaptersView({ detail, refreshProject, onCreateCa
         onError: (error) => message.error(error instanceof Error ? error.message : "章节删除失败"),
     });
 
-    const editor = useEditor({
-        immediatelyRender: false,
-        extensions: [
-            StarterKit.configure({ heading: { levels: [1, 2, 3] }, link: { openOnClick: false, autolink: true } }),
-            TextAlign.configure({ types: ["heading", "paragraph"] }),
-            TextStyle,
-            Color.configure({ types: ["textStyle"] }),
-            Highlight.configure({ multicolor: true }),
-            CharacterCount,
-            Placeholder.configure({ placeholder: "从这一章开始写下故事……" }),
-        ],
-        content: selectedUnitQuery.data?.unit.sourceText || "",
-        editorProps: { attributes: { class: "project-chapter-editor focus:outline-none" } },
-        onUpdate: ({ editor: nextEditor }) => { setDraftHtml(nextEditor.getHTML()); setDirty(true); },
-    });
-
     useEffect(() => {
         if (!selectedUnitSummary) return;
         setDraftTitle(selectedUnitSummary.title);
-        setDraftHtml("");
+        setDraftMarkdown("");
         setDirty(false);
     }, [selectedUnitSummary?.id]);
 
     useEffect(() => {
         const loadedUnit = selectedUnitQuery.data?.unit;
-        if (!loadedUnit || !editor) return;
+        if (!loadedUnit) return;
         setDraftTitle(loadedUnit.title);
-        setDraftHtml(loadedUnit.sourceText || "");
+        setDraftMarkdown(documentTextFromHtml(loadedUnit.sourceText || ""));
         setDirty(false);
-        editor.commands.setContent(loadedUnit.sourceText || "", { emitUpdate: false });
         // 只在切换章节时装载服务端内容，避免项目刷新覆盖当前未保存正文。
-    }, [editor, selectedUnitQuery.data?.unit]);
+    }, [selectedUnitQuery.data?.unit]);
 
-    const wordCount = useMemo(() => editor?.storage.characterCount?.characters?.() || stripHtml(draftHtml).length || 0, [draftHtml, editor]);
+    const wordCount = useMemo(() => draftMarkdown.length, [draftMarkdown]);
     const chapterCanvasCount = (unitId: string) => canvasCountByUnitId.get(unitId) || 0;
     const chapterShotCount = (unitId: string) => detail.shots.filter((shot) => shot.unitId === unitId).length;
     const chapterAnalysisInput = () => {
         const unit = selectedUnitQuery.data?.unit;
         if (!unit) throw new Error("章节正文尚未加载完成");
         if (dirty) throw new Error("请先保存当前章节，再运行 AI 分析");
-        const sourceText = editor?.getText().trim() || stripHtml(unit.sourceText);
+        const sourceText = draftMarkdown.trim() || documentTextFromHtml(unit.sourceText);
         if (!sourceText) throw new Error("当前章节没有可分析的正文");
         const textModel = effectiveConfig.textModel || effectiveConfig.model;
         if (!isAiConfigReady(effectiveConfig, textModel)) {
@@ -372,14 +329,14 @@ export default function ProjectChaptersView({ detail, refreshProject, onCreateCa
         if (event.clientY < bounds.top + edge) event.currentTarget.scrollBy({ top: -24 });
         else if (event.clientY > bounds.bottom - edge) event.currentTarget.scrollBy({ top: 24 });
     };
-    const markdownSource = useMemo(() => documentTextFromHtml(draftHtml || selectedUnitQuery.data?.unit.sourceText || ""), [draftHtml, selectedUnitQuery.data?.unit.sourceText]);
+    const markdownSource = draftMarkdown;
     const editorSurface = documentView === "readable" ? (
         <div className={`project-chapter-editor-scroll thin-scrollbar min-h-0 overflow-y-auto bg-foreground/[.012] ${storyStudioEnabled ? "" : "flex-1"}`}>
             {selectedUnitQuery.isLoading ? <WorkspaceState icon="loading" compact className="h-full" title="正在读取章节正文" description="正文准备完成后会自动显示。" /> : selectedUnitQuery.isError ? <WorkspaceErrorState compact title="章节正文读取失败" description={selectedUnitQuery.error instanceof Error ? selectedUnitQuery.error.message : "请检查网络连接后重试。"} onRetry={() => void selectedUnitQuery.refetch()} /> : markdownSource ? <div className="project-chapter-readable min-h-full"><AIMessageMarkdown>{markdownSource}</AIMessageMarkdown></div> : <WorkspaceState icon="projects" compact className="h-full" title="本章还没有正文" description="切换到 Markdown 模式开始编写。" action={<Button size="small" onClick={() => setDocumentView("markdown")}>开始编写</Button>} />}
         </div>
     ) : (
-        <div className={`project-chapter-editor-scroll thin-scrollbar min-h-0 overflow-y-auto bg-foreground/[.012] ${storyStudioEnabled ? "" : "flex-1"}`}>
-            {selectedUnitQuery.isLoading ? <WorkspaceState icon="loading" compact className="h-full" title="正在读取章节正文" description="正文准备完成后会自动显示。" /> : selectedUnitQuery.isError ? <WorkspaceErrorState compact title="章节正文读取失败" description={selectedUnitQuery.error instanceof Error ? selectedUnitQuery.error.message : "请检查网络连接后重试。"} onRetry={() => void selectedUnitQuery.refetch()} /> : <div className="project-chapter-editor-wrap min-h-full"><EditorContent editor={editor} /></div>}
+        <div className={`project-chapter-editor-scroll min-h-0 bg-foreground/[.012] ${storyStudioEnabled ? "" : "flex-1"}`}>
+            {selectedUnitQuery.isLoading ? <WorkspaceState icon="loading" compact className="h-full" title="正在读取章节正文" description="正文准备完成后会自动显示。" /> : selectedUnitQuery.isError ? <WorkspaceErrorState compact title="章节正文读取失败" description={selectedUnitQuery.error instanceof Error ? selectedUnitQuery.error.message : "请检查网络连接后重试。"} onRetry={() => void selectedUnitQuery.refetch()} /> : <textarea value={markdownSource} onChange={(event) => { setDraftMarkdown(event.target.value); setDirty(true); }} className="thin-scrollbar h-full min-h-[320px] w-full resize-none border-0 bg-transparent px-6 py-5 font-mono text-sm leading-7 text-foreground outline-none placeholder:text-foreground/28" spellCheck={false} placeholder={'# 章节标题\n\n使用 Markdown 编写正文……'} aria-label="Markdown 原文" />}
         </div>
     );
 
@@ -390,7 +347,7 @@ export default function ProjectChaptersView({ detail, refreshProject, onCreateCa
                     <div className="text-xs font-medium text-foreground/55">章节 <span className="ml-1 tabular-nums text-foreground/35">{detail.units.length.toLocaleString("zh-CN")}</span></div>
                     <div className="flex items-center gap-0.5">
                         {selectedId ? <Tooltip title="回到当前章节"><Button type="text" size="small" icon={<Crosshair className="size-3.5" />} aria-label="回到当前章节" onClick={revealSelectedChapter} /></Tooltip> : null}
-                        <Tooltip title="导入小说"><Button type="text" size="small" icon={<FileUp className="size-3.5" />} aria-label="导入小说" onClick={() => setImportOpen(true)} /></Tooltip>
+                        <Tooltip title="导入整本剧本 / 小说"><Button type="text" size="small" icon={<FileUp className="size-3.5" />} aria-label="导入整本剧本或小说" onClick={() => setImportOpen(true)} /></Tooltip>
                         <Tooltip title="添加章节"><Button type="text" size="small" icon={<Plus className="size-4" />} aria-label="添加章节" onClick={() => setCreateOpen(true)} /></Tooltip>
                     </div>
                 </div>
@@ -451,11 +408,10 @@ export default function ProjectChaptersView({ detail, refreshProject, onCreateCa
                                 <Button size="small" type={dirty ? "primary" : "default"} icon={dirty ? <Save className="size-3.5" /> : <Check className="size-3.5" />} disabled={!selectedUnitQuery.data?.unit || !dirty || !draftTitle.trim() || saveMutation.isPending} loading={saveMutation.isPending} onClick={() => saveMutation.mutate()}>{dirty ? "保存" : "已保存"}</Button>
                             </div>
                         </header>
-                        {documentView === "markdown" ? <EditorToolbar editor={editor} /> : null}
                         {storyStudioEnabled ? (
                             <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)_minmax(220px,42%)] lg:grid-cols-[minmax(0,1fr)_340px] lg:grid-rows-1">
                                 {editorSurface}
-                                <StoryStudioReviewEntry hostUnitId={selectedUnit.id} sourceHtml={selectedUnitQuery.data?.unit.sourceText || ""} draftHtml={draftHtml} dirty={dirty} shots={selectedUnitShots} />
+                                <StoryStudioReviewEntry hostUnitId={selectedUnit.id} sourceHtml={selectedUnitQuery.data?.unit.sourceText || ""} draftHtml={plainTextToHtml(draftMarkdown)} dirty={dirty} shots={selectedUnitShots} />
                             </div>
                         ) : editorSurface}
                     </div>
@@ -469,61 +425,6 @@ export default function ProjectChaptersView({ detail, refreshProject, onCreateCa
             </Modal>
         </div>
     );
-}
-
-function EditorToolbar({ editor }: { editor: Editor | null }) {
-    const setLink = () => {
-        if (!editor) return;
-        const current = String(editor.getAttributes("link").href || "");
-        const href = window.prompt("输入链接地址", current);
-        if (href === null) return;
-        if (!href.trim()) editor.chain().focus().unsetLink().run();
-        else editor.chain().focus().extendMarkRange("link").setLink({ href: href.trim() }).run();
-    };
-    const setColor = () => {
-        const color = window.prompt("输入文字颜色，例如 #d97706", String(editor?.getAttributes("textStyle").color || "#d97706"));
-        if (color?.trim()) editor?.chain().focus().setColor(color.trim()).run();
-    };
-    const setHighlight = () => {
-        const color = window.prompt("输入高亮颜色，例如 #fef3c7", String(editor?.getAttributes("highlight").color || "#fef3c7"));
-        if (color?.trim()) editor?.chain().focus().toggleHighlight({ color: color.trim() }).run();
-    };
-    const blockLabel = editor?.isActive("heading", { level: 1 }) ? "标题 1" : editor?.isActive("heading", { level: 2 }) ? "标题 2" : editor?.isActive("heading", { level: 3 }) ? "标题 3" : "正文";
-    const alignment = editor?.isActive({ textAlign: "center" }) ? "center" : editor?.isActive({ textAlign: "right" }) ? "right" : editor?.isActive({ textAlign: "justify" }) ? "justify" : "left";
-    const alignmentIcon = alignment === "center" ? <AlignCenter className="size-3.5" /> : alignment === "right" ? <AlignRight className="size-3.5" /> : alignment === "justify" ? <AlignJustify className="size-3.5" /> : <AlignLeft className="size-3.5" />;
-    return (
-        <div className="hide-scrollbar flex h-10 shrink-0 items-center gap-0.5 overflow-x-auto border-b border-border/70 px-2">
-            <EditorTool editor={editor} label="撤销" icon={<Undo2 className="size-3.5" />} onClick={() => editor?.chain().focus().undo().run()} />
-            <EditorTool editor={editor} label="重做" icon={<Redo2 className="size-3.5" />} onClick={() => editor?.chain().focus().redo().run()} />
-            <ToolbarDivider />
-            <Dropdown trigger={["click"]} menu={{ selectedKeys: [blockLabel], items: ["正文", "标题 1", "标题 2", "标题 3"].map((key) => ({ key, label: key })), onClick: ({ key }) => key === "正文" ? editor?.chain().focus().setParagraph().run() : editor?.chain().focus().toggleHeading({ level: Number(key.slice(-1)) as 1 | 2 | 3 }).run() }}>
-                <button type="button" className="flex h-7 items-center gap-1 rounded px-2 text-xs text-foreground/60 hover:bg-surface-hover" aria-label="段落格式">{blockLabel}<ChevronDown className="size-3" /></button>
-            </Dropdown>
-            <EditorTool editor={editor} label="粗体" icon={<Bold className="size-3.5" />} onClick={() => editor?.chain().focus().toggleBold().run()} active={Boolean(editor?.isActive("bold"))} />
-            <EditorTool editor={editor} label="斜体" icon={<Italic className="size-3.5" />} onClick={() => editor?.chain().focus().toggleItalic().run()} active={Boolean(editor?.isActive("italic"))} />
-            <EditorTool editor={editor} label="下划线" icon={<Underline className="size-3.5" />} onClick={() => editor?.chain().focus().toggleUnderline().run()} active={Boolean(editor?.isActive("underline"))} />
-            <EditorTool editor={editor} label="删除线" icon={<Strikethrough className="size-3.5" />} onClick={() => editor?.chain().focus().toggleStrike().run()} active={Boolean(editor?.isActive("strike"))} />
-            <ToolbarDivider />
-            <Dropdown trigger={["click"]} menu={{ selectedKeys: [alignment], items: [{ key: "left", icon: <AlignLeft className="size-3.5" />, label: "左对齐" }, { key: "center", icon: <AlignCenter className="size-3.5" />, label: "居中" }, { key: "right", icon: <AlignRight className="size-3.5" />, label: "右对齐" }, { key: "justify", icon: <AlignJustify className="size-3.5" />, label: "两端对齐" }], onClick: ({ key }) => editor?.chain().focus().setTextAlign(key).run() }}>
-                <button type="button" className="grid size-7 place-items-center rounded text-foreground/60 hover:bg-surface-hover" aria-label="文字对齐">{alignmentIcon}</button>
-            </Dropdown>
-            <EditorTool editor={editor} label="项目符号" icon={<List className="size-3.5" />} onClick={() => editor?.chain().focus().toggleBulletList().run()} active={Boolean(editor?.isActive("bulletList"))} />
-            <EditorTool editor={editor} label="编号列表" icon={<ListOrdered className="size-3.5" />} onClick={() => editor?.chain().focus().toggleOrderedList().run()} active={Boolean(editor?.isActive("orderedList"))} />
-            <EditorTool editor={editor} label="引用" icon={<Quote className="size-3.5" />} onClick={() => editor?.chain().focus().toggleBlockquote().run()} active={Boolean(editor?.isActive("blockquote"))} />
-            <EditorTool editor={editor} label="链接" icon={<Link2 className="size-3.5" />} onClick={setLink} active={Boolean(editor?.isActive("link"))} />
-            <Dropdown trigger={["click"]} placement="bottomRight" menu={{ items: [{ key: "color", icon: <span className="text-[var(--fs-label)] font-bold text-amber-600">A</span>, label: "文字颜色" }, { key: "highlight", icon: <Highlighter className="size-3.5" />, label: "高亮颜色" }, { type: "divider" }, { key: "code", icon: <Code2 className="size-3.5" />, label: "行内代码" }, { key: "rule", icon: <Minus className="size-3.5" />, label: "分隔线" }, { key: "clear", icon: <Eraser className="size-3.5" />, label: "清除格式" }], onClick: ({ key }) => { if (key === "color") setColor(); else if (key === "highlight") setHighlight(); else if (key === "code") editor?.chain().focus().toggleCode().run(); else if (key === "rule") editor?.chain().focus().setHorizontalRule().run(); else if (key === "clear") editor?.chain().focus().clearNodes().unsetAllMarks().run(); } }}>
-                <button type="button" className="grid size-7 place-items-center rounded text-foreground/60 hover:bg-surface-hover" aria-label="更多格式"><MoreHorizontal className="size-4" /></button>
-            </Dropdown>
-        </div>
-    );
-}
-
-function EditorTool({ editor, label, icon, active = false, onClick }: { editor: Editor | null; label: string; icon: ReactNode; active?: boolean; onClick: () => void }) {
-    return <Tooltip title={label}><button type="button" aria-label={label} className={`grid size-7 shrink-0 place-items-center rounded ${active ? "bg-surface-active text-[var(--workspace-accent)]" : "text-foreground/55 hover:bg-surface-hover hover:text-foreground"}`} disabled={!editor} onClick={onClick}>{icon}</button></Tooltip>;
-}
-
-function ToolbarDivider() {
-    return <span className="mx-1 h-4 w-px shrink-0 bg-border" />;
 }
 
 function CreateChapterModal({ open, onClose, loading, onSubmit }: { open: boolean; onClose: () => void; loading: boolean; onSubmit: (values: { title: string; sourceText?: string }) => void }) {
@@ -547,17 +448,17 @@ function ImportNovelModal({ open, loading, onClose, onImport }: { open: boolean;
     return (
         <Modal title={null} open={open} footer={null} destroyOnHidden onCancel={onClose} width={760} styles={{ container: { padding: 0, overflow: "hidden" }, body: { padding: 0 } }}>
             <div className="flex min-h-[478px] flex-col">
-                <header className="flex h-12 shrink-0 items-center border-b border-border px-4"><div><h2 className="text-sm font-semibold">导入小说</h2><p className="mt-0.5 text-[var(--fs-tiny)] text-foreground/42">自动识别章节标题，确认后追加到当前项目</p></div></header>
+                <header className="flex h-14 shrink-0 items-center border-b border-border px-4"><div><h2 className="text-sm font-semibold">导入整本剧本 / 小说</h2><p className="mt-0.5 text-[var(--fs-tiny)] text-foreground/42">一次读取整个 TXT 或 Markdown，自动识别“第 X 章 / 集 / 幕”并拆分</p></div></header>
                 <div className="grid min-h-[430px] flex-1 grid-cols-1 md:grid-cols-[minmax(0,1fr)_240px]">
                 <div className="border-b border-border p-3 md:border-b-0 md:border-r">
-                    <div className="mb-2 flex items-center justify-between gap-2"><div><div className="text-sm font-medium">小说正文</div><div className="mt-0.5 text-[var(--fs-label)] text-foreground/45">识别章节标题后追加到现有章节</div></div><Button size="small" icon={<FileUp className="size-3.5" />} onClick={() => fileInputRef.current?.click()}>{fileName || "选择 TXT"}</Button></div>
-                    <input ref={fileInputRef} type="file" accept=".txt,.md,text/plain,text/markdown" className="hidden" onChange={(event) => void readFile(event)} />
-                    <Input.TextArea value={text} onChange={(event) => setText(event.target.value)} rows={16} placeholder={'也可以直接粘贴小说正文，例如：\n\n第一章 雨夜来信\n正文……\n\n第二章 灯塔以北\n正文……'} className="!resize-none" />
+                    <div className="mb-2 flex items-center justify-between gap-2"><div><div className="text-sm font-medium">整本正文</div><div className="mt-0.5 text-[var(--fs-label)] text-foreground/45">导入后先在右侧预览全部拆分结果，不会只取第一章</div></div><Button size="small" icon={<FileUp className="size-3.5" />} onClick={() => fileInputRef.current?.click()}>{fileName || "选择整本文件"}</Button></div>
+                    <input ref={fileInputRef} type="file" accept=".txt,.md,.markdown,text/plain,text/markdown" className="hidden" aria-label="选择整本 TXT 或 Markdown 文件" onChange={(event) => void readFile(event)} />
+                    <Input.TextArea value={text} onChange={(event) => setText(event.target.value)} rows={16} placeholder={'也可以一次粘贴整本剧本或小说，例如：\n\n第一章 雨夜来信\n正文……\n\n第二章 灯塔以北\n正文……'} className="!resize-none" />
                 </div>
                 <div className="flex min-h-0 flex-col">
                     <div className="flex h-11 shrink-0 items-center justify-between border-b border-border px-3 text-xs"><span className="font-medium">拆分预览</span><span className="tabular-nums text-foreground/45">{chapters.length} 章</span></div>
                     <ImportChapterPreview chapters={chapters} />
-                    <div className="flex shrink-0 items-center justify-between gap-2 border-t border-border p-3"><span className={`text-[var(--fs-tiny)] ${chapters.length > MAX_NOVEL_IMPORT_CHAPTERS ? "text-red-500" : "text-foreground/38"}`}>{chapters.length > MAX_NOVEL_IMPORT_CHAPTERS ? `最多一次导入 ${MAX_NOVEL_IMPORT_CHAPTERS.toLocaleString("zh-CN")} 章` : `支持最多 ${MAX_NOVEL_IMPORT_CHAPTERS.toLocaleString("zh-CN")} 章`}</span><div className="flex gap-2"><Button size="small" onClick={onClose}>取消</Button><Button size="small" type="primary" disabled={!chapters.length || chapters.length > MAX_NOVEL_IMPORT_CHAPTERS} loading={loading} onClick={() => onImport(chapters)}>导入 {chapters.length || ""} 章</Button></div></div>
+                    <div className="flex shrink-0 items-center justify-between gap-2 border-t border-border p-3"><span className={`text-[var(--fs-tiny)] ${chapters.length > MAX_NOVEL_IMPORT_CHAPTERS ? "text-red-500" : "text-foreground/38"}`}>{chapters.length > MAX_NOVEL_IMPORT_CHAPTERS ? `最多一次导入 ${MAX_NOVEL_IMPORT_CHAPTERS.toLocaleString("zh-CN")} 章` : `支持最多 ${MAX_NOVEL_IMPORT_CHAPTERS.toLocaleString("zh-CN")} 章`}</span><div className="flex gap-2"><Button size="small" onClick={onClose}>取消</Button><Button size="small" type="primary" disabled={!chapters.length || chapters.length > MAX_NOVEL_IMPORT_CHAPTERS} loading={loading} onClick={() => onImport(chapters)}>导入全部 {chapters.length || ""} 章</Button></div></div>
                 </div>
                 </div>
             </div>
@@ -580,7 +481,7 @@ function ImportChapterPreview({ chapters }: { chapters: Array<{ title: string; p
                     const chapter = chapters[virtualItem.index];
                     return <div key={`${chapter.title}-${virtualItem.index}`} className="absolute left-0 top-0 flex w-full gap-2 border-b border-border/60 px-1.5 py-2" style={{ height: virtualItem.size, transform: `translateY(${virtualItem.start}px)` }}><span className="w-8 shrink-0 pt-0.5 text-[var(--fs-tiny)] tabular-nums text-foreground/35">{String(virtualItem.index + 1).padStart(Math.max(2, String(chapters.length).length), "0")}</span><div className="min-w-0"><div className="truncate text-xs font-medium">{chapter.title}</div><div className="mt-0.5 text-[var(--fs-tiny)] text-foreground/40">{formatCount(chapter.plainText.length)} 字</div></div></div>;
                 })}
-            </div> : <div className="grid h-full place-items-center px-4 text-center text-xs leading-5 text-foreground/40">选择 TXT 文件或粘贴正文后，这里会显示拆分结果</div>}
+            </div> : <div className="grid h-full place-items-center px-4 text-center text-xs leading-5 text-foreground/40">选择整本 TXT / Markdown 文件或粘贴全部正文后，这里会显示自动拆分结果</div>}
         </div>
     );
 }
@@ -588,10 +489,6 @@ function ImportChapterPreview({ chapters }: { chapters: Array<{ title: string; p
 function plainTextToHtml(value: string) {
     const escaped = value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
     return escaped.split(/\n{2,}/).map((paragraph) => `<p>${paragraph.replace(/\n/g, "<br>")}</p>`).join("");
-}
-
-function stripHtml(value: string) {
-    return value.replace(/<[^>]+>/g, "").replace(/&nbsp;/g, " ").trim();
 }
 
 function readStoredScroll(key: string) {

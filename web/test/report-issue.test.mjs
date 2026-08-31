@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { inferIssueRoutingRisk } from "../src/film/governance/issue-lane";
-import { contextFromPathname, createLocalIssueDraft, selectPastedIssueEvidence } from "../src/film/governance/report-issue";
+import { contextFromPathname, createLocalIssueDraft, issueEvidenceFilesFromClipboard, selectPastedIssueEvidence } from "../src/film/governance/report-issue";
 
 const build = {
     commit: "6ea93bfa08381264a1379fe938ade3a7513c7bba",
@@ -66,6 +66,20 @@ describe("usage issue intake", () => {
         expect(selected.accepted.map((file) => file.name)).toEqual(["shot.png"]);
         expect(selected.oversizedCount).toBe(1);
         expect(selected.truncatedCount).toBe(1);
+    });
+
+    test("reads screenshot bytes from clipboard items when WKWebView exposes an empty files list", () => {
+        const screenshot = new File(["image"], "clipboard.png", { type: "image/png", lastModified: 123 });
+        const selected = issueEvidenceFilesFromClipboard({
+            files: [],
+            items: [
+                { kind: "string", getAsFile: () => null },
+                { kind: "file", getAsFile: () => screenshot },
+                { kind: "file", getAsFile: () => screenshot },
+            ],
+        });
+        expect(selected).toHaveLength(1);
+        expect(selected[0]).toBe(screenshot);
     });
 
     test("infers lane risk without asking the reporter to classify the issue", () => {

@@ -33,6 +33,20 @@ Epilogue: 重逢
         expect(chapters[0].title).toBe("第 1 章");
         expect(chapters[0].plainText).toBe(text);
     });
+
+    test("整本剧本可按集和幕标题一次拆分", () => {
+        const chapters = splitTextIntoChapters(`第001集 归乡
+第一集正文
+
+第002集：雨夜
+第二集正文
+
+第三幕 告别
+第三幕正文`);
+
+        expect(chapters.map((chapter) => chapter.title)).toEqual(["第001集 归乡", "第002集：雨夜", "第三幕 告别"]);
+        expect(chapters.map((chapter) => chapter.plainText)).toEqual(["第一集正文", "第二集正文", "第三幕正文"]);
+    });
 });
 
 describe("decodeNovelText", () => {

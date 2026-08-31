@@ -195,7 +195,7 @@
         "python3 acceptance/checks/performance.py",
         "python3 acceptance/checks/use_driven_dual_expert.py",
         "node acceptance/checks/v1_1_dual_expert_operational.mjs",
-        "cd web && bun test ./test/report-issue.test.mjs ./test/chapter-document-view.test.ts"
+        "cd web && bun test ./test/report-issue.test.mjs ./test/chapter-document-view.test.ts ./test/canvas-document.test.ts"
       ],
       "golden_case_ids": [
         "LOCAL-FIRST-UI-001",
@@ -683,6 +683,7 @@
         ,"canvas-agent/test/review-codex-coordinator.test.ts"
         ,"web/test/report-issue.test.mjs"
         ,"web/test/chapter-document-view.test.ts"
+        ,"web/test/canvas-document.test.ts"
       ],
       "automated_tests": [
         "python3 acceptance/checks/desktop_backup_restore.py",
@@ -718,7 +719,7 @@
         "python3 acceptance/checks/use_driven_dual_expert.py",
         "node acceptance/checks/v1_1_dual_expert_operational.mjs",
         "sh desktop/macos/Tests/review-source-repository.test.sh",
-        "cd web && bun test ./test/report-issue.test.mjs ./test/chapter-document-view.test.ts"
+        "cd web && bun test ./test/report-issue.test.mjs ./test/chapter-document-view.test.ts ./test/canvas-document.test.ts"
       ],
       "golden_case_ids": [
         "GOLDEN-A-REAL",

@@ -5,7 +5,7 @@ import { Bug, Paperclip, Send } from "lucide-react";
 import { useEffect, useMemo, useState, type ClipboardEvent } from "react";
 
 import { currentBuildIdentity, releaseChannelLabel, shortSourceHash } from "@/film/governance/build-identity";
-import { createLocalIssueDraft, saveIssueDraft, selectPastedIssueEvidence, type IssueAttachment, type IssueSurface } from "@/film/governance/report-issue";
+import { createLocalIssueDraft, issueEvidenceFilesFromClipboard, saveIssueDraft, selectPastedIssueEvidence, type IssueAttachment, type IssueSurface } from "@/film/governance/report-issue";
 
 export function ReportIssuePortal() {
     const { message } = App.useApp();
@@ -67,7 +67,7 @@ export function ReportIssuePortal() {
     };
 
     const pasteAttachments = (event: ClipboardEvent<HTMLTextAreaElement>) => {
-        const pasted = selectPastedIssueEvidence(Array.from(event.clipboardData.files), files.length);
+        const pasted = selectPastedIssueEvidence(issueEvidenceFilesFromClipboard(event.clipboardData), files.length);
         if (!pasted.accepted.length && !pasted.oversizedCount && !pasted.truncatedCount) return;
         event.preventDefault();
         if (pasted.oversizedCount) message.error("单个截图或录屏不能超过25MB");
