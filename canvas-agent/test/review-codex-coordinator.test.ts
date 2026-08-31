@@ -108,3 +108,26 @@ test("project feedback is coordinated without an active canvas", async () => {
     assert.equal(ensuredCanvasId, "review-project-background");
     assert.deepEqual(posts.map((item) => item.action), ["codex-coordination", "assessments/codex"]);
 });
+
+test("session recovery failure is written back instead of leaving stale coordination state", async () => {
+    const posts: Array<{ action: string; body: Record<string, unknown> }> = [];
+    const bus: ReviewBusCoordinatorPort = {
+        async pendingAll() { return [{ issue_id: "FILMOS-ISSUE-recovery", project_id: "project-1", state: "EVIDENCE_FROZEN", coordination_key: "recovery-key" }]; },
+        async pending() { return []; },
+        async fullContext() { return { base_commit: "a".repeat(40), state: "EVIDENCE_FROZEN" }; },
+        async post(_issueId, action, body) { posts.push({ action, body }); return {}; },
+    };
+    const coordinator = new ReviewCodexCoordinator(bus, {
+        async ensure() { throw new Error("CODEX_ROLLOUT_UNAVAILABLE"); },
+        async run() { throw new Error("MUST_NOT_RUN"); },
+    }, {
+        async prepare(_issueId, baseCommit) { return { workspacePath: "/tmp/filmos-review-recovery", branch: "codex/review-recovery", baseCommit }; },
+    }, () => ({}));
+
+    await assert.rejects(() => coordinator.tick(), /CODEX_ROLLOUT_UNAVAILABLE/);
+
+    assert.deepEqual(posts, [{
+        action: "codex-coordination",
+        body: { status: "FAILED", session_id: null, last_action: "EVIDENCE_FROZEN", last_error_code: "CODEX_ROLLOUT_UNAVAILABLE" },
+    }]);
+});

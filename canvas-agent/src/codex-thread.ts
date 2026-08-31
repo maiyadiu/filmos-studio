@@ -48,7 +48,7 @@ async function startCodexThread(client: CodexThreadClient, cwd?: string) {
     return threadId;
 }
 
-function isUnmaterializedCodexThreadError(error: unknown) {
+export function isUnmaterializedCodexThreadError(error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
     return /no rollout found for thread id|not materialized yet/i.test(message);
 }

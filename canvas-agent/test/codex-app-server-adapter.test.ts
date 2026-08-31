@@ -114,6 +114,40 @@ test("review coordinator uses its isolated workspace without requiring a live ca
     assert.deepEqual(fake.preflights, []);
 });
 
+test("review coordinator replaces only an explicitly missing persisted rollout", async () => {
+    const fake = fakeClient();
+    fake.resumeThread = async () => { throw new Error("no rollout found for thread id thread-missing"); };
+    fake.startThread = async () => ({ id: "thread-replacement" });
+    const adapter = new CodexSubscriptionAdapter({ client: async () => fake } as never, () => "/tmp/unused", () => ({}));
+    const resumed = await adapter.resumeSession({
+        sessionId: grant.sessionId,
+        providerThreadId: "thread-missing",
+        projectId: grant.projectId,
+        canvasId: "review-project-1",
+        workspacePath: "/tmp/filmos-review-project-1",
+        executionProfile: "review_coordinator",
+        grant,
+    });
+    assert.equal(resumed.providerThreadId, "thread-replacement");
+    assert.deepEqual(fake.preflights, []);
+});
+
+test("ordinary Codex sessions never replace a missing rollout silently", async () => {
+    const fake = fakeClient();
+    let starts = 0;
+    fake.resumeThread = async () => { throw new Error("no rollout found for thread id thread-missing"); };
+    fake.startThread = async () => ({ id: `thread-${++starts}` });
+    const adapter = new CodexSubscriptionAdapter({ client: async () => fake } as never, () => "/tmp/project", () => ({}));
+    await assert.rejects(() => adapter.resumeSession({
+        sessionId: grant.sessionId,
+        providerThreadId: "thread-missing",
+        projectId: grant.projectId,
+        canvasId: "canvas-1",
+        grant,
+    }), /no rollout found/);
+    assert.equal(starts, 0);
+});
+
 test("Codex resume history is reconstructed from the real provider thread payload", () => {
     const history = codexThreadHistory({ turns: [{ items: [
         { id: "u1", type: "userMessage", content: [{ type: "text", text: "FilmOS context\n\n用户请求：恢复这次对话" }] },

@@ -10,6 +10,7 @@ import type {
     ResumeBrainSessionInput,
 } from "../contracts.js";
 import type { AgentEmit } from "../../types.js";
+import { isUnmaterializedCodexThreadError } from "../../codex-thread.js";
 import { CodexAppServerProcessManager } from "./codex-app-server-process-manager.js";
 import { acceptServerRequest, declineServerRequest, type CodexAppServerClient, type CodexExecutionPolicy, type CodexServerRequest } from "./codex-app-server-client.js";
 
@@ -78,12 +79,21 @@ export class CodexSubscriptionAdapter implements AgentRuntimeAdapter {
         if (!threadId || !grant) throw new Error("CODEX_SESSION_RESUME_CONTEXT_MISSING");
         const client = await this.processManager.client();
         const workspace = input.workspacePath ?? (input.canvasId ? this.workspaceForCanvas(input.canvasId) : undefined);
-        await client.resumeThread(threadId, workspace, executionConfig(this.configForGrant(grant), input.executionProfile), this.binding(this.profileId, input.sessionId, () => undefined), executionPolicy(input.executionProfile));
-        if (input.executionProfile !== "review_coordinator") await preflightWorkbenchMcp(client, threadId);
-        this.threadsBySession.set(input.sessionId, threadId);
+        const config = executionConfig(this.configForGrant(grant), input.executionProfile);
+        const binding = this.binding(this.profileId, input.sessionId, () => undefined);
+        const policy = executionPolicy(input.executionProfile);
+        let activeThreadId = threadId;
+        try {
+            await client.resumeThread(threadId, workspace, config, binding, policy);
+        } catch (error) {
+            if (input.executionProfile !== "review_coordinator" || !isUnmaterializedCodexThreadError(error)) throw error;
+            activeThreadId = requiredThreadId(await client.startThread(workspace, config, binding, policy));
+        }
+        if (input.executionProfile !== "review_coordinator") await preflightWorkbenchMcp(client, activeThreadId);
+        this.threadsBySession.set(input.sessionId, activeThreadId);
         this.clientsBySession.set(input.sessionId, client);
         this.grantsBySession.set(input.sessionId, structuredClone(grant));
-        return { providerThreadId: threadId };
+        return { providerThreadId: activeThreadId };
     }
 
     async sendTurn(input: AgentTurnInput, sink: AgentEventSink) {

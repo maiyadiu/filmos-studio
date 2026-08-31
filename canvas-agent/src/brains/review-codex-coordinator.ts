@@ -68,23 +68,25 @@ export class ReviewCodexCoordinator {
             await this.coordination(issue.issue_id, { status: "COMPLETED", session_id: null, last_action: issue.state, last_error_code: null }, signal);
             return;
         }
-        const full = await this.bus.fullContext(issue.issue_id, issue.project_id, signal);
-        const baseCommit = String(full.base_commit || "");
-        const workspace = await this.worktrees.prepare(issue.issue_id, baseCommit);
-        const canvasId = context.projectId === issue.project_id && context.canvasId
-            ? context.canvasId
-            : `review-${issue.project_id}`;
-        const session = await this.sessions.ensure({ issueId: issue.issue_id, projectId: issue.project_id, canvasId, workspacePath: workspace.workspacePath });
-        const executionContext = {
-            ...full,
-            codex_workspace: {
-                workspace_path: workspace.workspacePath,
-                branch: workspace.branch,
-                base_commit: workspace.baseCommit,
-            },
-        };
-        await this.coordination(issue.issue_id, { status: "RUNNING", session_id: session.id, last_action: issue.state, last_error_code: null }, signal);
+        let sessionId: string | null = null;
         try {
+            const full = await this.bus.fullContext(issue.issue_id, issue.project_id, signal);
+            const baseCommit = String(full.base_commit || "");
+            const workspace = await this.worktrees.prepare(issue.issue_id, baseCommit);
+            const canvasId = context.projectId === issue.project_id && context.canvasId
+                ? context.canvasId
+                : `review-${issue.project_id}`;
+            const session = await this.sessions.ensure({ issueId: issue.issue_id, projectId: issue.project_id, canvasId, workspacePath: workspace.workspacePath });
+            sessionId = session.id;
+            const executionContext = {
+                ...full,
+                codex_workspace: {
+                    workspace_path: workspace.workspacePath,
+                    branch: workspace.branch,
+                    base_commit: workspace.baseCommit,
+                },
+            };
+            await this.coordination(issue.issue_id, { status: "RUNNING", session_id: session.id, last_action: issue.state, last_error_code: null }, signal);
             if (issue.state === "EVIDENCE_FROZEN") await this.runAssessment(issue, executionContext, session.id, signal);
             else if (issue.state === "EVIDENCE_REQUIRED") await this.runEvidence(issue, executionContext, session.id, signal);
             else if (issue.state === "CONSENSUS_PROPOSED") await this.runConsensus(issue, executionContext, session.id, signal);
@@ -92,7 +94,7 @@ export class ReviewCodexCoordinator {
             else if (["EXTERNAL_APPROVED", "MACHINE_PASS"].includes(issue.state)) await this.runLocalAcceptance(issue, executionContext, session.id, signal);
             else await this.coordination(issue.issue_id, { status: "IDLE", session_id: session.id, last_action: `NO_AUTOMATION:${issue.state}`, last_error_code: null }, signal);
         } catch (error) {
-            await this.coordination(issue.issue_id, { status: "FAILED", session_id: session.id, last_action: issue.state, last_error_code: errorCode(error) }, signal).catch(() => undefined);
+            await this.coordination(issue.issue_id, { status: "FAILED", session_id: sessionId, last_action: issue.state, last_error_code: errorCode(error) }, signal).catch(() => undefined);
             throw error;
         }
     }
