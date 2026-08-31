@@ -251,7 +251,11 @@ def main() -> int:
         if not ui_source.is_dir():
             raise RuntimeError("candidate App UI Golden evidence is missing")
         shutil.copytree(ui_source, package / "ui")
-        shutil.copytree(ROOT / "extensions" / "filmos-review-bridge", package / "extension")
+        shutil.copytree(
+            ROOT / "extensions" / "filmos-review-bridge",
+            package / "extension",
+            ignore=shutil.ignore_patterns("test", "node_modules", ".DS_Store"),
+        )
         shutil.copy2(ROOT / "acceptance" / "EVIDENCE_INDEX.json", package / "EVIDENCE_INDEX.json")
         shutil.copy2(ROOT / "acceptance" / "MANIFEST.json", package / "ACCEPTANCE_MANIFEST.json")
         (package / "KNOWN_LIMITATIONS.md").write_text(
