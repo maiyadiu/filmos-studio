@@ -69,18 +69,41 @@ test("content-script trusted DOM click forwards the latest Decision block with z
   const staleBlock = { textContent: JSON.stringify({ ...envelope, issue_id: "FILMOS-ISSUE-stale" }) };
   const currentBlock = { textContent: JSON.stringify(envelope) };
   const staleReply = { querySelectorAll: () => [staleBlock] };
-  const currentReply = { querySelectorAll: () => [currentBlock], textContent: `ChatGPT 说：${JSON.stringify(envelope)}` };
+  const currentReply = { querySelectorAll: () => [currentBlock], textContent: `ChatGPT 说：${JSON.stringify(envelope)}`, contains: () => false };
+  const currentAssistant = { closest: () => currentReply };
   const context = {
-    document: { getElementById: () => null, createElement: () => button, querySelectorAll: (selector) => selector.includes("article") ? [staleReply, currentReply] : [staleBlock, currentBlock], documentElement: { append() {} } },
+    document: { getElementById: () => null, createElement: () => button, querySelectorAll: (selector) => selector.includes("data-message-author-role") ? [currentAssistant] : selector.includes("article") ? [staleReply, currentReply] : [staleBlock, currentBlock], documentElement: { append() {} } },
     window: { getSelection: () => ({ toString: () => "" }) },
     navigator: { userActivation: { isActive: true } },
     chrome: { runtime: { async sendMessage(message) { sent = message; return { ok: true, ack: { issue_id: envelope.issue_id } }; } } },
     setTimeout() {}, JSON, Date, Object, Set, Error,
   };
   vm.runInNewContext(source, context);
-  assert.equal(button.style.bottom, "96px");
+  assert.equal(button.style.bottom, "180px");
   await clickHandler({ isTrusted: true });
   assert.equal(sent.type, "FILMOS_REVIEW_WRITEBACK");
   assert.equal(sent.candidateTexts.length, 2);
+  assert.deepEqual(parseDecisionCandidates(sent.candidateTexts), envelope);
+});
+
+test("content-script ignores a stale selection from an older reply", async () => {
+  const source = readFileSync(resolve(import.meta.dirname, "../src/content.js"), "utf8");
+  let clickHandler; let sent;
+  const button = { style: {}, addEventListener(type, handler) { if (type === "click") clickHandler = handler; } };
+  const staleEnvelope = { ...envelope, purpose: "CHATGPT_CONSENSUS_DECISION", issue_id: "FILMOS-ISSUE-stale" };
+  const staleSelectionNode = {};
+  const currentBlock = { textContent: JSON.stringify(envelope) };
+  const currentReply = { querySelectorAll: () => [currentBlock], textContent: JSON.stringify(envelope), contains: (node) => node !== staleSelectionNode };
+  const currentAssistant = { closest: () => currentReply };
+  const context = {
+    document: { getElementById: () => null, createElement: () => button, querySelectorAll: (selector) => selector.includes("data-message-author-role") ? [currentAssistant] : selector.includes("article") ? [currentReply] : [currentBlock], documentElement: { append() {} } },
+    window: { getSelection: () => ({ toString: () => JSON.stringify(staleEnvelope), anchorNode: staleSelectionNode }) },
+    navigator: { userActivation: { isActive: true } },
+    chrome: { runtime: { async sendMessage(message) { sent = message; return { ok: true, ack: { issue_id: envelope.issue_id } }; } } },
+    setTimeout() {}, JSON, Date, Object, Set, Error,
+  };
+  vm.runInNewContext(source, context);
+  await clickHandler({ isTrusted: true });
+  assert.equal(sent.candidateTexts.includes(JSON.stringify(staleEnvelope)), false);
   assert.deepEqual(parseDecisionCandidates(sent.candidateTexts), envelope);
 });

@@ -131,3 +131,31 @@ test("session recovery failure is written back instead of leaving stale coordina
         body: { status: "FAILED", session_id: null, last_action: "EVIDENCE_FROZEN", last_error_code: "CODEX_ROLLOUT_UNAVAILABLE" },
     }]);
 });
+
+test("consensus work is prioritized and one long subscription turn cannot drain the whole queue", async () => {
+    const handled: string[] = [];
+    const issues = [
+        { issue_id: "FILMOS-ISSUE-evidence-1", project_id: "project-1", state: "EVIDENCE_REQUIRED", coordination_key: "evidence-1" },
+        { issue_id: "FILMOS-ISSUE-consensus", project_id: "project-1", state: "CONSENSUS_PROPOSED", coordination_key: "consensus" },
+        { issue_id: "FILMOS-ISSUE-evidence-2", project_id: "project-1", state: "EVIDENCE_REQUIRED", coordination_key: "evidence-2" },
+    ];
+    const bus: ReviewBusCoordinatorPort = {
+        async pendingAll() { return issues; },
+        async pending() { return issues; },
+        async fullContext(issueId) { return { issue_id: issueId, base_commit: "a".repeat(40), state: issues.find((item) => item.issue_id === issueId)?.state, consensus_proposal: { contentHash: "proposal" } }; },
+        async post(issueId, action) { handled.push(`${issueId}:${action}`); return {}; },
+    };
+    const coordinator = new ReviewCodexCoordinator(bus, {
+        async ensure() { return { id: "brain-session-priority" } as any; },
+        async run() { return JSON.stringify({ proposal_content_hash: "proposal", position: "ACCEPTED", requested_changes: [] }); },
+    }, {
+        async prepare(issueId, baseCommit) { return { workspacePath: `/tmp/${issueId}`, branch: `codex/${issueId}`, baseCommit }; },
+    }, () => ({}));
+
+    await coordinator.tick();
+
+    assert.deepEqual(handled.map((item) => item.split(":").slice(0, 2).join(":")), [
+        "FILMOS-ISSUE-consensus:codex-coordination",
+        "FILMOS-ISSUE-consensus:consensus/responses/codex",
+    ]);
+});

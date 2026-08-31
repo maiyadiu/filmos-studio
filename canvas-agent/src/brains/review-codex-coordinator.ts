@@ -33,7 +33,8 @@ export class ReviewCodexCoordinator {
 
     async tick(signal?: AbortSignal) {
         const context = this.projectContext();
-        const issues = [...new Map((await this.bus.pendingAll(signal)).map((issue) => [issue.issue_id, issue])).values()];
+        const issues = [...new Map((await this.bus.pendingAll(signal)).map((issue) => [issue.issue_id, issue])).values()]
+            .sort((left, right) => issuePriority(left.state) - issuePriority(right.state));
         for (const issue of issues) {
             const fingerprint = `${issue.issue_id}:${issue.coordination_key}`;
             if (this.handled.has(fingerprint) || this.inFlight.has(issue.issue_id)) continue;
@@ -44,6 +45,10 @@ export class ReviewCodexCoordinator {
             } finally {
                 this.inFlight.delete(issue.issue_id);
             }
+            // A single subscription turn can take minutes. Re-read the queue after
+            // every issue so a newly proposed consensus or candidate verdict is not
+            // starved behind unrelated evidence-capture work.
+            break;
         }
     }
 
@@ -192,6 +197,20 @@ function asRecord(value: unknown): Record<string, unknown> {
 }
 
 function errorCode(error: unknown) { return error instanceof Error ? error.message.slice(0, 160) : "CODEX_COORDINATOR_FAILED"; }
+function issuePriority(state: string) {
+    const order: Record<string, number> = {
+        OWNER_DECISION_REQUIRED: 0,
+        CONSENSUS_PROPOSED: 1,
+        EXTERNAL_APPROVED: 2,
+        MACHINE_PASS: 2,
+        TASK_PACKAGE_FROZEN: 3,
+        CHANGES_REQUIRED: 3,
+        CODEX_FIXING: 3,
+        EVIDENCE_FROZEN: 4,
+        EVIDENCE_REQUIRED: 5,
+    };
+    return order[state] ?? 10;
+}
 function delay(ms: number, signal: AbortSignal) { return new Promise<void>((resolve, reject) => {
     const abort = () => { clearTimeout(timer); reject(signal.reason ?? new Error("ABORTED")); };
     const timer = setTimeout(() => { signal.removeEventListener("abort", abort); resolve(); }, ms);
