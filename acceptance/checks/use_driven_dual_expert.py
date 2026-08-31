@@ -78,7 +78,7 @@ def main() -> int:
     require("services/filmos-review-bus/src/live-roundtrip-trace.mjs", ("EXACTLY_TWO_CANDIDATES_REQUIRED", "CODEX_SUBSCRIPTION_COORDINATION_REQUIRED", "FORMAL_GITHUB_REMOTE_EVIDENCE_REQUIRED"))
     require(
         "canvas-agent/src/brains/review-codex-coordinator.ts",
-        ("filmos-governance-global", "CONSENSUS_RESPONSE", "LOCAL_CANDIDATE_ACCEPTANCE", "codex_workspace", "real Git commit"),
+        ("pendingAll", "/v1/review/internal/pending", "CONSENSUS_RESPONSE", "LOCAL_CANDIDATE_ACCEPTANCE", "codex_workspace", "real Git commit"),
     )
     require(
         "canvas-agent/src/brains/review-worktree-manager.ts",
