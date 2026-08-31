@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import path from "node:path";
 
 import { CONFIG_DIR, ensureCanvasWorkspace, type LocalRuntimeConfig } from "../config.js";
@@ -139,7 +140,7 @@ export class GenericAgentRuntime {
     async captureContext(sessionId: string) {
         const session = await this.store.getSession(sessionId);
         if (!session) throw new Error(`Unknown brain session: ${sessionId}`);
-        const captured = this.contexts.capture(session, this.snapshot());
+        const captured = this.contexts.capture(session, contextSnapshotForSession(session, this.snapshot));
         const next = await this.manager.bindContextReceipt(sessionId, captured.receipt.receiptId);
         return { session: next, context: captured.pack, receipt: captured.receipt };
     }
@@ -339,6 +340,30 @@ export class GenericAgentRuntime {
         this.activeTurns.clear();
         this.hydratedSessions.clear();
     }
+}
+
+export function contextSnapshotForSession(session: BrainSession, liveSnapshot: () => WorkbenchContextSnapshot): WorkbenchContextSnapshot {
+    if (session.executionProfile !== "review_coordinator") return liveSnapshot();
+    const canvasStateHash = createHash("sha256")
+        .update(["filmos-review-context-v1", session.projectId, session.canvasId, session.workspacePath ?? ""].join("\n"))
+        .digest("hex");
+    return {
+        workspace: session.workspacePath,
+        projectId: session.projectId,
+        domainProjectId: session.projectId,
+        projectTitle: `FilmOS Review ${session.projectId}`,
+        projectStatus: "review_coordinator",
+        canvasId: session.canvasId,
+        canvasRevision: 0,
+        canvasStateHash,
+        nodes: [],
+        connections: [],
+        selectedNodeIds: [],
+        visibleNodeIds: [],
+        assets: [],
+        blockers: ["NO_ACTIVE_CANVAS_REQUIRED_FOR_REVIEW_COORDINATOR"],
+        activePanel: "review-coordinator",
+    };
 }
 
 export async function probeConnectionList(registry: BrainProfileRegistry) {

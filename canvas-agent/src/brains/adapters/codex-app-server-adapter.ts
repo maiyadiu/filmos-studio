@@ -65,7 +65,7 @@ export class CodexSubscriptionAdapter implements AgentRuntimeAdapter {
         const binding = this.binding(input.brainProfileId, grant.sessionId, () => undefined);
         const thread = await client.startThread(workspace, executionConfig(this.configForGrant(grant), input.executionProfile), binding, policy);
         const threadId = requiredThreadId(thread);
-        await preflightWorkbenchMcp(client, threadId);
+        if (input.executionProfile !== "review_coordinator") await preflightWorkbenchMcp(client, threadId);
         this.threadsBySession.set(grant.sessionId, threadId);
         this.clientsBySession.set(grant.sessionId, client);
         this.grantsBySession.set(grant.sessionId, structuredClone(grant));
@@ -79,7 +79,7 @@ export class CodexSubscriptionAdapter implements AgentRuntimeAdapter {
         const client = await this.processManager.client();
         const workspace = input.workspacePath ?? (input.canvasId ? this.workspaceForCanvas(input.canvasId) : undefined);
         await client.resumeThread(threadId, workspace, executionConfig(this.configForGrant(grant), input.executionProfile), this.binding(this.profileId, input.sessionId, () => undefined), executionPolicy(input.executionProfile));
-        await preflightWorkbenchMcp(client, threadId);
+        if (input.executionProfile !== "review_coordinator") await preflightWorkbenchMcp(client, threadId);
         this.threadsBySession.set(input.sessionId, threadId);
         this.clientsBySession.set(input.sessionId, client);
         this.grantsBySession.set(input.sessionId, structuredClone(grant));
@@ -151,6 +151,7 @@ export class CodexSubscriptionAdapter implements AgentRuntimeAdapter {
         if (!threadId) throw new Error("CODEX_SESSION_THREAD_MISSING");
         const workspace = session.workspacePath ?? this.workspaceForCanvas(session.canvasId);
         await client.resumeThread(threadId, workspace, executionConfig(this.configForGrant(grant), session.executionProfile), this.binding(this.profileId, session.id, normalizedEmit(session.id, "recovery", sink)), executionPolicy(session.executionProfile));
+        if (session.executionProfile !== "review_coordinator") await preflightWorkbenchMcp(client, threadId);
         this.clientsBySession.set(session.id, client);
         return client;
     }
@@ -186,7 +187,9 @@ async function preflightWorkbenchMcp(client: CodexAppServerClient, threadId: str
 
 function turnPrompt(input: AgentTurnInput) {
     return [
-        "FilmOS 当前上下文由系统生成；不得猜测 ID、版本或哈希。需要更多事实时先调用 workbench_get_context 或精确读取工具。",
+        input.session.executionProfile === "review_coordinator"
+            ? "FilmOS Review Coordinator 上下文由冻结的 Issue、Evidence 与隔离工作区生成，不依赖活动画布；不得调用 workbench_get_context 猜测或替换冻结事实。"
+            : "FilmOS 当前上下文由系统生成；不得猜测 ID、版本或哈希。需要更多事实时先调用 workbench_get_context 或精确读取工具。",
         `Context Receipt: ${input.context.contextReceiptId}`,
         JSON.stringify(input.context),
         "",

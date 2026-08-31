@@ -99,6 +99,21 @@ test("Codex turns serialize per thread, run independently across sessions, and s
     await Promise.all([first, queued, parallel]);
 });
 
+test("review coordinator uses its isolated workspace without requiring a live canvas MCP preflight", async () => {
+    const fake = fakeClient();
+    const adapter = new CodexSubscriptionAdapter({ client: async () => fake } as never, () => {
+        throw new Error("CURRENT_CANVAS_MUST_NOT_BE_RESOLVED");
+    }, () => ({}));
+    const created = await adapter.createSession({
+        ...sessionInput(),
+        canvasId: "review-project-1",
+        workspacePath: "/tmp/filmos-review-project-1",
+        executionProfile: "review_coordinator",
+    }, grant);
+    assert.equal(created.providerThreadId, "thread-1");
+    assert.deepEqual(fake.preflights, []);
+});
+
 test("Codex resume history is reconstructed from the real provider thread payload", () => {
     const history = codexThreadHistory({ turns: [{ items: [
         { id: "u1", type: "userMessage", content: [{ type: "text", text: "FilmOS context\n\n用户请求：恢复这次对话" }] },
