@@ -1,6 +1,7 @@
 import localforage from "localforage";
 
 import { currentBuildIdentity, type BuildIdentity } from "@/film/governance/build-identity";
+import { inferIssueRoutingRisk } from "@/film/governance/issue-lane";
 import { useCanvasAgentStore } from "@/stores/canvas/use-canvas-agent-store";
 
 export const ISSUE_DRAFT_FORMAT = "filmos.usage-issue-draft/v1";
@@ -126,6 +127,12 @@ function installNativeReviewIssueIntake() {
             expected_result: draft.expected,
             location: `${draft.context.surface}:${draft.context.pathname}`,
             blocks_work: draft.blocking,
+            risk: inferIssueRoutingRisk({
+                occurred: draft.occurred,
+                expected: draft.expected,
+                blocking: draft.blocking,
+                context: draft.context,
+            }),
             screenshot_refs: [],
             issue_id: draft.issueId,
             route: draft.context.pathname,

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import { inferIssueRoutingRisk } from "../src/film/governance/issue-lane";
 import { contextFromPathname, createLocalIssueDraft, selectPastedIssueEvidence } from "../src/film/governance/report-issue";
 
 const build = {
@@ -65,5 +66,26 @@ describe("usage issue intake", () => {
         expect(selected.accepted.map((file) => file.name)).toEqual(["shot.png"]);
         expect(selected.oversizedCount).toBe(1);
         expect(selected.truncatedCount).toBe(1);
+    });
+
+    test("infers lane risk without asking the reporter to classify the issue", () => {
+        expect(inferIssueRoutingRisk({
+            occurred: "按钮文案不清楚",
+            expected: "改成更容易理解的中文",
+            blocking: false,
+            context: { surface: "project", pathname: "/projects/p1/overview" },
+        })).toEqual({});
+        expect(inferIssueRoutingRisk({
+            occurred: "Review Bus 没有形成 Candidate A 到 B 的双专家签名",
+            expected: "ChatGPT Findings 写回后才允许 Pilot Gate 通过",
+            blocking: true,
+            context: { surface: "project", pathname: "/projects/p1/overview" },
+        })).toEqual({ core_state: true });
+        expect(inferIssueRoutingRisk({
+            occurred: "现有结构不符合真实工作，需要重新设计",
+            expected: "形成可持续架构",
+            blocking: true,
+            context: { surface: "project", pathname: "/projects/p1/overview" },
+        })).toEqual({ architecture_gap: true });
     });
 });
