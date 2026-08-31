@@ -57,6 +57,8 @@ try {
     },
   });
   assert.equal((await full(first.url)).lane, "core");
+  const backgroundPending = await request(first.url, "GET", "/v1/review/internal/pending");
+  assert.equal(backgroundPending.issues.some((item) => item.issue_id === ISSUE_ID && item.project_id === PROJECT_ID), true);
 
   const uploaded = await request(first.url, "POST", `/v1/issues/${ISSUE_ID}/attachments`, {
     attachment_id: "attachment-pasted-operational",

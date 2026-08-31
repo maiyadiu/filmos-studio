@@ -294,8 +294,12 @@ export class GenericAgentRuntime {
                 return output;
             },
         }, worktrees, () => {
-            const current = this.snapshot();
-            return { projectId: current.projectId, canvasId: current.canvasId };
+            try {
+                const current = this.snapshot();
+                return { projectId: current.domainProjectId || current.projectId, canvasId: current.canvasId };
+            } catch {
+                return {};
+            }
         });
         const controller = new AbortController();
         this.reviewCoordinatorAbort = controller;

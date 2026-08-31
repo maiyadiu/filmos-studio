@@ -6,6 +6,7 @@ import { ReviewCodexCoordinator, type ReviewBusCoordinatorPort } from "../src/br
 function fixture(state: string, full: Record<string, unknown>, output: Record<string, unknown>) {
     const posts: Array<{ action: string; body: Record<string, unknown> }> = [];
     const bus: ReviewBusCoordinatorPort = {
+        async pendingAll() { return [{ issue_id: "FILMOS-ISSUE-test", project_id: "project-1", state, coordination_key: `key-${state}` }]; },
         async pending(projectId) { return projectId === "project-1" ? [{ issue_id: "FILMOS-ISSUE-test", project_id: "project-1", state, coordination_key: `key-${state}` }] : []; },
         async fullContext() { return { state, ...full }; },
         async post(_issueId, action, body) { posts.push({ action, body }); return {}; },
@@ -61,6 +62,7 @@ test("OWNER_DECISION_REQUIRED stops before creating or resuming any Codex sessio
 test("global governance feedback is discovered and coordinated once", async () => {
     const posts: Array<{ action: string; body: Record<string, unknown> }> = [];
     const bus: ReviewBusCoordinatorPort = {
+        async pendingAll() { return [{ issue_id: "FILMOS-ISSUE-global", project_id: "filmos-governance-global", state: "EVIDENCE_FROZEN", coordination_key: "global-key" }]; },
         async pending(projectId) {
             return projectId === "filmos-governance-global"
                 ? [{ issue_id: "FILMOS-ISSUE-global", project_id: projectId, state: "EVIDENCE_FROZEN", coordination_key: "global-key" }]
@@ -82,5 +84,27 @@ test("global governance feedback is discovered and coordinated once", async () =
     await coordinator.tick();
     await coordinator.tick();
     assert.equal(runs, 1);
+    assert.deepEqual(posts.map((item) => item.action), ["codex-coordination", "assessments/codex"]);
+});
+
+test("project feedback is coordinated without an active canvas", async () => {
+    const posts: Array<{ action: string; body: Record<string, unknown> }> = [];
+    let ensuredCanvasId = "";
+    const bus: ReviewBusCoordinatorPort = {
+        async pendingAll() { return [{ issue_id: "FILMOS-ISSUE-background", project_id: "project-background", state: "EVIDENCE_FROZEN", coordination_key: "background-key" }]; },
+        async pending() { return []; },
+        async fullContext() { return { base_commit: "a".repeat(40), state: "EVIDENCE_FROZEN", evidence: { local_items: [{ kind: "logs" }] } }; },
+        async post(_issueId, action, body) { posts.push({ action, body }); return {}; },
+    };
+    const coordinator = new ReviewCodexCoordinator(bus, {
+        async ensure(input) { ensuredCanvasId = input.canvasId; return { id: "brain-session-background" } as any; },
+        async run() { return JSON.stringify({ reproduced: true, root_cause: "background issue", call_chain: ["feedback"], files: ["web/feedback.tsx"], minimal_change: ["repair"], regression_risk: "low", tests: ["test"], rollback: ["revert"] }); },
+    }, {
+        async prepare(_issueId, baseCommit) { return { workspacePath: "/tmp/filmos-review-background", branch: "codex/review-background", baseCommit }; },
+    }, () => ({}));
+
+    await coordinator.tick();
+
+    assert.equal(ensuredCanvasId, "review-project-background");
     assert.deepEqual(posts.map((item) => item.action), ["codex-coordination", "assessments/codex"]);
 });

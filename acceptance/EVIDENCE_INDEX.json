@@ -678,6 +678,9 @@
         "services/filmos-review-bus/src/live-roundtrip-trace.mjs",
         "services/filmos-review-bus/src/github-evidence-verifier.mjs"
         ,"canvas-agent/src/brains/review-worktree-manager.ts"
+        ,"canvas-agent/src/brains/review-codex-coordinator.ts"
+        ,"canvas-agent/src/brains/generic-agent-runtime.ts"
+        ,"canvas-agent/test/review-codex-coordinator.test.ts"
         ,"web/test/report-issue.test.mjs"
         ,"web/test/chapter-document-view.test.ts"
       ],

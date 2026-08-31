@@ -86,6 +86,7 @@ export function createReviewBusHttp({ service, store, busToken, bridgeToken, con
         if (req.method === "POST" && action === "codex-coordination") return send(res, 200, issueReceipt(service.recordCodexCoordination(issueId, body, "review-codex-coordinator", now())));
       }
       if (req.method === "GET" && url.pathname === "/v1/review/pending") return send(res, 200, { issues: service.pending(requireProject(url)) });
+      if (req.method === "GET" && url.pathname === "/v1/review/internal/pending") return send(res, 200, { issues: service.pendingAll() });
       if (req.method === "GET" && url.pathname === "/v1/review/constitution") return send(res, 200, constitution);
       if (req.method === "GET" && url.pathname === "/v1/review/admin/issues") return send(res, 200, { issues: service.listRedactedAdmin() });
       const adminIssue = /^\/v1\/review\/admin\/issues\/([^/]+)$/.exec(url.pathname);

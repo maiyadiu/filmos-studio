@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import type { BrainSession } from "./contracts.js";
 
 type PendingIssue = { issue_id: string; project_id: string; state: string; coordination_key: string };
-type ProjectContext = { projectId: string; canvasId: string };
+type ProjectContext = { projectId?: string; canvasId?: string };
 type SessionDriver = {
     ensure(input: { issueId: string; projectId: string; canvasId: string; workspacePath: string }): Promise<BrainSession>;
     run(sessionId: string, prompt: string): Promise<string>;
@@ -14,6 +14,7 @@ export type ReviewWorktreePort = {
 };
 
 export type ReviewBusCoordinatorPort = {
+    pendingAll(signal?: AbortSignal): Promise<PendingIssue[]>;
     pending(projectId: string, signal?: AbortSignal): Promise<PendingIssue[]>;
     fullContext(issueId: string, projectId: string, signal?: AbortSignal): Promise<Record<string, unknown>>;
     post(issueId: string, action: string, body: Record<string, unknown>, signal?: AbortSignal): Promise<Record<string, unknown>>;
@@ -32,9 +33,7 @@ export class ReviewCodexCoordinator {
 
     async tick(signal?: AbortSignal) {
         const context = this.projectContext();
-        const projectIds = [...new Set([context.projectId, "filmos-governance-global"])];
-        const pendingByProject = await Promise.all(projectIds.map((projectId) => this.bus.pending(projectId, signal)));
-        const issues = [...new Map(pendingByProject.flat().map((issue) => [issue.issue_id, issue])).values()];
+        const issues = [...new Map((await this.bus.pendingAll(signal)).map((issue) => [issue.issue_id, issue])).values()];
         for (const issue of issues) {
             const fingerprint = `${issue.issue_id}:${issue.coordination_key}`;
             if (this.handled.has(fingerprint) || this.inFlight.has(issue.issue_id)) continue;
@@ -72,7 +71,10 @@ export class ReviewCodexCoordinator {
         const full = await this.bus.fullContext(issue.issue_id, issue.project_id, signal);
         const baseCommit = String(full.base_commit || "");
         const workspace = await this.worktrees.prepare(issue.issue_id, baseCommit);
-        const session = await this.sessions.ensure({ issueId: issue.issue_id, projectId: issue.project_id, canvasId: context.canvasId, workspacePath: workspace.workspacePath });
+        const canvasId = context.projectId === issue.project_id && context.canvasId
+            ? context.canvasId
+            : `review-${issue.project_id}`;
+        const session = await this.sessions.ensure({ issueId: issue.issue_id, projectId: issue.project_id, canvasId, workspacePath: workspace.workspacePath });
         const executionContext = {
             ...full,
             codex_workspace: {
@@ -147,6 +149,7 @@ export class HttpReviewBusCoordinator implements ReviewBusCoordinatorPort {
         if (url.protocol !== "http:" || !["127.0.0.1", "localhost", "::1"].includes(url.hostname)) throw new Error("REVIEW_BUS_LOOPBACK_REQUIRED");
     }
 
+    pendingAll(signal?: AbortSignal) { return this.request("GET", "/v1/review/internal/pending", undefined, signal).then((value) => value.issues as PendingIssue[]); }
     pending(projectId: string, signal?: AbortSignal) { return this.request("GET", `/v1/review/pending?project_id=${encodeURIComponent(projectId)}`, undefined, signal).then((value) => value.issues as PendingIssue[]); }
     fullContext(issueId: string, projectId: string, signal?: AbortSignal) { return this.request("GET", `/v1/review/internal/issues/${encodeURIComponent(issueId)}/full-context?project_id=${encodeURIComponent(projectId)}`, undefined, signal); }
     post(issueId: string, action: string, body: Record<string, unknown>, signal?: AbortSignal) { return this.request("POST", `/v1/issues/${encodeURIComponent(issueId)}/${action}`, body, signal); }

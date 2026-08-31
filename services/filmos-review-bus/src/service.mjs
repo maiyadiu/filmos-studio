@@ -456,6 +456,7 @@ export class ReviewBusService {
   }
 
   pending(projectId) { return this.store.list({ projectId }).filter((item) => pendingStates.has(item.state)).map(readSummary); }
+  pendingAll() { return this.store.list().filter((item) => pendingStates.has(item.state)).map(readSummary); }
   listRedactedAdmin() { return this.store.list().map((item) => redactedProjection(item)); }
   readRedactedAdmin(issueId) {
     return { ...redactedProjection(this.requireIssue(issueId)), event_chain_verified: this.store.verifyEventChain(issueId) };
