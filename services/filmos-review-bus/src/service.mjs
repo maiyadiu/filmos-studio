@@ -519,10 +519,14 @@ export class ReviewBusService {
 }
 
 function consensusDelta(codex, chatgpt) {
-  const agreements = [], disagreements = [], evidenceDifferences = [];
+  const agreements = [], disagreements = [];
+  const evidenceDifferences = uniqueStrings([
+    ...(Array.isArray(codex.evidence_gaps) ? codex.evidence_gaps : []),
+    ...(Array.isArray(chatgpt.evidence_gaps) ? chatgpt.evidence_gaps : []),
+  ]);
   if (String(codex.root_cause).toLowerCase() === String(chatgpt.root_cause ?? "").toLowerCase()) agreements.push("root_cause"); else disagreements.push("root_cause");
   if (chatgpt.root_cause_explains_symptom === true) agreements.push("symptom_explanation"); else disagreements.push("symptom_explanation");
-  if (codex.needs_more_evidence || chatgpt.needs_more_evidence) evidenceDifferences.push("additional_evidence_requested");
+  if (evidenceDifferences.length === 0 && (codex.needs_more_evidence || chatgpt.needs_more_evidence)) evidenceDifferences.push("additional_evidence_requested");
   const base = { agreements, disagreements, evidence_differences: evidenceDifferences, scope_conflict: chatgpt.scope_drift === true };
   return { ...base, content_hash: sha256(base) };
 }

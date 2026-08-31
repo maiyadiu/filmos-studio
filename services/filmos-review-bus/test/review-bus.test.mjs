@@ -104,6 +104,24 @@ test("consensus changes advance to an append-only assessment round with fresh ev
   store.close();
 });
 
+test("consensus proposal preserves structured evidence gaps from the paired assessments", () => {
+  const { service, store } = fixture();
+  const issue = createCoreIssue(service, "structured-evidence-gaps");
+  const screenshotGap = "screenshot=false; structured context is not pixel evidence";
+  const remoteReceiptGap = "GitHub Run, Artifact, and Evidence Index receipts are missing";
+  service.submitAssessment(issue.issue_id, "codex", { ...codexAssessment, evidence_gaps: [screenshotGap] });
+  const proposed = service.submitAssessment(issue.issue_id, "chatgpt", {
+    ...chatgptAssessment,
+    needs_more_evidence: true,
+    evidence_gaps: [screenshotGap, remoteReceiptGap],
+  });
+
+  assert.deepEqual(proposed.consensus_delta.evidence_differences, [screenshotGap, remoteReceiptGap]);
+  assert.deepEqual(proposed.consensus_proposal.evidenceGaps, [screenshotGap, remoteReceiptGap]);
+  assert.equal(proposed.consensus_proposal.evidenceGaps.includes("additional_evidence_requested"), false);
+  store.close();
+});
+
 test("Review Bus uses SQLite WAL, immutable events, and redacts the external evidence projection", () => {
   const directory = mkdtempSync(resolve(tmpdir(), "filmos-review-"));
   const store = new ReviewBusStore(resolve(directory, "review-bus.sqlite"));
