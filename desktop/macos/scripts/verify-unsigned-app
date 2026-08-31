@@ -81,6 +81,8 @@ test -f "$runtime"
 test -f "$source_identity"
 test -f "$constitution"
 test -f "$web_root/index.html"
+designated_requirement=$(/usr/bin/codesign -d -r- "$binary" 2>&1 | tail -n 1)
+test "$designated_requirement" = "designated => identifier \"$expected_bundle_identifier\""
 # SourceIdentity is JSON. `plutil -lint` on macOS rejects JSON even though
 # `plutil -extract` can parse it, so the field extractions below are the parser
 # and schema validation for this file.

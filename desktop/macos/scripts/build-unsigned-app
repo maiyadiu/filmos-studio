@@ -265,6 +265,14 @@ install -m 0644 "$package_dir/App/Info.plist" "$bundle/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName $app_display_name" "$bundle/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleName $app_display_name" "$bundle/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $bundle_identifier" "$bundle/Contents/Info.plist"
+# Swift emits an ad-hoc signature whose default designated requirement is its
+# changing cdhash. Give the local desktop executable a stable designated
+# requirement so macOS Keychain authorization survives source rebuilds while
+# the bundle remains an unsigned local candidate with no distribution material.
+/usr/bin/codesign --force --sign - \
+    --identifier "$bundle_identifier" \
+    --requirements "=designated => identifier \"$bundle_identifier\"" \
+    "$bundle/Contents/MacOS/FilmOSStudioDesktop"
 install -m 0644 "$staging/FilmOSStudio.icns" "$bundle/Contents/Resources/FilmOSStudio.icns"
 install -m 0644 "$staging/InternalRuntime.json" "$bundle/Contents/Resources/InternalRuntime.json"
 install -m 0644 "$workspace_root/governance/FILMOS_CONSTITUTION.json" "$bundle/Contents/Resources/FILMOS_CONSTITUTION.json"

@@ -1,4 +1,5 @@
 import Foundation
+import LocalAuthentication
 import Security
 
 public struct SecureTokenKey: Hashable, Sendable {
@@ -117,6 +118,13 @@ public final class KeychainTokenStore: SecureTokenStoring, @unchecked Sendable {
         var query = baseQuery(for: key)
         query[kSecReturnData] = true
         query[kSecMatchLimit] = kSecMatchLimitOne
+        // Rebuilt local candidates must never block the app main actor behind
+        // an implicit SecurityAgent prompt. An explicitly submitted credential
+        // can still be stored through `store`; automatic reconnect fails closed
+        // and keeps the workbench responsive when the signing identity changed.
+        let authenticationContext = LAContext()
+        authenticationContext.interactionNotAllowed = true
+        query[kSecUseAuthenticationContext] = authenticationContext
 
         var result: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
