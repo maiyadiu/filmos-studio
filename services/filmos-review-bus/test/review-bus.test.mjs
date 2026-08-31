@@ -83,6 +83,7 @@ test("consensus changes advance to an append-only assessment round with fresh ev
   assert.equal(advanced.assessment_round_history[0].consensus_responses.length, 2);
   assert.deepEqual(advanced.assessments, {});
   assert.equal(advanced.consensus_proposal, null);
+  const roundTwoCoordinationKey = service.pending(projectId).find((item) => item.issue_id === issue.issue_id).coordination_key;
 
   const codex = service.submitAssessment(issue.issue_id, "codex", codexAssessment).assessments.codex;
   assert.equal(codex.assessment_round, 2);
@@ -93,6 +94,13 @@ test("consensus changes advance to an append-only assessment round with fresh ev
   assert.equal(second.consensus_proposal.assessmentRound, 2);
   assert.equal(second.consensus_proposal.evidenceManifestHash, codex.evidence_manifest_hash);
   assert.notEqual(second.consensus_proposal.contentHash, firstHash);
+  service.respondConsensus(issue.issue_id, "codex", { proposal_content_hash: second.consensus_proposal.contentHash, position: "CHANGES_REQUESTED", requested_changes: ["refine gates"] });
+  service.respondConsensus(issue.issue_id, "chatgpt", { proposal_content_hash: second.consensus_proposal.contentHash, position: "CHANGES_REQUESTED", requested_changes: ["refine gates"] });
+  const thirdRound = service.startNextAssessmentRound(issue.issue_id);
+  assert.equal(thirdRound.state, "EVIDENCE_FROZEN");
+  assert.equal(thirdRound.assessment_round, 3);
+  const roundThreeCoordinationKey = service.pending(projectId).find((item) => item.issue_id === issue.issue_id).coordination_key;
+  assert.notEqual(roundThreeCoordinationKey, roundTwoCoordinationKey);
   store.close();
 });
 

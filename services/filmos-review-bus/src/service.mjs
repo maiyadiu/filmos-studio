@@ -634,7 +634,7 @@ function dualSignoff(value, now) {
 }
 
 function readSummary(value) {
-  const coordinationKey = sha256({ state: value.state, evidence: value.evidence?.manifest?.contentHash ?? null, assessments: value.assessments, consensus: value.consensus_record?.contentHash ?? value.consensus_proposal?.contentHash ?? null, task_package: value.issue_task_package?.contentHash ?? null, candidate: value.active_candidate?.content_hash ?? null, findings: value.findings, responses: value.finding_responses, verdicts: value.verdicts });
+  const coordinationKey = sha256({ state: value.state, assessment_round: value.assessment_round, current_round: value.current_round, evidence: value.evidence?.manifest?.contentHash ?? null, assessments: value.assessments, consensus: value.consensus_record?.contentHash ?? value.consensus_proposal?.contentHash ?? null, task_package: value.issue_task_package?.contentHash ?? null, candidate: value.active_candidate?.content_hash ?? null, findings: value.findings, responses: value.finding_responses, verdicts: value.verdicts });
   return { issue_id: value.issue_id, project_id: value.project_id, lane: value.lane, state: value.state, what_happened: value.report.what_happened, blocks_work: value.report.blocks_work, updated_at: value.updated_at, content_hash: value.content_hash, coordination_key: coordinationKey };
 }
 function redactedProjection(value) {
