@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 
@@ -23,11 +23,25 @@ async function dispatch(scope, command, options) {
   if (scope === "issue" && command === "assess-local") return request("POST", issuePath(options, "assessments/codex"), readInput(options));
   if (scope === "issue" && command === "status") return request("GET", issuePath(options, "", true));
   if (scope === "review" && command === "submit-candidate") return request("POST", issuePath(options, "candidates"), readInput(options));
+  if (scope === "review" && command === "consensus") return request("GET", reviewPath(options, "consensus"));
+  if (scope === "review" && command === "accept-consensus") {
+    const current = await request("GET", reviewPath(options, "consensus"));
+    if (!current.proposal?.contentHash) throw new Error("CONSENSUS_PROPOSAL_REQUIRED");
+    return request("POST", issuePath(options, "consensus/responses/codex"), { proposal_content_hash: current.proposal.contentHash, position: "ACCEPTED", requested_changes: [] });
+  }
+  if (scope === "review" && command === "task-package") return request("GET", reviewPath(options, "task-package"));
   if (scope === "review" && command === "findings") return request("GET", reviewPath(options, "findings"));
   if (scope === "review" && command === "respond") return request("POST", issuePath(options, "finding-responses"), readInput(options));
+  if (scope === "review" && command === "next-round") return request("POST", issuePath(options, "rounds/next"), {});
   if (scope === "review" && command === "next-pilot") {
     const value = await request("GET", issuePath(options, "", true));
     return { issue_id: value.issue_id, state: value.state, next_pilot_allowed: value.next_pilot_allowed, dual_signoff: value.dual_signoff ?? null };
+  }
+  if (scope === "review" && command === "export-live-trace") {
+    const value = await request("GET", `/v1/review/internal/issues/${encodeURIComponent(required(options.issue, "--issue"))}/live-roundtrip-trace?project_id=${encodeURIComponent(required(options.project, "--project"))}`);
+    const output = resolve(required(options.output, "--output"));
+    writeFileSync(output, `${JSON.stringify(value, null, 2)}\n`, { flag: "wx", mode: 0o600 });
+    return { output, sha256: value.content_hash, gate_id: value.gate_id, status: value.status };
   }
   if (scope === "review" && command === "watch") {
     const projectId = required(options.project, "--project");
@@ -38,9 +52,11 @@ async function dispatch(scope, command, options) {
     return undefined;
   }
   if (scope === "architecture" && command === "create") return request("POST", "/v1/issues", { ...readInput(options), lane: "architecture" });
+  if (scope === "architecture" && command === "requirement-delta") return request("POST", issuePath(options, "architecture/requirement-delta"), readInput(options));
   if (scope === "architecture" && command === "options") return request("POST", issuePath(options, "architecture/options"), readInput(options));
+  if (scope === "architecture" && command === "accept-option") return request("POST", issuePath(options, "architecture/accept-option"), readInput(options));
   if (scope === "architecture" && command === "status") return request("GET", issuePath(options, "", true));
-  fail("USAGE: filmos issue create|capture|assess-local|status; filmos review submit-candidate|findings|respond|watch|next-pilot; filmos architecture create|options|status");
+  fail("USAGE: filmos issue create|capture|assess-local|status; filmos review consensus|accept-consensus|task-package|submit-candidate|findings|respond|next-round|watch|next-pilot|export-live-trace; filmos architecture create|requirement-delta|options|accept-option|status");
 }
 
 async function request(method, path, body) {

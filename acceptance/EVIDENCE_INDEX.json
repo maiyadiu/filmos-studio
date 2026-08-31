@@ -1,5 +1,5 @@
 {
-  "schema_version": "1.2.0",
+  "schema_version": "1.3.0",
   "contract_kind": "FILMOS_STABLE_TRACK_EVIDENCE_CONTRACT",
   "tracks": [
     {
@@ -43,6 +43,7 @@
         "desktop/macos/scripts/prepare-pilot-project-copy",
         "desktop/macos/scripts/backup-pilot-data",
         "desktop/macos/scripts/install-pilot-app",
+        "desktop/macos/scripts/prepare-review-source-repository",
         "backend/cmd/desktop-web",
         "backend/internal/service/desktop_local_channel.go",
         "backend/internal/service/auth.go",
@@ -59,7 +60,8 @@
         "python3 acceptance/checks/desktop_backup_restore.py",
         "python3 acceptance/checks/desktop_chatgpt_connection.py",
         "python3 acceptance/checks/no_openai_model_api_billing.py",
-        "sh desktop/macos/Tests/pilot-data-scripts.test.sh"
+        "sh desktop/macos/Tests/pilot-data-scripts.test.sh",
+        "sh desktop/macos/Tests/review-source-repository.test.sh"
       ],
       "golden_case_ids": [
         "DESKTOP-LAUNCH-001",
@@ -73,7 +75,8 @@
         "PILOT-BASE-FIXED-COMMIT-001",
         "PILOT-PROJECT-COPY-001",
         "PILOT-BACKUP-RESTORE-001",
-        "PILOT-NO-PAID-SUBMIT-001"
+        "PILOT-NO-PAID-SUBMIT-001",
+        "CODEX-REVIEW-WORKTREE-001"
       ],
       "required_local_check_ids": [
         "desktop-brand",
@@ -84,7 +87,8 @@
         "desktop-chatgpt-connection",
         "no-openai-model-api-billing",
         "pilot-project-copy",
-        "use-driven-dual-expert"
+        "use-driven-dual-expert",
+        "review-source-repository"
       ],
       "required_final_check_ids": [
         "desktop-brand",
@@ -96,7 +100,8 @@
         "pilot-project-copy",
         "use-driven-dual-expert",
         "desktop-chatgpt-connection",
-        "no-openai-model-api-billing"
+        "no-openai-model-api-billing",
+        "review-source-repository"
       ]
     },
     {
@@ -172,6 +177,10 @@
         "web/src/stores/use-brain-generation-routing-store.ts",
         "web/src/components/canvas/canvas-config-composer.tsx",
         "web/src/film/generation-routing/production-composition.ts",
+        "web/src/pages/admin/review-center",
+        "web/src/pages/projects/detail/chapters.tsx",
+        "web/src/pages/projects/detail/chapter-document-view.ts",
+        "acceptance/golden/v1-1-operational-closure",
         "acceptance/golden/brain-generation-routing",
         "tests/film-beta/performance_local.py",
         "tests/film-beta/performance_surface.ts"
@@ -184,7 +193,9 @@
         "bun test test/generation-engine-settings-presentation.test.ts test/generation-route-preview-contract.test.ts",
         "node acceptance/checks/brain_generation_performance.mjs",
         "python3 acceptance/checks/performance.py",
-        "python3 acceptance/checks/use_driven_dual_expert.py"
+        "python3 acceptance/checks/use_driven_dual_expert.py",
+        "node acceptance/checks/v1_1_dual_expert_operational.mjs",
+        "cd web && bun test ./test/report-issue.test.mjs ./test/chapter-document-view.test.ts"
       ],
       "golden_case_ids": [
         "LOCAL-FIRST-UI-001",
@@ -197,7 +208,11 @@
         "V2-4-FINAL-PRODUCTION-AUTHORITY-001",
         "ISSUE-SINGLE-ENTRY-001",
         "PROJECT-MULTI-CONNECTION-001",
-        "UI-GOLDEN-COMMIT-FRESHNESS-001"
+        "UI-GOLDEN-COMMIT-FRESHNESS-001",
+        "REVIEW-CENTER-001",
+        "DOCUMENT-EASY-MARKDOWN-MODE-001",
+        "V1-1-DUAL-EXPERT-OPERATIONAL-AUTOMATED-001",
+        "ISSUE-PASTE-EVIDENCE-001"
       ],
       "required_local_check_ids": [
         "desktop-brand",
@@ -209,7 +224,8 @@
         "brain-generation-performance",
         "performance-local",
         "production-generation-composition",
-        "use-driven-dual-expert"
+        "use-driven-dual-expert",
+        "dual-expert-operational"
       ],
       "required_final_check_ids": [
         "desktop-brand",
@@ -220,7 +236,8 @@
         "generation-routing-contracts",
         "brain-generation-routing",
         "brain-generation-performance",
-        "performance-local"
+        "performance-local",
+        "dual-expert-operational"
       ]
     },
     {
@@ -331,6 +348,7 @@
         "packages/filmos-generation-contracts",
         "canvas-agent",
         "canvas-agent/src/brains",
+        "canvas-agent/src/brains/review-worktree-manager.ts",
         "web/src/film/agent",
         "web/src/components/canvas/canvas-local-agent-panel.tsx",
         "web/src/film/sync",
@@ -342,7 +360,9 @@
         "acceptance/checks/agent_codex_controlled_write.py",
         "acceptance/checks/agent_lifecycle_receipt.py",
         "acceptance/checks/production_generation_composition.py",
-        "tests/film-beta/performance_surface.ts"
+        "tests/film-beta/performance_surface.ts",
+        "implementation/v1-1-operational-closure",
+        "acceptance/checks/v1_1_dual_expert_operational.mjs"
       ],
       "automated_tests": [
         "python3 acceptance/checks/film_core_environment.py",
@@ -371,7 +391,9 @@
         "cd services/filmos-review-bus && npm test",
         "cd cli/filmos-review && npm test",
         "node --test governance/test/architecture-drift-gate.test.mjs",
-        "python3 acceptance/checks/use_driven_dual_expert.py"
+        "python3 acceptance/checks/use_driven_dual_expert.py",
+        "node acceptance/checks/v1_1_dual_expert_operational.mjs",
+        "sh desktop/macos/Tests/review-source-repository.test.sh"
       ],
       "golden_case_ids": [
         "CODEX-AGENT-001",
@@ -406,7 +428,12 @@
         "CORE-LANE-CONSENSUS-BEFORE-CODE-001",
         "ARCHITECTURE-EVOLUTION-OPTIONS-001",
         "REVIEW-CANDIDATE-IMMUTABLE-001",
-        "REVIEW-CODEX-CANNOT-SELF-CLOSE-001"
+        "REVIEW-CODEX-CANNOT-SELF-CLOSE-001",
+        "V1-1-DUAL-EXPERT-OPERATIONAL-AUTOMATED-001",
+        "V1-1-DUAL-EXPERT-LIVE-ROUNDTRIP-001",
+        "CODEX-SUBSCRIPTION-COORDINATOR-001",
+        "CANDIDATE-A-B-ROUNDTRIP-001",
+        "CODEX-REVIEW-WORKTREE-001"
       ],
       "required_local_check_ids": [
         "film-core-environment",
@@ -429,7 +456,9 @@
         "review-bus-governance",
         "review-cli-watcher",
         "architecture-drift-gate",
-        "use-driven-dual-expert"
+        "use-driven-dual-expert",
+        "dual-expert-operational",
+        "review-source-repository"
       ],
       "required_final_check_ids": [
         "film-core-environment",
@@ -449,7 +478,10 @@
         "rc-recovery",
         "codex-agent-runtime",
         "acceptance-full-chain",
-        "performance-local"
+        "performance-local",
+        "dual-expert-operational",
+        "chatgpt-handoff-external",
+        "review-source-repository"
       ]
     },
     {
@@ -640,7 +672,14 @@
         "governance",
         "services/filmos-review-bus",
         "extensions/filmos-review-bridge",
-        "cli/filmos-review"
+        "cli/filmos-review",
+        "implementation/v1-1-operational-closure",
+        "acceptance/checks/v1_1_dual_expert_operational.mjs",
+        "services/filmos-review-bus/src/live-roundtrip-trace.mjs",
+        "services/filmos-review-bus/src/github-evidence-verifier.mjs"
+        ,"canvas-agent/src/brains/review-worktree-manager.ts"
+        ,"web/test/report-issue.test.mjs"
+        ,"web/test/chapter-document-view.test.ts"
       ],
       "automated_tests": [
         "python3 acceptance/checks/desktop_backup_restore.py",
@@ -673,7 +712,10 @@
         "cd cli/filmos-review && npm test",
         "node --test extensions/filmos-review-bridge/test/bridge-contract.test.mjs",
         "sh desktop/macos/Tests/pilot-data-scripts.test.sh",
-        "python3 acceptance/checks/use_driven_dual_expert.py"
+        "python3 acceptance/checks/use_driven_dual_expert.py",
+        "node acceptance/checks/v1_1_dual_expert_operational.mjs",
+        "sh desktop/macos/Tests/review-source-repository.test.sh",
+        "cd web && bun test ./test/report-issue.test.mjs ./test/chapter-document-view.test.ts"
       ],
       "golden_case_ids": [
         "GOLDEN-A-REAL",
@@ -706,7 +748,14 @@
         "CONSENSUS-ROUNDTRIP-001",
         "CHROME-USER-GESTURE-001",
         "REVIEW-COVERAGE-MATRIX-001",
-        "UI-GOLDEN-COMMIT-FRESHNESS-001"
+        "UI-GOLDEN-COMMIT-FRESHNESS-001",
+        "V1-1-DUAL-EXPERT-OPERATIONAL-AUTOMATED-001",
+        "V1-1-DUAL-EXPERT-LIVE-ROUNDTRIP-001",
+        "GITHUB-REMOTE-VERIFY-001",
+        "ISSUE-TASK-PACKAGE-001",
+        "CODEX-REVIEW-WORKTREE-001",
+        "ISSUE-PASTE-EVIDENCE-001",
+        "DOCUMENT-EASY-MARKDOWN-MODE-001"
       ],
       "required_local_check_ids": [
         "acceptance-full-chain",
@@ -746,7 +795,9 @@
         "review-cli-watcher",
         "review-bridge-contract",
         "pilot-project-copy",
-        "use-driven-dual-expert"
+        "use-driven-dual-expert",
+        "dual-expert-operational",
+        "review-source-repository"
       ],
       "required_final_check_ids": [
         "film-core-environment",
@@ -774,7 +825,9 @@
         "acceptance-reports",
         "rollback-real",
         "desktop-chatgpt-connection",
-        "no-openai-model-api-billing"
+        "no-openai-model-api-billing",
+        "dual-expert-operational",
+        "review-source-repository"
       ]
     },
     {
@@ -802,7 +855,9 @@
         "services/filmos-chatgpt-app/src/host-context.ts",
         "services/filmos-chatgpt-app/src/review-mcp.ts",
         "services/filmos-chatgpt-app/src/review-source.ts",
-        "extensions/filmos-review-bridge"
+        "extensions/filmos-review-bridge",
+        "services/filmos-review-bus/src/live-roundtrip-trace.mjs",
+        "services/filmos-review-bus/src/github-evidence-verifier.mjs"
       ],
       "automated_tests": [
         "python3 acceptance/checks/film_core_environment.py",
@@ -815,7 +870,8 @@
         "python3 acceptance/checks/agent_lifecycle_receipt.py CHATGPT-HOST-RESTART-RECOVERY-001",
         "python3 acceptance/checks/agent_lifecycle_receipt.py CHATGPT-HANDOFF-STATE-001",
         "cd services/filmos-review-bus && npm test",
-        "node --test extensions/filmos-review-bridge/test/bridge-contract.test.mjs"
+        "node --test extensions/filmos-review-bridge/test/bridge-contract.test.mjs",
+        "node acceptance/checks/v1_1_dual_expert_operational.mjs"
       ],
       "golden_case_ids": [
         "CHATGPT-MCP-001",
@@ -831,7 +887,10 @@
         "CHATGPT-EXTERNAL-ASSESSMENT-001",
         "CHROME-USER-GESTURE-001",
         "CHROME-PAIRING-REVOKE-001",
-        "CHROME-NO-COOKIE-001"
+        "CHROME-NO-COOKIE-001",
+        "V1-1-DUAL-EXPERT-OPERATIONAL-AUTOMATED-001",
+        "V1-1-DUAL-EXPERT-LIVE-ROUNDTRIP-001",
+        "CHATGPT-FINDINGS-WRITEBACK-001"
       ],
       "required_local_check_ids": [
         "film-core-environment",
@@ -846,7 +905,8 @@
         "no-openai-model-api-billing",
         "review-bus-governance",
         "review-bridge-contract",
-        "use-driven-dual-expert"
+        "use-driven-dual-expert",
+        "dual-expert-operational"
       ],
       "required_final_check_ids": [
         "film-core-environment",
@@ -857,7 +917,8 @@
         "chatgpt-handoff-state",
         "chatgpt-handoff-external",
         "acceptance-full-chain",
-        "no-openai-model-api-billing"
+        "no-openai-model-api-billing",
+        "dual-expert-operational"
       ]
     }
   ]

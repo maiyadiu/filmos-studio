@@ -8,6 +8,7 @@ export type CodexSkillInput = { type: "skill"; name: string; path: string };
 export type CodexServerRequest = { id: string | number; method: string; params: Json; threadId?: string; turnId?: string };
 export type CodexServerRequestHandler = (request: CodexServerRequest) => Promise<unknown>;
 export type CodexThreadBinding = { emit: AgentEmit; handleServerRequest?: CodexServerRequestHandler };
+export type CodexExecutionPolicy = { approvalPolicy: "on-request" | "never"; sandbox: "read-only" | "workspace-write" };
 
 type ActiveTurn = PendingRequest & { emit: AgentEmit; threadId: string };
 
@@ -86,11 +87,9 @@ export class CodexAppServerClient {
         return await this.request("account/logout", undefined);
     }
 
-    async startThread(cwd: string | undefined, config: Json, binding?: CodexThreadBinding) {
+    async startThread(cwd: string | undefined, config: Json, binding?: CodexThreadBinding, policy: CodexExecutionPolicy = interactivePolicy) {
         const result = await this.request("thread/start", {
-            approvalPolicy: "on-request",
-            approvalsReviewer: "user",
-            sandbox: "read-only",
+            ...policyParams(policy),
             config,
             ...(cwd ? { cwd } : {}),
             threadSource: "user",
@@ -102,13 +101,11 @@ export class CodexAppServerClient {
         return thread || {};
     }
 
-    async resumeThread(threadId: string, cwd: string | undefined, config: Json, binding?: CodexThreadBinding) {
+    async resumeThread(threadId: string, cwd: string | undefined, config: Json, binding?: CodexThreadBinding, policy: CodexExecutionPolicy = interactivePolicy) {
         if (binding) this.bindThread(threadId, binding);
         const result = await this.request("thread/resume", {
             threadId,
-            approvalPolicy: "on-request",
-            approvalsReviewer: "user",
-            sandbox: "read-only",
+            ...policyParams(policy),
             config,
             ...(cwd ? { cwd } : {}),
         });
@@ -143,13 +140,12 @@ export class CodexAppServerClient {
         return this.request("thread/archive", { threadId });
     }
 
-    async startTurn(threadId: string, prompt: string, images: string[], skills: CodexSkillInput[] = [], binding?: CodexThreadBinding, onTurnStarted?: (turnId: string) => void) {
+    async startTurn(threadId: string, prompt: string, images: string[], skills: CodexSkillInput[] = [], binding?: CodexThreadBinding, onTurnStarted?: (turnId: string) => void, policy: CodexExecutionPolicy = interactivePolicy) {
         if (binding) this.bindThread(threadId, binding);
         const result = await this.request("turn/start", {
             threadId,
             input: codexInput(prompt, images, skills),
-            approvalPolicy: "on-request",
-            approvalsReviewer: "user",
+            ...policyParams(policy),
         });
         const turnId = String(field(field(result, "turn"), "id") || "");
         if (!turnId) throw new Error("Codex app-server 没有返回 turn id");
@@ -290,6 +286,15 @@ export class CodexAppServerClient {
         this.pending.clear();
         this.activeTurns.clear();
     }
+}
+
+const interactivePolicy: CodexExecutionPolicy = { approvalPolicy: "on-request", sandbox: "read-only" };
+function policyParams(policy: CodexExecutionPolicy) {
+    return {
+        approvalPolicy: policy.approvalPolicy,
+        sandbox: policy.sandbox,
+        ...(policy.approvalPolicy === "on-request" ? { approvalsReviewer: "user" } : {}),
+    };
 }
 
 async function terminateProcessTree(child: ChildProcess) {

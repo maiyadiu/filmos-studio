@@ -46,7 +46,7 @@ def main() -> int:
     if set(payload) != TOP_LEVEL_KEYS:
         raise RuntimeError("Evidence Index top-level fields are not stable-contract only")
     if (
-        payload["schema_version"] != "1.2.0"
+        payload["schema_version"] != "1.3.0"
         or payload["contract_kind"] != "FILMOS_STABLE_TRACK_EVIDENCE_CONTRACT"
     ):
         raise RuntimeError("Evidence Index contract identity changed")

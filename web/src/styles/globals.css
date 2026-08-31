@@ -9213,6 +9213,20 @@
     line-height: 1.8;
 }
 
+.project-chapter-readable {
+    width: min(100%, 1040px);
+    margin: 0 auto;
+    padding: 42px 56px 72px;
+    color: color-mix(in srgb, var(--foreground) 88%, transparent);
+    font-size: 16px;
+    line-height: 1.9;
+}
+
+.project-chapter-readable .ai-message-markdown-heading-1 { margin-top: 1.6em; font-size: 1.7em; }
+.project-chapter-readable .ai-message-markdown-heading-2 { margin-top: 1.5em; font-size: 1.35em; }
+.project-chapter-readable .ai-message-markdown-heading-3 { margin-top: 1.35em; font-size: 1.15em; }
+.project-chapter-readable .ai-message-markdown-paragraph { margin: 0.75em 0; }
+
 .project-chapter-editor p {
     margin: 0 0 1em;
 }
@@ -9259,6 +9273,11 @@
     .project-chapter-editor {
         min-height: 420px;
         padding: 18px 20px 36px;
+        font-size: 15px;
+    }
+
+    .project-chapter-readable {
+        padding: 28px 24px 48px;
         font-size: 15px;
     }
 }

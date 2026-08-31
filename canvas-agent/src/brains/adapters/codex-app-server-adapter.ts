@@ -11,7 +11,7 @@ import type {
 } from "../contracts.js";
 import type { AgentEmit } from "../../types.js";
 import { CodexAppServerProcessManager } from "./codex-app-server-process-manager.js";
-import { acceptServerRequest, declineServerRequest, type CodexAppServerClient, type CodexServerRequest } from "./codex-app-server-client.js";
+import { acceptServerRequest, declineServerRequest, type CodexAppServerClient, type CodexExecutionPolicy, type CodexServerRequest } from "./codex-app-server-client.js";
 
 type CodexConfirmationDecision = { approved: boolean; content?: Record<string, unknown> };
 type CodexConfigFactory = (grant: AgentPermissionGrant) => Record<string, unknown>;
@@ -60,9 +60,10 @@ export class CodexSubscriptionAdapter implements AgentRuntimeAdapter {
 
     async createSession(input: CreateBrainSessionInput, grant: AgentPermissionGrant): Promise<Partial<BrainSession>> {
         const client = await this.processManager.client();
-        const workspace = this.workspaceForCanvas(input.canvasId);
+        const workspace = input.workspacePath ?? this.workspaceForCanvas(input.canvasId);
+        const policy = executionPolicy(input.executionProfile);
         const binding = this.binding(input.brainProfileId, grant.sessionId, () => undefined);
-        const thread = await client.startThread(workspace, this.configForGrant(grant), binding);
+        const thread = await client.startThread(workspace, executionConfig(this.configForGrant(grant), input.executionProfile), binding, policy);
         const threadId = requiredThreadId(thread);
         await preflightWorkbenchMcp(client, threadId);
         this.threadsBySession.set(grant.sessionId, threadId);
@@ -76,7 +77,8 @@ export class CodexSubscriptionAdapter implements AgentRuntimeAdapter {
         const grant = input.grant || this.grantsBySession.get(input.sessionId);
         if (!threadId || !grant) throw new Error("CODEX_SESSION_RESUME_CONTEXT_MISSING");
         const client = await this.processManager.client();
-        await client.resumeThread(threadId, input.canvasId ? this.workspaceForCanvas(input.canvasId) : undefined, this.configForGrant(grant), this.binding(this.profileId, input.sessionId, () => undefined));
+        const workspace = input.workspacePath ?? (input.canvasId ? this.workspaceForCanvas(input.canvasId) : undefined);
+        await client.resumeThread(threadId, workspace, executionConfig(this.configForGrant(grant), input.executionProfile), this.binding(this.profileId, input.sessionId, () => undefined), executionPolicy(input.executionProfile));
         await preflightWorkbenchMcp(client, threadId);
         this.threadsBySession.set(input.sessionId, threadId);
         this.clientsBySession.set(input.sessionId, client);
@@ -100,6 +102,7 @@ export class CodexSubscriptionAdapter implements AgentRuntimeAdapter {
                     input.localSkills || [],
                     this.binding(this.profileId, sessionId, normalizedEmit(sessionId, input.turnId, sink)),
                     (turnId) => this.activeTurnsBySession.set(sessionId, { client, threadId, turnId }),
+                    executionPolicy(input.session.executionProfile),
                 );
             } finally {
                 this.activeTurnsBySession.delete(sessionId);
@@ -146,7 +149,8 @@ export class CodexSubscriptionAdapter implements AgentRuntimeAdapter {
         if (this.clientsBySession.get(session.id) === client) return client;
         const threadId = session.providerThreadId || this.threadsBySession.get(session.id);
         if (!threadId) throw new Error("CODEX_SESSION_THREAD_MISSING");
-        await client.resumeThread(threadId, this.workspaceForCanvas(session.canvasId), this.configForGrant(grant), this.binding(this.profileId, session.id, normalizedEmit(session.id, "recovery", sink)));
+        const workspace = session.workspacePath ?? this.workspaceForCanvas(session.canvasId);
+        await client.resumeThread(threadId, workspace, executionConfig(this.configForGrant(grant), session.executionProfile), this.binding(this.profileId, session.id, normalizedEmit(session.id, "recovery", sink)), executionPolicy(session.executionProfile));
         this.clientsBySession.set(session.id, client);
         return client;
     }
@@ -162,6 +166,18 @@ export class CodexSubscriptionAdapter implements AgentRuntimeAdapter {
             },
         };
     }
+}
+
+function executionPolicy(profile?: BrainSession["executionProfile"]): CodexExecutionPolicy {
+    return profile === "review_coordinator"
+        ? { approvalPolicy: "never", sandbox: "workspace-write" }
+        : { approvalPolicy: "on-request", sandbox: "read-only" };
+}
+
+function executionConfig(config: Record<string, unknown>, profile?: BrainSession["executionProfile"]) {
+    return profile === "review_coordinator"
+        ? { ...config, "sandbox_workspace_write.network_access": true }
+        : config;
 }
 
 async function preflightWorkbenchMcp(client: CodexAppServerClient, threadId: string) {

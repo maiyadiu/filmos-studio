@@ -1,0 +1,104 @@
+#!/bin/sh
+set -eu
+
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+source_root=${FILMOS_REVIEW_SOURCE_ROOT:-$(git -C "$script_dir/../../.." rev-parse --show-toplevel)}
+developer_root=${FILMOS_REVIEW_DEVELOPER_ROOT:-"$HOME/Library/Application Support/FilmOS Studio/DeveloperRepository"}
+review_bus_dir=${FILMOS_REVIEW_BUS_LOCAL_DIR:-"$HOME/Library/Application Support/FilmOS Studio/review-bus"}
+target="$developer_root/filmos-studio"
+locator="$review_bus_dir/developer-repository.json"
+
+require_absolute_non_root() {
+    case "$1" in
+        /*) ;;
+        *) echo "review repository path must be absolute: $1" >&2; exit 2 ;;
+    esac
+    if [ "$1" = "/" ]; then
+        echo "review repository path cannot be the filesystem root" >&2
+        exit 2
+    fi
+}
+
+require_absolute_non_root "$source_root"
+require_absolute_non_root "$developer_root"
+require_absolute_non_root "$review_bus_dir"
+
+test "$(git -C "$source_root" rev-parse --is-inside-work-tree)" = "true"
+if [ -n "$(git -C "$source_root" status --porcelain)" ]; then
+    echo "review source installation requires a clean source worktree" >&2
+    exit 2
+fi
+
+source_commit=$(git -C "$source_root" rev-parse HEAD)
+source_tree=$(git -C "$source_root" rev-parse 'HEAD^{tree}')
+fetch_url=$(git -C "$source_root" remote get-url origin)
+push_url=$(git -C "$source_root" remote get-url --push origin)
+case "$fetch_url" in
+    https://github.com/maiyadiu/filmos-studio.git|git@github.com:maiyadiu/filmos-studio.git) ;;
+    *) echo "review source origin fetch URL is not maiyadiu/filmos-studio" >&2; exit 2 ;;
+esac
+case "$push_url" in
+    https://github.com/maiyadiu/filmos-studio.git|git@github.com:maiyadiu/filmos-studio.git) ;;
+    *) echo "review source origin push URL is not maiyadiu/filmos-studio" >&2; exit 2 ;;
+esac
+
+mkdir -p "$developer_root" "$review_bus_dir"
+chmod 700 "$developer_root" "$review_bus_dir"
+
+created=false
+if [ ! -e "$target" ]; then
+    staging=$(mktemp -d "$developer_root/.filmos-source.XXXXXX")
+    candidate="$staging/filmos-studio"
+    cleanup() {
+        find "$staging" -type f -delete 2>/dev/null || true
+        find "$staging" -depth -type d -empty -delete 2>/dev/null || true
+    }
+    trap cleanup EXIT HUP INT TERM
+    git clone --local --no-hardlinks --no-checkout "$source_root" "$candidate" >/dev/null
+    mv "$candidate" "$target"
+    created=true
+    trap - EXIT HUP INT TERM
+    find "$staging" -depth -type d -empty -delete 2>/dev/null || true
+fi
+
+test "$(git -C "$target" rev-parse --is-inside-work-tree)" = "true"
+if [ "$created" = false ] && [ -n "$(git -C "$target" status --porcelain)" ]; then
+    echo "canonical review source repository is dirty; refusing to overwrite it" >&2
+    exit 2
+fi
+
+source_common=$(git -C "$source_root" rev-parse --path-format=absolute --git-common-dir)
+target_common=$(git -C "$target" rev-parse --path-format=absolute --git-common-dir)
+if [ "$source_common" != "$target_common" ]; then
+    git -C "$target" fetch --no-tags "$source_root" HEAD >/dev/null
+fi
+git -C "$target" cat-file -e "$source_commit^{commit}"
+git -C "$target" checkout --detach "$source_commit" >/dev/null
+
+if git -C "$target" remote get-url origin >/dev/null 2>&1; then
+    git -C "$target" remote set-url origin "$fetch_url"
+else
+    git -C "$target" remote add origin "$fetch_url"
+fi
+git -C "$target" remote set-url --push origin "$push_url"
+
+locator_tmp="$locator.tmp.$$"
+python3 - "$locator_tmp" "$target" "$source_commit" "$source_tree" <<'PY'
+import json
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+path.write_text(json.dumps({
+    "schema_version": "1.0.0",
+    "repository": "maiyadiu/filmos-studio",
+    "source_repository": str(pathlib.Path(sys.argv[2]).resolve()),
+    "source_commit": sys.argv[3],
+    "source_tree": sys.argv[4],
+}, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
+PY
+chmod 600 "$locator_tmp"
+mv "$locator_tmp" "$locator"
+
+printf 'REVIEW_SOURCE_READY repository=%s commit=%s tree=%s locator=%s\n' \
+    "$target" "$source_commit" "$source_tree" "$locator"

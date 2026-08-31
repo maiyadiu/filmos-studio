@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Static integration contract for the V1.1 use-driven dual-expert system.
+"""Static smoke contract for the V1.1 use-driven dual-expert system.
 
 The component tests exercise behavior.  This check binds their public entry
 points and the zero-cost Pilot boundary into one machine-readable artifact for
@@ -16,7 +16,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 BASE_COMMIT = "6ea93bfa08381264a1379fe938ade3a7513c7bba"
 BASE_TREE = "51896f7874e21cc9868cb1bfa33b302cd323a925"
-TASK_PACKAGE_HASH = "99ebaf3b0415c3704c488dbfc23828ecccc3b5b03486a3bf759c586681782893"
+REVIEW_BASE_COMMIT = "ecfc79a9b9f7e91cdfd558747fdc5d2b62e1700a"
+TASK_PACKAGE_HASH = "7cf9bed457611e44a6b1f1bbb96968f20d83edec0d7d00bedfc73c7cdea2a10f"
 CONSTITUTION_HASH = "a61228c66e931cb977928f4d2864ab6556f3fcd163479e31ccebbc6fccf39d41"
 
 
@@ -67,11 +68,25 @@ def main() -> int:
     )
     require(
         "services/filmos-review-bus/src/server.mjs",
-        ("Library/Application Support/FilmOS Studio/review-bus", "/v1/bridge/challenge", "/v1/bridge/decision", "/v1/bridge/revoke"),
+        ("Library/Application Support/FilmOS Studio/review-bus", "/v1/bridge/challenge", "/v1/bridge/decision", "/v1/bridge/revoke", "live-roundtrip-trace"),
     )
     require(
         "services/filmos-review-bus/src/service.mjs",
-        ("FILMOS-ISSUE", "FILMOS-ARCH", "EVIDENCE_REQUIRED", "CONSENSUS_NOT_DUAL_ACCEPTED", "REVIEW_CODEX_CANNOT_SELF_CLOSE", "pilotAllowed"),
+        ("FILMOS-ISSUE", "FILMOS-ARCH", "EVIDENCE_REQUIRED", "REVIEW_CODEX_CANNOT_SELF_CLOSE", "pilotAllowed", "github_remote_verification", "runtime_recovery"),
+    )
+    require("services/filmos-review-bus/src/github-evidence-verifier.mjs", ("maiyadiu/filmos-studio", "evidence_index_hash_matches", "GITHUB_REMOTE_EVIDENCE_MISMATCH", "FILMOS_GH_EXECUTABLE"))
+    require("services/filmos-review-bus/src/live-roundtrip-trace.mjs", ("EXACTLY_TWO_CANDIDATES_REQUIRED", "CODEX_SUBSCRIPTION_COORDINATION_REQUIRED", "FORMAL_GITHUB_REMOTE_EVIDENCE_REQUIRED"))
+    require(
+        "canvas-agent/src/brains/review-codex-coordinator.ts",
+        ("filmos-governance-global", "CONSENSUS_RESPONSE", "LOCAL_CANDIDATE_ACCEPTANCE", "codex_workspace", "real Git commit"),
+    )
+    require(
+        "canvas-agent/src/brains/review-worktree-manager.ts",
+        ("FILMOS_REVIEW_SOURCE_REPOSITORY", "codex/review-", "REVIEW_WORKTREE_BASE_NOT_ANCESTOR"),
+    )
+    require(
+        "canvas-agent/src/brains/generic-agent-runtime.ts",
+        ("review_coordinator", "REVIEW_CODEX_SESSION_WORKSPACE_MISMATCH", "REVIEW_SOURCE_REPOSITORY_NOT_CONFIGURED"),
     )
     require(
         "services/filmos-chatgpt-app/src/review-mcp.ts",
@@ -79,7 +94,15 @@ def main() -> int:
     )
     require(
         "desktop/macos/Sources/FilmOSDesktopCore/ReviewBusRuntimeContract.swift",
-        ("FilmOS Studio", "FILMOS_REVIEW_BUS_READ_ENABLED", "FILMOS_REVIEW_BUS_AUTH_FILE"),
+        ("FilmOS Studio", "FILMOS_REVIEW_BUS_READ_ENABLED", "FILMOS_REVIEW_BUS_AUTH_FILE", REVIEW_BASE_COMMIT),
+    )
+    require(
+        "desktop/macos/Sources/FilmOSStudioDesktop/main.swift",
+        ("ReviewBusRuntimeContract.fixedBaseCommit", "FILMOS_GH_EXECUTABLE", "githubCLIPath", "FILMOS_REVIEW_SOURCE_REPOSITORY", "FILMOS_REVIEW_WORKTREE_ROOT"),
+    )
+    require(
+        "desktop/macos/scripts/prepare-review-source-repository",
+        ("git clone --local --no-hardlinks --no-checkout", "maiyadiu/filmos-studio", "developer-repository.json"),
     )
     require(
         "desktop/macos/scripts/build-unsigned-app",
@@ -144,8 +167,9 @@ def main() -> int:
 
     result = {
         "schema_version": "1.0.0",
-        "gate_id": "USE-DRIVEN-DUAL-EXPERT-V1-1-001",
+        "gate_id": "USE-DRIVEN-DUAL-EXPERT-V1-1-STATIC-SMOKE-001",
         "status": "PASSED",
+        "classification": "STATIC_SMOKE_NOT_OPERATIONAL_OR_EXTERNAL_LIVE_GATE",
         "pilot_base": {"id": "PILOT_BASE_0", "commit": BASE_COMMIT, "tree": BASE_TREE, "active_for_zero_cost_copy": True},
         "constitution": {"version": constitution["constitution_version"], "content_hash": constitution["content_hash"], "principles": 16},
         "task_package_content_hash": TASK_PACKAGE_HASH,

@@ -45,6 +45,8 @@ export class AgentSessionManager {
             projectId: input.projectId,
             ...(input.domainProjectId ? { domainProjectId: input.domainProjectId } : {}),
             canvasId: input.canvasId,
+            ...(input.workspacePath ? { workspacePath: input.workspacePath } : {}),
+            ...(input.executionProfile ? { executionProfile: input.executionProfile } : {}),
             ...(input.contentUnitId ? { contentUnitId: input.contentUnitId } : {}),
             ...(input.sceneId ? { sceneId: input.sceneId } : {}),
             ...(input.directorUnitId ? { directorUnitId: input.directorUnitId } : {}),
@@ -124,6 +126,8 @@ export class AgentSessionManager {
                 projectId: session.projectId,
                 ...(session.domainProjectId ? { domainProjectId: session.domainProjectId } : {}),
                 canvasId: session.canvasId,
+                ...(session.workspacePath ? { workspacePath: session.workspacePath } : {}),
+                ...(session.executionProfile ? { executionProfile: session.executionProfile } : {}),
                 grant,
                 ...(session.hostHandoff ? { hostHandoff: structuredClone(session.hostHandoff) } : {}),
             });

@@ -113,11 +113,25 @@ RC_LOCAL_CHECKS = CURRENT_CHECKS + (
         ("01-desktop", "02-film-core", "11-migration", "13-qa"),
     ),
     Check(
+        "review-source-repository",
+        "Internal no-network source clone and isolated Codex review worktree bootstrap",
+        ("sh", "desktop/macos/Tests/review-source-repository.test.sh"),
+        ROOT,
+        ("01-desktop", "08-agent", "13-qa"),
+    ),
+    Check(
         "use-driven-dual-expert",
-        "V1.1 single issue entry, dual-expert governance, Policy V2 and zero-cost readiness binding",
+        "V1.1 static smoke for single issue entry, governance and zero-cost readiness bindings",
         (sys.executable, "acceptance/checks/use_driven_dual_expert.py"),
         ROOT,
         ("01-desktop", "03-project-ui", "08-agent", "10-providers", "11-migration", "13-qa", "14-chatgpt-app"),
+    ),
+    Check(
+        "dual-expert-operational",
+        "V1.1 process-level Candidate A to B, restart, pairing, writeback and dual-signoff operational preflight",
+        ("node", "acceptance/checks/v1_1_dual_expert_operational.mjs"),
+        ROOT,
+        ("01-desktop", "03-project-ui", "08-agent", "13-qa", "14-chatgpt-app"),
     ),
     Check(
         "generation-routing-contracts",
@@ -353,6 +367,7 @@ REAL_AGENT_CHECKS = (
 
 CHECK_ARTIFACT_NAMES = {
     "use-driven-dual-expert": "use-driven-dual-expert-receipt.json",
+    "dual-expert-operational": "dual-expert-operational-receipt.json",
     "no-openai-model-api-billing": "no-openai-model-api-billing-receipt.json",
     "agent-native-multibrain": "agent-native-multibrain-receipt.json",
     "agent-codex-controlled-write": "agent-codex-controlled-write-receipt.json",

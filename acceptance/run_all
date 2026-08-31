@@ -45,11 +45,15 @@ if [ "$CLEAN" = "1" ]; then
     "$ROOT/.local/acceptance-venv/bin/python" \
         "$ROOT/acceptance/verify_release_manifest.py" \
         "$RELEASE_MANIFEST" "$RECEIPT"
-    "$ROOT/.local/acceptance-venv/bin/python" \
-        "$ROOT/acceptance/build_use_driven_dual_expert_handoff.py" \
-        --receipt "$RECEIPT" \
-        --release-manifest "$RELEASE_MANIFEST" \
-        --artifact-root "$HANDOFF_ARTIFACT_ROOT"
+    cp "$ROOT/acceptance/EVIDENCE_INDEX.json" "$ARTIFACT_ROOT/EVIDENCE_INDEX.json"
+    if [ -n "${FILMOS_V1_1_EXTERNAL_LIVE_TRACE:-}" ]; then
+        "$ROOT/.local/acceptance-venv/bin/python" \
+            "$ROOT/acceptance/build_use_driven_dual_expert_handoff.py" \
+            --receipt "$RECEIPT" \
+            --release-manifest "$RELEASE_MANIFEST" \
+            --artifact-root "$HANDOFF_ARTIFACT_ROOT" \
+            --live-trace "$FILMOS_V1_1_EXTERNAL_LIVE_TRACE"
+    fi
 fi
 
 printf '%s\n' "$RECEIPT"

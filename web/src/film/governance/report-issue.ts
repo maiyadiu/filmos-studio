@@ -1,6 +1,7 @@
 import localforage from "localforage";
 
 import { currentBuildIdentity, type BuildIdentity } from "@/film/governance/build-identity";
+import { useCanvasAgentStore } from "@/stores/canvas/use-canvas-agent-store";
 
 export const ISSUE_DRAFT_FORMAT = "filmos.usage-issue-draft/v1";
 export const ISSUE_DRAFT_STORE = "filmos-usage-issue-drafts";
@@ -15,12 +16,49 @@ export type IssueAttachment = {
     content: Blob;
 };
 
+export const MAX_ISSUE_ATTACHMENTS = 5;
+export const MAX_ISSUE_ATTACHMENT_BYTES = 25 * 1024 * 1024;
+
+export function selectPastedIssueEvidence(files: File[], currentCount: number) {
+    const media = files.filter((file) => file.type.startsWith("image/") || file.type.startsWith("video/"));
+    const withinSize = media.filter((file) => file.size <= MAX_ISSUE_ATTACHMENT_BYTES);
+    const accepted = withinSize.slice(0, Math.max(0, MAX_ISSUE_ATTACHMENTS - currentCount));
+    return {
+        accepted,
+        oversizedCount: media.length - withinSize.length,
+        truncatedCount: withinSize.length - accepted.length,
+    };
+}
+
 export type IssueContext = {
     pathname: string;
     surface: IssueSurface;
     projectId?: string;
     contentUnitId?: string;
     canvasId?: string;
+};
+
+export type IssueContextSnapshot = {
+    appCommit: string;
+    appTree: string;
+    buildId: string;
+    projectId?: string;
+    domainProjectId?: string;
+    contentUnitId?: string;
+    sceneId?: string;
+    directorUnitId?: string;
+    shotId?: string;
+    canvasId?: string;
+    canvasRevision?: number;
+    canvasStateHash?: string;
+    selectedNodeIds: string[];
+    activeBrainProfileId?: string;
+    brainSessionId?: string;
+    contextReceiptId?: string;
+    recentAuditIds: string[];
+    recentErrorCodes: string[];
+    runtimeStatus: Record<string, unknown>;
+    providerStatus: Record<string, unknown>;
 };
 
 export type LocalIssueDraft = {
@@ -31,6 +69,7 @@ export type LocalIssueDraft = {
     expected: string;
     blocking: boolean;
     context: IssueContext;
+    contextSnapshot: IssueContextSnapshot;
     build: BuildIdentity;
     attachments: IssueAttachment[];
     observedAt: string;
@@ -49,12 +88,14 @@ declare global {
         filmOSIssueSurface?: IssueSurface;
         filmOSReportIssue?: (surface?: IssueSurface) => void;
         filmOSReviewIssueIntake?: (draft: LocalIssueDraft) => Promise<{ accepted: true }>;
+        filmOSReviewCenterRequest?: (operation: string, payload?: Record<string, string>) => Promise<unknown>;
         filmOSResolveReviewIssue?: (requestId: string, result: unknown, error: string | null) => void;
         webkit?: { messageHandlers?: { filmosDesktop?: { postMessage: (message: unknown) => void } } };
     }
 }
 
-const nativeResolvers = new Map<string, { resolve: (value: { accepted: true }) => void; reject: (reason: Error) => void; timeout: number }>();
+const nativeResolvers = new Map<string, { resolve: (value: unknown) => void; reject: (reason: Error) => void; timeout: number }>();
+const replayAttempts = new Map<string, number>();
 
 function installNativeReviewIssueIntake() {
     const handler = window.webkit?.messageHandlers?.filmosDesktop;
@@ -65,33 +106,50 @@ function installNativeReviewIssueIntake() {
         window.clearTimeout(pending.timeout);
         nativeResolvers.delete(requestId);
         if (error) pending.reject(new Error(error));
-        else if (result && typeof result === "object") pending.resolve({ accepted: true });
+        else if (result && typeof result === "object") pending.resolve(result);
         else pending.reject(new Error("REVIEW_BUS_INVALID_RESPONSE"));
     };
-    window.filmOSReviewIssueIntake = (draft) => new Promise((resolve, reject) => {
+    const nativeRequest = (action: "reviewIssueRequest" | "reviewIssueAttachmentRequest", payload: Record<string, unknown>, issueId?: string) => new Promise<unknown>((resolve, reject) => {
         const requestId = crypto.randomUUID();
         const timeout = window.setTimeout(() => {
             nativeResolvers.delete(requestId);
             reject(new Error("REVIEW_BUS_TIMEOUT"));
-        }, 15_000);
+        }, action === "reviewIssueAttachmentRequest" ? 60_000 : 15_000);
         nativeResolvers.set(requestId, { resolve, reject, timeout });
+        handler.postMessage({ action, requestId, ...(issueId ? { issueId } : {}), payload });
+    });
+    window.filmOSReviewIssueIntake = async (draft) => {
+        const snapshot = draft.contextSnapshot ?? captureIssueContextSnapshot(draft.build);
         const payload: Record<string, unknown> = {
-            project_id: draft.context.projectId || "filmos-global",
+            project_id: snapshot.domainProjectId || snapshot.projectId || draft.context.projectId || "filmos-governance-global",
             what_happened: draft.occurred,
             expected_result: draft.expected,
             location: `${draft.context.surface}:${draft.context.pathname}`,
             blocks_work: draft.blocking,
-            screenshot_refs: draft.attachments.map((item) => `local-evidence:${draft.issueId}:${item.id}`),
+            screenshot_refs: [],
             issue_id: draft.issueId,
             route: draft.context.pathname,
+            context_snapshot: snapshot,
         };
         if (draft.build.buildId !== "unknown") payload.app_build_id = draft.build.buildId;
         if (draft.build.tree !== "unknown") payload.app_tree = draft.build.tree;
-        handler.postMessage({
-            action: "reviewIssueRequest",
-            requestId,
-            payload,
-        });
+        await nativeRequest("reviewIssueRequest", payload);
+        for (const item of draft.attachments) {
+            await nativeRequest("reviewIssueAttachmentRequest", {
+                attachment_id: attachmentId(item.id),
+                media_type: item.mediaType,
+                original_name: item.name,
+                base64: await blobBase64(item.content),
+                captured_at: draft.observedAt,
+            }, draft.issueId);
+        }
+        return { accepted: true };
+    };
+    window.filmOSReviewCenterRequest = (operation, payload = {}) => new Promise((resolve, reject) => {
+        const requestId = crypto.randomUUID();
+        const timeout = window.setTimeout(() => { nativeResolvers.delete(requestId); reject(new Error("REVIEW_CENTER_TIMEOUT")); }, 15_000);
+        nativeResolvers.set(requestId, { resolve, reject, timeout });
+        handler.postMessage({ action: "reviewCenterRequest", requestId, operation, payload });
     });
 }
 
@@ -149,9 +207,15 @@ export function createLocalIssueDraft(
     }
     if (!Number.isFinite(Date.parse(observedAt))) throw new Error("观测时间无效");
     const attachments = input.attachments ?? [];
-    if (attachments.length > 5 || attachments.some((item) => item.size > 25 * 1024 * 1024)) {
+    if (attachments.length > MAX_ISSUE_ATTACHMENTS || attachments.some((item) => item.size > MAX_ISSUE_ATTACHMENT_BYTES)) {
         throw new Error("最多添加5个、单个不超过25MB的截图或录屏");
     }
+    const build = dependencies.build ?? currentBuildIdentity();
+    const contextSnapshot = captureIssueContextSnapshot(build);
+    const pathContext = contextFromPathname(
+        dependencies.pathname ?? browserWindow?.location.pathname ?? "/",
+        dependencies.surface ?? browserWindow?.filmOSIssueSurface,
+    );
     return {
         format: ISSUE_DRAFT_FORMAT,
         issueId,
@@ -159,11 +223,14 @@ export function createLocalIssueDraft(
         occurred: normalizedText(input.occurred, "发生了什么"),
         expected: normalizedText(input.expected, "期望达到什么"),
         blocking: input.blocking,
-        context: contextFromPathname(
-            dependencies.pathname ?? browserWindow?.location.pathname ?? "/",
-            dependencies.surface ?? browserWindow?.filmOSIssueSurface,
-        ),
-        build: dependencies.build ?? currentBuildIdentity(),
+        context: {
+            ...pathContext,
+            ...(contextSnapshot.domainProjectId || contextSnapshot.projectId ? { projectId: contextSnapshot.domainProjectId || contextSnapshot.projectId } : {}),
+            ...(contextSnapshot.contentUnitId ? { contentUnitId: contextSnapshot.contentUnitId } : {}),
+            ...(contextSnapshot.canvasId ? { canvasId: contextSnapshot.canvasId } : {}),
+        },
+        contextSnapshot,
+        build,
         attachments,
         observedAt,
         delivery: "LOCAL_PENDING_REVIEW_BUS",
@@ -174,7 +241,7 @@ export async function saveIssueDraft(draft: LocalIssueDraft) {
     await issueDraftStore.setItem(draft.issueId, draft);
     if (typeof window === "undefined" || !window.filmOSReviewIssueIntake) return draft;
     try {
-        await window.filmOSReviewIssueIntake(draft);
+        await deliverIssueDraft(draft);
         const accepted = { ...draft, delivery: "REVIEW_BUS_ACCEPTED" as const };
         await issueDraftStore.setItem(draft.issueId, accepted);
         return accepted;
@@ -184,10 +251,104 @@ export async function saveIssueDraft(draft: LocalIssueDraft) {
     }
 }
 
+export async function replayPendingIssueDrafts() {
+    if (typeof window === "undefined" || !window.filmOSReviewIssueIntake) return { delivered: 0, pending: await countPendingIssueDrafts() };
+    const pending: LocalIssueDraft[] = [];
+    await issueDraftStore.iterate<LocalIssueDraft, void>((draft) => {
+        if (draft.delivery === "LOCAL_PENDING_REVIEW_BUS" && (replayAttempts.get(draft.issueId) ?? 0) < 5) pending.push(draft);
+    });
+    let delivered = 0;
+    for (const draft of pending) {
+        try {
+            await deliverIssueDraft(draft);
+            await issueDraftStore.setItem(draft.issueId, { ...draft, delivery: "REVIEW_BUS_ACCEPTED" as const });
+            replayAttempts.delete(draft.issueId);
+            delivered += 1;
+        } catch (error) {
+            replayAttempts.set(draft.issueId, (replayAttempts.get(draft.issueId) ?? 0) + 1);
+            window.dispatchEvent(new CustomEvent("filmos:review-issue-replay", { detail: { issueId: draft.issueId, error: error instanceof Error ? error.message : "REVIEW_BUS_REPLAY_FAILED" } }));
+        }
+    }
+    return { delivered, pending: await countPendingIssueDrafts() };
+}
+
 export async function countPendingIssueDrafts() {
     let count = 0;
     await issueDraftStore.iterate<LocalIssueDraft, void>((draft) => {
         if (draft.delivery === "LOCAL_PENDING_REVIEW_BUS") count += 1;
     });
     return count;
+}
+
+export async function reviewCenterRequest<T>(operation: string, payload: Record<string, string> = {}) {
+    if (typeof window === "undefined" || !window.filmOSReviewCenterRequest) throw new Error("REVIEW_CENTER_DESKTOP_REQUIRED");
+    return window.filmOSReviewCenterRequest(operation, payload) as Promise<T>;
+}
+
+async function deliverIssueDraft(draft: LocalIssueDraft) {
+    if (!window.filmOSReviewIssueIntake) throw new Error("REVIEW_BUS_UNAVAILABLE");
+    return window.filmOSReviewIssueIntake(draft);
+}
+
+function captureIssueContextSnapshot(build: BuildIdentity): IssueContextSnapshot {
+    const workbench = typeof window === "undefined" ? null : window.filmOSGetWorkbenchContext?.() ?? null;
+    const host = typeof window === "undefined" ? null : window.filmOSChatGPTHostStatus ?? null;
+    const activeBrainProfileId = typeof window === "undefined" ? undefined : window.localStorage.getItem("filmos.agent.activeBrainProfileId") || undefined;
+    const agent = typeof window === "undefined" ? null : useCanvasAgentStore.getState();
+    const contextReceiptId = workbench ? `film:${workbench.filmExpectedVersion ?? 0}:${workbench.filmContentHash || "unavailable"}:canvas:${workbench.canvasId}` : undefined;
+    return {
+        appCommit: build.commit,
+        appTree: build.tree,
+        buildId: build.buildId,
+        ...(workbench?.projectId ? { projectId: workbench.projectId } : {}),
+        ...(workbench?.domainProjectId ? { domainProjectId: workbench.domainProjectId } : {}),
+        ...(workbench?.contentUnitId ? { contentUnitId: workbench.contentUnitId } : {}),
+        ...(workbench?.sceneId ? { sceneId: workbench.sceneId } : {}),
+        ...(workbench?.directorUnitId ? { directorUnitId: workbench.directorUnitId } : {}),
+        ...(workbench?.shotId ? { shotId: workbench.shotId } : {}),
+        ...(workbench?.canvasId ? { canvasId: workbench.canvasId } : {}),
+        ...(workbench?.filmExpectedVersion !== undefined ? { canvasRevision: workbench.filmExpectedVersion } : {}),
+        ...(workbench?.filmContentHash ? { canvasStateHash: workbench.filmContentHash } : {}),
+        selectedNodeIds: workbench?.selectedNodeIds ?? [],
+        ...(activeBrainProfileId ? { activeBrainProfileId } : {}),
+        ...(agent?.activeThreadId ? { brainSessionId: agent.activeThreadId } : {}),
+        ...(contextReceiptId ? { contextReceiptId } : {}),
+        recentAuditIds: (agent?.eventLogs ?? []).slice(-20).map((item) => item.id),
+        recentErrorCodes: [...new Set([
+            ...(host?.state && !["CONNECTED", "WAITING_FOR_CHATGPT"].includes(host.state) ? [host.state] : []),
+            ...(agent?.connectError ? [agent.connectError] : []),
+            ...(agent?.eventLogs ?? []).filter((item) => /error|错误|失败/i.test(`${item.title} ${item.text}`)).slice(-20).map((item) => item.title),
+        ])],
+        runtimeStatus: {
+            canvasAgentConnected: agent?.connected ?? false,
+            canvasAgentActivity: agent?.activity ?? "unavailable",
+            ...(host ? { chatgptHostState: host.state, tunnelConnected: host.tunnelConnected, externalAccountConnected: host.externalAccountConnected } : {}),
+        },
+        providerStatus: { paidSubmitEnabled: build.externalPaidSubmitEnabled, activeBrainProfileId: activeBrainProfileId ?? null },
+    };
+}
+
+function attachmentId(value: string) {
+    const normalized = value.replace(/[^A-Za-z0-9-]/g, "-").slice(0, 120);
+    return `attachment-${normalized || crypto.randomUUID()}`;
+}
+
+function blobBase64(blob: Blob) {
+    return new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onerror = () => reject(reader.error ?? new Error("ATTACHMENT_READ_FAILED"));
+        reader.onload = () => {
+            const value = String(reader.result ?? "");
+            const comma = value.indexOf(",");
+            if (comma < 0) reject(new Error("ATTACHMENT_READ_FAILED"));
+            else resolve(value.slice(comma + 1));
+        };
+        reader.readAsDataURL(blob);
+    });
+}
+
+if (typeof window !== "undefined") {
+    window.setTimeout(() => { void replayPendingIssueDrafts(); }, 1_000);
+    window.addEventListener("online", () => { void replayPendingIssueDrafts(); });
+    window.setInterval(() => { void replayPendingIssueDrafts(); }, 30_000);
 }

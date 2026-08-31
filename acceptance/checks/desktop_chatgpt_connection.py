@@ -45,6 +45,7 @@ def main() -> None:
     desktop_runtime_source = (ROOT / "canvas-agent/src/desktop-runtime.ts").read_text(encoding="utf-8")
     runtime_security_source = (ROOT / "canvas-agent/src/local-runtime-security.ts").read_text(encoding="utf-8")
     install_script = (PACKAGE / "scripts/install-local-app").read_text(encoding="utf-8")
+    review_source_script = (PACKAGE / "scripts/prepare-review-source-repository").read_text(encoding="utf-8")
     fingerprint_path = PACKAGE / "scripts/source-fingerprint"
     sync_verifier = (PACKAGE / "scripts/verify-installed-app-sync").read_text(encoding="utf-8")
     bundle_verifier = (PACKAGE / "scripts/verify-unsigned-app").read_text(encoding="utf-8")
@@ -109,9 +110,22 @@ def main() -> None:
         'index($0, app_root "/Contents/") == 1',
         "NSRunningApplication.runningApplicationWithProcessIdentifier",
         "installed_app_main_pids",
+        "prepare-review-source-repository",
     ):
         if marker not in install_script:
             raise RuntimeError(f"stable local app installer is missing: {marker}")
+    for marker in (
+        "git clone --local --no-hardlinks --no-checkout",
+        "maiyadiu/filmos-studio",
+        "developer-repository.json",
+        "git -C \"$target\" checkout --detach",
+        "canonical review source repository is dirty",
+    ):
+        if marker not in review_source_script:
+            raise RuntimeError(f"review source repository bootstrap is missing: {marker}")
+    for marker in ("FILMOS_REVIEW_SOURCE_REPOSITORY", "FILMOS_REVIEW_WORKTREE_ROOT"):
+        if marker not in workbench_source:
+            raise RuntimeError(f"Desktop review Codex worktree binding is missing: {marker}")
     for marker in ("source-fingerprint", "SourceIdentity.json", "source_identity_before", "source_identity_after"):
         if marker not in build_script:
             raise RuntimeError(f"desktop bundle source identity is missing: {marker}")

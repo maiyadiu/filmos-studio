@@ -78,6 +78,7 @@ else
     "$script_dir/build-unsigned-app" "$candidate"
 fi
 "$script_dir/verify-unsigned-app" "$candidate"
+"$script_dir/prepare-review-source-repository"
 
 running_pids=$(installed_app_pids)
 if [ -n "$running_pids" ]; then

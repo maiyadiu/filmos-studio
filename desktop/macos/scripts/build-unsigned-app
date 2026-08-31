@@ -186,7 +186,11 @@ mkdir -p "$bundle/Contents/MacOS" "$bundle/Contents/Helpers" "$bundle/Contents/R
 test -x "$staging/pyinstaller-dist/FilmOSFilmCore"
 
 tunnel_archive_cache=${FILMOS_TUNNEL_CLIENT_ARCHIVE_CACHE:-"$workspace_root/.local/final-external-gates/bdec33ce/chatgpt-handoff-external/tunnel-client-download/tunnel-client-v0.0.13-darwin-arm64.zip"}
-if [ -f "$tunnel_archive_cache" ] && [ "$(uname -m)" = "arm64" ]; then
+installed_runtime_cache=${FILMOS_TUNNEL_CLIENT_RUNTIME_CACHE:-"$HOME/Applications/FilmOS Studio.app/Contents/Helpers"}
+if [ -x "$installed_runtime_cache/tunnel-client" ] && [ -x "$installed_runtime_cache/cloudflared" ]; then
+    FILMOS_TUNNEL_CLIENT_RUNTIME_CACHE="$installed_runtime_cache" \
+        "$package_dir/scripts/install-tunnel-client" "$staging/tunnel-client-runtime"
+elif [ -f "$tunnel_archive_cache" ] && [ "$(uname -m)" = "arm64" ]; then
     FILMOS_TUNNEL_CLIENT_ARCHIVE_CACHE="$tunnel_archive_cache" \
         "$package_dir/scripts/install-tunnel-client" "$staging/tunnel-client-runtime"
 else

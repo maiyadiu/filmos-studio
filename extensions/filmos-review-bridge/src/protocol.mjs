@@ -1,5 +1,13 @@
 const baseUrl = "http://127.0.0.1:17920";
-const purposes = new Set(["CHATGPT_ASSESSMENT", "CHATGPT_VERDICT", "FINDING_DECISION"]);
+const purposes = new Set(["CHATGPT_ASSESSMENT", "CHATGPT_CONSENSUS_DECISION", "CHATGPT_REVIEW_DECISION", "CHATGPT_VERDICT", "FINDING_DECISION"]);
+
+export async function pairBridge({ pairingCode, clientName = "Chrome FilmOS Review Bridge", fetchImpl = fetch }) {
+  if (!/^\d{6}$/.test(String(pairingCode))) throw new Error("INVALID_PAIRING_CODE");
+  const response = await fetchImpl(`${baseUrl}/v1/bridge/pair`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ pairing_code: String(pairingCode), client_name: clientName }) });
+  const body = await safeJson(response);
+  if (!response.ok || typeof body.bridge_session_token !== "string" || !body.client_id) throw new Error(body.code ?? "PAIRING_FAILED");
+  return body;
+}
 
 export function validateEnvelope(value) {
   const expected = ["purpose", "issue_id", "candidate_id", "candidate_commit", "decision"];

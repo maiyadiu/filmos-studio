@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { homedir } from "node:os";
@@ -8,15 +8,20 @@ import { fileURLToPath } from "node:url";
 
 import { exactObject, problem, safeEqual, sha256 } from "./canonical.mjs";
 import { CONSTITUTION_HASH, CONSTITUTION_VERSION } from "./contracts.mjs";
+import { GitHubEvidenceVerifier } from "./github-evidence-verifier.mjs";
+import { buildLiveRoundtripTrace } from "./live-roundtrip-trace.mjs";
 import { ReviewBusService } from "./service.mjs";
 import { ReviewBusStore } from "./store.mjs";
 
 const DEFAULT_PORT = 17920;
 const DEFAULT_DIR = resolve(homedir(), "Library/Application Support/FilmOS Studio/review-bus");
 const challengeRate = new Map();
+const pairingRate = new Map();
+const BRIDGE_PURPOSES = new Set(["CHATGPT_ASSESSMENT", "CHATGPT_CONSENSUS_DECISION", "CHATGPT_REVIEW_DECISION", "CHATGPT_VERDICT", "FINDING_DECISION"]);
 
-export function createReviewBusHttp({ service, store, busToken, bridgeToken, constitution, listenPort = DEFAULT_PORT, now = () => new Date() }) {
+export function createReviewBusHttp({ service, store, busToken, bridgeToken, constitution, githubVerifier = new GitHubEvidenceVerifier(), listenPort = DEFAULT_PORT, now = () => new Date(), runtimeInstanceId = `review-runtime-${randomUUID()}` }) {
   if (String(busToken).length < 24 || String(bridgeToken).length < 24) throw new Error("Review Bus local tokens must contain at least 24 characters");
+  for (const issue of store.list()) service.recordRuntimeObservation(issue.issue_id, runtimeInstanceId, now());
   const server = createServer(async (req, res) => {
     setSecurityHeaders(res);
     try {
@@ -27,17 +32,26 @@ export function createReviewBusHttp({ service, store, busToken, bridgeToken, con
       if (req.method === "GET" && url.pathname === "/healthz") return send(res, 200, { ok: true, service: "filmos-review-bus", schema_version: "filmos.review-bus.v1", storage: "sqlite-wal", port: listenPort, constitution_version: CONSTITUTION_VERSION, constitution_content_hash: CONSTITUTION_HASH, external_network_requests: 0, openai_model_api_calls: 0 });
 
       const bridgeRoute = url.pathname.startsWith("/v1/bridge/");
-      authenticate(req, bridgeRoute ? bridgeToken : busToken, bridgeRoute ? store.getConfiguration("revoked_bridge_token_hash") : null);
-      const body = ["POST", "PUT"].includes(req.method ?? "") ? await readJson(req) : null;
+      const pairingRoute = req.method === "POST" && url.pathname === "/v1/bridge/pair";
+      const bridgeIdentity = bridgeRoute && !pairingRoute
+        ? authenticateBridge(req, bridgeToken, store, now())
+        : (!bridgeRoute ? authenticate(req, busToken, null) : null);
+      const attachmentUpload = req.method === "POST" && /^\/v1\/issues\/[^/]+\/attachments$/.test(url.pathname);
+      const body = ["POST", "PUT"].includes(req.method ?? "") ? await readJson(req, attachmentUpload ? 36 * 1024 * 1024 : 1_048_576) : null;
 
       if (req.method === "POST" && url.pathname === "/v1/issues") {
-        const allowed = ["project_id", "what_happened", "expected_result", "location", "blocks_work", "screenshot_refs", "risk", "lane", "issue_id", "evidence_items", "app_build_id", "app_tree", "route"];
+        const allowed = ["project_id", "what_happened", "expected_result", "location", "blocks_work", "screenshot_refs", "risk", "lane", "issue_id", "allowed_change_scope", "evidence_items", "app_build_id", "app_tree", "route", "context_snapshot"];
         assertAllowedKeys(body, allowed);
-        const { evidence_items: evidenceItems = [], app_build_id: appBuildId = null, app_tree: appTree = null, route = null, ...report } = body;
-        const issue = service.createIssue(report, "user", now());
-        const frozen = service.freezeEvidence(issue.issue_id, {
+        const { evidence_items: evidenceItems = [], app_build_id: appBuildId = null, app_tree: appTree = null, route = null, context_snapshot: contextSnapshot = null, ...report } = body;
+        const existing = report.issue_id ? store.get(report.issue_id) : null;
+        if (existing && (existing.project_id !== report.project_id
+          || existing.report.what_happened !== report.what_happened
+          || existing.report.expected_result !== report.expected_result)) throw problem("ISSUE_IDEMPOTENCY_CONFLICT");
+        const issue = existing ?? service.createIssue(report, "user", now());
+        if (!existing) service.recordRuntimeObservation(issue.issue_id, runtimeInstanceId, now());
+        const frozen = existing ?? service.freezeEvidence(issue.issue_id, {
           source_commit: issue.base_commit,
-          items: autoEvidenceItems({ report, evidenceItems, appBuildId, appTree, route, now: now() }),
+          items: autoEvidenceItems({ report, evidenceItems, appBuildId, appTree, route, contextSnapshot, now: now() }),
         }, "system", now());
         return send(res, 201, issueReceipt(frozen));
       }
@@ -46,27 +60,72 @@ export function createReviewBusHttp({ service, store, busToken, bridgeToken, con
         const issueId = decodeURIComponent(match[1]);
         const action = match[2] ?? "";
         if (req.method === "GET" && !action) return send(res, 200, service.readRedacted(issueId, requireProject(url)));
+        if (req.method === "POST" && action === "attachments") {
+          const stored = service.storeAttachment(issueId, body, "user", now());
+          return send(res, 201, { ...issueReceipt(stored.issue), attachment: stored.attachment });
+        }
         if (req.method === "POST" && action === "evidence/freeze") return send(res, 200, issueReceipt(service.freezeEvidence(issueId, body, "codex", now())));
         if (req.method === "POST" && action === "assessments/codex") return send(res, 200, issueReceipt(service.submitAssessment(issueId, "codex", body, now())));
         if (req.method === "POST" && action === "assessments/chatgpt") return send(res, 200, issueReceipt(service.submitAssessment(issueId, "chatgpt", body, now())));
         if (req.method === "GET" && action === "assessments/blind") return send(res, 200, service.assessmentBlind(issueId, String(url.searchParams.get("viewer") ?? "")));
-        if (req.method === "POST" && action === "consensus") return send(res, 200, issueReceipt(service.setConsensus(issueId, body, "system", now())));
+        if (req.method === "POST" && action === "consensus/responses/codex") return send(res, 200, issueReceipt(service.respondConsensus(issueId, "codex", body, now())));
         if (req.method === "POST" && action === "architecture/requirement-delta") return send(res, 200, issueReceipt(service.freezeRequirementDelta(issueId, body, "user", now())));
         if (req.method === "POST" && action === "architecture/options") return send(res, 200, issueReceipt(service.setArchitectureOptions(issueId, body.options, "codex", now())));
-        if (req.method === "POST" && action === "candidates") return send(res, 200, issueReceipt(service.submitCandidate(issueId, body, "codex", now())));
+        if (req.method === "POST" && action === "architecture/accept-option") return send(res, 200, issueReceipt(service.acceptArchitectureOption(issueId, body, "user", now())));
+        if (req.method === "POST" && action === "candidates") {
+          const remoteVerification = await githubVerifier.verify(body);
+          return send(res, 200, issueReceipt(service.submitCandidate(issueId, { ...body, github_remote_verification: remoteVerification }, "codex", now())));
+        }
+        if (req.method === "POST" && action === "rounds/next") return send(res, 200, issueReceipt(service.startNextRound(issueId, "codex", now())));
         if (req.method === "POST" && action === "findings") return send(res, 200, issueReceipt(service.addFinding(issueId, body, "chatgpt", now())));
         if (req.method === "POST" && action === "finding-responses") return send(res, 200, issueReceipt(service.respondFinding(issueId, body, "codex", now())));
         if (req.method === "POST" && action === "verdicts/codex") return send(res, 200, issueReceipt(service.recordVerdict(issueId, "codex", body, now())));
         if (req.method === "POST" && action === "verdicts/chatgpt") return send(res, 200, issueReceipt(service.recordVerdict(issueId, "chatgpt", body, now())));
         if (req.method === "POST" && action === "verdicts/machine") return send(res, 200, issueReceipt(service.recordVerdict(issueId, "machine", body, now())));
         if (req.method === "POST" && action === "pilot") return send(res, 200, issueReceipt(service.deployPilot(issueId, body, "system", now())));
+        if (req.method === "POST" && action === "codex-coordination") return send(res, 200, issueReceipt(service.recordCodexCoordination(issueId, body, "review-codex-coordinator", now())));
       }
       if (req.method === "GET" && url.pathname === "/v1/review/pending") return send(res, 200, { issues: service.pending(requireProject(url)) });
       if (req.method === "GET" && url.pathname === "/v1/review/constitution") return send(res, 200, constitution);
+      if (req.method === "GET" && url.pathname === "/v1/review/admin/issues") return send(res, 200, { issues: service.listRedactedAdmin() });
+      const adminIssue = /^\/v1\/review\/admin\/issues\/([^/]+)$/.exec(url.pathname);
+      if (req.method === "GET" && adminIssue) return send(res, 200, service.readRedactedAdmin(decodeURIComponent(adminIssue[1])));
+      if (req.method === "POST" && url.pathname === "/v1/review/pairing-codes") {
+        exactObject(body, []);
+        return send(res, 201, store.createPairingCode({ now: now() }));
+      }
+      if (req.method === "GET" && url.pathname === "/v1/review/bridge-clients") return send(res, 200, { clients: store.listBridgeClients() });
+      const revokeClient = /^\/v1\/review\/bridge-clients\/([^/]+)\/revoke$/.exec(url.pathname);
+      if (req.method === "POST" && revokeClient) {
+        exactObject(body, []);
+        return send(res, 200, { revoked: true, client: store.revokeBridgeClient(decodeURIComponent(revokeClient[1]), now()) });
+      }
+      const internalAttachment = /^\/v1\/review\/internal\/issues\/([^/]+)\/attachments\/([^/]+)$/.exec(url.pathname);
+      if (req.method === "GET" && internalAttachment) {
+        const value = service.readLocalAttachment(decodeURIComponent(internalAttachment[1]), decodeURIComponent(internalAttachment[2]), requireProject(url));
+        return sendBinary(res, 200, value.bytes, value.metadata.media_type, value.metadata.sha256);
+      }
+      const internal = /^\/v1\/review\/internal\/issues\/([^/]+)\/full-context$/.exec(url.pathname);
+      if (req.method === "GET" && internal) return send(res, 200, service.readLocalFull(decodeURIComponent(internal[1]), requireProject(url)));
+      const liveTrace = /^\/v1\/review\/internal\/issues\/([^/]+)\/live-roundtrip-trace$/.exec(url.pathname);
+      if (req.method === "GET" && liveTrace) {
+        const issueId = decodeURIComponent(liveTrace[1]);
+        const issue = service.readLocalFull(issueId, requireProject(url));
+        return send(res, 200, buildLiveRoundtripTrace(issue, store.events(issueId), { eventChainVerified: store.verifyEventChain(issueId), generatedAt: now() }));
+      }
       if (req.method === "GET" && url.pathname.startsWith("/v1/review/issues/")) return readReviewProjection(service, url, res);
+
+      if (pairingRoute) {
+        if (!/^chrome-extension:\/\/[a-p]{32}$/.test(req.headers.origin ?? "")) throw problem("CHROME_EXTENSION_ORIGIN_REQUIRED", "CHROME_EXTENSION_ORIGIN_REQUIRED", 403);
+        rateLimitPairing(req, now());
+        exactObject(body, ["pairing_code", "client_name"]);
+        if (!/^\d{6}$/.test(body.pairing_code) || typeof body.client_name !== "string" || !body.client_name.trim() || body.client_name.length > 80) throw problem("INVALID_PAIRING_REQUEST");
+        return send(res, 201, store.consumePairingCode({ pairingCode: body.pairing_code, clientName: body.client_name.trim(), now: now() }));
+      }
 
       if (req.method === "POST" && url.pathname === "/v1/bridge/challenge") {
         exactObject(body, ["purpose", "issue_id", "candidate_id", "candidate_commit"]);
+        if (!BRIDGE_PURPOSES.has(body.purpose)) throw problem("UNSUPPORTED_BRIDGE_PURPOSE");
         rateLimitChallenge(req, now());
         const issue = service.requireIssue(body.issue_id);
         if (body.candidate_id && issue.active_candidate?.candidate_id !== body.candidate_id) throw problem("CANDIDATE_BINDING_MISMATCH");
@@ -75,14 +134,19 @@ export function createReviewBusHttp({ service, store, busToken, bridgeToken, con
       }
       if (req.method === "POST" && url.pathname === "/v1/bridge/decision") {
         exactObject(body, ["challenge_id", "nonce", "purpose", "issue_id", "candidate_id", "candidate_commit", "decision"]);
-        store.consumeChallenge({ challengeId: body.challenge_id, nonce: body.nonce, purpose: body.purpose, issueId: body.issue_id, candidateId: body.candidate_id, candidateCommit: body.candidate_commit, now: now() });
-        const issue = applyBridgeDecision(service, body, now());
+        if (!BRIDGE_PURPOSES.has(body.purpose)) throw problem("UNSUPPORTED_BRIDGE_PURPOSE");
+        const decisionTime = now();
+        const issue = store.consumeChallengeAndApply(
+          { challengeId: body.challenge_id, nonce: body.nonce, purpose: body.purpose, issueId: body.issue_id, candidateId: body.candidate_id, candidateCommit: body.candidate_commit, now: decisionTime },
+          () => applyBridgeDecision(service, body, decisionTime),
+        );
         return send(res, 200, { ack: true, issue_id: issue.issue_id, state: issue.state, content_hash: issue.content_hash });
       }
       if (req.method === "POST" && url.pathname === "/v1/bridge/revoke") {
         exactObject(body, []);
         if (req.headers["x-filmos-user-gesture"] !== "1") throw problem("CHROME_USER_GESTURE_REQUIRED", "CHROME_USER_GESTURE_REQUIRED", 403);
-        store.setConfiguration("revoked_bridge_token_hash", sha256(bridgeToken), now());
+        if (bridgeIdentity?.kind === "client") store.revokeBridgeClient(bridgeIdentity.client.client_id, now());
+        else store.setConfiguration("revoked_bridge_token_hash", sha256(bridgeToken), now());
         const revoked = store.revokeChallenges(now());
         return send(res, 200, { revoked: true, outstanding_challenges_revoked: revoked });
       }
@@ -95,7 +159,7 @@ export function createReviewBusHttp({ service, store, busToken, bridgeToken, con
 }
 
 function readReviewProjection(service, url, res) {
-  const match = /^\/v1\/review\/issues\/([^/]+)\/(evidence|codex-assessment-blind|candidate|diff|ci|artifact|findings|codex-responses|decision-template|verify-candidate)$/.exec(url.pathname);
+  const match = /^\/v1\/review\/issues\/([^/]+)\/(evidence|codex-assessment-blind|consensus|architecture-options|task-package|candidate|candidate-history|diff|ci|artifact|findings|codex-responses|decision-template|verify-candidate)$/.exec(url.pathname);
   if (!match) return send(res, 404, { code: "NOT_FOUND" });
   const issue = service.readRedacted(decodeURIComponent(match[1]), requireProject(url));
   const views = {
@@ -103,7 +167,11 @@ function readReviewProjection(service, url, res) {
     "codex-assessment-blind": issue.assessments?.chatgpt && issue.assessments?.codex
       ? { issue_id: issue.issue_id, own_assessment: issue.assessments.chatgpt, counterpart_assessment: issue.assessments.codex, counterpart_sealed: false, pair_complete: true, consensus_delta: issue.consensus_delta }
       : { issue_id: issue.issue_id, own_assessment: issue.assessments?.chatgpt ?? null, counterpart_assessment: null, counterpart_sealed: true, pair_complete: false },
+    consensus: { issue_id: issue.issue_id, proposal: issue.consensus_proposal ?? null, responses: issue.consensus_responses ?? [], record: issue.consensus_record ?? null },
+    "architecture-options": { issue_id: issue.issue_id, requirement_delta: issue.requirement_delta ?? null, options: issue.architecture_options ?? [] },
+    "task-package": { issue_id: issue.issue_id, task_package: issue.issue_task_package ?? null },
     candidate: { issue_id: issue.issue_id, candidate: issue.active_candidate ?? null },
+    "candidate-history": { issue_id: issue.issue_id, active_candidate_id: issue.active_candidate?.candidate_id ?? null, history: issue.candidate_history ?? [], stale_bindings: issue.stale_candidate_bindings ?? [] },
     diff: { issue_id: issue.issue_id, changed_files: issue.active_candidate?.changed_files ?? [], patch_summary: issue.active_candidate?.patch_summary ?? null },
     ci: { issue_id: issue.issue_id, github_run: issue.active_candidate?.github_run ?? null, machine_verdict: issue.verdicts.machine },
     artifact: { issue_id: issue.issue_id, artifact: issue.active_candidate ? {
@@ -121,13 +189,15 @@ function readReviewProjection(service, url, res) {
 
 function applyBridgeDecision(service, body, now) {
   if (body.purpose === "CHATGPT_ASSESSMENT") return service.submitAssessment(body.issue_id, "chatgpt", body.decision, now);
+  if (body.purpose === "CHATGPT_CONSENSUS_DECISION") return service.respondConsensus(body.issue_id, "chatgpt", body.decision, now);
+  if (body.purpose === "CHATGPT_REVIEW_DECISION") return service.submitChatGPTReviewDecision(body.issue_id, body.decision, "chatgpt", now);
   if (body.purpose === "CHATGPT_VERDICT") return service.recordVerdict(body.issue_id, "chatgpt", body.decision, now);
   if (body.purpose === "FINDING_DECISION") return service.decideFinding(body.issue_id, body.decision.finding_id, body.decision.decision, "chatgpt", now);
   throw problem("UNSUPPORTED_BRIDGE_PURPOSE");
 }
 
 function decisionTemplate(issue) {
-  return { issue_id: issue.issue_id, candidate_id: issue.active_candidate?.candidate_id ?? null, candidate_commit: issue.active_candidate?.candidate_commit ?? null, allowed_purposes: ["CHATGPT_ASSESSMENT", "CHATGPT_VERDICT", "FINDING_DECISION"], constitution_content_hash: CONSTITUTION_HASH, writeback: "USER_GESTURE_CHALLENGE_REQUIRED" };
+  return { issue_id: issue.issue_id, candidate_id: issue.active_candidate?.candidate_id ?? null, candidate_commit: issue.active_candidate?.candidate_commit ?? null, allowed_purposes: [...BRIDGE_PURPOSES], constitution_content_hash: CONSTITUTION_HASH, writeback: "USER_GESTURE_CHALLENGE_REQUIRED" };
 }
 
 function verifyCandidate(issue) {
@@ -142,6 +212,7 @@ function verifyCandidate(issue) {
     github_run: Boolean(candidate.github_run?.id) && candidate.github_run?.head_sha === candidate.candidate_commit,
     artifact: Boolean(candidate.artifact_id) && /^sha256:[0-9a-f]{64}$/.test(candidate.artifact_digest) && candidate.artifact_commit === candidate.candidate_commit,
     evidence_index: /^[0-9a-f]{64}$/.test(candidate.evidence_index_hash),
+    github_remote_verified: candidate.github_remote_verification?.status === "VERIFIED" && candidate.github_remote_verification?.candidate_commit === candidate.candidate_commit,
     nonce_present: typeof candidate.candidate_nonce === "string" && candidate.candidate_nonce.length >= 16,
     changed_files: Array.isArray(candidate.changed_files),
     known_limitations: Array.isArray(candidate.known_limitations),
@@ -153,28 +224,42 @@ function authenticate(req, expectedToken, revokedHash) {
   const value = /^Bearer\s+(.+)$/i.exec(req.headers.authorization ?? "")?.[1] ?? "";
   if (!safeEqual(value, expectedToken) || (revokedHash && safeEqual(sha256(value), revokedHash))) throw problem("LOCAL_PAIRING_REQUIRED", "LOCAL_PAIRING_REQUIRED", 401);
 }
+function authenticateBridge(req, legacyToken, store, now) {
+  const value = /^Bearer\s+(.+)$/i.exec(req.headers.authorization ?? "")?.[1] ?? "";
+  const revokedHash = store.getConfiguration("revoked_bridge_token_hash");
+  if (safeEqual(value, legacyToken) && !(revokedHash && safeEqual(sha256(value), revokedHash))) return { kind: "legacy" };
+  const client = value.length >= 24 ? store.authenticateBridgeClient(value, now) : null;
+  if (!client) throw problem("LOCAL_PAIRING_REQUIRED", "LOCAL_PAIRING_REQUIRED", 401);
+  return { kind: "client", client };
+}
 
 function requireProject(url) { const value = url.searchParams.get("project_id"); if (!value) throw problem("PROJECT_SCOPE_REQUIRED"); return value; }
 function issueReceipt(issue) { return { issue_id: issue.issue_id, lane: issue.lane, state: issue.state, content_hash: issue.content_hash, entity_version: issue.entity_version }; }
-function autoEvidenceItems({ report, evidenceItems, appBuildId, appTree, route, now }) {
+function autoEvidenceItems({ report, evidenceItems, appBuildId, appTree, route, contextSnapshot, now }) {
   const capturedAt = now.toISOString();
   const automatic = [
     { kind: "reproduction", completeness_kind: "reproduction", local_only: true, captured_at: capturedAt, content: { what_happened: report.what_happened, expected_result: report.expected_result, blocks_work: report.blocks_work } },
-    { kind: "runtime", completeness_kind: "runtime", local_only: true, captured_at: capturedAt, content: { app_build_id: appBuildId, app_tree: appTree, platform: process.platform, architecture: process.arch, node: process.version } },
+    { kind: "runtime", completeness_kind: "runtime", local_only: true, captured_at: capturedAt, content: { app_build_id: appBuildId, app_tree: appTree, platform: process.platform, architecture: process.arch, node: process.version, runtime_status: contextSnapshot?.runtimeStatus ?? {}, provider_status: contextSnapshot?.providerStatus ?? {} } },
     { kind: "source_map", completeness_kind: "sourceMap", local_only: true, captured_at: capturedAt, content: { location: report.location, route } },
   ];
+  if (contextSnapshot) automatic.push(
+    { kind: "logs", completeness_kind: "logs", local_only: true, captured_at: capturedAt, content: { recent_audit_ids: contextSnapshot.recentAuditIds ?? [], recent_error_codes: contextSnapshot.recentErrorCodes ?? [] } },
+    { kind: "database", completeness_kind: "database", local_only: true, captured_at: capturedAt, content: { project_id: contextSnapshot.domainProjectId ?? contextSnapshot.projectId ?? report.project_id, content_unit_id: contextSnapshot.contentUnitId ?? null, scene_id: contextSnapshot.sceneId ?? null, director_unit_id: contextSnapshot.directorUnitId ?? null, shot_id: contextSnapshot.shotId ?? null } },
+    { kind: "workbench_context", completeness_kind: "context", local_only: true, captured_at: capturedAt, content: contextSnapshot },
+  );
   if (Array.isArray(report.screenshot_refs) && report.screenshot_refs.length) automatic.push({ kind: "screenshot", completeness_kind: "screenshot", local_only: true, captured_at: capturedAt, content: { local_references: report.screenshot_refs } });
   return [...automatic, ...(Array.isArray(evidenceItems) ? evidenceItems : [])];
 }
 function assertAllowedKeys(value, allowed) { if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).some((key) => !allowed.includes(key))) throw problem("INVALID_BODY"); }
 
-async function readJson(req) {
+async function readJson(req, limit = 1_048_576) {
   const chunks = []; let size = 0;
-  for await (const chunk of req) { size += chunk.length; if (size > 1_048_576) throw problem("REQUEST_TOO_LARGE", "REQUEST_TOO_LARGE", 413); chunks.push(chunk); }
+  for await (const chunk of req) { size += chunk.length; if (size > limit) throw problem("REQUEST_TOO_LARGE", "REQUEST_TOO_LARGE", 413); chunks.push(chunk); }
   try { return JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}"); } catch { throw problem("INVALID_JSON"); }
 }
 
 function send(res, status, body) { res.statusCode = status; res.setHeader("Content-Type", "application/json; charset=utf-8"); res.end(JSON.stringify(body)); }
+function sendBinary(res, status, bytes, mediaType, digest) { res.statusCode = status; res.setHeader("Content-Type", mediaType); res.setHeader("Content-Length", String(bytes.length)); res.setHeader("Digest", `sha-256=${Buffer.from(digest, "hex").toString("base64")}`); res.setHeader("X-FilmOS-SHA256", digest); res.end(bytes); }
 function setSecurityHeaders(res) { res.setHeader("Cache-Control", "no-store"); res.setHeader("X-Content-Type-Options", "nosniff"); res.setHeader("Referrer-Policy", "no-referrer"); }
 function isLoopbackHost(value = "") { const host = value.startsWith("[") ? value.slice(1, value.indexOf("]")) : value.split(":")[0]; return ["127.0.0.1", "localhost", "::1"].includes(host); }
 
@@ -202,6 +287,13 @@ function rateLimitChallenge(req, now) {
   values.push(now.getTime()); challengeRate.set(key, values);
 }
 
+function rateLimitPairing(req, now) {
+  const key = String(req.socket.remoteAddress ?? "loopback"); const windowStart = now.getTime() - 60_000;
+  const values = (pairingRate.get(key) ?? []).filter((time) => time > windowStart);
+  if (values.length >= 10) throw problem("PAIRING_RATE_LIMITED", "PAIRING_RATE_LIMITED", 429);
+  values.push(now.getTime()); pairingRate.set(key, values);
+}
+
 export function ensureLocalToken(path, explicit) {
   if (explicit) return explicit;
   if (existsSync(path)) return readFileSync(path, "utf8").trim();
@@ -222,7 +314,8 @@ export function startFromEnvironment(env = process.env) {
   const constitutionPath = resolve(env.FILMOS_REVIEW_CONSTITUTION_PATH ?? resolve(import.meta.dirname, "../../../governance/FILMOS_CONSTITUTION.json"));
   const constitution = JSON.parse(readFileSync(constitutionPath, "utf8"));
   const service = new ReviewBusService(store, { baseCommit: env.FILMOS_REVIEW_BASE_COMMIT, taskPackageContentHash: env.FILMOS_REVIEW_TASK_PACKAGE_HASH });
-  const server = createReviewBusHttp({ service, store, busToken, bridgeToken, constitution, listenPort: port });
+  const githubVerifier = new GitHubEvidenceVerifier({ repository: env.FILMOS_REVIEW_GITHUB_REPOSITORY ?? "maiyadiu/filmos-studio" });
+  const server = createReviewBusHttp({ service, store, busToken, bridgeToken, constitution, githubVerifier, listenPort: port });
   const backupDirectory = resolve(env.FILMOS_REVIEW_BACKUP_DIR ?? resolve(localDir, "backups"));
   const backupIntervalMs = Math.max(60_000, Number(env.FILMOS_REVIEW_BACKUP_INTERVAL_MS ?? 86_400_000));
   const backupTimer = setInterval(() => {

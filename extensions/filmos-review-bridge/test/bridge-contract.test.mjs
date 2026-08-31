@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import test from "node:test";
 import vm from "node:vm";
 
-import { parseDecisionCandidates, sendDecision, validateEnvelope } from "../src/protocol.mjs";
+import { pairBridge, parseDecisionCandidates, sendDecision, validateEnvelope } from "../src/protocol.mjs";
 
 const envelope = { purpose: "CHATGPT_VERDICT", issue_id: "FILMOS-ISSUE-test", candidate_id: "candidate-1", candidate_commit: "a".repeat(40), decision: { verdict: "EXTERNAL_APPROVED" } };
 
@@ -14,6 +14,21 @@ test("Manifest V3 has only local bridge hosts and no cookie permission", () => {
   assert.deepEqual(manifest.host_permissions, ["https://chatgpt.com/*", "http://127.0.0.1:17920/*"]);
   assert.deepEqual(manifest.permissions, ["storage"]);
   assert.equal(JSON.stringify(manifest).includes("cookies"), false);
+});
+
+test("options use a six-digit one-time pairing code and never ask for a raw bridge token", async () => {
+  const html = readFileSync(resolve(import.meta.dirname, "../options.html"), "utf8");
+  assert.match(html, /6位配对码/);
+  assert.equal(html.includes("Pairing Token"), false);
+  let request;
+  const receipt = await pairBridge({ pairingCode: "123456", fetchImpl: async (url, init) => {
+    request = { url, body: JSON.parse(init.body) };
+    return new Response(JSON.stringify({ client_id: "bridge-client-1", bridge_session_token: "bridge-session-1234567890-abcdefghijkl" }), { status: 201, headers: { "content-type": "application/json" } });
+  } });
+  assert.match(request.url, /\/v1\/bridge\/pair$/);
+  assert.equal(request.body.pairing_code, "123456");
+  assert.equal(receipt.client_id, "bridge-client-1");
+  await assert.rejects(() => pairBridge({ pairingCode: "token-token-token" }), /INVALID_PAIRING_CODE/);
 });
 
 test("writeback requires a fresh user gesture and uses challenge before decision", async () => {

@@ -2,6 +2,15 @@ name: FilmOS Acceptance
 
 on:
   workflow_dispatch:
+    inputs:
+      live_trace_base64:
+        description: Optional base64 V1.1 external Live Trace; required only for final operational Handoff
+        required: false
+        type: string
+      live_trace_sha256:
+        description: Required SHA-256 when live_trace_base64 is supplied
+        required: false
+        type: string
   pull_request:
     paths:
       - acceptance/**
@@ -32,6 +41,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   rc-local:
@@ -99,6 +109,27 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.0
+
+      - name: Decode and verify optional external Live Trace
+        if: ${{ inputs.live_trace_base64 != '' }}
+        env:
+          FILMOS_LIVE_TRACE_BASE64: ${{ inputs.live_trace_base64 }}
+          FILMOS_LIVE_TRACE_SHA256: ${{ inputs.live_trace_sha256 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          trace_path="$RUNNER_TEMP/V1_1_DUAL_EXPERT_LIVE_ROUNDTRIP_TRACE.json"
+          python3 - "$trace_path" <<'PY'
+          import base64, hashlib, os, pathlib, sys
+          expected = os.environ.get("FILMOS_LIVE_TRACE_SHA256", "")
+          if len(expected) != 64:
+              raise SystemExit("live_trace_sha256 is required and must be 64 hex characters")
+          data = base64.b64decode(os.environ["FILMOS_LIVE_TRACE_BASE64"], validate=True)
+          if hashlib.sha256(data).hexdigest() != expected:
+              raise SystemExit("external Live Trace SHA-256 mismatch")
+          pathlib.Path(sys.argv[1]).write_bytes(data)
+          PY
+          echo "FILMOS_V1_1_EXTERNAL_LIVE_TRACE=$trace_path" >> "$GITHUB_ENV"
 
       - name: Run clean Local-first acceptance
         env:

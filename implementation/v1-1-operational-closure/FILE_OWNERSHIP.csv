@@ -1,0 +1,9 @@
+work_package,owned_paths,authority,non_goals
+WP-01,"services/filmos-review-bus/src/{service,store,server,contracts}.mjs; services/filmos-review-bus/test",Review Bus state machine,"Film Core schema; provider runtime"
+WP-02,"services/filmos-review-bus; cli/filmos-review; services/filmos-chatgpt-app; extensions/filmos-review-bridge",Consensus and Issue Task Package,"new governance authority"
+WP-03,"cli/filmos-review; desktop/macos; services/filmos-review-bus",Codex subscription coordination,"OpenAI model API"
+WP-04,"web/src/film/governance; web/src/components/governance; desktop/macos; services/filmos-review-bus",Evidence capture and replay,"external upload"
+WP-05,"web/src/pages/admin; web/src/router.tsx; extensions/filmos-review-bridge; services/filmos-review-bus",Review Center and pairing,"parallel admin backend"
+WP-06,"services/filmos-review-bus; cli/filmos-review",GitHub evidence verifier,"self-declared PASS"
+WP-07,"acceptance; desktop/macos",Live packaged roundtrip,"static-only completion"
+WP-08,".github/workflows; acceptance",CI artifact and handoff,"local post-CI repack"

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { contextFromPathname, createLocalIssueDraft } from "../src/film/governance/report-issue";
+import { contextFromPathname, createLocalIssueDraft, selectPastedIssueEvidence } from "../src/film/governance/report-issue";
 
 const build = {
     commit: "6ea93bfa08381264a1379fe938ade3a7513c7bba",
@@ -54,5 +54,16 @@ describe("usage issue intake", () => {
             { pathname: "/", now: "2026-08-31T00:00:00.000Z", build },
         );
         expect(draft.issueId).toMatch(/^FILMOS-ISSUE-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+    });
+
+    test("pasted evidence accepts only bounded image/video bytes and respects remaining slots", () => {
+        const image = new File(["image"], "shot.png", { type: "image/png" });
+        const video = new File(["video"], "screen.mov", { type: "video/quicktime" });
+        const text = new File(["text"], "note.txt", { type: "text/plain" });
+        const oversized = new File([new Uint8Array(25 * 1024 * 1024 + 1)], "large.png", { type: "image/png" });
+        const selected = selectPastedIssueEvidence([image, text, video, oversized], 4);
+        expect(selected.accepted.map((file) => file.name)).toEqual(["shot.png"]);
+        expect(selected.oversizedCount).toBe(1);
+        expect(selected.truncatedCount).toBe(1);
     });
 });

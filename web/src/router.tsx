@@ -19,6 +19,7 @@ const FeatureAvailabilityPage = lazy(() => import("@/pages/admin/admin-route-pag
 const ChannelsPage = lazy(() => import("@/pages/admin/channels/channels-page"));
 const LogicalModelsPage = lazy(() => import("@/pages/admin/logical-models/logical-models-page"));
 const LogsPage = lazy(() => import("@/pages/admin/logs/logs-page"));
+const ReviewCenterPage = lazy(() => import("@/pages/admin/review-center/review-center-page"));
 const RedemptionCodesPage = lazy(() => import("@/pages/admin/redemption-codes/redemption-codes-page"));
 const RuntimePolicySettingsPage = lazy(() => import("@/pages/admin/settings/runtime-policy-settings-page"));
 const DrawingEngineSettingsPage = lazy(() => import("@/pages/admin/settings/drawing-engine-settings-page"));
@@ -150,6 +151,7 @@ export const router = createBrowserRouter([
                     { path: "credit-operations", element: deferred(<CreditOperationsPage />) },
                     { path: "redemption-codes", element: deferred(<RedemptionCodesPage />) },
                     { path: "logs", element: deferred(<LogsPage />) },
+                    { path: "review-center", element: deferred(<ReviewCenterPage />) },
                     { path: "settings", element: <Navigate to="runtime-policy" replace /> },
                     { path: "settings/drawing-engine", element: deferred(<DrawingEngineSettingsPage />) },
                     { path: "settings/concurrency", element: <Navigate to="/admin/settings/runtime-policy" replace /> },

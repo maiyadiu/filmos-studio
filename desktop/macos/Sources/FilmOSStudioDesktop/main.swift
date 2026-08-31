@@ -126,6 +126,16 @@ private final class InternalWorkbenchCoordinator {
         localRuntimeEnvironment["FILMOS_AGENT_RUNTIME_PROFILE"] = configuration.agentRuntimeProfile
         localRuntimeEnvironment["FILMOS_AGENT_FEATURE_FLAGS_HASH"] = configuration.agentFeatureFlagsHash
         localRuntimeEnvironment["FILMOS_AGENT_GATEWAY_ENABLED"] = configuration.agentRuntimeProfile == "filmos-candidate" ? "true" : "false"
+        localRuntimeEnvironment["FILMOS_REVIEW_CODEX_COORDINATOR_ENABLED"] = configuration.agentRuntimeProfile == "filmos-candidate" ? "true" : "false"
+        localRuntimeEnvironment["FILMOS_REVIEW_BUS_BASE_URL"] = Self.origin(for: configuration.reviewBusHealthURL)
+        localRuntimeEnvironment["FILMOS_REVIEW_BUS_AUTH_FILE"] = reviewBusDirectory.appendingPathComponent("review-bus.token").path
+        let developerRepository = ReviewBusRuntimeContract.developerRepositoryDirectory(applicationRuntimeRoot: applicationRuntimeRoot)
+        let reviewWorktreeDirectory = ReviewBusRuntimeContract.reviewWorktreeDirectory(applicationRuntimeRoot: applicationRuntimeRoot)
+        if fileManager.fileExists(atPath: developerRepository.path) {
+            try fileManager.createDirectory(at: reviewWorktreeDirectory, withIntermediateDirectories: true)
+            localRuntimeEnvironment["FILMOS_REVIEW_SOURCE_REPOSITORY"] = developerRepository.path
+            localRuntimeEnvironment["FILMOS_REVIEW_WORKTREE_ROOT"] = reviewWorktreeDirectory.path
+        }
         localRuntimeEnvironment["FILMOS_EXTERNAL_PAID_SUBMIT_ENABLED"] = configuration.externalPaidSubmitEnabled ? "true" : "false"
         localRuntimeEnvironment["FILMOS_CANVAS_AGENT_MCP_EXECUTABLE"] = canvasAgentMCPExecutable.path
         if let dreaminaCLIPath = Self.dreaminaCLIPath(homeDirectory: localRuntimeEnvironment["HOME"]) {
@@ -153,7 +163,12 @@ private final class InternalWorkbenchCoordinator {
         reviewBusEnvironment["FILMOS_REVIEW_BUS_PORT"] = String(configuration.reviewBusHealthURL.port ?? 17920)
         reviewBusEnvironment["FILMOS_REVIEW_BUS_LOCAL_DIR"] = reviewBusDirectory.path
         reviewBusEnvironment["FILMOS_REVIEW_CONSTITUTION_PATH"] = constitutionURL.path
-        reviewBusEnvironment["FILMOS_REVIEW_BASE_COMMIT"] = configuration.sourceCommit
+        reviewBusEnvironment["FILMOS_REVIEW_BASE_COMMIT"] = ReviewBusRuntimeContract.fixedBaseCommit
+        if let githubCLIPath = Self.githubCLIPath() {
+            // Finder/Dock launches do not inherit an interactive shell PATH.
+            // The Review Bus needs gh for remote Run/Artifact verification.
+            reviewBusEnvironment["FILMOS_GH_EXECUTABLE"] = githubCLIPath
+        }
         reviewBusEnvironment["PWD"] = reviewBusDirectory.path
         try supervisor.register(ServiceDefinition(
             id: reviewBusServiceID,
@@ -247,7 +262,7 @@ private final class InternalWorkbenchCoordinator {
               Set(object.keys).isSubset(of: [
                   "project_id", "what_happened", "expected_result", "location",
                   "blocks_work", "screenshot_refs", "issue_id", "evidence_items",
-                  "app_build_id", "app_tree", "route",
+                  "app_build_id", "app_tree", "route", "context_snapshot",
               ])
         else { throw ReviewBusBridgeError.invalidRequest }
         let token = try String(contentsOf: reviewBusTokenURL, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -263,6 +278,75 @@ private final class InternalWorkbenchCoordinator {
               responseData.count <= 512 * 1024,
               (try? JSONSerialization.jsonObject(with: responseData)) != nil
         else { throw ReviewBusBridgeError.rejected }
+        return responseData
+    }
+
+    func submitReviewAttachment(issueID: String, data: Data) async throws -> Data {
+        guard issueID.range(of: "^FILMOS-(?:ISSUE|ARCH)-[A-Za-z0-9-]{1,120}$", options: .regularExpression) != nil,
+              data.count <= 36 * 1024 * 1024,
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              Set(object.keys) == Set(["attachment_id", "media_type", "original_name", "base64", "captured_at"])
+        else { throw ReviewBusBridgeError.invalidRequest }
+        let token = try String(contentsOf: reviewBusTokenURL, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard token.count >= 24 else { throw ReviewBusBridgeError.pairingUnavailable }
+        let url = configuration.reviewBusIssueURL
+            .appendingPathComponent(issueID, isDirectory: true)
+            .appendingPathComponent("attachments")
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.httpBody = data
+        request.timeoutInterval = 45
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        let (responseData, response) = try await URLSession.shared.data(for: request)
+        guard let response = response as? HTTPURLResponse, response.statusCode == 201,
+              responseData.count <= 512 * 1024,
+              (try? JSONSerialization.jsonObject(with: responseData)) != nil
+        else { throw ReviewBusBridgeError.rejected }
+        return responseData
+    }
+
+    func reviewCenterRequest(operation: String, payload: [String: String]) async throws -> Data {
+        let path: String
+        let method: String
+        switch operation {
+        case "list_issues":
+            guard payload.isEmpty else { throw ReviewBusBridgeError.invalidRequest }
+            path = "review/admin/issues"; method = "GET"
+        case "get_issue":
+            guard payload.count == 1, let issueID = payload["issue_id"],
+                  issueID.range(of: "^FILMOS-(?:ISSUE|ARCH)-[A-Za-z0-9-]{1,120}$", options: .regularExpression) != nil else { throw ReviewBusBridgeError.invalidRequest }
+            path = "review/admin/issues/\(issueID)"; method = "GET"
+        case "create_pairing_code":
+            guard payload.isEmpty else { throw ReviewBusBridgeError.invalidRequest }
+            path = "review/pairing-codes"; method = "POST"
+        case "list_bridge_clients":
+            guard payload.isEmpty else { throw ReviewBusBridgeError.invalidRequest }
+            path = "review/bridge-clients"; method = "GET"
+        case "revoke_bridge_client":
+            guard payload.count == 1, let clientID = payload["client_id"],
+                  clientID.range(of: "^bridge-client-[A-Fa-f0-9-]{36}$", options: .regularExpression) != nil else { throw ReviewBusBridgeError.invalidRequest }
+            path = "review/bridge-clients/\(clientID)/revoke"; method = "POST"
+        default: throw ReviewBusBridgeError.invalidRequest
+        }
+        let apiRoot = configuration.reviewBusIssueURL.deletingLastPathComponent()
+        let url = path.split(separator: "/").reduce(apiRoot) { partialURL, component in
+            partialURL.appendingPathComponent(String(component))
+        }
+        let token = try String(contentsOf: reviewBusTokenURL, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard token.count >= 24 else { throw ReviewBusBridgeError.pairingUnavailable }
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        request.timeoutInterval = 15
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        if method == "POST" {
+            request.httpBody = Data("{}".utf8)
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        }
+        let (responseData, response) = try await URLSession.shared.data(for: request)
+        guard let response = response as? HTTPURLResponse, [200, 201].contains(response.statusCode),
+              responseData.count <= 4 * 1024 * 1024,
+              (try? JSONSerialization.jsonObject(with: responseData)) != nil else { throw ReviewBusBridgeError.rejected }
         return responseData
     }
 
@@ -315,6 +399,12 @@ private final class InternalWorkbenchCoordinator {
             return [URL(fileURLWithPath: home, isDirectory: true).appendingPathComponent(".local/bin/dreamina").path]
         } ?? []
         return (homeCandidates + ["/opt/homebrew/bin/dreamina", "/usr/local/bin/dreamina"])
+            .first(where: { fileManager.isExecutableFile(atPath: $0) })
+    }
+
+    private static func githubCLIPath() -> String? {
+        let fileManager = FileManager.default
+        return ["/opt/homebrew/bin/gh", "/usr/local/bin/gh", "/usr/bin/gh"]
             .first(where: { fileManager.isExecutableFile(atPath: $0) })
     }
 
@@ -487,6 +577,8 @@ private final class WorkbenchWindow: NSObject, @preconcurrency WKNavigationDeleg
     var onWorkbenchProjectChanged: ((String, String?, String?) -> Void)?
     var onChatGPTHostRequest: ((String, String, Data) -> Void)?
     var onReviewIssueRequest: ((String, Data) -> Void)?
+    var onReviewIssueAttachmentRequest: ((String, String, Data) -> Void)?
+    var onReviewCenterRequest: ((String, String, [String: String]) -> Void)?
 
     private let webView: WKWebView
     private let overlay = NSVisualEffectView()
@@ -653,6 +745,27 @@ private final class WorkbenchWindow: NSObject, @preconcurrency WKNavigationDeleg
            JSONSerialization.isValidJSONObject(payload),
            let data = try? JSONSerialization.data(withJSONObject: payload), data.count <= 512 * 1024 {
             onReviewIssueRequest?(requestID, data)
+            return
+        }
+        if action == "reviewIssueAttachmentRequest",
+           Set(body.keys) == Set(["action", "requestId", "issueId", "payload"]),
+           let requestID = body["requestId"] as? String,
+           requestID.range(of: "^[A-Fa-f0-9-]{36}$", options: .regularExpression) != nil,
+           let issueID = body["issueId"] as? String,
+           issueID.range(of: "^FILMOS-(?:ISSUE|ARCH)-[A-Za-z0-9-]{1,120}$", options: .regularExpression) != nil,
+           let payload = body["payload"] as? [String: Any],
+           JSONSerialization.isValidJSONObject(payload),
+           let data = try? JSONSerialization.data(withJSONObject: payload), data.count <= 36 * 1024 * 1024 {
+            onReviewIssueAttachmentRequest?(requestID, issueID, data)
+            return
+        }
+        if action == "reviewCenterRequest",
+           Set(body.keys) == Set(["action", "requestId", "operation", "payload"]),
+           let requestID = body["requestId"] as? String,
+           requestID.range(of: "^[A-Fa-f0-9-]{36}$", options: .regularExpression) != nil,
+           let operation = body["operation"] as? String,
+           let payload = body["payload"] as? [String: String] {
+            onReviewCenterRequest?(requestID, operation, payload)
         }
     }
 
@@ -810,6 +923,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     workbenchWindow?.resolveReviewIssueRequest(requestID: requestID, data: result, error: nil)
                 } catch {
                     let code = (error as? ReviewBusBridgeError)?.code ?? "REVIEW_BUS_REQUEST_FAILED"
+                    workbenchWindow?.resolveReviewIssueRequest(requestID: requestID, data: nil, error: code)
+                }
+            }
+        }
+        workbenchWindow.onReviewIssueAttachmentRequest = { [weak self, weak workbenchWindow] requestID, issueID, payload in
+            guard let coordinator = self?.coordinator else {
+                workbenchWindow?.resolveReviewIssueRequest(requestID: requestID, data: nil, error: "REVIEW_BUS_UNAVAILABLE")
+                return
+            }
+            Task {
+                do {
+                    let result = try await coordinator.submitReviewAttachment(issueID: issueID, data: payload)
+                    workbenchWindow?.resolveReviewIssueRequest(requestID: requestID, data: result, error: nil)
+                } catch {
+                    let code = (error as? ReviewBusBridgeError)?.code ?? "REVIEW_BUS_ATTACHMENT_FAILED"
+                    workbenchWindow?.resolveReviewIssueRequest(requestID: requestID, data: nil, error: code)
+                }
+            }
+        }
+        workbenchWindow.onReviewCenterRequest = { [weak self, weak workbenchWindow] requestID, operation, payload in
+            guard let coordinator = self?.coordinator else {
+                workbenchWindow?.resolveReviewIssueRequest(requestID: requestID, data: nil, error: "REVIEW_BUS_UNAVAILABLE")
+                return
+            }
+            Task {
+                do {
+                    let result = try await coordinator.reviewCenterRequest(operation: operation, payload: payload)
+                    workbenchWindow?.resolveReviewIssueRequest(requestID: requestID, data: result, error: nil)
+                } catch {
+                    let code = (error as? ReviewBusBridgeError)?.code ?? "REVIEW_CENTER_REQUEST_FAILED"
                     workbenchWindow?.resolveReviewIssueRequest(requestID: requestID, data: nil, error: code)
                 }
             }

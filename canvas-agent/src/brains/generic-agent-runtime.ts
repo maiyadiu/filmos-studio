@@ -25,6 +25,8 @@ import { CanonicalAgentToolBroker, type AgentBrokerOutcome } from "./tool-broker
 import { AgentRuntimeInstrumentation } from "./instrumentation.js";
 import { registerProductionToolProviders, type CanonicalCanvasToolExecutor } from "./tool-providers.js";
 import type { BrainSession } from "./contracts.js";
+import { HttpReviewBusCoordinator, ReviewCodexCoordinator, reviewConversationId, reviewTurnId } from "./review-codex-coordinator.js";
+import { ReviewWorktreeManager } from "./review-worktree-manager.js";
 
 type GenericAgentRuntimeOptions = {
     store?: BrainSessionStore;
@@ -61,6 +63,7 @@ export class GenericAgentRuntime {
     private readonly confirmationWaiters = new Map<string, ConfirmationWaiter>();
     private readonly actorId: string;
     private readonly featureFlags: AgentFeatureFlags;
+    private reviewCoordinatorAbort?: AbortController;
 
     constructor(
         config: LocalRuntimeConfig,
@@ -103,6 +106,7 @@ export class GenericAgentRuntime {
         });
         this.manager = new AgentSessionManager(this.registry, this.store, this.grants, this.confirmations, this.contexts, () => new Date(), this.tools, audit);
         this.emit = emit;
+        this.startReviewCoordinator();
     }
 
     async listConnections() {
@@ -247,6 +251,59 @@ export class GenericAgentRuntime {
 
     private readonly emit: AgentEmit;
 
+    private startReviewCoordinator() {
+        if (process.env.FILMOS_REVIEW_CODEX_COORDINATOR_ENABLED !== "true" || !process.env.FILMOS_REVIEW_BUS_AUTH_FILE) return;
+        const worktrees = ReviewWorktreeManager.fromEnvironment();
+        if (!worktrees) {
+            this.emit("agent_event", { type: "review.coordinator.failed", code: "REVIEW_SOURCE_REPOSITORY_NOT_CONFIGURED", at: new Date().toISOString() });
+            return;
+        }
+        const bus = new HttpReviewBusCoordinator(process.env.FILMOS_REVIEW_BUS_BASE_URL ?? "http://127.0.0.1:17920", process.env.FILMOS_REVIEW_BUS_AUTH_FILE);
+        const coordinator = new ReviewCodexCoordinator(bus, {
+            ensure: async ({ issueId, projectId, canvasId, workspacePath }) => {
+                const existing = (await this.store.listSessions({ projectId, brainProfileId: "codex.subscription" }))
+                    .find((item) => item.conversationId === reviewConversationId(issueId) && !["closed", "failed"].includes(item.status));
+                if (existing) {
+                    if (existing.executionProfile !== "review_coordinator" || existing.workspacePath !== workspacePath) throw new Error("REVIEW_CODEX_SESSION_WORKSPACE_MISMATCH");
+                    if (!this.hydratedSessions.has(existing.id)) await this.resumeSession(existing.id, this.actorId);
+                    return (await this.store.getSession(existing.id)) ?? existing;
+                }
+                return (await this.createSession({
+                    conversationId: reviewConversationId(issueId),
+                    brainProfileId: "codex.subscription",
+                    projectId,
+                    canvasId,
+                    actorId: this.actorId,
+                    workspacePath,
+                    executionProfile: "review_coordinator",
+                })).session;
+            },
+            run: async (sessionId, prompt) => {
+                let output = "";
+                const session = await this.store.getSession(sessionId);
+                if (!session) throw new Error("BRAIN_SESSION_NOT_FOUND");
+                await this.sendTurn(sessionId, { turnId: reviewTurnId(session.conversationId), prompt }, (type, payload) => {
+                    const event = payload && typeof payload === "object" && !Array.isArray(payload) ? payload as Record<string, unknown> : {};
+                    if (type === "agent_event" && event.type === "message.delta") output += String(event.delta ?? "");
+                });
+                if (!output.trim()) {
+                    const current = await this.store.getSession(sessionId);
+                    const history = current ? await this.registry.getAdapter(current.brainProfileId).readHistory?.(current) : [];
+                    output = history?.filter((item) => item.role === "assistant").at(-1)?.text ?? "";
+                }
+                return output;
+            },
+        }, worktrees, () => {
+            const current = this.snapshot();
+            return { projectId: current.projectId, canvasId: current.canvasId };
+        });
+        const controller = new AbortController();
+        this.reviewCoordinatorAbort = controller;
+        void coordinator.watch(controller.signal).catch((error) => {
+            if (!controller.signal.aborted) this.emit("agent_event", { type: "review.coordinator.failed", code: error instanceof Error ? error.message : "REVIEW_COORDINATOR_FAILED", at: new Date().toISOString() });
+        });
+    }
+
     private emitRecoveredHostState(previous: BrainSession, current: BrainSession) {
         const before = previous.hostHandoff;
         const after = current.hostHandoff;
@@ -268,6 +325,8 @@ export class GenericAgentRuntime {
     }
 
     async dispose() {
+        this.reviewCoordinatorAbort?.abort(new Error("AGENT_RUNTIME_DISPOSED"));
+        this.reviewCoordinatorAbort = undefined;
         for (const waiter of this.confirmationWaiters.values()) {
             clearTimeout(waiter.timer);
             waiter.reject(new Error("AGENT_RUNTIME_DISPOSED"));

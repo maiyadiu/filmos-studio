@@ -145,6 +145,8 @@ export interface BrainSession {
     projectId: string;
     domainProjectId?: string;
     canvasId: string;
+    workspacePath?: string;
+    executionProfile?: "interactive" | "review_coordinator";
     contentUnitId?: string;
     sceneId?: string;
     directorUnitId?: string;
@@ -180,6 +182,8 @@ export interface CreateBrainSessionInput {
     projectId: string;
     domainProjectId?: string;
     canvasId: string;
+    workspacePath?: string;
+    executionProfile?: "interactive" | "review_coordinator";
     contentUnitId?: string;
     sceneId?: string;
     directorUnitId?: string;
@@ -193,6 +197,8 @@ export interface ResumeBrainSessionInput {
     projectId?: string;
     domainProjectId?: string;
     canvasId?: string;
+    workspacePath?: string;
+    executionProfile?: "interactive" | "review_coordinator";
     grant?: AgentPermissionGrant;
     hostHandoff?: ChatGPTHandoffReceipt;
 }

@@ -21,6 +21,7 @@ import {
     Code2,
     Crosshair,
     Eraser,
+    Eye,
     FileUp,
     GripVertical,
     Highlighter,
@@ -48,6 +49,7 @@ import {
 import { useNavigate, useParams } from "react-router";
 
 import { WorkspaceErrorState, WorkspaceState } from "@/components/layout/workspace-state";
+import { AIMessageMarkdown } from "@/components/ai/ai-message-markdown";
 import { resolveProjectCanvasStyle } from "@/components/canvas/canvas-style-picker-modal";
 import { isFilmStoryStudioEnabled, StoryStudioReviewEntry } from "@/film/story";
 import { normalizeCharacterName } from "@/lib/canvas/canvas-character-reference";
@@ -71,6 +73,7 @@ import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 
 import { formatCount, formatTime, statusLabel, type ProjectDetailViewProps } from "./shared";
 import { extractChapterCharacters } from "./project-chapter-ai";
+import { documentTextFromHtml, parseChapterDocumentView, type ChapterDocumentView } from "./chapter-document-view";
 
 const CHAPTER_ROW_HEIGHT = 52;
 const MAX_NOVEL_IMPORT_CHAPTERS = 2500;
@@ -91,6 +94,7 @@ export default function ProjectChaptersView({ detail, refreshProject, onCreateCa
     const [draggedId, setDraggedId] = useState("");
     const [draftTitle, setDraftTitle] = useState("");
     const [draftHtml, setDraftHtml] = useState("");
+    const [documentView, setDocumentView] = useState<ChapterDocumentView>(() => parseChapterDocumentView(localStorage.getItem(`project-chapter-document-view:${detail.project.id}`)));
     const [dirty, setDirty] = useState(false);
     const [extractingCharacters, setExtractingCharacters] = useState(false);
     const [importingCanvasId, setImportingCanvasId] = useState("");
@@ -155,6 +159,10 @@ export default function ProjectChaptersView({ detail, refreshProject, onCreateCa
     useEffect(() => {
         if (selectedId) sessionStorage.setItem(`project-active-chapter:${detail.project.id}`, selectedId);
     }, [detail.project.id, selectedId]);
+
+    useEffect(() => {
+        localStorage.setItem(`project-chapter-document-view:${detail.project.id}`, documentView);
+    }, [detail.project.id, documentView]);
 
     const saveMutation = useMutation({
         mutationFn: () => selectedUnitQuery.data?.unit
@@ -364,7 +372,12 @@ export default function ProjectChaptersView({ detail, refreshProject, onCreateCa
         if (event.clientY < bounds.top + edge) event.currentTarget.scrollBy({ top: -24 });
         else if (event.clientY > bounds.bottom - edge) event.currentTarget.scrollBy({ top: 24 });
     };
-    const editorSurface = (
+    const markdownSource = useMemo(() => documentTextFromHtml(draftHtml || selectedUnitQuery.data?.unit.sourceText || ""), [draftHtml, selectedUnitQuery.data?.unit.sourceText]);
+    const editorSurface = documentView === "readable" ? (
+        <div className={`project-chapter-editor-scroll thin-scrollbar min-h-0 overflow-y-auto bg-foreground/[.012] ${storyStudioEnabled ? "" : "flex-1"}`}>
+            {selectedUnitQuery.isLoading ? <WorkspaceState icon="loading" compact className="h-full" title="正在读取章节正文" description="正文准备完成后会自动显示。" /> : selectedUnitQuery.isError ? <WorkspaceErrorState compact title="章节正文读取失败" description={selectedUnitQuery.error instanceof Error ? selectedUnitQuery.error.message : "请检查网络连接后重试。"} onRetry={() => void selectedUnitQuery.refetch()} /> : markdownSource ? <div className="project-chapter-readable min-h-full"><AIMessageMarkdown>{markdownSource}</AIMessageMarkdown></div> : <WorkspaceState icon="projects" compact className="h-full" title="本章还没有正文" description="切换到 Markdown 模式开始编写。" action={<Button size="small" onClick={() => setDocumentView("markdown")}>开始编写</Button>} />}
+        </div>
+    ) : (
         <div className={`project-chapter-editor-scroll thin-scrollbar min-h-0 overflow-y-auto bg-foreground/[.012] ${storyStudioEnabled ? "" : "flex-1"}`}>
             {selectedUnitQuery.isLoading ? <WorkspaceState icon="loading" compact className="h-full" title="正在读取章节正文" description="正文准备完成后会自动显示。" /> : selectedUnitQuery.isError ? <WorkspaceErrorState compact title="章节正文读取失败" description={selectedUnitQuery.error instanceof Error ? selectedUnitQuery.error.message : "请检查网络连接后重试。"} onRetry={() => void selectedUnitQuery.refetch()} /> : <div className="project-chapter-editor-wrap min-h-full"><EditorContent editor={editor} /></div>}
         </div>
@@ -429,12 +442,16 @@ export default function ProjectChaptersView({ detail, refreshProject, onCreateCa
                                 <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[var(--fs-tiny)] text-foreground/38"><span>{dirty ? "有未保存修改" : `保存于 ${formatTime(selectedUnit.updatedAt)}`}</span><span>·</span><span>{formatCount(wordCount)} 字</span><span>·</span><span>{chapterCanvasCount(selectedUnit.id)} 个画布</span></div>
                             </div>
                             <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+                                <div className="mr-1 inline-flex h-8 items-center rounded-full border border-border/80 bg-background/55 p-0.5" role="group" aria-label="正文显示模式">
+                                    <button type="button" aria-pressed={documentView === "readable"} onClick={() => setDocumentView("readable")} className={`inline-flex h-7 items-center gap-1 rounded-full px-2.5 text-[var(--fs-label)] transition-colors ${documentView === "readable" ? "bg-surface-active font-medium text-foreground" : "text-foreground/45 hover:text-foreground"}`}><Eye className="size-3.5" />易读</button>
+                                    <button type="button" aria-pressed={documentView === "markdown"} onClick={() => setDocumentView("markdown")} className={`inline-flex h-7 items-center gap-1 rounded-full px-2.5 text-[var(--fs-label)] transition-colors ${documentView === "markdown" ? "bg-surface-active font-medium text-foreground" : "text-foreground/45 hover:text-foreground"}`}><Code2 className="size-3.5" />Markdown</button>
+                                </div>
                                 <Button size="small" icon={<UsersRound className="size-3.5" />} disabled={!selectedUnitQuery.data?.unit || dirty || extractingCharacters} loading={extractingCharacters} onClick={() => void extractCharacters()}>提取角色</Button>
                                 {chapterShotCount(selectedUnit.id) ? <Dropdown trigger={["click"]} menu={{ items: [{ key: "new", icon: <Plus className="size-3.5" />, label: "新建章节画布并导入" }, ...(projectCanvasTargets.length ? [{ type: "divider" as const }, ...projectCanvasTargets.map((canvas) => ({ key: canvas.id, icon: <LayoutGrid className="size-3.5" />, label: `导入到：${canvas.title}${detail.canvasUnitLinks.some((link) => link.canvasId === canvas.id && link.unitId === selectedUnit.id) ? " · 已关联本章" : ""}` }))] : [])], onClick: ({ key }) => void importStoryboardToCanvas(key === "new" ? undefined : key) }}><Button size="small" type="primary" icon={<LayoutGrid className="size-3.5" />} loading={Boolean(importingCanvasId)} disabled={extractingCharacters}>导入分镜</Button></Dropdown> : <Button size="small" type="primary" icon={<LayoutGrid className="size-3.5" />} disabled={!selectedUnitQuery.data?.unit || dirty || extractingCharacters} onClick={onCreateCanvas}>在画布中分镜</Button>}
                                 <Button size="small" type={dirty ? "primary" : "default"} icon={dirty ? <Save className="size-3.5" /> : <Check className="size-3.5" />} disabled={!selectedUnitQuery.data?.unit || !dirty || !draftTitle.trim() || saveMutation.isPending} loading={saveMutation.isPending} onClick={() => saveMutation.mutate()}>{dirty ? "保存" : "已保存"}</Button>
                             </div>
                         </header>
-                        <EditorToolbar editor={editor} />
+                        {documentView === "markdown" ? <EditorToolbar editor={editor} /> : null}
                         {storyStudioEnabled ? (
                             <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)_minmax(220px,42%)] lg:grid-cols-[minmax(0,1fr)_340px] lg:grid-rows-1">
                                 {editorSurface}
