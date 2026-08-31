@@ -40,4 +40,42 @@ struct ReviewBusRuntimeContractTests {
         )
         #expect(alternate["FILMOS_REVIEW_BUS_BASE_URL"] == "http://127.0.0.1:19020")
     }
+
+    @Test
+    func nativeIssueBridgeAcceptsBoundedStructuredRiskForReviewBusClassification() throws {
+        let payload: [String: Any] = [
+            "project_id": "project-1",
+            "what_happened": "Candidate A failed before ChatGPT Findings writeback",
+            "expected_result": "Candidate B must pass with dual signoff",
+            "location": "agent:/canvas/project-1",
+            "blocks_work": true,
+            "risk": ["core_state": true],
+            "screenshot_refs": [],
+            "issue_id": "FILMOS-ISSUE-risk-contract",
+            "context_snapshot": ["selectedNodeIds": []],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: payload)
+        #expect(ReviewBusRuntimeContract.isValidIssueSubmission(data))
+    }
+
+    @Test
+    func nativeIssueBridgeRejectsClientLaneAndUnboundedRiskShape() throws {
+        let clientLane = try JSONSerialization.data(withJSONObject: [
+            "project_id": "project-1",
+            "lane": "fast",
+        ])
+        #expect(!ReviewBusRuntimeContract.isValidIssueSubmission(clientLane))
+
+        let unknownRisk = try JSONSerialization.data(withJSONObject: [
+            "project_id": "project-1",
+            "risk": ["arbitrary": true],
+        ])
+        #expect(!ReviewBusRuntimeContract.isValidIssueSubmission(unknownRisk))
+
+        let nonBooleanRisk = try JSONSerialization.data(withJSONObject: [
+            "project_id": "project-1",
+            "risk": ["core_state": "yes"],
+        ])
+        #expect(!ReviewBusRuntimeContract.isValidIssueSubmission(nonBooleanRisk))
+    }
 }

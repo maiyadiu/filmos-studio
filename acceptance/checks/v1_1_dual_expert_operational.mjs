@@ -38,7 +38,7 @@ try {
     expected_result: "Codex assessment, ChatGPT writeback, Candidate A to B, and dual signoff are durable.",
     location: "web/src/components/governance/ReportIssuePortal.tsx",
     blocks_work: true,
-    lane: "core",
+    risk: { core_state: true },
     screenshot_refs: ["clipboard://pasted-screenshot"],
     app_build_id: "operational-preflight",
     app_tree: "local-acceptance-only",
@@ -56,6 +56,7 @@ try {
       recentErrorCodes: [],
     },
   });
+  assert.equal((await full(first.url)).lane, "core");
 
   const uploaded = await request(first.url, "POST", `/v1/issues/${ISSUE_ID}/attachments`, {
     attachment_id: "attachment-pasted-operational",

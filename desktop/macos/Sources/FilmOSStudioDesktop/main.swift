@@ -257,14 +257,9 @@ private final class InternalWorkbenchCoordinator {
     }
 
     func submitReviewIssue(_ data: Data) async throws -> Data {
-        guard data.count <= 512 * 1024,
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              Set(object.keys).isSubset(of: [
-                  "project_id", "what_happened", "expected_result", "location",
-                  "blocks_work", "screenshot_refs", "issue_id", "evidence_items",
-                  "app_build_id", "app_tree", "route", "context_snapshot",
-              ])
-        else { throw ReviewBusBridgeError.invalidRequest }
+        guard ReviewBusRuntimeContract.isValidIssueSubmission(data) else {
+            throw ReviewBusBridgeError.invalidRequest
+        }
         let token = try String(contentsOf: reviewBusTokenURL, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
         guard token.count >= 24 else { throw ReviewBusBridgeError.pairingUnavailable }
         var request = URLRequest(url: configuration.reviewBusIssueURL)
