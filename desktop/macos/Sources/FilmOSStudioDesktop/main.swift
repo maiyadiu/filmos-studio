@@ -858,7 +858,7 @@ private final class WorkbenchWindow: NSObject, @preconcurrency WKNavigationDeleg
         windowFeatures: WKWindowFeatures
     ) -> WKWebView? {
         if navigationAction.targetFrame == nil, let url = navigationAction.request.url {
-            NSWorkspace.shared.open(url)
+            ExternalURLRouter.shared.open(url)
         }
         return nil
     }

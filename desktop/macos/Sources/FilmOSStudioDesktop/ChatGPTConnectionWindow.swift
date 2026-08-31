@@ -190,11 +190,11 @@ final class ChatGPTConnectionWindow: NSObject {
     }
 
     @objc private func openTunnelSettings() {
-        NSWorkspace.shared.open(URL(string: "https://platform.openai.com/settings/organization/tunnels")!)
+        ExternalURLRouter.shared.open(URL(string: "https://platform.openai.com/settings/organization/tunnels")!)
     }
 
     @objc private func openChatGPTSettings() {
-        NSWorkspace.shared.open(URL(string: "https://chatgpt.com/#settings/Connectors")!)
+        ExternalURLRouter.shared.open(URL(string: "https://chatgpt.com/#settings/Connectors")!)
     }
 
     func render(_ snapshot: ChatGPTConnectionSnapshot) {
