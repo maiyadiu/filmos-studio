@@ -73,6 +73,7 @@ test("content-script trusted DOM click forwards the latest Decision block with z
     setTimeout() {}, JSON, Date, Object, Set, Error,
   };
   vm.runInNewContext(source, context);
+  assert.equal(button.style.bottom, "96px");
   await clickHandler({ isTrusted: true });
   assert.equal(sent.type, "FILMOS_REVIEW_WRITEBACK");
   assert.equal(sent.candidateTexts.length, 1);

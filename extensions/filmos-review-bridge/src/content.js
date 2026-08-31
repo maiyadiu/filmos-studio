@@ -4,7 +4,7 @@
   button.id = "filmos-review-send";
   button.type = "button";
   button.textContent = "发送到 FilmOS";
-  Object.assign(button.style, { position: "fixed", right: "20px", bottom: "20px", zIndex: "2147483647", padding: "10px 14px", borderRadius: "10px", border: "1px solid #777", background: "#111", color: "#fff", cursor: "pointer" });
+  Object.assign(button.style, { position: "fixed", right: "20px", bottom: "96px", zIndex: "2147483647", padding: "10px 14px", borderRadius: "10px", border: "1px solid #777", background: "#111", color: "#fff", cursor: "pointer" });
   button.addEventListener("click", async (event) => {
     if (!event.isTrusted || !navigator.userActivation?.isActive) return show("需要用户点击");
     try {
