@@ -14,6 +14,11 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
+LOCAL_RUNTIME_PORT = 17371
+FILM_CORE_PORT = 17650
+CHATGPT_MCP_PORT = 17840
+
+
 def port_open(port: int) -> bool:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client:
         client.settimeout(0.2)
@@ -105,11 +110,19 @@ def request_app_termination(process: subprocess.Popen[bytes]) -> None:
 
 
 def main() -> None:
+    fixed_ports = (LOCAL_RUNTIME_PORT, FILM_CORE_PORT, CHATGPT_MCP_PORT)
+    occupied = [port for port in fixed_ports if port_open(port)]
+    if occupied:
+        raise RuntimeError(f"desktop gate requires dedicated ports to be free: {occupied}")
     web_port = free_port()
     backend_port = free_port()
     while backend_port == web_port:
         backend_port = free_port()
-    ports = (web_port, backend_port)
+    review_bus_port = free_port()
+    while review_bus_port in {web_port, backend_port}:
+        review_bus_port = free_port()
+    required_ports = (web_port, backend_port, review_bus_port, LOCAL_RUNTIME_PORT, FILM_CORE_PORT)
+    lifecycle_ports = (*required_ports, CHATGPT_MCP_PORT)
 
     with tempfile.TemporaryDirectory(prefix="filmos-desktop-acceptance-") as directory:
         bundle = Path(directory) / "FilmOS Studio.app"
@@ -118,6 +131,7 @@ def main() -> None:
         environment.update({
             "FILMOS_DESKTOP_WEB_PORT": str(web_port),
             "FILMOS_DESKTOP_BACKEND_PORT": str(backend_port),
+            "FILMOS_DESKTOP_REVIEW_BUS_PORT": str(review_bus_port),
             "FILMOS_DESKTOP_APPLICATION_SUPPORT_DIRECTORY_NAME": support_name,
             "FILMOS_EXPECTED_APPLICATION_SUPPORT_DIRECTORY_NAME": support_name,
         })
@@ -137,58 +151,71 @@ def main() -> None:
             raise RuntimeError("desktop runtime contains a protected or private absolute path")
         process: subprocess.Popen[bytes] | None = None
         support_directory = Path.home() / "Library/Application Support" / support_name
-        try:
-            process = subprocess.Popen(
-                (str(bundle / "Contents/MacOS/FilmOSStudioDesktop"),),
-                cwd=ROOT,
-                env=environment,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-            wait_for(lambda: all(port_open(port) for port in ports), 20, "desktop services did not start")
-            settings = get_json(f"http://127.0.0.1:{backend_port}/api/auth/settings")["data"]
-            session = get_json(f"http://127.0.0.1:{backend_port}/api/auth/session")["data"]
-            with urllib.request.urlopen(f"http://127.0.0.1:{web_port}/create", timeout=2) as response:
-                web_document = response.read().decode("utf-8")
-            if settings.get("authMode") != "desktop_local" or settings.get("registrationEnabled") is not False:
-                raise RuntimeError(f"desktop auth settings mismatch: {settings}")
-            user = session.get("user") or {}
-            if session.get("authMode") != "desktop_local" or user.get("id") != "filmos-desktop-local-user":
-                raise RuntimeError(f"cookie-free desktop session mismatch: {session}")
-            if 'name="filmos-workbench" content="v1"' not in web_document or "<title>FilmOS Studio</title>" not in web_document:
-                raise RuntimeError("desktop web marker or FilmOS title is missing")
-            listener_pids = {listener_pid(port) for port in ports}
-            source_root = ROOT.resolve()
-            for pid in listener_pids:
-                for open_path in process_open_paths(pid):
-                    try:
-                        open_path.resolve().relative_to(source_root)
-                    except (OSError, ValueError):
-                        continue
-                    raise RuntimeError(f"desktop service {pid} still has the source tree open")
-            data_directory = support_directory / "WorkbenchData"
-            if not data_directory.is_dir():
-                raise RuntimeError("desktop backend data directory was not created in Application Support")
-        finally:
-            if process is not None:
-                request_app_termination(process)
+        app_log = Path(directory) / "desktop-app.log"
+        with app_log.open("wb") as app_output:
+            try:
+                process = subprocess.Popen(
+                    (str(bundle / "Contents/MacOS/FilmOSStudioDesktop"),),
+                    cwd=ROOT,
+                    env=environment,
+                    stdout=app_output,
+                    stderr=subprocess.STDOUT,
+                )
                 try:
-                    process.wait(timeout=15)
-                except subprocess.TimeoutExpired:
-                    process.terminate()
+                    wait_for(lambda: all(port_open(port) for port in required_ports), 20, "desktop services did not start")
+                except RuntimeError as error:
+                    app_output.flush()
+                    diagnostic = app_log.read_text(encoding="utf-8", errors="replace")[-8000:]
+                    raise RuntimeError(
+                        f"{error}; app_exit={process.poll()}; app_output={diagnostic or '[empty]'}"
+                    ) from error
+                settings = get_json(f"http://127.0.0.1:{backend_port}/api/auth/settings")["data"]
+                session = get_json(f"http://127.0.0.1:{backend_port}/api/auth/session")["data"]
+                with urllib.request.urlopen(f"http://127.0.0.1:{web_port}/create", timeout=2) as response:
+                    web_document = response.read().decode("utf-8")
+                if settings.get("authMode") != "desktop_local" or settings.get("registrationEnabled") is not False:
+                    raise RuntimeError(f"desktop auth settings mismatch: {settings}")
+                user = session.get("user") or {}
+                if session.get("authMode") != "desktop_local" or user.get("id") != "filmos-desktop-local-user":
+                    raise RuntimeError(f"cookie-free desktop session mismatch: {session}")
+                if 'name="filmos-workbench" content="v1"' not in web_document or "<title>FilmOS Studio</title>" not in web_document:
+                    raise RuntimeError("desktop web marker or FilmOS title is missing")
+                listener_pids = {listener_pid(port) for port in required_ports}
+                source_root = ROOT.resolve()
+                for pid in listener_pids:
+                    for open_path in process_open_paths(pid):
+                        try:
+                            open_path.resolve().relative_to(source_root)
+                        except (OSError, ValueError):
+                            continue
+                        raise RuntimeError(f"desktop service {pid} still has the source tree open")
+                data_directory = support_directory / "WorkbenchData"
+                if not data_directory.is_dir():
+                    raise RuntimeError("desktop backend data directory was not created in Application Support")
+            finally:
+                if process is not None:
+                    request_app_termination(process)
                     try:
-                        process.wait(timeout=5)
+                        process.wait(timeout=15)
                     except subprocess.TimeoutExpired:
-                        process.kill()
-                        process.wait(timeout=5)
-                wait_for(lambda: not any(port_open(port) for port in ports), 15, "desktop-owned services did not stop")
-            shutil.rmtree(support_directory, ignore_errors=True)
+                        process.terminate()
+                        try:
+                            process.wait(timeout=5)
+                        except subprocess.TimeoutExpired:
+                            process.kill()
+                            process.wait(timeout=5)
+                    wait_for(
+                        lambda: not any(port_open(port) for port in lifecycle_ports),
+                        15,
+                        "desktop-owned services did not stop",
+                    )
+                shutil.rmtree(support_directory, ignore_errors=True)
 
         print(json.dumps({
             "status": "PASSED",
             "build": "UNSIGNED_APP_READY" if "UNSIGNED_APP_READY" in build_output else "UNKNOWN",
             "verify": verify_output.splitlines()[-1],
-            "ports": list(ports),
+            "ports": list(required_ports),
             "auth_mode": "desktop_local",
             "local_user_id": "filmos-desktop-local-user",
             "cookie_required": False,
@@ -196,6 +223,7 @@ def main() -> None:
             "source_tree_open_files": False,
             "data_location": "$HOME/Library/Application Support/<acceptance-run>/WorkbenchData",
             "services_stopped_after_quit": True,
+            "isolated_review_bus_port": True,
         }, ensure_ascii=False, sort_keys=True))
 
 

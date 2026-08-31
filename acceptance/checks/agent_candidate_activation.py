@@ -26,6 +26,8 @@ FLAG_IDS = (
     "film.agent_request_scoped_identity",
 )
 LOCAL_RUNTIME_PORT = 17371
+FILM_CORE_PORT = 17650
+CHATGPT_MCP_PORT = 17840
 
 
 def free_port() -> int:
@@ -76,12 +78,17 @@ def terminate_app(process: subprocess.Popen[bytes]) -> None:
 
 
 def main() -> None:
-    if port_open(LOCAL_RUNTIME_PORT):
-        raise RuntimeError("candidate gate requires the dedicated Local Runtime port to be free")
+    fixed_ports = (LOCAL_RUNTIME_PORT, FILM_CORE_PORT, CHATGPT_MCP_PORT)
+    occupied = [port for port in fixed_ports if port_open(port)]
+    if occupied:
+        raise RuntimeError(f"candidate gate requires dedicated ports to be free: {occupied}")
     web_port = free_port()
     backend_port = free_port()
     while backend_port in {web_port, LOCAL_RUNTIME_PORT}:
         backend_port = free_port()
+    review_bus_port = free_port()
+    while review_bus_port in {web_port, backend_port, LOCAL_RUNTIME_PORT}:
+        review_bus_port = free_port()
 
     with tempfile.TemporaryDirectory(prefix="filmos-agent-candidate-") as directory:
         root = Path(directory)
@@ -92,6 +99,7 @@ def main() -> None:
             "FILMOS_DESKTOP_RUNTIME_PROFILE": "filmos-candidate",
             "FILMOS_DESKTOP_WEB_PORT": str(web_port),
             "FILMOS_DESKTOP_BACKEND_PORT": str(backend_port),
+            "FILMOS_DESKTOP_REVIEW_BUS_PORT": str(review_bus_port),
             "FILMOS_DESKTOP_APPLICATION_SUPPORT_DIRECTORY_NAME": support_name,
             "FILMOS_EXPECTED_APPLICATION_SUPPORT_DIRECTORY_NAME": support_name,
         })
@@ -126,36 +134,66 @@ def main() -> None:
 
         process: subprocess.Popen[bytes] | None = None
         support = Path.home() / "Library/Application Support" / support_name
-        try:
-            process = subprocess.Popen(
-                (str(bundle / "Contents/MacOS/FilmOSStudioDesktop"),),
-                cwd=root,
-                env=environment,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-            wait_for(lambda: all(port_open(port) for port in (web_port, backend_port, LOCAL_RUNTIME_PORT)), 30, "candidate App services did not start")
-            health = get_json(f"http://127.0.0.1:{LOCAL_RUNTIME_PORT}/health")
-            expected = {
-                "ok": True,
-                "agent_runtime_profile": "filmos-candidate",
-                "agent_feature_flag_count": 10,
-                "agent_feature_flags_hash": feature_hash,
-                "agent_activation_consistent": True,
-                "agent_generic_runtime_enabled": True,
-            }
-            if any(health.get(key) != value for key, value in expected.items()):
-                raise RuntimeError(f"candidate Local Runtime health mismatch: {health}")
-        finally:
-            if process is not None:
-                terminate_app(process)
+        app_log = root / "candidate-app.log"
+        with app_log.open("wb") as app_output:
+            try:
+                process = subprocess.Popen(
+                    (str(bundle / "Contents/MacOS/FilmOSStudioDesktop"),),
+                    cwd=root,
+                    env=environment,
+                    stdout=app_output,
+                    stderr=subprocess.STDOUT,
+                )
                 try:
-                    process.wait(timeout=15)
-                except subprocess.TimeoutExpired:
-                    process.terminate()
-                    process.wait(timeout=5)
-                wait_for(lambda: not any(port_open(port) for port in (web_port, backend_port, LOCAL_RUNTIME_PORT)), 15, "candidate App services did not stop")
-            shutil.rmtree(support, ignore_errors=True)
+                    wait_for(
+                        lambda: all(
+                            port_open(port)
+                            for port in (web_port, backend_port, review_bus_port, LOCAL_RUNTIME_PORT, FILM_CORE_PORT)
+                        ),
+                        30,
+                        "candidate App services did not start",
+                    )
+                except RuntimeError as error:
+                    app_output.flush()
+                    diagnostic = app_log.read_text(encoding="utf-8", errors="replace")[-8000:]
+                    raise RuntimeError(
+                        f"{error}; app_exit={process.poll()}; app_output={diagnostic or '[empty]'}"
+                    ) from error
+                health = get_json(f"http://127.0.0.1:{LOCAL_RUNTIME_PORT}/health")
+                expected = {
+                    "ok": True,
+                    "agent_runtime_profile": "filmos-candidate",
+                    "agent_feature_flag_count": 10,
+                    "agent_feature_flags_hash": feature_hash,
+                    "agent_activation_consistent": True,
+                    "agent_generic_runtime_enabled": True,
+                }
+                if any(health.get(key) != value for key, value in expected.items()):
+                    raise RuntimeError(f"candidate Local Runtime health mismatch: {health}")
+            finally:
+                if process is not None:
+                    terminate_app(process)
+                    try:
+                        process.wait(timeout=15)
+                    except subprocess.TimeoutExpired:
+                        process.terminate()
+                        process.wait(timeout=5)
+                    wait_for(
+                        lambda: not any(
+                            port_open(port)
+                            for port in (
+                                web_port,
+                                backend_port,
+                                review_bus_port,
+                                LOCAL_RUNTIME_PORT,
+                                FILM_CORE_PORT,
+                                CHATGPT_MCP_PORT,
+                            )
+                        ),
+                        15,
+                        "candidate App services did not stop",
+                    )
+                shutil.rmtree(support, ignore_errors=True)
 
         print(json.dumps({
             "gate_id": "AGENT-CANDIDATE-ACTIVATION-001",
@@ -167,6 +205,7 @@ def main() -> None:
             "adapter_runtime_managed_by_app": True,
             "codex_mcp_helper_bundled": True,
             "black_box_app_launch": True,
+            "isolated_review_bus_port": True,
             "legacy_rollback_profile": "integration",
             "private_paths_emitted": False,
         }, sort_keys=True))

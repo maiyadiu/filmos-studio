@@ -69,6 +69,46 @@ struct ServiceSupervisorTests {
     }
 
     @Test
+    func batchStopRequestsEveryChildBeforeUsingOneSharedEscalationWindow() throws {
+        let workspaceRoot = URL(fileURLWithPath: "/tmp/FilmOSSupervisorBatchTests", isDirectory: true)
+        let policy = try ServiceLaunchPolicy(
+            allowedExecutableRoots: [URL(fileURLWithPath: "/usr/bin", isDirectory: true)],
+            allowedWorkingDirectoryRoots: [workspaceRoot]
+        )
+        let recorder = TerminationRecorder()
+        let first = FakeManagedProcess(
+            processIdentifier: 5_001,
+            stopsOnRequest: false,
+            label: "first",
+            recorder: recorder
+        )
+        let second = FakeManagedProcess(
+            processIdentifier: 5_002,
+            stopsOnRequest: false,
+            label: "second",
+            recorder: recorder
+        )
+        let launcher = SequenceFakeLauncher(processes: [first, second])
+        let supervisor = ServiceSupervisor(policy: policy, launcher: launcher)
+        let serviceIDs: [ServiceID] = ["first", "second"]
+        for id in serviceIDs {
+            try supervisor.register(ServiceDefinition(
+                id: id,
+                displayName: id.rawValue,
+                executableURL: URL(fileURLWithPath: "/usr/bin/true"),
+                workingDirectoryURL: workspaceRoot
+            ))
+            try supervisor.start(id)
+        }
+
+        try supervisor.stopAll(["first", "second"], gracePeriod: 0.01)
+
+        #expect(recorder.events == ["request:first", "request:second", "force:first", "force:second"])
+        #expect(supervisor.state(for: "first") == .stopped)
+        #expect(supervisor.state(for: "second") == .stopped)
+    }
+
+    @Test
     func rejectsExecutableOutsidePolicyBeforeLaunch() throws {
         let policy = try ServiceLaunchPolicy(
             allowedExecutableRoots: [URL(fileURLWithPath: "/usr/bin", isDirectory: true)],
@@ -288,15 +328,56 @@ private final class FakeManagedProcess: ManagedServiceProcess {
     let processIdentifier: Int32
     var isRunning = true
     private(set) var terminateCalled = false
+    private(set) var forceTerminationCalled = false
+    private let stopsOnRequest: Bool
+    private let label: String
+    private let recorder: TerminationRecorder?
 
-    init(processIdentifier: Int32) {
+    init(
+        processIdentifier: Int32,
+        stopsOnRequest: Bool = true,
+        label: String = "process",
+        recorder: TerminationRecorder? = nil
+    ) {
         self.processIdentifier = processIdentifier
+        self.stopsOnRequest = stopsOnRequest
+        self.label = label
+        self.recorder = recorder
     }
 
-    func terminate() {
+    func requestTermination() {
         terminateCalled = true
+        recorder?.events.append("request:\(label)")
+        if stopsOnRequest { isRunning = false }
+    }
+
+    func forceTermination() {
+        forceTerminationCalled = true
+        recorder?.events.append("force:\(label)")
         isRunning = false
     }
+}
+
+@MainActor
+private final class SequenceFakeLauncher: ServiceProcessLaunching {
+    private var processes: [FakeManagedProcess]
+
+    init(processes: [FakeManagedProcess]) {
+        self.processes = processes
+    }
+
+    func launch(
+        _ definition: ServiceDefinition,
+        runtimeEnvironment: ServiceRuntimeEnvironment
+    ) throws -> any ManagedServiceProcess {
+        guard !processes.isEmpty else { throw TestLaunchError.failed }
+        return processes.removeFirst()
+    }
+}
+
+@MainActor
+private final class TerminationRecorder {
+    var events: [String] = []
 }
 
 private enum TestLaunchError: Error {

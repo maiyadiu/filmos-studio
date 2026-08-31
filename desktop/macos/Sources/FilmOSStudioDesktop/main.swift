@@ -231,12 +231,13 @@ private final class InternalWorkbenchCoordinator {
     }
 
     func stopOwnedServices() {
-        chatGPTConnectionManager.disconnect()
+        chatGPTConnectionManager.prepareForApplicationTermination()
         chatGPTRuntime.stopOwnedServices()
-        for id in [webServiceID, backendServiceID, localRuntimeServiceID, reviewBusServiceID] where startedServices.contains(id) {
-            guard case .running = supervisor.state(for: id) else { continue }
-            try? supervisor.stop(id)
+        let runningIDs = [webServiceID, backendServiceID, localRuntimeServiceID, reviewBusServiceID].filter { id in
+            guard startedServices.contains(id), case .running = supervisor.state(for: id) else { return false }
+            return true
         }
+        try? supervisor.stopAll(runningIDs)
         startedServices.removeAll()
     }
 
@@ -945,11 +946,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 try Task.checkCancellation()
                 self.workbenchWindow?.publishChatGPTHostStatus(coordinator.chatGPTConnectionManager.snapshot)
                 self.workbenchWindow?.load(url)
+                try Task.checkCancellation()
                 await coordinator.chatGPTConnectionManager.autoConnectIfConfigured()
             } catch is CancellationError {
                 return
             } catch {
                 let message = (error as? LocalizedError)?.errorDescription ?? "内部工作台无法启动。"
+                FileHandle.standardError.write(Data("FilmOS startup failed: \(message)\n".utf8))
                 self.workbenchWindow?.showError(message) { [weak self] in
                     self?.startWorkbench()
                 }

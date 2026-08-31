@@ -172,7 +172,8 @@ public enum ServiceState: Equatable, Sendable {
 public protocol ManagedServiceProcess: AnyObject {
     var processIdentifier: Int32 { get }
     var isRunning: Bool { get }
-    func terminate()
+    func requestTermination()
+    func forceTermination()
 }
 
 @MainActor
@@ -211,17 +212,15 @@ private final class FoundationManagedServiceProcess: ManagedServiceProcess {
 
     var processIdentifier: Int32 { process.processIdentifier }
     var isRunning: Bool { process.isRunning }
-    func terminate() {
+    func requestTermination() {
         guard process.isRunning else { return }
         process.terminate()
-        let deadline = Date().addingTimeInterval(2)
-        while process.isRunning, Date() < deadline {
-            Thread.sleep(forTimeInterval: 0.02)
-        }
-        if process.isRunning {
-            _ = Darwin.kill(process.processIdentifier, SIGKILL)
-            process.waitUntilExit()
-        }
+    }
+
+    func forceTermination() {
+        guard process.isRunning else { return }
+        _ = Darwin.kill(process.processIdentifier, SIGKILL)
+        process.waitUntilExit()
     }
 }
 
@@ -319,14 +318,50 @@ public final class ServiceSupervisor {
             throw ServiceSupervisorError.unknownService
         }
         refreshState(for: id)
-        guard let process = processes[id], case let .running(processID) = states[id] else {
+        guard processes[id] != nil, case .running = states[id] else {
             throw ServiceSupervisorError.invalidState
         }
+        try stopAll([id])
+    }
 
-        states[id] = .stopping(processID: processID)
-        process.terminate()
-        processes[id] = nil
-        states[id] = .stopped
+    /// Stops all requested services within one shared grace window. Sending
+    /// SIGTERM to every child before waiting prevents shutdown time from growing
+    /// linearly with the number of desktop-owned helpers.
+    public func stopAll(_ ids: [ServiceID], gracePeriod: TimeInterval = 2) throws {
+        let uniqueIDs = ids.reduce(into: [ServiceID]()) { result, id in
+            if !result.contains(id) { result.append(id) }
+        }
+        guard !uniqueIDs.isEmpty else { return }
+
+        var activeProcesses: [(id: ServiceID, process: any ManagedServiceProcess, processID: Int32)] = []
+        for id in uniqueIDs {
+            guard definitions[id] != nil else {
+                throw ServiceSupervisorError.unknownService
+            }
+            refreshState(for: id)
+            guard let process = processes[id], case let .running(processID) = states[id] else { continue }
+            activeProcesses.append((id, process, processID))
+        }
+        guard !activeProcesses.isEmpty else { return }
+
+        for item in activeProcesses {
+            states[item.id] = .stopping(processID: item.processID)
+            item.process.requestTermination()
+        }
+
+        let boundedGracePeriod = min(max(gracePeriod, 0), 5)
+        let deadline = Date().addingTimeInterval(boundedGracePeriod)
+        while activeProcesses.contains(where: { $0.process.isRunning }), Date() < deadline {
+            Thread.sleep(forTimeInterval: min(0.02, max(0, deadline.timeIntervalSinceNow)))
+        }
+
+        for item in activeProcesses where item.process.isRunning {
+            item.process.forceTermination()
+        }
+        for item in activeProcesses {
+            processes[item.id] = nil
+            states[item.id] = .stopped
+        }
     }
 
     private func refreshState(for id: ServiceID) {

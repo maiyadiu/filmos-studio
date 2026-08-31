@@ -226,12 +226,13 @@ final class DesktopChatGPTRuntime: ChatGPTConnectionOperating {
     }
 
     func stopOwnedServices() {
-        stopTunnel()
-        for id in [chatGPTMCPServiceID, filmCoreServiceID] where startedServices.contains(id) {
-            guard case .running = supervisor.state(for: id) else { continue }
-            try? supervisor.stop(id)
+        let runningIDs = [secureTunnelServiceID, chatGPTMCPServiceID, filmCoreServiceID].filter { id in
+            guard startedServices.contains(id), case .running = supervisor.state(for: id) else { return false }
+            return true
         }
+        try? supervisor.stopAll(runningIDs)
         startedServices.removeAll()
+        try? FileManager.default.removeItem(at: tunnelHealthURLFile)
     }
 
     func runtimeHealth() async -> ChatGPTRuntimeHealth {

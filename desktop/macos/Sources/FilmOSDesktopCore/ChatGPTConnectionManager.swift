@@ -404,9 +404,12 @@ public final class ChatGPTConnectionManager {
         guard let configuration = preferences.loadConnectionConfig(), configuration.autoConnect,
               let projectSession = preferences.loadProjectSession() else { return }
         do {
+            try Task.checkCancellation()
             let key = try tokenStore.loadString(for: .openAIMCPTunnelRuntimeKey)
             currentRuntimeKey = try Self.validatedRuntimeKey(key)
             try await establish(configuration: configuration, projectSession: projectSession, resetChallenge: true)
+        } catch is CancellationError {
+            return
         } catch {
             fail(error)
         }
@@ -438,6 +441,19 @@ public final class ChatGPTConnectionManager {
             preferences.clear()
         }
         snapshot = .notConfigured
+    }
+
+    /// Cancels reconnect work without stopping services one-by-one. The desktop
+    /// coordinator follows this immediately with one bounded batch shutdown.
+    public func prepareForApplicationTermination() {
+        desiredConnection = false
+        monitorTask?.cancel()
+        monitorTask = nil
+        currentRuntimeKey = nil
+        currentTransportProof = nil
+        currentChallengeID = nil
+        currentConfiguration = nil
+        currentProjectSession = nil
     }
 
     public func refresh() async {
@@ -528,7 +544,9 @@ public final class ChatGPTConnectionManager {
         snapshot.filmCoreStatus = .starting
         snapshot.mcpStatus = .starting
         do {
+            try Task.checkCancellation()
             try await operations.prepareLocalServices(projectID: projectSession.projectID, transportProof: transportProof)
+            try Task.checkCancellation()
             var health = await operations.runtimeHealth()
             guard health.filmCoreReady, health.mcpReady else { throw ChatGPTConnectionError.localServicesUnavailable }
             guard health.mcpWriteToolCount == 0 else { throw ChatGPTConnectionError.writeToolsExposed }
@@ -543,6 +561,7 @@ public final class ChatGPTConnectionManager {
                 transportProof: transportProof,
                 challengeID: currentChallengeID!
             )
+            try Task.checkCancellation()
             try operations.startTunnel(
                 tunnelID: configuration.tunnelID,
                 runtimeKey: runtimeKey,
@@ -553,6 +572,8 @@ public final class ChatGPTConnectionManager {
             health = await operations.runtimeHealth()
             apply(health)
             beginMonitoring()
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
             fail(error)
             throw error
