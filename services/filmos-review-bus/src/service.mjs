@@ -31,9 +31,9 @@ export class ReviewBusService {
         lane, state: initialState, report, base_commit: this.baseCommit,
         constitution_version: CONSTITUTION_VERSION, constitution_content_hash: CONSTITUTION_HASH,
         build_lineage_task_package_hash: this.taskPackageContentHash, task_package_content_hash: null,
-        issue_task_package: null, current_round: 1,
+        issue_task_package: null, current_round: 1, assessment_round: 1,
         max_automatic_rounds: MAX_AUTOMATIC_ROUNDS, assessments: {}, findings: [], finding_responses: [],
-        candidate_history: [], decision_history: [], stale_candidate_bindings: [],
+        assessment_round_history: [], candidate_history: [], decision_history: [], stale_candidate_bindings: [],
         codex_coordination: { status: "IDLE", session_id: null, last_action: null, last_error_code: null },
         runtime_recovery: { observed_start_ids: [] },
         verdicts: { codex: null, chatgpt: null, machine: null }, next_pilot_allowed: false,
@@ -131,7 +131,18 @@ export class ReviewBusService {
     requireFields(assessment, actor === "codex"
       ? ["reproduced", "root_cause", "call_chain", "files", "minimal_change", "regression_risk", "tests", "rollback"]
       : ["product_goal_fit", "root_cause_explains_symptom", "authority_risk", "resolution_layer", "workflow_impact", "acceptance_gates", "scope_drift"]);
-    const sealed = { ...assessment, assessor: actor, submitted_at: now.toISOString(), content_hash: sha256(assessment), sealed_until_pair_complete: true };
+    const binding = assessmentRoundBinding(current);
+    const sealed = {
+      ...assessment,
+      assessor: actor,
+      assessment_round: current.assessment_round ?? 1,
+      project_id: current.project_id,
+      evidence_manifest_hash: binding.evidence_manifest_hash,
+      constitution_content_hash: binding.constitution_content_hash,
+      submitted_at: now.toISOString(),
+      content_hash: sha256({ assessment, binding, assessment_round: current.assessment_round ?? 1 }),
+      sealed_until_pair_complete: true,
+    };
     return this.store.append({
       issueId, projectId: current.project_id, lane: current.lane, eventType: `assessment.${actor}.submitted`, actor,
       payload: { content_hash: sealed.content_hash }, now,
@@ -190,6 +201,46 @@ export class ReviewBusService {
           next.task_package_content_hash = next.issue_task_package.contentHash;
           next.state = "TASK_PACKAGE_FROZEN";
         } else next.state = "CONSENSUS_PROPOSED";
+        return next;
+      },
+    });
+  }
+
+  startNextAssessmentRound(issueId, actor = "codex", now = new Date()) {
+    const current = this.requireIssue(issueId);
+    if (current.state !== "CONSENSUS_REVIEW" || !current.consensus_proposal) throw problem("CONSENSUS_REVIEW_REQUIRED");
+    if (current.consensus_record || current.issue_task_package || current.active_candidate) throw problem("CONSENSUS_ROUND_ALREADY_FROZEN");
+    const responses = current.consensus_responses ?? [];
+    const actors = new Set(responses.map((item) => item.actor));
+    if (!actors.has("codex") || !actors.has("chatgpt")) throw problem("DUAL_CONSENSUS_RESPONSE_REQUIRED");
+    if (!responses.some((item) => item.position === "CHANGES_REQUESTED")) throw problem("CONSENSUS_CHANGES_REQUIRED");
+    const previousRound = current.assessment_round ?? 1;
+    const archivedBase = {
+      assessment_round: previousRound,
+      assessments: current.assessments,
+      consensus_delta: current.consensus_delta ?? null,
+      consensus_proposal: current.consensus_proposal,
+      consensus_responses: responses,
+      ended_at: now.toISOString(),
+      reason: "CONSENSUS_CHANGES_REQUESTED",
+    };
+    const archived = { ...archivedBase, content_hash: sha256(archivedBase) };
+    const nextRound = previousRound + 1;
+    return this.store.append({
+      issueId, projectId: current.project_id, lane: current.lane, eventType: "assessment.round.advanced", actor,
+      payload: { previous_round: previousRound, next_round: nextRound, archived_content_hash: archived.content_hash }, now,
+      mutate: (next) => {
+        next.assessment_round_history ??= [];
+        next.assessment_round_history.push(archived);
+        next.assessment_round = nextRound;
+        next.assessments = {};
+        next.consensus_delta = null;
+        next.consensus_proposal = null;
+        next.consensus_responses = [];
+        next.consensus_record = null;
+        next.issue_task_package = null;
+        next.task_package_content_hash = null;
+        next.state = next.lane === "architecture" ? "ARCHITECTURE_EVIDENCE_FROZEN" : "EVIDENCE_FROZEN";
         return next;
       },
     });
@@ -483,6 +534,10 @@ function consensusProposal(value, now) {
   const base = {
     proposalId: `consensus-proposal-${randomUUID()}`,
     issueId: value.issue_id,
+    assessmentRound: value.assessment_round ?? 1,
+    projectId: value.project_id,
+    evidenceManifestHash: value.evidence?.manifest?.contentHash ?? value.evidence?.manifest?.content_hash ?? null,
+    constitutionContentHash: value.constitution_content_hash,
     agreements: delta.agreements,
     disagreements: delta.disagreements,
     evidenceGaps: delta.evidence_differences,
@@ -496,6 +551,14 @@ function consensusProposal(value, now) {
     createdAt: now.toISOString(),
   };
   return { ...base, codexPosition: "PENDING", chatgptPosition: "PENDING", contentHash: sha256(base) };
+}
+
+function assessmentRoundBinding(value) {
+  return {
+    project_id: value.project_id,
+    evidence_manifest_hash: value.evidence?.manifest?.contentHash ?? value.evidence?.manifest?.content_hash ?? null,
+    constitution_content_hash: value.constitution_content_hash,
+  };
 }
 
 function consensusRecord(value, now) {

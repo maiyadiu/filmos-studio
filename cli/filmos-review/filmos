@@ -33,6 +33,7 @@ async function dispatch(scope, command, options) {
   if (scope === "review" && command === "findings") return request("GET", reviewPath(options, "findings"));
   if (scope === "review" && command === "respond") return request("POST", issuePath(options, "finding-responses"), readInput(options));
   if (scope === "review" && command === "next-round") return request("POST", issuePath(options, "rounds/next"), {});
+  if (scope === "review" && command === "next-consensus-round") return request("POST", issuePath(options, "consensus/rounds/next"), {});
   if (scope === "review" && command === "next-pilot") {
     const value = await request("GET", issuePath(options, "", true));
     return { issue_id: value.issue_id, state: value.state, next_pilot_allowed: value.next_pilot_allowed, dual_signoff: value.dual_signoff ?? null };
@@ -56,7 +57,7 @@ async function dispatch(scope, command, options) {
   if (scope === "architecture" && command === "options") return request("POST", issuePath(options, "architecture/options"), readInput(options));
   if (scope === "architecture" && command === "accept-option") return request("POST", issuePath(options, "architecture/accept-option"), readInput(options));
   if (scope === "architecture" && command === "status") return request("GET", issuePath(options, "", true));
-  fail("USAGE: filmos issue create|capture|assess-local|status; filmos review consensus|accept-consensus|task-package|submit-candidate|findings|respond|next-round|watch|next-pilot|export-live-trace; filmos architecture create|requirement-delta|options|accept-option|status");
+  fail("USAGE: filmos issue create|capture|assess-local|status; filmos review consensus|accept-consensus|task-package|submit-candidate|findings|respond|next-consensus-round|next-round|watch|next-pilot|export-live-trace; filmos architecture create|requirement-delta|options|accept-option|status");
 }
 
 async function request(method, path, body) {

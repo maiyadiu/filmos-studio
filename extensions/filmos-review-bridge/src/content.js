@@ -14,7 +14,8 @@
       const blocks = latestReply
         ? [...latestReply.querySelectorAll("pre")].reverse().map((node) => node.textContent?.trim()).filter(Boolean)
         : [...document.querySelectorAll("main pre, pre")].slice(-1).map((node) => node.textContent?.trim()).filter(Boolean);
-      const candidateTexts = [...new Set([selection, ...blocks].filter(Boolean))];
+      const replyText = latestReply?.textContent?.trim();
+      const candidateTexts = [...new Set([selection, ...blocks, replyText].filter(Boolean))];
       if (!candidateTexts.length) throw new Error("当前 ChatGPT 回复中没有结构化 FilmOS Decision");
       const response = await chrome.runtime.sendMessage({ type: "FILMOS_REVIEW_WRITEBACK", userGestureAt: Date.now(), candidateTexts });
       if (!response?.ok) throw new Error(response?.code ?? "FilmOS 未确认接收");

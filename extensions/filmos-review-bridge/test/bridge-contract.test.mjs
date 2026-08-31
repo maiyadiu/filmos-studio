@@ -57,6 +57,11 @@ test("one click can select the latest exact Decision code block without manual t
   assert.deepEqual(result, envelope);
 });
 
+test("plain ChatGPT JSON replies remain writeback-compatible without a code fence", () => {
+  const decorated = `ChatGPT 说：\n${JSON.stringify(envelope)}\n复制回复`;
+  assert.deepEqual(parseDecisionCandidates([decorated]), envelope);
+});
+
 test("content-script trusted DOM click forwards the latest Decision block with zero selection", async () => {
   const source = readFileSync(resolve(import.meta.dirname, "../src/content.js"), "utf8");
   let clickHandler; let sent;
@@ -64,7 +69,7 @@ test("content-script trusted DOM click forwards the latest Decision block with z
   const staleBlock = { textContent: JSON.stringify({ ...envelope, issue_id: "FILMOS-ISSUE-stale" }) };
   const currentBlock = { textContent: JSON.stringify(envelope) };
   const staleReply = { querySelectorAll: () => [staleBlock] };
-  const currentReply = { querySelectorAll: () => [currentBlock] };
+  const currentReply = { querySelectorAll: () => [currentBlock], textContent: `ChatGPT 说：${JSON.stringify(envelope)}` };
   const context = {
     document: { getElementById: () => null, createElement: () => button, querySelectorAll: (selector) => selector.includes("article") ? [staleReply, currentReply] : [staleBlock, currentBlock], documentElement: { append() {} } },
     window: { getSelection: () => ({ toString: () => "" }) },
@@ -76,6 +81,6 @@ test("content-script trusted DOM click forwards the latest Decision block with z
   assert.equal(button.style.bottom, "96px");
   await clickHandler({ isTrusted: true });
   assert.equal(sent.type, "FILMOS_REVIEW_WRITEBACK");
-  assert.equal(sent.candidateTexts.length, 1);
-  assert.deepEqual(JSON.parse(sent.candidateTexts[0]), envelope);
+  assert.equal(sent.candidateTexts.length, 2);
+  assert.deepEqual(parseDecisionCandidates(sent.candidateTexts), envelope);
 });

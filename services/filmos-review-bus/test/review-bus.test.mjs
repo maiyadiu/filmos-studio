@@ -66,6 +66,36 @@ function reachConsensus(service, issueId) {
   return service.respondConsensus(issueId, "chatgpt", { proposal_content_hash: proposalHash, position: "ACCEPTED", requested_changes: [] });
 }
 
+test("consensus changes advance to an append-only assessment round with fresh evidence bindings", () => {
+  const { service, store } = fixture();
+  const issue = createCoreIssue(service, "consensus-round");
+  service.submitAssessment(issue.issue_id, "codex", codexAssessment);
+  const proposed = service.submitAssessment(issue.issue_id, "chatgpt", chatgptAssessment);
+  const firstHash = proposed.consensus_proposal.contentHash;
+  service.respondConsensus(issue.issue_id, "codex", { proposal_content_hash: firstHash, position: "CHANGES_REQUESTED", requested_changes: ["narrow scope"] });
+  service.respondConsensus(issue.issue_id, "chatgpt", { proposal_content_hash: firstHash, position: "CHANGES_REQUESTED", requested_changes: ["bind evidence"] });
+
+  const advanced = service.startNextAssessmentRound(issue.issue_id);
+  assert.equal(advanced.state, "EVIDENCE_FROZEN");
+  assert.equal(advanced.assessment_round, 2);
+  assert.equal(advanced.assessment_round_history.length, 1);
+  assert.equal(advanced.assessment_round_history[0].consensus_proposal.contentHash, firstHash);
+  assert.equal(advanced.assessment_round_history[0].consensus_responses.length, 2);
+  assert.deepEqual(advanced.assessments, {});
+  assert.equal(advanced.consensus_proposal, null);
+
+  const codex = service.submitAssessment(issue.issue_id, "codex", codexAssessment).assessments.codex;
+  assert.equal(codex.assessment_round, 2);
+  assert.equal(codex.project_id, projectId);
+  assert.equal(codex.evidence_manifest_hash, service.requireIssue(issue.issue_id).evidence.manifest.contentHash);
+  assert.equal(codex.constitution_content_hash, constitutionHash);
+  const second = service.submitAssessment(issue.issue_id, "chatgpt", chatgptAssessment);
+  assert.equal(second.consensus_proposal.assessmentRound, 2);
+  assert.equal(second.consensus_proposal.evidenceManifestHash, codex.evidence_manifest_hash);
+  assert.notEqual(second.consensus_proposal.contentHash, firstHash);
+  store.close();
+});
+
 test("Review Bus uses SQLite WAL, immutable events, and redacts the external evidence projection", () => {
   const directory = mkdtempSync(resolve(tmpdir(), "filmos-review-"));
   const store = new ReviewBusStore(resolve(directory, "review-bus.sqlite"));

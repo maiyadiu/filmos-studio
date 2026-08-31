@@ -69,6 +69,7 @@ export function createReviewBusHttp({ service, store, busToken, bridgeToken, con
         if (req.method === "POST" && action === "assessments/chatgpt") return send(res, 200, issueReceipt(service.submitAssessment(issueId, "chatgpt", body, now())));
         if (req.method === "GET" && action === "assessments/blind") return send(res, 200, service.assessmentBlind(issueId, String(url.searchParams.get("viewer") ?? "")));
         if (req.method === "POST" && action === "consensus/responses/codex") return send(res, 200, issueReceipt(service.respondConsensus(issueId, "codex", body, now())));
+        if (req.method === "POST" && action === "consensus/rounds/next") return send(res, 200, issueReceipt(service.startNextAssessmentRound(issueId, "codex", now())));
         if (req.method === "POST" && action === "architecture/requirement-delta") return send(res, 200, issueReceipt(service.freezeRequirementDelta(issueId, body, "user", now())));
         if (req.method === "POST" && action === "architecture/options") return send(res, 200, issueReceipt(service.setArchitectureOptions(issueId, body.options, "codex", now())));
         if (req.method === "POST" && action === "architecture/accept-option") return send(res, 200, issueReceipt(service.acceptArchitectureOption(issueId, body, "user", now())));
@@ -168,7 +169,14 @@ function readReviewProjection(service, url, res) {
     "codex-assessment-blind": issue.assessments?.chatgpt && issue.assessments?.codex
       ? { issue_id: issue.issue_id, own_assessment: issue.assessments.chatgpt, counterpart_assessment: issue.assessments.codex, counterpart_sealed: false, pair_complete: true, consensus_delta: issue.consensus_delta }
       : { issue_id: issue.issue_id, own_assessment: issue.assessments?.chatgpt ?? null, counterpart_assessment: null, counterpart_sealed: true, pair_complete: false },
-    consensus: { issue_id: issue.issue_id, proposal: issue.consensus_proposal ?? null, responses: issue.consensus_responses ?? [], record: issue.consensus_record ?? null },
+    consensus: {
+      issue_id: issue.issue_id,
+      assessment_round: issue.assessment_round ?? 1,
+      history: issue.assessment_round_history ?? [],
+      proposal: issue.consensus_proposal ?? null,
+      responses: issue.consensus_responses ?? [],
+      record: issue.consensus_record ?? null,
+    },
     "architecture-options": { issue_id: issue.issue_id, requirement_delta: issue.requirement_delta ?? null, options: issue.architecture_options ?? [] },
     "task-package": { issue_id: issue.issue_id, task_package: issue.issue_task_package ?? null },
     candidate: { issue_id: issue.issue_id, candidate: issue.active_candidate ?? null },
@@ -198,7 +206,16 @@ function applyBridgeDecision(service, body, now) {
 }
 
 function decisionTemplate(issue) {
-  return { issue_id: issue.issue_id, candidate_id: issue.active_candidate?.candidate_id ?? null, candidate_commit: issue.active_candidate?.candidate_commit ?? null, allowed_purposes: [...BRIDGE_PURPOSES], constitution_content_hash: CONSTITUTION_HASH, writeback: "USER_GESTURE_CHALLENGE_REQUIRED" };
+  return {
+    issue_id: issue.issue_id,
+    assessment_round: issue.assessment_round ?? 1,
+    candidate_id: issue.active_candidate?.candidate_id ?? null,
+    candidate_commit: issue.active_candidate?.candidate_commit ?? null,
+    evidence_manifest_hash: issue.evidence?.manifest?.contentHash ?? issue.evidence?.manifest?.content_hash ?? null,
+    allowed_purposes: [...BRIDGE_PURPOSES],
+    constitution_content_hash: CONSTITUTION_HASH,
+    writeback: "USER_GESTURE_CHALLENGE_REQUIRED",
+  };
 }
 
 function verifyCandidate(issue) {

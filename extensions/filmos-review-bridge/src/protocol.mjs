@@ -21,12 +21,36 @@ export function validateEnvelope(value) {
 
 export function parseDecisionCandidates(texts) {
   for (const text of texts) {
-    try {
-      const parsed = JSON.parse(String(text).trim().replace(/^```(?:json)?\s*|\s*```$/g, ""));
-      return validateEnvelope(parsed);
-    } catch { /* Continue until one exact, candidate-bound Decision is found. */ }
+    for (const candidate of decisionTextCandidates(text)) {
+      try {
+        const parsed = JSON.parse(candidate);
+        return validateEnvelope(parsed);
+      } catch { /* Continue until one exact, candidate-bound Decision is found. */ }
+    }
   }
   throw new Error("NO_VALID_FILMOS_DECISION_FOUND");
+}
+
+function decisionTextCandidates(text) {
+  const value = String(text).trim();
+  const candidates = [value.replace(/^```(?:json)?\s*|\s*```$/g, "")];
+  let depth = 0; let start = -1; let inString = false; let escaped = false;
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (character === "\\") escaped = true;
+      else if (character === '"') inString = false;
+      continue;
+    }
+    if (character === '"') { inString = true; continue; }
+    if (character === "{") { if (depth === 0) start = index; depth += 1; }
+    else if (character === "}" && depth > 0) {
+      depth -= 1;
+      if (depth === 0 && start >= 0) candidates.push(value.slice(start, index + 1));
+    }
+  }
+  return [...new Set(candidates)];
 }
 
 export async function sendDecision(envelope, { token, userGestureAt, fetchImpl = fetch, now = Date.now() }) {
