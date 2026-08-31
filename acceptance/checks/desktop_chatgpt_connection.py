@@ -107,6 +107,8 @@ def main() -> None:
         "FILMOS_TUNNEL_CLIENT_RUNTIME_CACHE",
         "verify-installed-app-sync",
         'index($0, app_root "/Contents/") == 1',
+        "NSRunningApplication.runningApplicationWithProcessIdentifier",
+        "installed_app_main_pids",
     ):
         if marker not in install_script:
             raise RuntimeError(f"stable local app installer is missing: {marker}")

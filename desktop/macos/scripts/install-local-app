@@ -45,6 +45,24 @@ installed_app_pids() {
     '
 }
 
+installed_app_main_pids() {
+    ps -axo pid=,comm= | awk -v app_root="$destination" '
+        {
+            pid = $1
+            $1 = ""
+            sub(/^[[:space:]]+/, "", $0)
+            if ($0 == app_root "/Contents/MacOS/FilmOSStudioDesktop") print pid
+        }
+    '
+}
+
+request_app_termination() {
+    pid=$1
+    osascript -l JavaScript -e \
+        "ObjC.import('AppKit'); const app = $.NSRunningApplication.runningApplicationWithProcessIdentifier($pid); if (app) app.terminate;" \
+        >/dev/null 2>&1 || true
+}
+
 if [ "$relaunch" != true ]; then
     existing_pids=$(installed_app_pids)
     if [ -n "$existing_pids" ]; then
@@ -63,8 +81,15 @@ fi
 
 running_pids=$(installed_app_pids)
 if [ -n "$running_pids" ]; then
+    main_pids=$(installed_app_main_pids)
+    for pid in $main_pids; do
+        request_app_termination "$pid"
+    done
     for pid in $running_pids; do
-        kill -TERM "$pid"
+        case " $main_pids " in
+            *" $pid "*) ;;
+            *) kill -TERM "$pid" 2>/dev/null || true ;;
+        esac
     done
     attempts=0
     while [ "$attempts" -lt 50 ]; do
