@@ -82,6 +82,16 @@ def main() -> int:
         ("FilmOS Studio", "FILMOS_REVIEW_BUS_READ_ENABLED", "FILMOS_REVIEW_BUS_AUTH_FILE"),
     )
     require(
+        "desktop/macos/scripts/build-unsigned-app",
+        ('import { DatabaseSync } from "node:sqlite"', "FilmOS requires Bun 1.4.0+"),
+    )
+    for workflow in (
+        ".github/workflows/acceptance.yml",
+        ".github/workflows/film-upstream-compat.yml",
+        ".github/workflows/quality.yml",
+    ):
+        require(workflow, ("bun-version: 1.4.0",))
+    require(
         "web/src/film/governance/report-issue.ts",
         ("FILMOS-ISSUE-", "OBSERVED_IN_USE", "filmOSReviewIssueIntake"),
     )

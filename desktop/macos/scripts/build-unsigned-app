@@ -59,6 +59,10 @@ if [ -z "$bun_executable" ] || [ ! -x "$bun_executable" ]; then
     echo "bun is required to build the bundled web workbench" >&2
     exit 1
 fi
+if ! "$bun_executable" -e 'import { DatabaseSync } from "node:sqlite"; const database = new DatabaseSync(":memory:"); database.exec("CREATE TABLE probe(value INTEGER); INSERT INTO probe(value) VALUES (1)"); const row = database.prepare("SELECT value FROM probe").get(); database.close(); if (row?.value !== 1) process.exit(1)' >/dev/null 2>&1; then
+    echo "bun must provide a working node:sqlite runtime for the bundled Review Bus (FilmOS requires Bun 1.4.0+)" >&2
+    exit 1
+fi
 if [ -z "$go_executable" ] || [ ! -x "$go_executable" ]; then
     echo "go is required to bundle the internal backend" >&2
     exit 1
