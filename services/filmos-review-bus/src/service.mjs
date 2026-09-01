@@ -23,6 +23,11 @@ import {
   startArchitectureImplementation as startArchitectureImplementationV2,
 } from "./architecture-review.mjs";
 import { anchorLegacyArchitectureIssue, verifyArchitectureProtocol } from "./architecture-anchor.mjs";
+import {
+  readCodexCoordinationResult as readPersistedCodexCoordinationResult,
+  recordCodexCoordination as recordPersistedCodexCoordination,
+  recordCodexCoordinationResult as recordPersistedCodexCoordinationResult,
+} from "./codex-coordination.mjs";
 import { ARCHITECTURE_STATES, CONSTITUTION_HASH, CONSTITUTION_VERSION, LATE_FINDING_TAXONOMY, MAIN_STATES, MAX_AUTOMATIC_ROUNDS, TASK_PACKAGE_HASH, assertFastScope, classifyLane } from "./contracts.mjs";
 import { evidenceManifest, redactEvidence } from "./redaction.mjs";
 
@@ -64,7 +69,10 @@ export class ReviewBusService {
         issue_task_package: null, current_round: 1, assessment_round: 1,
         max_automatic_rounds: MAX_AUTOMATIC_ROUNDS, assessments: {}, findings: [], finding_responses: [],
         assessment_round_history: [], candidate_history: [], decision_history: [], stale_candidate_bindings: [],
-        codex_coordination: { status: "IDLE", session_id: null, last_action: null, last_error_code: null },
+        codex_coordination: {
+          status: "IDLE", session_id: null, last_action: null, last_error_code: null,
+          coordination_key: null, attempt_id: null, retry_count: 0, next_retry_at: null, stop_reason: null,
+        },
         runtime_recovery: { observed_start_ids: [] },
         verdicts: { codex: null, chatgpt: null, machine: null }, next_pilot_allowed: false,
         ...(useArchitectureV2 ? {
@@ -606,13 +614,15 @@ export class ReviewBusService {
   nextRound(issueId, actor = "codex", now = new Date()) { return this.startNextRound(issueId, actor, now); }
 
   recordCodexCoordination(issueId, input, actor = "review-codex-coordinator", now = new Date()) {
-    const current = this.requireIssue(issueId);
-    exactObject(input, ["status", "session_id", "last_action", "last_error_code"]);
-    if (!["IDLE", "RUNNING", "WAITING_EXTERNAL", "STOPPED_OWNER_GATE", "COMPLETED", "FAILED"].includes(input.status)) throw problem("INVALID_CODEX_COORDINATION_STATUS");
-    for (const field of ["session_id", "last_action", "last_error_code"]) if (input[field] !== null && typeof input[field] !== "string") throw problem("INVALID_CODEX_COORDINATION_RECORD");
-    const value = { ...input, updated_at: now.toISOString() };
-    return this.store.append({ issueId, projectId: current.project_id, lane: current.lane, eventType: "codex.coordination", actor, payload: value, now,
-      mutate: (next) => { next.codex_coordination = value; return next; } });
+    return recordPersistedCodexCoordination({ store: this.store, current: this.requireIssue(issueId), input, actor, now });
+  }
+
+  recordCodexCoordinationResult(issueId, input, actor = "review-codex-coordinator", now = new Date()) {
+    return recordPersistedCodexCoordinationResult({ store: this.store, current: this.requireIssue(issueId), input, actor, now });
+  }
+
+  readCodexCoordinationResult(issueId, projectId, coordinationKey) {
+    return readPersistedCodexCoordinationResult({ store: this.store, current: this.requireIssue(issueId), projectId, coordinationKey });
   }
 
   anchorLegacyArchitecture(issueId, migrationCommit, now = new Date()) {
@@ -635,8 +645,8 @@ export class ReviewBusService {
       } });
   }
 
-  pending(projectId) { return this.store.list({ projectId }).filter((item) => pendingStates.has(item.state)).map(readSummary); }
-  pendingAll() { return this.store.list().filter((item) => pendingStates.has(item.state)).map(readSummary); }
+  pending(projectId) { return this.store.list({ projectId }).filter((item) => pendingStates.has(item.state)).map((item) => readSummary(item, this.store, false)); }
+  pendingAll() { return this.store.list().filter((item) => pendingStates.has(item.state)).map((item) => readSummary(item, this.store, true)); }
   listRedactedAdmin() { return this.store.list().map((item) => redactedProjection(item)); }
   readRedactedAdmin(issueId) {
     return { ...redactedProjection(this.requireIssue(issueId)), event_chain_verified: this.store.verifyEventChain(issueId) };
@@ -766,9 +776,33 @@ function dualSignoff(value, now) {
   return { ...base, content_hash: sha256(base) };
 }
 
-function readSummary(value) {
+function readSummary(value, store, includeCoordination) {
   const coordinationKey = sha256({ state: value.state, assessment_round: value.assessment_round, current_round: value.current_round, evidence: value.evidence?.manifest?.contentHash ?? null, assessments: value.assessments, consensus: value.consensus_record?.contentHash ?? value.consensus_proposal?.contentHash ?? null, task_package: value.issue_task_package?.contentHash ?? null, candidate: value.active_candidate?.content_hash ?? null, findings: value.findings, responses: value.finding_responses, verdicts: value.verdicts });
-  return { issue_id: value.issue_id, project_id: value.project_id, lane: value.lane, state: value.state, what_happened: value.report.what_happened, blocks_work: value.report.blocks_work, updated_at: value.updated_at, content_hash: value.content_hash, coordination_key: coordinationKey };
+  const coordination = value.codex_coordination ?? null;
+  const summary = {
+    issue_id: value.issue_id,
+    project_id: value.project_id,
+    lane: value.lane,
+    state: value.state,
+    what_happened: value.report.what_happened,
+    blocks_work: value.report.blocks_work,
+    updated_at: value.updated_at,
+    content_hash: value.content_hash,
+    coordination_key: coordinationKey,
+  };
+  if (includeCoordination) summary.codex_coordination = coordination ? {
+      status: coordination.status,
+      session_id: coordination.session_id,
+      last_action: coordination.last_action,
+      last_error_code: coordination.last_error_code,
+      coordination_key: coordination.coordination_key ?? null,
+      attempt_id: coordination.attempt_id ?? null,
+      retry_count: coordination.retry_count ?? 0,
+      next_retry_at: coordination.next_retry_at ?? null,
+      stop_reason: coordination.stop_reason ?? null,
+      result_available: Boolean(store.readCodexCoordinationResult(value.issue_id, coordinationKey)),
+    } : null;
+  return summary;
 }
 function redactedProjection(value) {
   const next = structuredClone(value);

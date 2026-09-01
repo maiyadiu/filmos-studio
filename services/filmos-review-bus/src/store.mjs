@@ -95,6 +95,17 @@ export class ReviewBusStore {
         read_at TEXT NOT NULL,
         PRIMARY KEY(issue_id, consumer, tool_name)
       );
+      CREATE TABLE IF NOT EXISTS review_codex_coordination_results (
+        issue_id TEXT NOT NULL,
+        coordination_key TEXT NOT NULL,
+        attempt_id TEXT NOT NULL,
+        action TEXT NOT NULL,
+        result_json TEXT NOT NULL,
+        result_hash TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY(issue_id, coordination_key),
+        UNIQUE(attempt_id)
+      );
       CREATE TABLE IF NOT EXISTS bridge_challenges (
         challenge_id TEXT PRIMARY KEY,
         purpose TEXT NOT NULL,
@@ -144,6 +155,8 @@ export class ReviewBusStore {
       CREATE TRIGGER IF NOT EXISTS review_submission_receipts_no_delete BEFORE DELETE ON review_submission_receipts BEGIN SELECT RAISE(ABORT, 'SUBMISSION_RECEIPT_IMMUTABLE'); END;
       CREATE TRIGGER IF NOT EXISTS review_bootstrap_receipts_no_update BEFORE UPDATE ON review_bootstrap_receipts BEGIN SELECT RAISE(ABORT, 'BOOTSTRAP_RECEIPT_IMMUTABLE'); END;
       CREATE TRIGGER IF NOT EXISTS review_bootstrap_receipts_no_delete BEFORE DELETE ON review_bootstrap_receipts BEGIN SELECT RAISE(ABORT, 'BOOTSTRAP_RECEIPT_IMMUTABLE'); END;
+      CREATE TRIGGER IF NOT EXISTS review_codex_coordination_results_no_update BEFORE UPDATE ON review_codex_coordination_results BEGIN SELECT RAISE(ABORT, 'CODEX_COORDINATION_RESULT_IMMUTABLE'); END;
+      CREATE TRIGGER IF NOT EXISTS review_codex_coordination_results_no_delete BEFORE DELETE ON review_codex_coordination_results BEGIN SELECT RAISE(ABORT, 'CODEX_COORDINATION_RESULT_IMMUTABLE'); END;
     `);
   }
 
@@ -336,6 +349,37 @@ export class ReviewBusStore {
   readReceipts(issueId, consumer) {
     return this.db.prepare("SELECT issue_id,project_id,consumer,tool_name,projection_content_hash,evidence_manifest_hash,read_at FROM review_read_receipts WHERE issue_id = ? AND consumer = ? ORDER BY tool_name")
       .all(issueId, consumer).map((row) => ({ ...row }));
+  }
+
+  persistCodexCoordinationResult({ issueId, coordinationKey, attemptId, action, result, now = new Date() }, apply) {
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const resultJson = canonicalJson(result);
+      const resultHash = sha256(result);
+      const existing = this.db.prepare("SELECT * FROM review_codex_coordination_results WHERE issue_id = ? AND coordination_key = ?").get(issueId, coordinationKey);
+      if (existing) {
+        if (existing.attempt_id !== attemptId || existing.action !== action || existing.result_hash !== resultHash || existing.result_json !== resultJson) {
+          throw problem("CODEX_COORDINATION_RESULT_CONFLICT", "CODEX_COORDINATION_RESULT_CONFLICT", 409);
+        }
+        const value = apply({ resultHash, idempotentReplay: true });
+        this.db.exec("COMMIT");
+        return { value, result_hash: resultHash, idempotent_replay: true };
+      }
+      this.db.prepare(`INSERT INTO review_codex_coordination_results(issue_id,coordination_key,attempt_id,action,result_json,result_hash,created_at)
+        VALUES(?,?,?,?,?,?,?)`).run(issueId, coordinationKey, attemptId, action, resultJson, resultHash, now.toISOString());
+      const value = apply({ resultHash, idempotentReplay: false });
+      this.db.exec("COMMIT");
+      return { value, result_hash: resultHash, idempotent_replay: false };
+    } catch (error) {
+      if (this.db.isTransaction) this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  readCodexCoordinationResult(issueId, coordinationKey) {
+    const row = this.db.prepare("SELECT issue_id,coordination_key,attempt_id,action,result_json,result_hash,created_at FROM review_codex_coordination_results WHERE issue_id = ? AND coordination_key = ?")
+      .get(issueId, coordinationKey);
+    return row ? { ...row, result: JSON.parse(row.result_json), result_json: undefined } : null;
   }
 
   append({ issueId, eventType, actor, payload, projectId, lane, mutate, revokeCandidate = null, transitionAction = null, now = new Date() }) {

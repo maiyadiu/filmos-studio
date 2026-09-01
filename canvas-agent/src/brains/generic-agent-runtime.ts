@@ -290,6 +290,16 @@ export class GenericAgentRuntime {
                 }
                 return output;
             },
+            recover: async (sessionId, attemptId) => {
+                const session = await this.store.getSession(sessionId);
+                if (!session) return null;
+                await this.ensureSessionHydrated(sessionId);
+                const current = (await this.store.getSession(sessionId)) ?? session;
+                const history = await this.registry.getAdapter(current.brainProfileId).readHistory?.(current) ?? [];
+                return history
+                    .filter((item) => item.role === "assistant" && item.text.includes(attemptId))
+                    .at(-1)?.text ?? null;
+            },
         }, worktrees, () => {
             try {
                 const current = this.snapshot();

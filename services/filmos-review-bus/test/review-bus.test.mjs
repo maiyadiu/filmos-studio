@@ -1082,6 +1082,38 @@ test("legacy Architecture history receives exactly one v2 Anchor without rewriti
   store.close();
 });
 
+test("Codex coordination result is immutable, idempotent, and restart-readable by coordination key", () => {
+  const { service, store } = fixture();
+  const issue = createCoreIssue(service, "coordination-result");
+  const summary = service.pendingAll().find((item) => item.issue_id === issue.issue_id);
+  assert.equal("codex_coordination" in service.pending(projectId).find((item) => item.issue_id === issue.issue_id), false);
+  const attemptId = "review-attempt-11111111-1111-4111-8111-111111111111";
+  service.recordCodexCoordination(issue.issue_id, {
+    status: "RUNNING",
+    session_id: "brain-session-coordination",
+    last_action: "LOCAL_ASSESSMENT",
+    last_error_code: null,
+    coordination_key: summary.coordination_key,
+    attempt_id: attemptId,
+    retry_count: 0,
+    next_retry_at: null,
+    stop_reason: null,
+  });
+  const result = { coordination_attempt_id: attemptId, reproduced: true, root_cause: "persistent result" };
+  const first = service.recordCodexCoordinationResult(issue.issue_id, { coordination_key: summary.coordination_key, attempt_id: attemptId, action: "LOCAL_ASSESSMENT", result });
+  const replay = service.recordCodexCoordinationResult(issue.issue_id, { coordination_key: summary.coordination_key, attempt_id: attemptId, action: "LOCAL_ASSESSMENT", result });
+
+  assert.equal(first.idempotent_replay, false);
+  assert.equal(replay.idempotent_replay, true);
+  assert.equal(service.pendingAll().find((item) => item.issue_id === issue.issue_id).codex_coordination.result_available, true);
+  assert.deepEqual(service.readCodexCoordinationResult(issue.issue_id, projectId, summary.coordination_key).result, result);
+  assert.equal(store.events(issue.issue_id).filter((event) => event.event_type === "codex.coordination.result-ready").length, 1);
+  assert.equal(store.db.prepare("SELECT COUNT(*) AS count FROM review_codex_coordination_results").get().count, 1);
+  assert.throws(() => service.recordCodexCoordinationResult(issue.issue_id, { coordination_key: summary.coordination_key, attempt_id: attemptId, action: "LOCAL_ASSESSMENT", result: { ...result, root_cause: "changed" } }), /CODEX_COORDINATION_RESULT_CONFLICT/);
+  assert.throws(() => store.db.prepare("UPDATE review_codex_coordination_results SET action = 'changed'").run(), /CODEX_COORDINATION_RESULT_IMMUTABLE/);
+  store.close();
+});
+
 test("v2 Anchor fails closed when the legacy hash chain is invalid and is never added to a v2 Genesis issue", () => {
   const { service, store } = fixture();
   const legacy = service.createIssue({ issue_id: "FILMOS-ARCH-broken-anchor", project_id: projectId, what_happened: "legacy issue", expected_result: "valid chain", location: "review bus", blocks_work: false, lane: "architecture" }, "user", new Date(), { architectureProtocolVersion: null });

@@ -153,6 +153,7 @@ export function createReviewBusHttp({ service, store, busToken, bridgeToken, con
         if (req.method === "POST" && action === "verdicts/machine") return send(res, 200, issueReceipt(service.recordVerdict(issueId, "machine", body, now())));
         if (req.method === "POST" && action === "pilot") return send(res, 200, issueReceipt(service.deployPilot(issueId, body, "system", now())));
         if (req.method === "POST" && action === "codex-coordination") return send(res, 200, issueReceipt(service.recordCodexCoordination(issueId, body, "review-codex-coordinator", now())));
+        if (req.method === "POST" && action === "codex-coordination/result") return send(res, 200, issueReceipt(service.recordCodexCoordinationResult(issueId, body, "review-codex-coordinator", now()).value));
       }
       if (req.method === "GET" && url.pathname === "/v1/review/pending") {
         const projectId = requireProject(url);
@@ -182,6 +183,8 @@ export function createReviewBusHttp({ service, store, busToken, bridgeToken, con
       }
       const internal = /^\/v1\/review\/internal\/issues\/([^/]+)\/full-context$/.exec(url.pathname);
       if (req.method === "GET" && internal) return send(res, 200, service.readLocalFull(decodeURIComponent(internal[1]), requireProject(url)));
+      const coordinationResult = /^\/v1\/review\/internal\/issues\/([^/]+)\/codex-coordination\/results\/([^/]+)$/.exec(url.pathname);
+      if (req.method === "GET" && coordinationResult) return send(res, 200, service.readCodexCoordinationResult(decodeURIComponent(coordinationResult[1]), requireProject(url), decodeURIComponent(coordinationResult[2])));
       const intakeConfirmation = /^\/v1\/review\/internal\/issues\/([^/]+)\/intake-confirmation$/.exec(url.pathname);
       if (req.method === "GET" && intakeConfirmation) {
         const issueId = decodeURIComponent(intakeConfirmation[1]);
