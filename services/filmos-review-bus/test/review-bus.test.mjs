@@ -398,6 +398,61 @@ test("GitHub evidence verifier independently binds commit, tree, branch, success
   const releaseManifest = Buffer.from(JSON.stringify({ repository: "maiyadiu/filmos-studio", git_commit_sha: "d".repeat(40), git_tree_sha: "e".repeat(40), evidence_index_hash: evidenceIndexHash }));
   const handoff = storedZip("handoff/EVIDENCE_INDEX.json", evidenceIndex);
   const archive = storedZipEntries([{ name: "RELEASE_MANIFEST.json", content: releaseManifest }, { name: "FilmOS_Handoff.zip", content: handoff }]);
+  const { value, fetchImpl, verifier } = githubEvidenceFixture(archive, evidenceIndexHash);
+  const receipt = await verifier.verify(value);
+  assert.equal(receipt.verified, true);
+  assert.equal(receipt.artifact_commit, value.candidate_commit);
+  assert.equal(receipt.evidence_index_hash, value.evidence_index_hash);
+  assert.equal(receipt.evidence_index_sha256, value.evidence_index_hash);
+  const failing = new GitHubEvidenceVerifier({ token: "github-token-for-test", fetchImpl: async (url) => String(url).endsWith("/actions/runs/123") ? jsonResponse({ id: 123, head_sha: value.candidate_commit, head_branch: value.branch, status: "completed", conclusion: "failure" }) : fetchImpl(url) });
+  await assert.rejects(() => failing.verify(value), /GITHUB_RUN_NOT_SUCCESSFUL/);
+});
+
+test("GitHub evidence verifier fails closed when the nested Evidence Index is tampered, missing, duplicated, or only the Manifest claim changes", async () => {
+  const evidenceIndex = Buffer.from('{"schema_version":"filmos.evidence-index.v1"}\n');
+  const evidenceIndexHash = createHash("sha256").update(evidenceIndex).digest("hex");
+  const releaseManifest = (claimedHash = evidenceIndexHash) => Buffer.from(JSON.stringify({ repository: "maiyadiu/filmos-studio", git_commit_sha: "d".repeat(40), git_tree_sha: "e".repeat(40), evidence_index_hash: claimedHash }));
+
+  const tamperedIndex = Buffer.from('{"schema_version":"filmos.evidence-index.v1","tampered":true}\n');
+  const tamperedArchive = storedZipEntries([
+    { name: "RELEASE_MANIFEST.json", content: releaseManifest() },
+    { name: "FilmOS_Handoff.zip", content: storedZip("handoff/EVIDENCE_INDEX.json", tamperedIndex) },
+  ]);
+  const tampered = githubEvidenceFixture(tamperedArchive, evidenceIndexHash);
+  await assert.rejects(() => tampered.verifier.verify(tampered.value), /EVIDENCE_INDEX_CONTENT_HASH_MISMATCH/);
+
+  const missingArchive = storedZipEntries([
+    { name: "RELEASE_MANIFEST.json", content: releaseManifest() },
+    { name: "FilmOS_Handoff.zip", content: storedZip("handoff/README.json", Buffer.from("{}")) },
+  ]);
+  const missing = githubEvidenceFixture(missingArchive, evidenceIndexHash);
+  await assert.rejects(() => missing.verifier.verify(missing.value), /EVIDENCE_INDEX_MISSING/);
+
+  const duplicatedArchive = storedZipEntries([
+    { name: "RELEASE_MANIFEST.json", content: releaseManifest() },
+    { name: "EVIDENCE_INDEX.json", content: evidenceIndex },
+    { name: "FilmOS_Handoff.zip", content: storedZip("handoff/EVIDENCE_INDEX.json", evidenceIndex) },
+  ]);
+  const duplicated = githubEvidenceFixture(duplicatedArchive, evidenceIndexHash);
+  await assert.rejects(() => duplicated.verifier.verify(duplicated.value), /EVIDENCE_INDEX_NOT_UNIQUE/);
+
+  const claimedHash = "b".repeat(64);
+  const manifestOnlyArchive = storedZipEntries([
+    { name: "RELEASE_MANIFEST.json", content: releaseManifest(claimedHash) },
+    { name: "FilmOS_Handoff.zip", content: storedZip("handoff/EVIDENCE_INDEX.json", evidenceIndex) },
+  ]);
+  const manifestOnly = githubEvidenceFixture(manifestOnlyArchive, claimedHash);
+  await assert.rejects(() => manifestOnly.verifier.verify(manifestOnly.value), /EVIDENCE_INDEX_CONTENT_HASH_MISMATCH/);
+});
+
+test("candidate scope accepts a frozen exact descriptor for a file created by the candidate", () => {
+  assert.equal(fileInScope("web/new-view.ts", "web/new-view.ts（当前不存在）"), true);
+  assert.equal(fileInScope("web/new-view.ts", "web/new-view.ts（冻结基线中不存在）"), true);
+  assert.equal(fileInScope("web/other.ts", "web/new-view.ts（当前不存在）"), false);
+  assert.equal(fileInScope("web/new-view.ts（当前不存在）", "web/new-view.ts（当前不存在）"), false);
+});
+
+function githubEvidenceFixture(archive, evidenceIndexHash) {
   const artifactDigest = `sha256:${createHash("sha256").update(archive).digest("hex")}`;
   const value = candidate({ artifact_id: "789", artifact_digest: artifactDigest, evidence_index_hash: evidenceIndexHash });
   const fetchImpl = async (url) => {
@@ -409,21 +464,8 @@ test("GitHub evidence verifier independently binds commit, tree, branch, success
     if (path === "https://artifact.local/archive.zip") return new Response(archive, { status: 200, headers: { "content-length": String(archive.length) } });
     return jsonResponse({ message: "not found" }, 404);
   };
-  const verifier = new GitHubEvidenceVerifier({ token: "github-token-for-test", fetchImpl, now: () => new Date("2026-08-31T02:00:00.000Z") });
-  const receipt = await verifier.verify(value);
-  assert.equal(receipt.verified, true);
-  assert.equal(receipt.artifact_commit, value.candidate_commit);
-  assert.equal(receipt.evidence_index_hash, value.evidence_index_hash);
-  assert.equal(receipt.evidence_index_sha256, value.evidence_index_hash);
-  const failing = new GitHubEvidenceVerifier({ token: "github-token-for-test", fetchImpl: async (url) => String(url).endsWith("/actions/runs/123") ? jsonResponse({ id: 123, head_sha: value.candidate_commit, head_branch: value.branch, status: "completed", conclusion: "failure" }) : fetchImpl(url) });
-  await assert.rejects(() => failing.verify(value), /GITHUB_RUN_NOT_SUCCESSFUL/);
-});
-
-test("candidate scope accepts a frozen exact descriptor for a file created by the candidate", () => {
-  assert.equal(fileInScope("web/new-view.ts", "web/new-view.ts（当前不存在）"), true);
-  assert.equal(fileInScope("web/new-view.ts", "web/new-view.ts（冻结基线中不存在）"), true);
-  assert.equal(fileInScope("web/other.ts", "web/new-view.ts（当前不存在）"), false);
-});
+  return { value, fetchImpl, verifier: new GitHubEvidenceVerifier({ token: "github-token-for-test", fetchImpl, now: () => new Date("2026-08-31T02:00:00.000Z") }) };
+}
 
 function jsonResponse(value, status = 200) {
   return new Response(JSON.stringify(value), { status, headers: { "content-type": "application/json" } });

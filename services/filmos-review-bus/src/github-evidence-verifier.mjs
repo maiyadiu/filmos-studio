@@ -119,9 +119,7 @@ function extractUniqueZipEntry(archive, expectedName, maximum) {
 function extractUniqueEvidenceIndex(archive, maximum) {
   const direct = zipEntries(archive).filter((entry) => entry.name === "EVIDENCE_INDEX.json" || entry.name.endsWith("/EVIDENCE_INDEX.json"));
   if (direct.length > 1) throw problem("EVIDENCE_INDEX_NOT_UNIQUE");
-  if (direct.length === 1) return extractZipEntry(archive, direct[0], maximum, "EVIDENCE_INDEX_TOO_LARGE");
-
-  const matches = [];
+  const matches = direct.map((entry) => extractZipEntry(archive, entry, maximum, "EVIDENCE_INDEX_TOO_LARGE"));
   for (const nestedEntry of zipEntries(archive).filter((entry) => entry.name.toLowerCase().endsWith(".zip"))) {
     const nestedArchive = extractZipEntry(archive, nestedEntry, MAX_ARTIFACT_BYTES, "NESTED_ARTIFACT_TOO_LARGE");
     const nestedEvidence = zipEntries(nestedArchive).filter((entry) => entry.name === "EVIDENCE_INDEX.json" || entry.name.endsWith("/EVIDENCE_INDEX.json"));
