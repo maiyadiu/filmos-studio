@@ -172,6 +172,7 @@ declare global {
         filmOSReportIssue?: (surface?: IssueSurface) => void;
         filmOSReviewIssueIntake?: (draft: LocalIssueDraft) => Promise<LocalIssueDraft>;
         filmOSReviewCenterRequest?: (operation: string, payload?: Record<string, string>) => Promise<unknown>;
+        filmOSReplayReviewIssues?: () => Promise<{ delivered: number; pending: number }>;
         filmOSResolveReviewIssue?: (requestId: string, result: unknown, error: string | null) => void;
         webkit?: { messageHandlers?: { filmosDesktop?: { postMessage: (message: unknown) => void } } };
     }
@@ -427,6 +428,24 @@ export async function replayPendingIssueDrafts() {
         }
     }
     return { delivered, pending: await countPendingIssueDrafts() };
+}
+
+let activeReplay: Promise<{ delivered: number; pending: number }> | null = null;
+
+export function requestIssueDraftReplay() {
+    if (activeReplay) return activeReplay;
+    activeReplay = replayPendingIssueDrafts()
+        .then((result) => {
+            window.dispatchEvent(new CustomEvent("filmos:review-issue-replay-summary", { detail: { status: "OK", ...result } }));
+            return result;
+        })
+        .catch((error) => {
+            const code = safeErrorCode(error);
+            window.dispatchEvent(new CustomEvent("filmos:review-issue-replay-summary", { detail: { status: "FAILED", code } }));
+            throw new Error(code);
+        })
+        .finally(() => { activeReplay = null; });
+    return activeReplay;
 }
 
 export async function countPendingIssueDrafts() {
@@ -689,8 +708,10 @@ function blobBase64(blob: Blob) {
 }
 
 if (typeof window !== "undefined") {
-    window.setTimeout(() => { void replayPendingIssueDrafts(); }, 1_000);
-    window.addEventListener("online", () => { void replayPendingIssueDrafts(); });
-    window.addEventListener("filmos:workbench-context", () => { void replayPendingIssueDrafts(); });
-    window.setInterval(() => { void replayPendingIssueDrafts(); }, 30_000);
+    const requestReplay = () => { void requestIssueDraftReplay().catch(() => undefined); };
+    window.filmOSReplayReviewIssues = requestIssueDraftReplay;
+    window.setTimeout(requestReplay, 1_000);
+    window.addEventListener("online", requestReplay);
+    window.addEventListener("filmos:workbench-context", requestReplay);
+    window.setInterval(requestReplay, 30_000);
 }

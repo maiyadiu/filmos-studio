@@ -901,6 +901,34 @@ private final class WorkbenchWindow: NSObject, @preconcurrency WKNavigationDeleg
         if let latestChatGPTHostStatusScript {
             webView.evaluateJavaScript(latestChatGPTHostStatusScript)
         }
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            guard let self else { return }
+            do {
+                let result = try await self.webView.callAsyncJavaScript(
+                    """
+                    if (typeof window.filmOSReplayReviewIssues !== "function") {
+                        throw new Error("REVIEW_REPLAY_BRIDGE_UNAVAILABLE");
+                    }
+                    const replay = await window.filmOSReplayReviewIssues();
+                    return {
+                        delivered: Number(replay?.delivered ?? 0),
+                        pending: Number(replay?.pending ?? 0),
+                    };
+                    """,
+                    arguments: [:],
+                    in: nil,
+                    contentWorld: .page
+                )
+                let values = result as? [String: Any]
+                let delivered = values?["delivered"] as? NSNumber ?? 0
+                let pending = values?["pending"] as? NSNumber ?? 0
+                FileHandle.standardError.write(Data("FilmOS review replay: status=OK delivered=\(delivered) pending=\(pending)\n".utf8))
+            } catch {
+                let failure = error as NSError
+                FileHandle.standardError.write(Data("FilmOS review replay: status=FAILED domain=\(failure.domain) code=\(failure.code)\n".utf8))
+            }
+        }
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
