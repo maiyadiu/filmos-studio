@@ -9,13 +9,14 @@ import { sha256 } from "./canonical.mjs";
 
 const execFileAsync = promisify(execFile);
 const DEFAULT_REPOSITORY = "maiyadiu/filmos-studio";
+const HANDOFF_ARCHIVE_PATTERN = /^FilmOS_V1_1_Dual_Expert_Operational_Closure_Handoff_[0-9a-f]{8,64}\.zip$/;
 
 export class GitHubEvidenceVerifier {
   constructor({
     repository = process.env.FILMOS_REVIEW_GITHUB_REPOSITORY ?? DEFAULT_REPOSITORY,
     apiJson = defaultApiJson,
     downloadArtifact = defaultDownloadArtifact,
-    readArtifactEvidenceIndex = defaultReadArtifactEvidenceIndex,
+    readArtifactEvidenceIndex = readHandoffEvidenceIndex,
     now = () => new Date(),
   } = {}) {
     if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository)) throw evidenceProblem("INVALID_GITHUB_REPOSITORY");
@@ -119,14 +120,36 @@ export function resolveGitHubCLI(environment = process.env) {
   return "gh";
 }
 
-async function defaultReadArtifactEvidenceIndex(archive) {
-  const { stdout } = await execFileAsync("unzip", ["-Z1", archive.path], { encoding: "utf8", timeout: 30_000, maxBuffer: 8 * 1024 * 1024 });
-  const entries = stdout.split(/\r?\n/).filter(Boolean);
-  const evidenceEntry = entries.find((entry) => entry === "EVIDENCE_INDEX.json")
-    ?? entries.find((entry) => entry.endsWith("/EVIDENCE_INDEX.json"));
-  if (!evidenceEntry) throw evidenceProblem("ARTIFACT_EVIDENCE_INDEX_MISSING");
-  const { stdout: bytes } = await execFileAsync("unzip", ["-p", archive.path, evidenceEntry], { encoding: null, timeout: 30_000, maxBuffer: 32 * 1024 * 1024 });
-  return Buffer.from(bytes);
+export async function readHandoffEvidenceIndex(archive) {
+  if (!archive?.path) throw evidenceProblem("ARTIFACT_ARCHIVE_REQUIRED");
+  const outerEntries = await zipEntries(archive.path);
+  const handoffEntries = outerEntries.filter((entry) => HANDOFF_ARCHIVE_PATTERN.test(entry));
+  if (handoffEntries.length === 0) throw evidenceProblem("ARTIFACT_HANDOFF_MISSING");
+  if (handoffEntries.length !== 1) throw evidenceProblem("ARTIFACT_HANDOFF_AMBIGUOUS");
+
+  const handoffEntry = handoffEntries[0];
+  const handoffStem = handoffEntry.slice(0, -4);
+  const directory = mkdtempSync(resolve(tmpdir(), "filmos-handoff-artifact-"));
+  const handoffPath = resolve(directory, "handoff.zip");
+  try {
+    await spawnToFile("unzip", ["-p", archive.path, handoffEntry], handoffPath);
+    const nestedEntries = await zipEntries(handoffPath);
+    const evidenceEntries = nestedEntries.filter((entry) => entry === "EVIDENCE_INDEX.json" || entry.endsWith("/EVIDENCE_INDEX.json"));
+    if (evidenceEntries.length === 0) throw evidenceProblem("ARTIFACT_EVIDENCE_INDEX_MISSING");
+    if (evidenceEntries.length !== 1) throw evidenceProblem("ARTIFACT_EVIDENCE_INDEX_AMBIGUOUS");
+    const evidenceEntry = evidenceEntries[0];
+    if (evidenceEntry !== `${handoffStem}/EVIDENCE_INDEX.json`) throw evidenceProblem("ARTIFACT_EVIDENCE_INDEX_INVALID_NESTING");
+    const { stdout: bytes } = await execFileAsync("unzip", ["-p", handoffPath, evidenceEntry], { encoding: null, timeout: 30_000, maxBuffer: 32 * 1024 * 1024 });
+    if (!bytes.length) throw evidenceProblem("ARTIFACT_EVIDENCE_INDEX_MISSING");
+    return Buffer.from(bytes);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+}
+
+async function zipEntries(path) {
+  const { stdout } = await execFileAsync("unzip", ["-Z1", path], { encoding: "utf8", timeout: 30_000, maxBuffer: 8 * 1024 * 1024 });
+  return stdout.split(/\r?\n/).filter(Boolean);
 }
 
 function spawnToFile(command, args, outputPath) {

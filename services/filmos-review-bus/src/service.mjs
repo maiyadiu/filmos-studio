@@ -5,6 +5,8 @@ import { ARCHITECTURE_STATES, CONSTITUTION_HASH, CONSTITUTION_VERSION, LATE_FIND
 import { evidenceManifest, redactEvidence } from "./redaction.mjs";
 
 const pendingStates = new Set([...MAIN_STATES, ...ARCHITECTURE_STATES].filter((state) => !["PILOT_DEPLOYED", "OBSERVING_IN_USE", "ARCHITECTURE_ADOPTED"].includes(state)));
+const MAX_MEDIA_ATTACHMENT_BYTES = 25 * 1024 * 1024;
+const MAX_TEXT_ATTACHMENT_BYTES = 1024 * 1024;
 
 export class ReviewBusService {
   constructor(store, options = {}) {
@@ -78,11 +80,17 @@ export class ReviewBusService {
     exactObject(input, ["attachment_id", "media_type", "original_name", "base64", "captured_at"]);
     requireFields(input, ["attachment_id", "media_type", "original_name", "base64"]);
     if (!/^attachment-[A-Za-z0-9-]{1,120}$/.test(input.attachment_id)) throw problem("INVALID_ATTACHMENT_ID");
-    if (typeof input.media_type !== "string" || !/^(image|video)\/[A-Za-z0-9.+-]{1,80}$/.test(input.media_type)) throw problem("INVALID_ATTACHMENT_MEDIA_TYPE");
+    const mediaTypeAllowed = typeof input.media_type === "string"
+      && (/^(image|video)\/[A-Za-z0-9.+-]{1,80}$/.test(input.media_type) || input.media_type === "text/plain");
+    if (!mediaTypeAllowed) throw problem("INVALID_ATTACHMENT_MEDIA_TYPE");
     if (typeof input.original_name !== "string" || !input.original_name.trim() || input.original_name.length > 255) throw problem("INVALID_ATTACHMENT_NAME");
     if (typeof input.base64 !== "string" || input.base64.length === 0 || input.base64.length > 35_000_000) throw problem("INVALID_ATTACHMENT_BYTES");
     const bytes = Buffer.from(input.base64, "base64");
-    if (bytes.length === 0 || bytes.length > 25 * 1024 * 1024 || bytes.toString("base64").replace(/=+$/, "") !== input.base64.replace(/=+$/, "")) throw problem("INVALID_ATTACHMENT_BYTES");
+    const maxBytes = input.media_type === "text/plain" ? MAX_TEXT_ATTACHMENT_BYTES : MAX_MEDIA_ATTACHMENT_BYTES;
+    if (bytes.length === 0 || bytes.length > maxBytes || bytes.toString("base64").replace(/=+$/, "") !== input.base64.replace(/=+$/, "")) throw problem("INVALID_ATTACHMENT_BYTES");
+    if (input.media_type === "text/plain") {
+      try { new TextDecoder("utf-8", { fatal: true }).decode(bytes); } catch { throw problem("INVALID_ATTACHMENT_BYTES"); }
+    }
     const capturedAt = input.captured_at ? new Date(input.captured_at) : now;
     if (!Number.isFinite(capturedAt.getTime())) throw problem("INVALID_ATTACHMENT_CAPTURE_TIME");
     const redactedAlias = `evidence://${issueId}/${input.attachment_id}`;
@@ -97,10 +105,11 @@ export class ReviewBusService {
     });
     const existingItems = current.evidence?.local_items ?? [];
     const withoutCurrent = existingItems.filter((item) => item.content?.attachment_id !== input.attachment_id);
+    const itemKind = input.media_type === "text/plain" ? "attachment" : "screenshot";
     const item = {
       evidence_id: `evidence-${input.attachment_id}`,
-      kind: "screenshot",
-      completeness_kind: "screenshot",
+      kind: itemKind,
+      completeness_kind: itemKind,
       local_only: true,
       redacted_alias: redactedAlias,
       captured_at: capturedAt.toISOString(),
@@ -112,8 +121,32 @@ export class ReviewBusService {
         redacted_alias: metadata.redacted_alias,
       },
     };
-    const frozen = this.freezeEvidence(issueId, { source_commit: current.evidence?.manifest?.sourceCommit ?? current.base_commit, items: [...withoutCurrent, item] }, actor, now);
-    return { issue: frozen, attachment: safeAttachmentMetadata(metadata) };
+    if (!current.issue_task_package) {
+      const frozen = this.freezeEvidence(issueId, { source_commit: current.evidence?.manifest?.sourceCommit ?? current.base_commit, items: [...withoutCurrent, item] }, actor, now);
+      return { issue: frozen, attachment: safeAttachmentMetadata(metadata) };
+    }
+
+    const existingFrozenItem = existingItems.find((entry) => entry.content?.attachment_id === input.attachment_id);
+    if (existingFrozenItem) return { issue: current, attachment: safeAttachmentMetadata(metadata) };
+    const existingSupplement = current.evidence?.supplemental_items?.find((entry) => entry.evidence_id === item.evidence_id);
+    if (existingSupplement) return { issue: current, attachment: safeAttachmentMetadata(metadata) };
+    const supplementBase = {
+      ...item,
+      authority_binding: supplementalAuthorityBinding(current),
+      authority_effect: "NO_AUTOMATIC_AUTHORITY_CHANGE",
+    };
+    const supplement = { ...supplementBase, content_hash: sha256(supplementBase) };
+    const appended = this.store.append({
+      issueId, projectId: current.project_id, lane: current.lane, eventType: "evidence.supplemented", actor,
+      payload: { supplemental_evidence: supplement }, now,
+      mutate: (next) => {
+        next.evidence.supplemental_items ??= [];
+        next.evidence.supplemental_items.push(supplement);
+        next.attachments = this.store.listAttachments(issueId);
+        return next;
+      },
+    });
+    return { issue: appended, attachment: safeAttachmentMetadata(metadata) };
   }
 
   readLocalAttachment(issueId, attachmentId, projectId) {
@@ -760,5 +793,16 @@ function safeAttachmentMetadata(value) {
     sha256: value.sha256,
     redacted_alias: value.redacted_alias,
     captured_at: value.captured_at,
+  };
+}
+
+function supplementalAuthorityBinding(value) {
+  return {
+    evidence_manifest_hash: value.evidence?.manifest?.contentHash ?? value.evidence?.manifest?.content_hash ?? null,
+    task_package_content_hash: value.issue_task_package?.contentHash ?? null,
+    candidate_binding_hash: value.active_candidate ? sha256(candidateBinding(value.active_candidate)) : null,
+    candidate_history_hash: sha256(value.candidate_history ?? []),
+    verdict_bindings_hash: sha256(value.verdict_bindings ?? {}),
+    dual_signoff_hash: value.dual_signoff?.content_hash ?? null,
   };
 }

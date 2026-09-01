@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import test from "node:test";
 import { Worker } from "node:worker_threads";
 
 import { sha256 } from "../src/canonical.mjs";
-import { GitHubEvidenceVerifier, resolveGitHubCLI } from "../src/github-evidence-verifier.mjs";
+import { GitHubEvidenceVerifier, readHandoffEvidenceIndex, resolveGitHubCLI } from "../src/github-evidence-verifier.mjs";
 import { buildLiveRoundtripTrace } from "../src/live-roundtrip-trace.mjs";
 import { ReviewBusService, candidateBinding } from "../src/service.mjs";
 import { allowedOrigin, createReviewBusHttp } from "../src/server.mjs";
@@ -17,6 +18,7 @@ const projectId = "11111111-1111-4111-8111-111111111111";
 const commit = "ecfc79a9b9f7e91cdfd558747fdc5d2b62e1700a";
 const taskHash = "7cf9bed457611e44a6b1f1bbb96968f20d83edec0d7d00bedfc73c7cdea2a10f";
 const constitutionHash = "a61228c66e931cb977928f4d2864ab6556f3fcd163479e31ccebbc6fccf39d41";
+const handoffName = "FilmOS_V1_1_Dual_Expert_Operational_Closure_Handoff_deadbeef";
 
 test("GitHub CLI resolver honors an explicit executable for Dock-launched Review Bus", () => {
   assert.equal(resolveGitHubCLI({ FILMOS_GH_EXECUTABLE: "/bin/sh" }), "/bin/sh");
@@ -64,6 +66,39 @@ function reachConsensus(service, issueId) {
   const proposalHash = proposed.consensus_proposal.contentHash;
   service.respondConsensus(issueId, "codex", { proposal_content_hash: proposalHash, position: "ACCEPTED", requested_changes: [] });
   return service.respondConsensus(issueId, "chatgpt", { proposal_content_hash: proposalHash, position: "ACCEPTED", requested_changes: [] });
+}
+
+function handoffArtifact({ evidenceEntries = [[`${handoffName}/EVIDENCE_INDEX.json`, '{"schema_version":"test"}\n']], outerName = `${handoffName}.zip` } = {}) {
+  const directory = mkdtempSync(resolve(tmpdir(), "filmos-review-artifact-test-"));
+  const nestedRoot = resolve(directory, "nested");
+  const outerRoot = resolve(directory, "outer");
+  mkdirSync(nestedRoot, { recursive: true });
+  mkdirSync(outerRoot, { recursive: true });
+  if (evidenceEntries.length === 0) evidenceEntries = [[`${handoffName}/README.txt`, "no evidence index"]];
+  for (const [relativePath, content] of evidenceEntries) {
+    const path = resolve(nestedRoot, relativePath);
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, content);
+  }
+  const nestedZip = resolve(directory, `${handoffName}.zip`);
+  const roots = [...new Set(evidenceEntries.map(([relativePath]) => relativePath.split("/")[0]))];
+  execFileSync("zip", ["-q", "-r", nestedZip, ...roots], { cwd: nestedRoot });
+  const outerEntry = resolve(outerRoot, outerName);
+  mkdirSync(dirname(outerEntry), { recursive: true });
+  copyFileSync(nestedZip, outerEntry);
+  const artifactPath = resolve(directory, "artifact.zip");
+  execFileSync("zip", ["-q", "-r", artifactPath, outerName.split("/")[0]], { cwd: outerRoot });
+  return { path: artifactPath, cleanup: () => rmSync(directory, { recursive: true, force: true }) };
+}
+
+function githubApiFor(value) {
+  return async (endpoint) => {
+    if (endpoint.includes("/git/commits/")) return { sha: value.candidate_commit, tree: { sha: value.tree } };
+    if (endpoint.includes("/branches/")) return { commit: { sha: value.candidate_commit } };
+    if (endpoint.includes("/actions/runs/")) return { id: value.github_run.id, head_sha: value.candidate_commit, conclusion: "success" };
+    if (endpoint.includes("/actions/artifacts/")) return { id: value.artifact_id, digest: value.artifact_digest, expired: false, workflow_run: { head_sha: value.candidate_commit } };
+    throw new Error("unexpected endpoint");
+  };
 }
 
 test("consensus changes advance to an append-only assessment round with fresh evidence bindings", () => {
@@ -164,9 +199,66 @@ test("GitHub verifier independently binds commit, tree, branch, successful Run, 
   await assert.rejects(() => new GitHubEvidenceVerifier({ apiJson: async (endpoint) => endpoint.includes("artifacts") ? { id: 456, digest: `sha256:${"0".repeat(64)}`, expired: false } : apiJson(endpoint), downloadArtifact: async () => ({}), readArtifactEvidenceIndex: async () => evidenceBytes }).verify(value), /artifact_digest_matches/);
 });
 
-test("formal live trace requires real GitHub receipts, A to B, restart, dual signoff, and exact ChatGPT writebacks", () => {
+test("GitHub Artifact resolves the unique nested Handoff Evidence Index and verifies its byte hash", async () => {
+  const artifact = handoffArtifact();
+  const expected = Buffer.from('{"schema_version":"test"}\n');
+  const value = candidate({ artifact_id: "456", evidence_index_hash: sha256(expected.toString("utf8")) });
+  try {
+    assert.deepEqual(await readHandoffEvidenceIndex(artifact), expected);
+    const receipt = await new GitHubEvidenceVerifier({
+      apiJson: githubApiFor(value),
+      downloadArtifact: async () => artifact,
+      now: () => new Date("2026-09-01T00:00:00.000Z"),
+    }).verify(value);
+    assert.equal(receipt.checks.evidence_index_hash_matches, true);
+  } finally { artifact.cleanup(); }
+});
+
+test("GitHub Artifact fails closed when the Handoff Evidence Index is missing", async () => {
+  const artifact = handoffArtifact({ evidenceEntries: [] });
+  try { await assert.rejects(() => readHandoffEvidenceIndex(artifact), /ARTIFACT_EVIDENCE_INDEX_MISSING/); }
+  finally { artifact.cleanup(); }
+});
+
+test("GitHub Artifact fails closed on duplicate Evidence Indexes and illegal Handoff nesting", async () => {
+  const duplicate = handoffArtifact({ evidenceEntries: [
+    [`${handoffName}/EVIDENCE_INDEX.json`, "one"],
+    ["rogue/EVIDENCE_INDEX.json", "two"],
+  ] });
+  const illegal = handoffArtifact({ outerName: `nested/${handoffName}.zip` });
+  try {
+    await assert.rejects(() => readHandoffEvidenceIndex(duplicate), /ARTIFACT_EVIDENCE_INDEX_AMBIGUOUS/);
+    await assert.rejects(() => readHandoffEvidenceIndex(illegal), /ARTIFACT_HANDOFF_MISSING/);
+  } finally { duplicate.cleanup(); illegal.cleanup(); }
+});
+
+test("GitHub Artifact fails closed when the declared Evidence Index hash drifts from nested bytes", async () => {
+  const artifact = handoffArtifact();
+  const value = candidate({ artifact_id: "456", evidence_index_hash: "0".repeat(64) });
+  try {
+    await assert.rejects(() => new GitHubEvidenceVerifier({
+      apiJson: githubApiFor(value),
+      downloadArtifact: async () => artifact,
+    }).verify(value), /evidence_index_hash_matches/);
+  } finally { artifact.cleanup(); }
+});
+
+test("formal live trace preserves multiple assessment rounds while requiring candidate-bound A to B reviews", () => {
   const candidateA = candidate({ candidate_id: "candidate-A" });
   const candidateB = candidate({ candidate_id: "candidate-B", candidate_commit: "b".repeat(40), tree: "c".repeat(40), github_run: { id: 124, head_sha: "b".repeat(40), conclusion: "success" }, artifact_id: "artifact-B", artifact_commit: "b".repeat(40), candidate_nonce: "nonce-B-1234567890-abcdef" });
+  const roundOneAssessment = { assessment_round: 1, content_hash: "6".repeat(64) };
+  const roundOneConsensus = { actor: "chatgpt", content_hash: "7".repeat(64) };
+  const archivedRoundBase = {
+    assessment_round: 1,
+    assessments: { chatgpt: roundOneAssessment },
+    consensus_delta: null,
+    consensus_proposal: { contentHash: "8".repeat(64) },
+    consensus_responses: [roundOneConsensus],
+    ended_at: "2026-08-31T10:00:00.000Z",
+    reason: "CONSENSUS_CHANGES_REQUESTED",
+  };
+  const decisionA = { purpose: "CHATGPT_REVIEW_DECISION", verdict: "CHANGES_REQUIRED", round: 1, candidate_binding: candidateBinding(candidateA), content_hash: "9".repeat(64) };
+  const decisionB = { purpose: "CHATGPT_REVIEW_DECISION", verdict: "EXTERNAL_APPROVED", round: 2, candidate_binding: candidateBinding(candidateB), content_hash: "a".repeat(64) };
   const issue = {
     issue_id: "FILMOS-ISSUE-live-trace",
     project_id: projectId,
@@ -178,7 +270,11 @@ test("formal live trace requires real GitHub receipts, A to B, restart, dual sig
     ],
     findings: [{ finding_id: "finding-1", severity: "P0", status: "CLOSED" }],
     finding_responses: [{ finding_id: "finding-1", disposition: "FIXED_WITH_EVIDENCE" }],
-    decision_history: [{ verdict: "CHANGES_REQUIRED" }, { verdict: "EXTERNAL_APPROVED" }],
+    assessment_round: 2,
+    assessment_round_history: [{ ...archivedRoundBase, content_hash: sha256(archivedRoundBase) }],
+    assessments: { chatgpt: { assessment_round: 2, content_hash: "b".repeat(64) } },
+    consensus_responses: [{ actor: "chatgpt", content_hash: "c".repeat(64) }],
+    decision_history: [decisionA, decisionB],
     verdicts: { codex: "LOCAL_ACCEPTED", chatgpt: "EXTERNAL_APPROVED", machine: "PASS" },
     dual_signoff: { content_hash: "1".repeat(64) },
     issue_task_package: { contentHash: "2".repeat(64) },
@@ -189,27 +285,31 @@ test("formal live trace requires real GitHub receipts, A to B, restart, dual sig
     attachments: [{ attachment_id: "attachment-1", sha256: "5".repeat(64), size_bytes: 10 }],
   };
   const events = [
-    ["runtime.observed", "filmos-review-bus"],
-    ["assessment.codex.submitted", "codex"],
-    ["assessment.chatgpt.submitted", "chatgpt"],
-    ["consensus.responded", "chatgpt"],
-    ["chatgpt.review_decision", "chatgpt"],
-    ["finding.codex_response", "codex"],
-    ["runtime.observed", "filmos-review-bus"],
-    ["chatgpt.review_decision", "chatgpt"],
-    ["codex.coordination", "review-codex-coordinator"],
-    ["verdict.codex", "codex"],
-  ].map(([event_type, actor], index) => ({ event_type, actor, event_hash: String(index).padStart(64, "0") }));
+    ["runtime.observed", "filmos-review-bus", {}],
+    ["assessment.codex.submitted", "codex", {}],
+    ["assessment.chatgpt.submitted", "chatgpt", { content_hash: roundOneAssessment.content_hash }],
+    ["consensus.responded", "chatgpt", roundOneConsensus],
+    ["assessment.round.advanced", "codex", {}],
+    ["assessment.chatgpt.submitted", "chatgpt", { content_hash: issue.assessments.chatgpt.content_hash }],
+    ["consensus.responded", "chatgpt", issue.consensus_responses[0]],
+    ["chatgpt.review_decision", "chatgpt", { decision: decisionA }],
+    ["finding.codex_response", "codex", {}],
+    ["runtime.observed", "filmos-review-bus", {}],
+    ["chatgpt.review_decision", "chatgpt", { decision: decisionB }],
+    ["codex.coordination", "review-codex-coordinator", {}],
+    ["verdict.codex", "codex", {}],
+  ].map(([event_type, actor, payload], index) => ({ issue_id: issue.issue_id, event_type, actor, payload, event_hash: String(index).padStart(64, "0") }));
   const trace = buildLiveRoundtripTrace(issue, events, { eventChainVerified: true, generatedAt: new Date("2026-08-31T12:00:00.000Z") });
   assert.equal(trace.status, "PASSED");
   assert.equal(trace.formal_github_remote_evidence, true);
-  assert.equal(trace.chatgpt_user_gesture_writebacks.exact_count, 4);
+  assert.equal(trace.chatgpt_user_gesture_writebacks.exact_count, 6);
+  assert.equal(trace.chatgpt_user_gesture_writebacks.assessment_rounds, 2);
   const localOnly = structuredClone(issue);
   localOnly.candidate_history[1].candidate.github_remote_verification.verification_mode = "DETERMINISTIC_LOCAL_ACCEPTANCE_ONLY";
   assert.throws(() => buildLiveRoundtripTrace(localOnly, events, { eventChainVerified: true }), /FORMAL_GITHUB_REMOTE_EVIDENCE_REQUIRED/);
 });
 
-test("attachment bytes are durably hashed for local Codex access while ChatGPT sees only redacted metadata", () => {
+test("attachments stay local and a post-freeze text crash report preserves every authority binding", () => {
   const directory = mkdtempSync(resolve(tmpdir(), "filmos-review-attachment-"));
   const store = new ReviewBusStore(resolve(directory, "review-bus.sqlite"));
   const service = new ReviewBusService(store, { baseCommit: commit });
@@ -233,6 +333,72 @@ test("attachment bytes are durably hashed for local Codex access while ChatGPT s
   assert.equal(external.includes(directory), false);
   assert.equal(external.includes("evidence://"), true);
   assert.equal(redacted.evidence.manifest.completeness.screenshot, true);
+
+  const consensus = reachConsensus(service, issue.issue_id);
+  const active = service.submitCandidate(issue.issue_id, candidate({
+    consensus_record_hash: consensus.consensus_record.contentHash,
+    task_package_content_hash: consensus.issue_task_package.contentHash,
+  })).active_candidate;
+  const binding = candidateBinding(active);
+  service.recordVerdict(issue.issue_id, "codex", { verdict: "LOCAL_ACCEPTED", binding });
+  service.recordVerdict(issue.issue_id, "chatgpt", { verdict: "EXTERNAL_APPROVED", binding });
+  service.recordVerdict(issue.issue_id, "machine", { verdict: "PASS", binding });
+  const beforeSupplement = service.requireIssue(issue.issue_id);
+  assert.equal(beforeSupplement.state, "DUAL_APPROVED");
+  const immutableBefore = {
+    manifest: beforeSupplement.evidence.manifest,
+    local_items: beforeSupplement.evidence.local_items,
+    task_package: beforeSupplement.issue_task_package,
+    task_package_content_hash: beforeSupplement.task_package_content_hash,
+    active_candidate: beforeSupplement.active_candidate,
+    candidate_history: beforeSupplement.candidate_history,
+    verdicts: beforeSupplement.verdicts,
+    verdict_bindings: beforeSupplement.verdict_bindings,
+    dual_signoff: beforeSupplement.dual_signoff,
+  };
+  const crashBytes = Buffer.from("Chrome launch crash\nSIGABRT in HIServices\n", "utf8");
+  const supplemental = service.storeAttachment(issue.issue_id, {
+    attachment_id: "attachment-chrome-crash-1",
+    media_type: "text/plain",
+    original_name: "private-crash-report.txt",
+    base64: crashBytes.toString("base64"),
+    captured_at: "2026-09-01T04:00:38.858Z",
+  });
+  const afterSupplement = supplemental.issue;
+  assert.equal(afterSupplement.state, "DUAL_APPROVED");
+  assert.deepEqual({
+    manifest: afterSupplement.evidence.manifest,
+    local_items: afterSupplement.evidence.local_items,
+    task_package: afterSupplement.issue_task_package,
+    task_package_content_hash: afterSupplement.task_package_content_hash,
+    active_candidate: afterSupplement.active_candidate,
+    candidate_history: afterSupplement.candidate_history,
+    verdicts: afterSupplement.verdicts,
+    verdict_bindings: afterSupplement.verdict_bindings,
+    dual_signoff: afterSupplement.dual_signoff,
+  }, immutableBefore);
+  assert.equal(afterSupplement.evidence.supplemental_items.length, 1);
+  assert.equal(afterSupplement.evidence.supplemental_items[0].kind, "attachment");
+  assert.equal(afterSupplement.evidence.supplemental_items[0].authority_binding.dual_signoff_hash, immutableBefore.dual_signoff.content_hash);
+  assert.deepEqual(service.readLocalAttachment(issue.issue_id, "attachment-chrome-crash-1", projectId).bytes, crashBytes);
+  const supplementalExternal = JSON.stringify(service.readRedacted(issue.issue_id, projectId));
+  assert.equal(supplementalExternal.includes("private-crash-report.txt"), false);
+  assert.equal(supplementalExternal.includes("SIGABRT"), false);
+  assert.equal(supplementalExternal.includes(directory), false);
+  assert.throws(() => service.storeAttachment(issue.issue_id, {
+    attachment_id: "attachment-unsupported",
+    media_type: "application/pdf",
+    original_name: "unsupported.pdf",
+    base64: Buffer.from("pdf").toString("base64"),
+    captured_at: undefined,
+  }), /INVALID_ATTACHMENT_MEDIA_TYPE/);
+  assert.throws(() => service.storeAttachment(issue.issue_id, {
+    attachment_id: "attachment-text-too-large",
+    media_type: "text/plain",
+    original_name: "too-large.txt",
+    base64: Buffer.alloc(1024 * 1024 + 1, 65).toString("base64"),
+    captured_at: undefined,
+  }), /INVALID_ATTACHMENT_BYTES/);
   assert.equal(store.verifyEventChain(issue.issue_id), true);
   store.close();
 });
