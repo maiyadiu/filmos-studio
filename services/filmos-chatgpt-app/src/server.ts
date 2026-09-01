@@ -113,6 +113,7 @@ export function createFilmOSChatGPTApp(options: FilmOSChatGPTAppOptions) {
     project_authorization: "secure_tunnel_injected_project_grant",
   });
   app.get("/.well-known/oauth-protected-resource", oauthNotConfigured);
+  app.get("/.well-known/oauth-protected-resource/mcp", oauthNotConfigured);
   app.get("/.well-known/oauth-authorization-server", oauthNotConfigured);
 
   const authenticate = async (req: Request, res: Response): Promise<{ grant: ProjectGrant } | null> => {

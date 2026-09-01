@@ -69,7 +69,11 @@ test("OAuth discovery fails closed as JSON because ChatGPT auth is supplied by t
   await new Promise<void>((resolve) => server.once("listening", resolve));
   const port = (server.address() as AddressInfo).port;
   try {
-    for (const path of ["/.well-known/oauth-protected-resource", "/.well-known/oauth-authorization-server"]) {
+    for (const path of [
+      "/.well-known/oauth-protected-resource",
+      "/.well-known/oauth-protected-resource/mcp",
+      "/.well-known/oauth-authorization-server",
+    ]) {
       const response = await fetch(`http://127.0.0.1:${port}${path}`);
       assert.equal(response.status, 404);
       assert.match(response.headers.get("content-type") ?? "", /^application\/json/);
