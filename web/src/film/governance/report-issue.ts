@@ -4,8 +4,10 @@ import { currentBuildIdentity, type BuildIdentity } from "@/film/governance/buil
 import { inferIssueRoutingRisk } from "@/film/governance/issue-lane";
 import { useCanvasAgentStore } from "@/stores/canvas/use-canvas-agent-store";
 
-export const ISSUE_DRAFT_FORMAT = "filmos.usage-issue-draft/v1";
+export const ISSUE_DRAFT_FORMAT = "filmos.usage-issue-draft/v2";
 export const ISSUE_DRAFT_STORE = "filmos-usage-issue-drafts";
+export const ISSUE_MIGRATION_TOMBSTONE_STORE = "filmos-usage-issue-migration-tombstones";
+export const STAGE_A_BOOTSTRAP_UUID = "b3274782-30a0-44a1-a05e-01730678da8b";
 
 export type IssueSurface = "global" | "project" | "content-unit" | "canvas" | "agent" | "generation-composer" | "error";
 
@@ -97,7 +99,10 @@ export type IssueContextSnapshot = {
 
 export type LocalIssueDraft = {
     format: typeof ISSUE_DRAFT_FORMAT;
-    issueId: string;
+    localDraftId: string;
+    submissionId: string;
+    legacyLocalId?: string;
+    canonicalIssueId?: string;
     state: "OBSERVED_IN_USE";
     occurred: string;
     expected: string;
@@ -107,7 +112,45 @@ export type LocalIssueDraft = {
     build: BuildIdentity;
     attachments: IssueAttachment[];
     observedAt: string;
+    delivery: "LOCAL_PENDING_REVIEW_BUS" | "SUBMISSION_STAGED" | "ATTACHMENTS_STAGED" | "ACCEPTED_AWAITING_READBACK" | "CONFIRMED" | "STOPPED";
+    captureHash?: string;
+    receipt?: SubmissionReceipt;
+    lastDeliveryAt?: string;
+    retryCount: number;
+    lastErrorCode?: string;
+    stoppedReason?: string;
+};
+
+export type SubmissionReceipt = {
+    schema_version: "filmos.review-submission.receipt.v1";
+    submission_id: string;
+    formal_issue_id: string;
+    project_id: string;
+    capture_hash: string;
+    projection_content_hash: string;
+    evidence_manifest_hash: string;
+    receipt_hash: string;
+    accepted_at: string;
+};
+
+type LegacyIssueDraft = Omit<LocalIssueDraft, "format" | "localDraftId" | "submissionId" | "retryCount" | "delivery"> & {
+    format: "filmos.usage-issue-draft/v1";
+    issueId: string;
     delivery: "LOCAL_PENDING_REVIEW_BUS" | "REVIEW_BUS_ACCEPTED";
+};
+
+type MigrationTombstone = {
+    schema_version: "filmos.review-intake-migration-tombstone.v1";
+    legacy_local_id: string;
+    local_draft_id: string;
+    submission_id: string;
+    canonical_issue_id: string;
+    project_id: string;
+    capture_hash: string;
+    receipt_hash: string;
+    projection_content_hash: string;
+    evidence_manifest_hash: string;
+    confirmed_at: string;
 };
 
 export type IssueDraftInput = {
@@ -117,11 +160,17 @@ export type IssueDraftInput = {
     attachments?: IssueAttachment[];
 };
 
+export function issueDraftReplayMode(draft: LocalIssueDraft): "SUBMIT_OR_RESUME" | "READBACK_ONLY" | "NONE" {
+    if (draft.delivery === "ACCEPTED_AWAITING_READBACK") return "READBACK_ONLY";
+    if (draft.delivery === "CONFIRMED" || draft.delivery === "STOPPED") return "NONE";
+    return "SUBMIT_OR_RESUME";
+}
+
 declare global {
     interface Window {
         filmOSIssueSurface?: IssueSurface;
         filmOSReportIssue?: (surface?: IssueSurface) => void;
-        filmOSReviewIssueIntake?: (draft: LocalIssueDraft) => Promise<{ accepted: true }>;
+        filmOSReviewIssueIntake?: (draft: LocalIssueDraft) => Promise<LocalIssueDraft>;
         filmOSReviewCenterRequest?: (operation: string, payload?: Record<string, string>) => Promise<unknown>;
         filmOSResolveReviewIssue?: (requestId: string, result: unknown, error: string | null) => void;
         webkit?: { messageHandlers?: { filmosDesktop?: { postMessage: (message: unknown) => void } } };
@@ -129,7 +178,18 @@ declare global {
 }
 
 const nativeResolvers = new Map<string, { resolve: (value: unknown) => void; reject: (reason: Error) => void; timeout: number }>();
-const replayAttempts = new Map<string, number>();
+
+const issueDraftStore = localforage.createInstance({
+    name: "FilmOS Studio",
+    storeName: ISSUE_DRAFT_STORE,
+    description: "Local-only usage observations waiting for the FilmOS Review Bus",
+});
+
+const migrationTombstoneStore = localforage.createInstance({
+    name: "FilmOS Studio",
+    storeName: ISSUE_MIGRATION_TOMBSTONE_STORE,
+    description: "Auditable mapping from legacy local observations to canonical Review Bus issues",
+});
 
 function installNativeReviewIssueIntake() {
     const handler = window.webkit?.messageHandlers?.filmosDesktop;
@@ -143,47 +203,99 @@ function installNativeReviewIssueIntake() {
         else if (result && typeof result === "object") pending.resolve(result);
         else pending.reject(new Error("REVIEW_BUS_INVALID_RESPONSE"));
     };
-    const nativeRequest = (action: "reviewIssueRequest" | "reviewIssueAttachmentRequest", payload: Record<string, unknown>, issueId?: string) => new Promise<unknown>((resolve, reject) => {
+    const nativeRequest = (action: "reviewIssueRequest" | "reviewIssueAttachmentRequest" | "reviewIssueFinalizeRequest", payload: Record<string, unknown>, submissionId?: string) => new Promise<unknown>((resolve, reject) => {
         const requestId = crypto.randomUUID();
         const timeout = window.setTimeout(() => {
             nativeResolvers.delete(requestId);
             reject(new Error("REVIEW_BUS_TIMEOUT"));
-        }, action === "reviewIssueAttachmentRequest" ? 60_000 : 15_000);
+        }, action === "reviewIssueAttachmentRequest" ? 60_000 : 20_000);
         nativeResolvers.set(requestId, { resolve, reject, timeout });
-        handler.postMessage({ action, requestId, ...(issueId ? { issueId } : {}), payload });
+        handler.postMessage({ action, requestId, ...(submissionId ? { submissionId } : {}), payload });
     });
     window.filmOSReviewIssueIntake = async (draft) => {
+        const replayMode = issueDraftReplayMode(draft);
+        if (replayMode === "READBACK_ONLY") return confirmAcceptedDraft(draft);
+        if (replayMode === "NONE") return draft;
         const snapshot = draft.contextSnapshot ?? captureIssueContextSnapshot(draft.build);
+        const projectId = boundProjectId(draft);
+        const currentProjectId = currentDomainProjectId();
+        if (!projectId) throw new Error("PROJECT_SCOPE_REQUIRED");
+        if (currentProjectId && currentProjectId !== projectId) throw new Error("SUBMISSION_PROJECT_SCOPE_CONFLICT");
+        const attachmentManifest = await Promise.all(draft.attachments.map(async (item) => ({
+            attachment_id: attachmentId(item.id),
+            media_type: item.mediaType,
+            original_name: item.name,
+            size_bytes: item.size,
+            sha256: await blobSha256(item.content),
+            captured_at: draft.observedAt,
+        })));
+        const risk = inferIssueRoutingRisk({
+            occurred: draft.occurred,
+            expected: draft.expected,
+            blocking: draft.blocking,
+            context: draft.context,
+        });
         const payload: Record<string, unknown> = {
-            project_id: snapshot.domainProjectId || snapshot.projectId || draft.context.projectId || "filmos-governance-global",
+            submission_id: draft.submissionId,
+            project_id: projectId,
             what_happened: draft.occurred,
             expected_result: draft.expected,
             location: `${draft.context.surface}:${draft.context.pathname}`,
             blocks_work: draft.blocking,
-            risk: inferIssueRoutingRisk({
-                occurred: draft.occurred,
-                expected: draft.expected,
-                blocking: draft.blocking,
-                context: draft.context,
-            }),
-            screenshot_refs: [],
-            issue_id: draft.issueId,
+            captured_at: draft.observedAt,
+            risk,
+            suggested_lane: suggestedLane(risk),
+            allowed_change_scope: [],
+            app_build_id: draft.build.buildId === "unknown" ? null : draft.build.buildId,
+            app_tree: draft.build.tree === "unknown" ? null : draft.build.tree,
             route: draft.context.pathname,
             context_snapshot: snapshot,
+            attachment_manifest: attachmentManifest,
         };
-        if (draft.build.buildId !== "unknown") payload.app_build_id = draft.build.buildId;
-        if (draft.build.tree !== "unknown") payload.app_tree = draft.build.tree;
-        await nativeRequest("reviewIssueRequest", payload);
-        for (const item of draft.attachments) {
+        const staged = expectObject(await nativeRequest("reviewIssueRequest", payload));
+        const captureHash = requireHash(staged.capture_hash, "REVIEW_BUS_INVALID_CAPTURE_HASH");
+        if (staged.receipt) {
+            const recoveredReceipt = validateSubmissionReceipt(staged.receipt, draft.submissionId, projectId, captureHash);
+            const recovered = await persistDraft({
+                ...draft,
+                captureHash,
+                canonicalIssueId: recoveredReceipt.formal_issue_id,
+                receipt: recoveredReceipt,
+                delivery: "ACCEPTED_AWAITING_READBACK",
+                lastDeliveryAt: new Date().toISOString(),
+                lastErrorCode: undefined,
+                stoppedReason: undefined,
+            });
+            return confirmAcceptedDraft(recovered);
+        }
+        if (staged.state !== "STAGED") throw new Error("SUBMISSION_RECEIPT_NOT_FOUND");
+        let current = await persistDraft({ ...draft, delivery: "SUBMISSION_STAGED", captureHash, lastDeliveryAt: new Date().toISOString(), lastErrorCode: undefined, stoppedReason: undefined });
+        for (let index = 0; index < draft.attachments.length; index += 1) {
+            const item = draft.attachments[index];
+            const manifest = attachmentManifest[index];
             await nativeRequest("reviewIssueAttachmentRequest", {
-                attachment_id: attachmentId(item.id),
+                attachment_id: manifest.attachment_id,
                 media_type: item.mediaType,
                 original_name: item.name,
+                size_bytes: item.size,
+                sha256: manifest.sha256,
                 base64: await blobBase64(item.content),
                 captured_at: draft.observedAt,
-            }, draft.issueId);
+            }, draft.submissionId);
         }
-        return { accepted: true };
+        current = await persistDraft({ ...current, delivery: "ATTACHMENTS_STAGED", lastDeliveryAt: new Date().toISOString() });
+        const finalized = expectObject(await nativeRequest("reviewIssueFinalizeRequest", { project_id: projectId, capture_hash: captureHash }, draft.submissionId));
+        const receipt = validateSubmissionReceipt(finalized.receipt, draft.submissionId, projectId, captureHash);
+        current = await persistDraft({
+            ...current,
+            canonicalIssueId: receipt.formal_issue_id,
+            receipt,
+            delivery: "ACCEPTED_AWAITING_READBACK",
+            lastDeliveryAt: new Date().toISOString(),
+            lastErrorCode: undefined,
+            stoppedReason: undefined,
+        });
+        return confirmAcceptedDraft(current);
     };
     window.filmOSReviewCenterRequest = (operation, payload = {}) => new Promise((resolve, reject) => {
         const requestId = crypto.randomUUID();
@@ -194,12 +306,6 @@ function installNativeReviewIssueIntake() {
 }
 
 if (typeof window !== "undefined") installNativeReviewIssueIntake();
-
-const issueDraftStore = localforage.createInstance({
-    name: "FilmOS Studio",
-    storeName: ISSUE_DRAFT_STORE,
-    description: "Local-only usage observations waiting for the FilmOS Review Bus",
-});
 
 function safePathname(rawPathname: string) {
     const pathname = rawPathname.split(/[?#]/, 1)[0] || "/";
@@ -235,16 +341,19 @@ export function createLocalIssueDraft(
         pathname?: string;
         surface?: IssueSurface;
         build?: BuildIdentity;
-        issueId?: string;
+        localDraftId?: string;
+        submissionId?: string;
+        legacyLocalId?: string;
         now?: string;
     } = {},
 ): LocalIssueDraft {
     const browserWindow = typeof window === "undefined" ? undefined : window;
-    const issueId = dependencies.issueId || `FILMOS-ISSUE-${crypto.randomUUID()}`;
+    const uuid = dependencies.submissionId?.replace(/^FILMOS-SUBMISSION-/, "") || crypto.randomUUID();
+    const localDraftId = dependencies.localDraftId || `local-draft-${uuid}`;
+    const submissionId = dependencies.submissionId || `FILMOS-SUBMISSION-${uuid}`;
     const observedAt = dependencies.now || new Date().toISOString();
-    if (!/^FILMOS-ISSUE-[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[1-8][0-9A-Fa-f]{3}-[89ABab][0-9A-Fa-f]{3}-[0-9A-Fa-f]{12}$/.test(issueId)) {
-        throw new Error("问题ID无效");
-    }
+    if (!/^local-draft-[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(localDraftId)) throw new Error("本机草稿ID无效");
+    if (!/^FILMOS-SUBMISSION-[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(submissionId)) throw new Error("投递ID无效");
     if (!Number.isFinite(Date.parse(observedAt))) throw new Error("观测时间无效");
     const attachments = input.attachments ?? [];
     if (attachments.length > MAX_ISSUE_ATTACHMENTS || attachments.some((item) => item.size > MAX_ISSUE_ATTACHMENT_BYTES)) {
@@ -258,7 +367,9 @@ export function createLocalIssueDraft(
     );
     return {
         format: ISSUE_DRAFT_FORMAT,
-        issueId,
+        localDraftId,
+        submissionId,
+        ...(dependencies.legacyLocalId ? { legacyLocalId: dependencies.legacyLocalId } : {}),
         state: "OBSERVED_IN_USE",
         occurred: normalizedText(input.occurred, "发生了什么"),
         expected: normalizedText(input.expected, "期望达到什么"),
@@ -274,39 +385,44 @@ export function createLocalIssueDraft(
         attachments,
         observedAt,
         delivery: "LOCAL_PENDING_REVIEW_BUS",
+        retryCount: 0,
     };
 }
 
 export async function saveIssueDraft(draft: LocalIssueDraft) {
-    await issueDraftStore.setItem(draft.issueId, draft);
+    await persistDraft(draft);
     if (typeof window === "undefined" || !window.filmOSReviewIssueIntake) return draft;
     try {
-        await deliverIssueDraft(draft);
-        const accepted = { ...draft, delivery: "REVIEW_BUS_ACCEPTED" as const };
-        await issueDraftStore.setItem(draft.issueId, accepted);
-        return accepted;
-    } catch {
-        // Local durability is the Pilot fallback. Review Bus replay may happen later.
-        return draft;
+        return await deliverIssueDraft(draft);
+    } catch (error) {
+        return recordDeliveryFailure(draft, error);
     }
 }
 
 export async function replayPendingIssueDrafts() {
+    await migrateStageALegacyDraft();
     if (typeof window === "undefined" || !window.filmOSReviewIssueIntake) return { delivered: 0, pending: await countPendingIssueDrafts() };
     const pending: LocalIssueDraft[] = [];
-    await issueDraftStore.iterate<LocalIssueDraft, void>((draft) => {
-        if (draft.delivery === "LOCAL_PENDING_REVIEW_BUS" && (replayAttempts.get(draft.issueId) ?? 0) < 5) pending.push(draft);
+    await issueDraftStore.iterate<LocalIssueDraft | LegacyIssueDraft | { format?: string }, void>((draft) => {
+        if (!isLocalIssueDraft(draft)) return;
+        if (["LOCAL_PENDING_REVIEW_BUS", "SUBMISSION_STAGED", "ATTACHMENTS_STAGED", "ACCEPTED_AWAITING_READBACK"].includes(draft.delivery)
+            && draft.retryCount < 5) pending.push(draft);
     });
     let delivered = 0;
     for (const draft of pending) {
         try {
-            await deliverIssueDraft(draft);
-            await issueDraftStore.setItem(draft.issueId, { ...draft, delivery: "REVIEW_BUS_ACCEPTED" as const });
-            replayAttempts.delete(draft.issueId);
-            delivered += 1;
+            const result = await deliverIssueDraft(draft);
+            if (result.delivery === "CONFIRMED") delivered += 1;
         } catch (error) {
-            replayAttempts.set(draft.issueId, (replayAttempts.get(draft.issueId) ?? 0) + 1);
-            window.dispatchEvent(new CustomEvent("filmos:review-issue-replay", { detail: { issueId: draft.issueId, error: error instanceof Error ? error.message : "REVIEW_BUS_REPLAY_FAILED" } }));
+            const failed = await recordDeliveryFailure(draft, error);
+            window.dispatchEvent(new CustomEvent("filmos:review-issue-replay", { detail: {
+                localDraftId: failed.localDraftId,
+                submissionId: failed.submissionId,
+                canonicalIssueId: failed.canonicalIssueId,
+                error: failed.lastErrorCode,
+                retryCount: failed.retryCount,
+                stoppedReason: failed.stoppedReason,
+            } }));
         }
     }
     return { delivered, pending: await countPendingIssueDrafts() };
@@ -314,8 +430,8 @@ export async function replayPendingIssueDrafts() {
 
 export async function countPendingIssueDrafts() {
     let count = 0;
-    await issueDraftStore.iterate<LocalIssueDraft, void>((draft) => {
-        if (draft.delivery === "LOCAL_PENDING_REVIEW_BUS") count += 1;
+    await issueDraftStore.iterate<LocalIssueDraft | { format?: string }, void>((draft) => {
+        if (isLocalIssueDraft(draft) && !["CONFIRMED", "STOPPED"].includes(draft.delivery)) count += 1;
     });
     return count;
 }
@@ -328,6 +444,87 @@ export async function reviewCenterRequest<T>(operation: string, payload: Record<
 async function deliverIssueDraft(draft: LocalIssueDraft) {
     if (!window.filmOSReviewIssueIntake) throw new Error("REVIEW_BUS_UNAVAILABLE");
     return window.filmOSReviewIssueIntake(draft);
+}
+
+async function persistDraft(draft: LocalIssueDraft) {
+    await issueDraftStore.setItem(draft.localDraftId, draft);
+    return draft;
+}
+
+async function recordDeliveryFailure(draft: LocalIssueDraft, error: unknown) {
+    const persisted = await issueDraftStore.getItem<LocalIssueDraft>(draft.localDraftId);
+    const current = persisted && isLocalIssueDraft(persisted) ? persisted : draft;
+    const code = safeErrorCode(error);
+    const retryCount = current.retryCount + 1;
+    const stop = !isRetryableDeliveryError(code) || retryCount >= 5;
+    return persistDraft({
+        ...current,
+        retryCount,
+        lastErrorCode: code,
+        lastDeliveryAt: new Date().toISOString(),
+        delivery: stop ? "STOPPED" : current.delivery,
+        ...(stop ? { stoppedReason: code } : {}),
+    });
+}
+
+async function confirmAcceptedDraft(draft: LocalIssueDraft) {
+    if (!draft.receipt || !draft.canonicalIssueId || !draft.captureHash) throw new Error("LOCAL_RECEIPT_INCOMPLETE");
+    const projectId = boundProjectId(draft);
+    if (!projectId) throw new Error("PROJECT_SCOPE_REQUIRED");
+    const currentProjectId = currentDomainProjectId();
+    if (currentProjectId && currentProjectId !== projectId) throw new Error("SUBMISSION_PROJECT_SCOPE_CONFLICT");
+    const pending = expectObject(await reviewCenterRequest("list_pending_issues", { project_id: projectId }));
+    const issues = Array.isArray(pending.issues) ? pending.issues : [];
+    if (!issues.some((item) => expectOptionalObject(item)?.issue_id === draft.canonicalIssueId)) throw new Error("PROJECTION_READBACK_MISSING");
+    await reviewCenterRequest("get_issue_evidence", { project_id: projectId, issue_id: draft.canonicalIssueId });
+    const confirmation = expectObject(await reviewCenterRequest("get_intake_confirmation", { project_id: projectId, issue_id: draft.canonicalIssueId }));
+    assertConfirmationMatches(draft, confirmation, projectId);
+    if (confirmation.pending_read !== true || confirmation.evidence_read !== true) return draft;
+    const confirmed = await persistDraft({ ...draft, delivery: "CONFIRMED", lastDeliveryAt: new Date().toISOString(), lastErrorCode: undefined, stoppedReason: undefined });
+    if (draft.legacyLocalId) {
+        const tombstone: MigrationTombstone = {
+            schema_version: "filmos.review-intake-migration-tombstone.v1",
+            legacy_local_id: draft.legacyLocalId,
+            local_draft_id: draft.localDraftId,
+            submission_id: draft.submissionId,
+            canonical_issue_id: draft.canonicalIssueId,
+            project_id: projectId,
+            capture_hash: draft.captureHash,
+            receipt_hash: draft.receipt.receipt_hash,
+            projection_content_hash: draft.receipt.projection_content_hash,
+            evidence_manifest_hash: draft.receipt.evidence_manifest_hash,
+            confirmed_at: new Date().toISOString(),
+        };
+        await migrationTombstoneStore.setItem(draft.legacyLocalId, tombstone);
+        await issueDraftStore.removeItem(draft.legacyLocalId);
+    }
+    return confirmed;
+}
+
+async function migrateStageALegacyDraft() {
+    const legacyId = `FILMOS-ISSUE-${STAGE_A_BOOTSTRAP_UUID}`;
+    const existing = await issueDraftStore.getItem<LegacyIssueDraft | LocalIssueDraft>(legacyId);
+    if (!existing || existing.format !== "filmos.usage-issue-draft/v1") return;
+    const localDraftId = `local-draft-${STAGE_A_BOOTSTRAP_UUID}`;
+    if (await issueDraftStore.getItem(localDraftId)) return;
+    const migrated: LocalIssueDraft = {
+        format: ISSUE_DRAFT_FORMAT,
+        localDraftId,
+        submissionId: `FILMOS-SUBMISSION-${STAGE_A_BOOTSTRAP_UUID}`,
+        legacyLocalId: legacyId,
+        state: existing.state,
+        occurred: existing.occurred,
+        expected: existing.expected,
+        blocking: existing.blocking,
+        context: existing.context,
+        contextSnapshot: existing.contextSnapshot,
+        build: existing.build,
+        attachments: existing.attachments,
+        observedAt: existing.observedAt,
+        delivery: "LOCAL_PENDING_REVIEW_BUS",
+        retryCount: 0,
+    };
+    await persistDraft(migrated);
 }
 
 function captureIssueContextSnapshot(build: BuildIdentity): IssueContextSnapshot {
@@ -371,6 +568,84 @@ function captureIssueContextSnapshot(build: BuildIdentity): IssueContextSnapshot
 function attachmentId(value: string) {
     const normalized = value.replace(/[^A-Za-z0-9-]/g, "-").slice(0, 120);
     return `attachment-${normalized || crypto.randomUUID()}`;
+}
+
+function boundProjectId(draft: LocalIssueDraft) {
+    return draft.contextSnapshot.domainProjectId || draft.contextSnapshot.projectId || draft.context.projectId;
+}
+
+function currentDomainProjectId() {
+    const context = typeof window === "undefined" ? null : window.filmOSGetWorkbenchContext?.() ?? null;
+    return context?.domainProjectId || context?.projectId || undefined;
+}
+
+function suggestedLane(risk: Record<string, boolean>) {
+    if (risk.architecture_gap || risk.requires_schema_change || risk.requires_authority_change) return "architecture";
+    if (risk.core_state || risk.data_loss || risk.security || risk.migration) return "core";
+    return "fast";
+}
+
+function expectObject(value: unknown): Record<string, any> {
+    if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("REVIEW_BUS_INVALID_RESPONSE");
+    return value as Record<string, any>;
+}
+
+function expectOptionalObject(value: unknown) {
+    return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, any> : undefined;
+}
+
+function requireHash(value: unknown, code: string) {
+    if (typeof value !== "string" || !/^[a-f0-9]{64}$/.test(value)) throw new Error(code);
+    return value;
+}
+
+function validateSubmissionReceipt(value: unknown, submissionId: string, projectId: string, captureHash: string): SubmissionReceipt {
+    const receipt = expectObject(value);
+    if (receipt.schema_version !== "filmos.review-submission.receipt.v1"
+        || receipt.submission_id !== submissionId
+        || receipt.project_id !== projectId
+        || receipt.capture_hash !== captureHash
+        || typeof receipt.formal_issue_id !== "string"
+        || !/^FILMOS-(?:ISSUE|ARCH)-[A-Za-z0-9-]{1,120}$/.test(receipt.formal_issue_id)) throw new Error("REVIEW_BUS_INVALID_RECEIPT");
+    requireHash(receipt.receipt_hash, "REVIEW_BUS_INVALID_RECEIPT");
+    requireHash(receipt.projection_content_hash, "REVIEW_BUS_INVALID_RECEIPT");
+    requireHash(receipt.evidence_manifest_hash, "REVIEW_BUS_INVALID_RECEIPT");
+    if (typeof receipt.accepted_at !== "string" || !Number.isFinite(Date.parse(receipt.accepted_at))) throw new Error("REVIEW_BUS_INVALID_RECEIPT");
+    return receipt as SubmissionReceipt;
+}
+
+function assertConfirmationMatches(draft: LocalIssueDraft, confirmation: Record<string, any>, projectId: string) {
+    if (confirmation.submission_id !== draft.submissionId
+        || confirmation.formal_issue_id !== draft.canonicalIssueId
+        || confirmation.project_id !== projectId
+        || confirmation.capture_hash !== draft.captureHash
+        || confirmation.receipt_hash !== draft.receipt?.receipt_hash
+        || confirmation.projection_content_hash !== draft.receipt?.projection_content_hash
+        || confirmation.evidence_manifest_hash !== draft.receipt?.evidence_manifest_hash) throw new Error("READBACK_HASH_MISMATCH");
+}
+
+function safeErrorCode(error: unknown) {
+    const message = error instanceof Error ? error.message : "REVIEW_BUS_DELIVERY_FAILED";
+    return /^[A-Z0-9_]{1,96}$/.test(message) ? message : "REVIEW_BUS_DELIVERY_FAILED";
+}
+
+function isLocalIssueDraft(value: LocalIssueDraft | LegacyIssueDraft | { format?: string }): value is LocalIssueDraft {
+    return value.format === ISSUE_DRAFT_FORMAT
+        && "localDraftId" in value
+        && "submissionId" in value
+        && "delivery" in value
+        && "retryCount" in value;
+}
+
+function isRetryableDeliveryError(code: string) {
+    if (code === "SUBMISSION_PROJECT_SCOPE_CONFLICT" || code === "PROJECT_SCOPE_DENIED" || code === "PROJECT_SCOPE_REQUIRED") return false;
+    if (/^(INVALID_|ATTACHMENT_|SUBMISSION_IDEMPOTENCY_CONFLICT|SUBMISSION_ATTACHMENT_UNDECLARED|SUBMISSION_ATTACHMENT_MISSING|FINALIZE_ALREADY_BOUND_CONFLICT|BOOTSTRAP_ALREADY_CONSUMED|INTAKE_PROTOCOL_UPGRADE_REQUIRED|READBACK_HASH_MISMATCH|LOCAL_RECEIPT_INCOMPLETE)/.test(code)) return false;
+    return true;
+}
+
+async function blobSha256(blob: Blob) {
+    const digest = await crypto.subtle.digest("SHA-256", await blob.arrayBuffer());
+    return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 function blobBase64(blob: Blob) {

@@ -30,8 +30,10 @@ export function ReportIssuePortal() {
 
     useEffect(() => {
         const notifyReplay = (event: Event) => {
-            const detail = (event as CustomEvent<{ issueId?: string }>).detail;
-            if (detail?.issueId) message.warning(`${detail.issueId} 仍在本机等待 Review Bus，应用会继续重试`);
+            const detail = (event as CustomEvent<{ localDraftId?: string; submissionId?: string; error?: string; stoppedReason?: string }>).detail;
+            if (!detail?.localDraftId) return;
+            if (detail.stoppedReason) message.error(`${detail.localDraftId} 已停止投递：${detail.stoppedReason}`);
+            else message.warning(`${detail.submissionId || detail.localDraftId} 仍在本机等待 Review Bus：${detail.error || "稍后重试"}`);
         };
         window.addEventListener("filmos:review-issue-replay", notifyReplay);
         return () => window.removeEventListener("filmos:review-issue-replay", notifyReplay);
@@ -56,7 +58,10 @@ export function ReportIssuePortal() {
                 content: file.originFileObj,
             }] : []);
             const saved = await saveIssueDraft(createLocalIssueDraft({ occurred, expected, blocking, attachments }, { surface }));
-            message.success(saved.delivery === "REVIEW_BUS_ACCEPTED" ? `已创建 ${saved.issueId}` : `已在本机保存 ${saved.issueId}，待 Review Bus 接收`);
+            if (saved.delivery === "CONFIRMED") message.success(`已确认 ${saved.canonicalIssueId}`);
+            else if (saved.delivery === "ACCEPTED_AWAITING_READBACK") message.success(`回执已保存：${saved.canonicalIssueId}，等待 ChatGPT MCP 读回确认`);
+            else if (saved.delivery === "STOPPED") message.error(`已保存 ${saved.localDraftId}，投递已停止：${saved.stoppedReason}`);
+            else message.warning(`已保存 ${saved.localDraftId}；投递 ${saved.submissionId} 尚未完成`);
             setOpen(false);
             reset();
         } catch (error) {

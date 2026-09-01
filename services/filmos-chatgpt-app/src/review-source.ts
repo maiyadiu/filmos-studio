@@ -33,7 +33,7 @@ export class HttpReviewReadSource implements ReviewReadSource {
     if (!path) throw new Error("UNKNOWN_REVIEW_READ_TOOL");
     const url = new URL(path(input), this.baseUrl);
     url.searchParams.set("project_id", projectId);
-    const response = await fetch(url, { headers: { authorization: `Bearer ${this.token}` }, signal });
+    const response = await fetch(url, { headers: { authorization: `Bearer ${this.token}`, "x-filmos-read-consumer": "chatgpt-mcp" }, signal });
     const payload = await response.json() as Record<string, unknown>;
     if (!response.ok) throw Object.assign(new Error(String(payload.code ?? "REVIEW_BUS_READ_FAILED")), { code: payload.code });
     assertReviewProjectScope(payload, toolName, projectId);
