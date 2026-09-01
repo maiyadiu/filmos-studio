@@ -11,12 +11,15 @@ final class DesktopChatGPTRuntime: ChatGPTConnectionOperating {
     private let supervisor: ServiceSupervisor
     private let tokenStore: any SecureTokenStoring
     private let tunnelClientURL: URL
+    private let mcpExecutableURL: URL
     private let grantCLIURL: URL
     private let runtimeDirectory: URL
     private let mcpDirectory: URL
     private let grantStoreURL: URL
     private let authorizationHeaderURL: URL
     private let tunnelHealthURLFile: URL
+    private let mcpPIDFileURL: URL
+    private let tunnelPIDFileURL: URL
     private let reviewBusHealthURL: URL
     private var startedServices: Set<ServiceID> = []
     private var activeTransportProof: String?
@@ -38,12 +41,15 @@ final class DesktopChatGPTRuntime: ChatGPTConnectionOperating {
         self.tokenStore = tokenStore
         self.reviewBusHealthURL = reviewBusHealthURL
         tunnelClientURL = helpersDirectory.appendingPathComponent("tunnel-client")
+        mcpExecutableURL = helpersDirectory.appendingPathComponent("FilmOSChatGPTMCP")
         grantCLIURL = helpersDirectory.appendingPathComponent("FilmOSChatGPTGrant")
         runtimeDirectory = applicationRuntimeRoot.appendingPathComponent("ChatGPTConnection", isDirectory: true)
         mcpDirectory = runtimeDirectory.appendingPathComponent("MCP", isDirectory: true)
         grantStoreURL = mcpDirectory.appendingPathComponent("grants.json")
         authorizationHeaderURL = runtimeDirectory.appendingPathComponent("mcp-authorization.header")
         tunnelHealthURLFile = runtimeDirectory.appendingPathComponent("tunnel-health.url")
+        mcpPIDFileURL = runtimeDirectory.appendingPathComponent("chatgpt-mcp.pid")
+        tunnelPIDFileURL = runtimeDirectory.appendingPathComponent("tunnel-client.pid")
 
         let fileManager = FileManager.default
         let coreDataDirectory = runtimeDirectory.appendingPathComponent("FilmCore", isDirectory: true)
@@ -51,7 +57,7 @@ final class DesktopChatGPTRuntime: ChatGPTConnectionOperating {
         try fileManager.createDirectory(at: mcpDirectory, withIntermediateDirectories: true)
 
         let filmCoreExecutable = helpersDirectory.appendingPathComponent("FilmOSFilmCore")
-        let mcpExecutable = helpersDirectory.appendingPathComponent("FilmOSChatGPTMCP")
+        let mcpExecutable = mcpExecutableURL
         for executable in [filmCoreExecutable, mcpExecutable, grantCLIURL, tunnelClientURL] {
             guard fileManager.isExecutableFile(atPath: executable.path) else {
                 throw DesktopChatGPTRuntimeError.missingHelper(executable.lastPathComponent)
@@ -81,6 +87,7 @@ final class DesktopChatGPTRuntime: ChatGPTConnectionOperating {
         mcpEnvironment["FILMOS_CHATGPT_HOST"] = "127.0.0.1"
         mcpEnvironment["FILMOS_CHATGPT_PORT"] = "17840"
         mcpEnvironment["FILMOS_CHATGPT_LOCAL_DIR"] = mcpDirectory.path
+        mcpEnvironment["FILMOS_CHATGPT_PID_FILE"] = mcpPIDFileURL.path
         mcpEnvironment["FILMOS_CORE_BASE_URL"] = "http://127.0.0.1:17650/film"
         mcpEnvironment.merge(ReviewBusRuntimeContract.chatGPTReadEnvironment(reviewBusDirectory: reviewBusDirectory, healthURL: reviewBusHealthURL)) { _, review in review }
         mcpEnvironment["PWD"] = runtimeDirectory.path
@@ -110,6 +117,21 @@ final class DesktopChatGPTRuntime: ChatGPTConnectionOperating {
     }
 
     func prepareLocalServices(projectID: String, transportProof: String) async throws {
+        if !startedServices.contains(secureTunnelServiceID) {
+            try await recoverAbandonedHelper(
+                pidFileURL: tunnelPIDFileURL,
+                expectedExecutableURL: tunnelClientURL,
+                occupiedPort: nil
+            )
+            try? FileManager.default.removeItem(at: tunnelHealthURLFile)
+        }
+        if !startedServices.contains(chatGPTMCPServiceID) {
+            try await recoverAbandonedHelper(
+                pidFileURL: mcpPIDFileURL,
+                expectedExecutableURL: mcpExecutableURL,
+                occupiedPort: 17840
+            )
+        }
         try await prepareFilmCoreAuthority()
         _ = try await ensureFilmCoreProjection(projectID: projectID, contentUnitID: nil, contentUnitKind: nil, canvasID: nil)
         if let activeProjectID, activeProjectID != projectID {
@@ -570,6 +592,57 @@ final class DesktopChatGPTRuntime: ChatGPTConnectionOperating {
             try await Task.sleep(for: .milliseconds(250))
         }
         throw DesktopChatGPTRuntimeError.serviceUnavailable
+    }
+
+    private func recoverAbandonedHelper(
+        pidFileURL: URL,
+        expectedExecutableURL: URL,
+        occupiedPort: Int?
+    ) async throws {
+        guard let rawPID = try? String(contentsOf: pidFileURL, encoding: .utf8),
+              let pid = Int32(rawPID.trimmingCharacters(in: .whitespacesAndNewlines)),
+              pid > 1 else {
+            try? FileManager.default.removeItem(at: pidFileURL)
+            return
+        }
+        if Darwin.kill(pid, 0) != 0 {
+            try? FileManager.default.removeItem(at: pidFileURL)
+            return
+        }
+        guard Self.executablePath(for: pid) == expectedExecutableURL.resolvingSymlinksInPath().standardizedFileURL.path else {
+            if let occupiedPort { throw DesktopChatGPTRuntimeError.portOwnedByAnotherProcess(occupiedPort) }
+            throw DesktopChatGPTRuntimeError.serviceUnavailable
+        }
+        guard Darwin.kill(pid, SIGTERM) == 0 else {
+            if let occupiedPort { throw DesktopChatGPTRuntimeError.portOwnedByAnotherProcess(occupiedPort) }
+            throw DesktopChatGPTRuntimeError.serviceUnavailable
+        }
+        for _ in 0..<40 {
+            if Darwin.kill(pid, 0) != 0 { break }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        if Darwin.kill(pid, 0) == 0 {
+            _ = Darwin.kill(pid, SIGKILL)
+            for _ in 0..<20 {
+                if Darwin.kill(pid, 0) != 0 { break }
+                try await Task.sleep(for: .milliseconds(50))
+            }
+        }
+        guard Darwin.kill(pid, 0) != 0 else {
+            if let occupiedPort { throw DesktopChatGPTRuntimeError.portOwnedByAnotherProcess(occupiedPort) }
+            throw DesktopChatGPTRuntimeError.serviceUnavailable
+        }
+        try? FileManager.default.removeItem(at: pidFileURL)
+    }
+
+    private static func executablePath(for pid: Int32) -> String? {
+        // proc_pidpath requires the Darwin 4 * MAXPATHLEN buffer, but Swift does
+        // not import PROC_PIDPATHINFO_MAXSIZE because it is a C expression macro.
+        var buffer = [CChar](repeating: 0, count: 4_096)
+        let length = proc_pidpath(pid, &buffer, UInt32(buffer.count))
+        guard length > 0 else { return nil }
+        let bytes = buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }
+        return String(decoding: bytes, as: UTF8.self)
     }
 
     private func tunnelIsReady() async -> Bool {

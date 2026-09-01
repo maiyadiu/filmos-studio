@@ -281,6 +281,7 @@ export function deriveBlockerReport(context: any, projectId: string) {
     });
   }
   return {
+    project_id: projectId,
     items,
     completeness: "DERIVED_FROM_PROJECT_CONTEXT",
     project_scope: { requested_project_id: projectId, context_host_project_id: contextProjectId, exact_match: true },

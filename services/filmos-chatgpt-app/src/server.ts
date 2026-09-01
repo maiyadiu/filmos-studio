@@ -1,5 +1,5 @@
 import { randomUUID, timingSafeEqual } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -397,6 +397,7 @@ export async function startFromEnvironment(env: NodeJS.ProcessEnv = process.env)
   if (!["127.0.0.1", "::1", "localhost"].includes(host)) throw new Error("FilmOS ChatGPT MCP must bind to loopback");
   const port = Number(env.FILMOS_CHATGPT_PORT ?? 17840);
   const localDir = resolve(env.FILMOS_CHATGPT_LOCAL_DIR ?? ".local/filmos-chatgpt");
+  const pidFile = env.FILMOS_CHATGPT_PID_FILE ? resolve(env.FILMOS_CHATGPT_PID_FILE) : null;
   const reviewReadEnabled = env.FILMOS_REVIEW_BUS_READ_ENABLED === "true";
   const reviewTokenFile = resolve(env.FILMOS_REVIEW_BUS_AUTH_FILE ?? resolve(homedir(), "Library/Application Support/FilmOS Studio/review-bus/review-bus.token"));
   const reviewToken = reviewReadEnabled ? (env.FILMOS_REVIEW_BUS_TOKEN ?? readFileSync(reviewTokenFile, "utf8").trim()) : null;
@@ -424,6 +425,24 @@ export async function startFromEnvironment(env: NodeJS.ProcessEnv = process.env)
     reviewRead: reviewReadEnabled && reviewToken ? new HttpReviewReadSource(env.FILMOS_REVIEW_BUS_BASE_URL ?? "http://127.0.0.1:17920", reviewToken) : undefined,
   });
   const httpServer = instance.app.listen(port, host);
+  await new Promise<void>((resolveListening, rejectListening) => {
+    const onError = (error: Error) => rejectListening(error);
+    httpServer.once("error", onError);
+    httpServer.once("listening", () => {
+      httpServer.off("error", onError);
+      resolveListening();
+    });
+  });
+  if (pidFile) {
+    writeFileSync(pidFile, `${process.pid}\n`, { encoding: "utf8", mode: 0o600 });
+    httpServer.once("close", () => {
+      try {
+        if (readFileSync(pidFile, "utf8").trim() === String(process.pid)) unlinkSync(pidFile);
+      } catch {
+        // A missing or replaced PID file already represents a completed cleanup.
+      }
+    });
+  }
   return { ...instance, httpServer, host, port };
 }
 

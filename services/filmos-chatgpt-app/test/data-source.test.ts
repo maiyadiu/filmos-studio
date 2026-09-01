@@ -8,6 +8,7 @@ test("blocker report exposes the missing Film Project projection as a concrete P
   const report = deriveBlockerReport({ host_project_id: projectId, film_project: null, content_units: [], shots: [] }, projectId);
 
   assert.equal(report.completeness, "DERIVED_FROM_PROJECT_CONTEXT");
+  assert.equal(report.project_id, projectId);
   assert.equal(report.evaluation.status, "BLOCKED");
   assert.equal(report.project_scope.exact_match, true);
   assert.equal(report.items.length, 1);
@@ -30,6 +31,7 @@ test("blocker report is CLEAR only for an exact-project fresh context", () => {
   }, projectId);
 
   assert.deepEqual(report.items, []);
+  assert.equal(report.project_id, projectId);
   assert.equal(report.evaluation.status, "CLEAR");
   assert.equal(report.evidence.film_project_present, true);
 });
