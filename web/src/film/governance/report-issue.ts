@@ -614,7 +614,17 @@ function boundProjectId(draft: LocalIssueDraft) {
 
 function currentDomainProjectId() {
     const context = typeof window === "undefined" ? null : window.filmOSGetWorkbenchContext?.() ?? null;
-    return context?.domainProjectId || context?.projectId || undefined;
+    const pathname = typeof window === "undefined" ? "/" : window.location.pathname;
+    return currentDomainProjectIdFromContext(context, pathname);
+}
+
+export function currentDomainProjectIdFromContext(
+    context: { domainProjectId?: string; projectId?: string } | null | undefined,
+    pathname: string,
+) {
+    const liveProjectId = context?.domainProjectId || context?.projectId;
+    if (liveProjectId) return liveProjectId;
+    return contextFromPathname(pathname).projectId;
 }
 
 export function issueDraftProjectScopeError(boundProject: string | undefined, currentProject: string | undefined) {

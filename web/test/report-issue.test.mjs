@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { inferIssueRoutingRisk } from "../src/film/governance/issue-lane";
-import { contextFromPathname, createLocalIssueDraft, issueDraftProjectScopeError, issueDraftReplayMode, issueEvidenceFilesFromClipboard, pastedIssueUploadDescriptor, selectPastedIssueEvidence, stageALegacyDraftMigration } from "../src/film/governance/report-issue";
+import { contextFromPathname, createLocalIssueDraft, currentDomainProjectIdFromContext, issueDraftProjectScopeError, issueDraftReplayMode, issueEvidenceFilesFromClipboard, pastedIssueUploadDescriptor, selectPastedIssueEvidence, stageALegacyDraftMigration } from "../src/film/governance/report-issue";
 
 const build = {
     commit: "6ea93bfa08381264a1379fe938ade3a7513c7bba",
@@ -109,6 +109,12 @@ describe("usage issue intake", () => {
         expect(issueDraftProjectScopeError("project-1", "project-2")).toBe("SUBMISSION_PROJECT_SCOPE_CONFLICT");
         expect(issueDraftProjectScopeError("project-1", "project-1")).toBeUndefined();
         expect(issueDraftProjectScopeError(undefined, "project-1")).toBe("PROJECT_SCOPE_REQUIRED");
+    });
+
+    test("uses an explicit project route while live workbench publication is unavailable", () => {
+        expect(currentDomainProjectIdFromContext(undefined, "/projects/project-1/overview")).toBe("project-1");
+        expect(currentDomainProjectIdFromContext({ domainProjectId: "project-live" }, "/projects/project-route/overview")).toBe("project-live");
+        expect(currentDomainProjectIdFromContext(undefined, "/canvas/canvas-1")).toBeUndefined();
     });
 
     test("pasted evidence accepts only bounded image/video bytes and respects remaining slots", () => {
