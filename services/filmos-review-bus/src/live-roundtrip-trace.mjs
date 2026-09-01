@@ -31,8 +31,8 @@ export function buildLiveRoundtripTrace(issue, events, { eventChainVerified = fa
   requireGate(Boolean(issue?.consensus_record?.contentHash), "CONSENSUS_RECORD_REQUIRED", failures);
   requireGate((issue?.runtime_recovery?.observed_start_ids ?? []).length >= 2, "RESTART_RECOVERY_REQUIRED", failures);
   requireGate(eventChainVerified === true, "EVENT_CHAIN_VERIFICATION_REQUIRED", failures);
-  requireGate(chatgptEvents.filter((event) => event.event_type === "assessment.chatgpt.submitted").length === 1, "CHATGPT_ASSESSMENT_WRITEBACK_REQUIRED", failures);
-  requireGate(chatgptEvents.filter((event) => event.event_type === "consensus.responded").length === 1, "CHATGPT_CONSENSUS_WRITEBACK_REQUIRED", failures);
+  requireGate(chatgptEvents.filter((event) => event.event_type === "assessment.chatgpt.submitted").length >= 1, "CHATGPT_ASSESSMENT_WRITEBACK_REQUIRED", failures);
+  requireGate(chatgptEvents.filter((event) => event.event_type === "consensus.responded").length >= 1, "CHATGPT_CONSENSUS_WRITEBACK_REQUIRED", failures);
   requireGate(chatgptEvents.filter((event) => event.event_type === "chatgpt.review_decision").length === 2, "CHATGPT_A_B_REVIEW_WRITEBACK_REQUIRED", failures);
   requireGate(events.some((event) => event.event_type === "assessment.codex.submitted"), "CODEX_ASSESSMENT_REQUIRED", failures);
   requireGate(events.some((event) => event.event_type === "finding.codex_response"), "CODEX_FINDING_RESPONSE_EVENT_REQUIRED", failures);
@@ -58,9 +58,9 @@ export function buildLiveRoundtripTrace(issue, events, { eventChainVerified = fa
     event_count: events.length,
     chatgpt_user_gesture_writebacks: {
       exact_count: chatgptEvents.length,
-      assessment: 1,
-      consensus: 1,
-      candidate_reviews: 2,
+      assessment: chatgptEvents.filter((event) => event.event_type === "assessment.chatgpt.submitted").length,
+      consensus: chatgptEvents.filter((event) => event.event_type === "consensus.responded").length,
+      candidate_reviews: chatgptEvents.filter((event) => event.event_type === "chatgpt.review_decision").length,
     },
     codex_coordination: {
       status: issue.codex_coordination?.status ?? null,

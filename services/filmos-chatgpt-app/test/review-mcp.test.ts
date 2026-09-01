@@ -40,6 +40,8 @@ test("ChatGPT Review MCP registry is strictly read-only and preserves the blind 
       assert.ok(tool, `${name} must be registered`);
       assert.equal(tool.annotations?.readOnlyHint, true);
       assert.equal(tool.annotations?.destructiveHint, false);
+      assert.deepEqual(tool._meta?.securitySchemes, [{ type: "noauth" }]);
+      assert.deepEqual(tool._meta?.["openai/securitySchemes"], [{ type: "noauth" }]);
     }
     assert.equal(reviewNames.some((name) => /write|apply|approve|close|submit/.test(name)), false);
     const blind = await client.callTool({ name: "issue_get_codex_assessment_blind", arguments: { issue_id: "FILMOS-ISSUE-test" } }) as any;

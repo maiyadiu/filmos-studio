@@ -103,7 +103,17 @@ export function createFilmOSChatGPTApp(options: FilmOSChatGPTAppOptions) {
     review_bus_read_tool_count: manifest.filter((tool) => tool.feature_flag === "film.review_bus_readonly").length,
     external_account_connected: false,
     observation_scope: "authenticated_handoff_status_only",
+    chatgpt_tool_auth: "noauth",
+    project_authorization: "secure_tunnel_injected_project_grant",
   }));
+
+  const oauthNotConfigured = (_req: Request, res: Response) => res.status(404).json({
+    code: "OAUTH_NOT_CONFIGURED",
+    chatgpt_tool_auth: "noauth",
+    project_authorization: "secure_tunnel_injected_project_grant",
+  });
+  app.get("/.well-known/oauth-protected-resource", oauthNotConfigured);
+  app.get("/.well-known/oauth-authorization-server", oauthNotConfigured);
 
   const authenticate = async (req: Request, res: Response): Promise<{ grant: ProjectGrant } | null> => {
     const authorization = req.header("authorization") ?? "";

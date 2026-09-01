@@ -1,14 +1,15 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import test from "node:test";
 import { Worker } from "node:worker_threads";
 
 import { sha256 } from "../src/canonical.mjs";
-import { GitHubEvidenceVerifier, resolveGitHubCLI } from "../src/github-evidence-verifier.mjs";
+import { defaultReadArtifactEvidenceIndex, GitHubEvidenceVerifier, resolveGitHubCLI } from "../src/github-evidence-verifier.mjs";
 import { buildLiveRoundtripTrace } from "../src/live-roundtrip-trace.mjs";
-import { ReviewBusService, candidateBinding } from "../src/service.mjs";
+import { ReviewBusService, candidateBinding, fileInScope } from "../src/service.mjs";
 import { allowedOrigin, createReviewBusHttp } from "../src/server.mjs";
 import { ReviewBusStore } from "../src/store.mjs";
 import { redactEvidence } from "../src/redaction.mjs";
@@ -20,6 +21,50 @@ const constitutionHash = "a61228c66e931cb977928f4d2864ab6556f3fcd163479e31ccebbc
 
 test("GitHub CLI resolver honors an explicit executable for Dock-launched Review Bus", () => {
   assert.equal(resolveGitHubCLI({ FILMOS_GH_EXECUTABLE: "/bin/sh" }), "/bin/sh");
+});
+
+test("candidate scope matches exact paths even when the frozen descriptor marks a file as not yet existing", () => {
+  assert.equal(fileInScope("web/new-view.ts", "web/new-view.ts（当前不存在）"), true);
+  assert.equal(fileInScope("web/new-view.ts", "web/new-view.ts（冻结基线中不存在）"), true);
+  assert.equal(fileInScope("web/other.ts", "web/new-view.ts（当前不存在）"), false);
+  assert.equal(fileInScope("web/new-view.ts（当前不存在）", "web/new-view.ts（当前不存在）"), false);
+});
+
+test("GitHub evidence reader accepts exactly one Evidence Index inside the Handoff ZIP", async () => {
+  const directory = mkdtempSync(resolve(tmpdir(), "filmos-nested-evidence-test-"));
+  const packetDirectory = resolve(directory, "handoff", "packet");
+  const handoffPath = resolve(directory, "handoff.zip");
+  const artifactPath = resolve(directory, "artifact.zip");
+  const evidence = Buffer.from('{"schemaVersion":"filmos.evidence-index.v1"}\n');
+  try {
+    mkdirSync(packetDirectory, { recursive: true });
+    writeFileSync(resolve(packetDirectory, "EVIDENCE_INDEX.json"), evidence, { mode: 0o600 });
+    execFileSync("zip", ["-q", "-r", handoffPath, "packet"], { cwd: resolve(directory, "handoff") });
+    execFileSync("zip", ["-q", artifactPath, "handoff.zip"], { cwd: directory });
+    assert.deepEqual(await defaultReadArtifactEvidenceIndex({ path: artifactPath }), evidence);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("GitHub evidence reader fails closed for missing or ambiguous Evidence Index bytes", async () => {
+  const directory = mkdtempSync(resolve(tmpdir(), "filmos-nested-evidence-negative-test-"));
+  const evidence = Buffer.from('{"schemaVersion":"filmos.evidence-index.v1"}\n');
+  const missingPath = resolve(directory, "missing.zip");
+  const duplicatePath = resolve(directory, "duplicate.zip");
+  const nestedPath = resolve(directory, "handoff.zip");
+  try {
+    writeFileSync(resolve(directory, "README.json"), "{}\n", { mode: 0o600 });
+    execFileSync("zip", ["-q", missingPath, "README.json"], { cwd: directory });
+    await assert.rejects(() => defaultReadArtifactEvidenceIndex({ path: missingPath }), /ARTIFACT_EVIDENCE_INDEX_MISSING/);
+
+    writeFileSync(resolve(directory, "EVIDENCE_INDEX.json"), evidence, { mode: 0o600 });
+    execFileSync("zip", ["-q", nestedPath, "EVIDENCE_INDEX.json"], { cwd: directory });
+    execFileSync("zip", ["-q", duplicatePath, "EVIDENCE_INDEX.json", "handoff.zip"], { cwd: directory });
+    await assert.rejects(() => defaultReadArtifactEvidenceIndex({ path: duplicatePath }), /ARTIFACT_EVIDENCE_INDEX_AMBIGUOUS/);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 function fixture() {
@@ -189,6 +234,8 @@ test("formal live trace requires real GitHub receipts, A to B, restart, dual sig
     attachments: [{ attachment_id: "attachment-1", sha256: "5".repeat(64), size_bytes: 10 }],
   };
   const events = [
+    ["assessment.chatgpt.submitted", "chatgpt"],
+    ["consensus.responded", "chatgpt"],
     ["runtime.observed", "filmos-review-bus"],
     ["assessment.codex.submitted", "codex"],
     ["assessment.chatgpt.submitted", "chatgpt"],
@@ -203,7 +250,10 @@ test("formal live trace requires real GitHub receipts, A to B, restart, dual sig
   const trace = buildLiveRoundtripTrace(issue, events, { eventChainVerified: true, generatedAt: new Date("2026-08-31T12:00:00.000Z") });
   assert.equal(trace.status, "PASSED");
   assert.equal(trace.formal_github_remote_evidence, true);
-  assert.equal(trace.chatgpt_user_gesture_writebacks.exact_count, 4);
+  assert.equal(trace.chatgpt_user_gesture_writebacks.exact_count, 6);
+  assert.equal(trace.chatgpt_user_gesture_writebacks.assessment, 2);
+  assert.equal(trace.chatgpt_user_gesture_writebacks.consensus, 2);
+  assert.equal(trace.chatgpt_user_gesture_writebacks.candidate_reviews, 2);
   const localOnly = structuredClone(issue);
   localOnly.candidate_history[1].candidate.github_remote_verification.verification_mode = "DETERMINISTIC_LOCAL_ACCEPTANCE_ONLY";
   assert.throws(() => buildLiveRoundtripTrace(localOnly, events, { eventChainVerified: true }), /FORMAL_GITHUB_REMOTE_EVIDENCE_REQUIRED/);
@@ -233,6 +283,38 @@ test("attachment bytes are durably hashed for local Codex access while ChatGPT s
   assert.equal(external.includes(directory), false);
   assert.equal(external.includes("evidence://"), true);
   assert.equal(redacted.evidence.manifest.completeness.screenshot, true);
+  assert.equal(store.verifyEventChain(issue.issue_id), true);
+  store.close();
+});
+
+test("supplemental crash evidence is append-only after Task Package freeze and does not stale an approved candidate", async () => {
+  const directory = mkdtempSync(resolve(tmpdir(), "filmos-review-supplemental-attachment-"));
+  const store = new ReviewBusStore(resolve(directory, "review-bus.sqlite"));
+  const service = new ReviewBusService(store, { baseCommit: commit });
+  const issue = createCoreIssue(service, "supplemental-attachment");
+  const consensus = reachConsensus(service, issue.issue_id);
+  const submitted = service.submitCandidate(issue.issue_id, candidate({
+    consensus_record_hash: consensus.consensus_record.contentHash,
+    task_package_content_hash: consensus.issue_task_package.contentHash,
+  }));
+  const before = service.requireIssue(issue.issue_id);
+  const beforeManifestHash = before.evidence.manifest.contentHash;
+  const beforeTaskPackageHash = before.task_package_content_hash;
+  const beforeCandidateHash = before.active_candidate.content_hash;
+  const stored = service.storeAttachment(issue.issue_id, {
+    attachment_id: "attachment-chrome-crash-report",
+    media_type: "text/plain",
+    original_name: "chrome-crash.txt",
+    base64: Buffer.from("Chrome SIGABRT report").toString("base64"),
+    captured_at: "2026-09-01T04:00:38.858Z",
+  });
+  assert.equal(stored.issue.state, submitted.state);
+  assert.equal(stored.issue.evidence.manifest.contentHash, beforeManifestHash);
+  assert.equal(stored.issue.task_package_content_hash, beforeTaskPackageHash);
+  assert.equal(stored.issue.active_candidate.content_hash, beforeCandidateHash);
+  assert.equal(stored.issue.attachments.length, 1);
+  assert.match(stored.issue.attachments[0].sha256, /^[0-9a-f]{64}$/);
+  assert.equal(store.events(issue.issue_id).at(-1).event_type, "evidence.attachment.added");
   assert.equal(store.verifyEventChain(issue.issue_id), true);
   store.close();
 });

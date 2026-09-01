@@ -78,7 +78,8 @@ export class ReviewBusService {
     exactObject(input, ["attachment_id", "media_type", "original_name", "base64", "captured_at"]);
     requireFields(input, ["attachment_id", "media_type", "original_name", "base64"]);
     if (!/^attachment-[A-Za-z0-9-]{1,120}$/.test(input.attachment_id)) throw problem("INVALID_ATTACHMENT_ID");
-    if (typeof input.media_type !== "string" || !/^(image|video)\/[A-Za-z0-9.+-]{1,80}$/.test(input.media_type)) throw problem("INVALID_ATTACHMENT_MEDIA_TYPE");
+    if (typeof input.media_type !== "string" || !(/^(image|video)\/[A-Za-z0-9.+-]{1,80}$/.test(input.media_type)
+      || ["text/plain", "application/json"].includes(input.media_type))) throw problem("INVALID_ATTACHMENT_MEDIA_TYPE");
     if (typeof input.original_name !== "string" || !input.original_name.trim() || input.original_name.length > 255) throw problem("INVALID_ATTACHMENT_NAME");
     if (typeof input.base64 !== "string" || input.base64.length === 0 || input.base64.length > 35_000_000) throw problem("INVALID_ATTACHMENT_BYTES");
     const bytes = Buffer.from(input.base64, "base64");
@@ -95,12 +96,29 @@ export class ReviewBusService {
       bytes,
       capturedAt,
     });
+    if (current.task_package_content_hash) {
+      const safeMetadata = safeAttachmentMetadata(metadata);
+      const issue = this.store.append({
+        issueId,
+        projectId: current.project_id,
+        lane: current.lane,
+        eventType: "evidence.attachment.added",
+        actor,
+        payload: safeMetadata,
+        now,
+        mutate: (next) => {
+          next.attachments = this.store.listAttachments(issueId);
+          return next;
+        },
+      });
+      return { issue, attachment: safeMetadata };
+    }
     const existingItems = current.evidence?.local_items ?? [];
     const withoutCurrent = existingItems.filter((item) => item.content?.attachment_id !== input.attachment_id);
     const item = {
       evidence_id: `evidence-${input.attachment_id}`,
-      kind: "screenshot",
-      completeness_kind: "screenshot",
+      kind: input.media_type.startsWith("image/") ? "screenshot" : "attachment",
+      completeness_kind: input.media_type.startsWith("image/") ? "screenshot" : "attachment",
       local_only: true,
       redacted_alias: redactedAlias,
       captured_at: capturedAt.toISOString(),
@@ -731,7 +749,8 @@ function validateCandidateBinding(candidate, current) {
   if (typeof candidate.candidate_nonce !== "string" || candidate.candidate_nonce.length < 16) throw problem("CANDIDATE_NONCE_REQUIRED");
 }
 
-function fileInScope(file, scope) {
+export function fileInScope(file, descriptor) {
+  const scope = descriptor.replace(/\s*（(?:当前|冻结基线中)不存在）\s*$/u, "");
   if (scope.endsWith("/**")) return file === scope.slice(0, -3) || file.startsWith(scope.slice(0, -2));
   if (scope.endsWith("/")) return file.startsWith(scope);
   return file === scope;

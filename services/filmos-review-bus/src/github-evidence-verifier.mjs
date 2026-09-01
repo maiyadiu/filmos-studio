@@ -1,6 +1,6 @@
 import { execFile, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { accessSync, constants, createWriteStream, mkdtempSync, rmSync } from "node:fs";
+import { accessSync, constants, createWriteStream, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { promisify } from "node:util";
@@ -119,14 +119,36 @@ export function resolveGitHubCLI(environment = process.env) {
   return "gh";
 }
 
-async function defaultReadArtifactEvidenceIndex(archive) {
+export async function defaultReadArtifactEvidenceIndex(archive) {
   const { stdout } = await execFileAsync("unzip", ["-Z1", archive.path], { encoding: "utf8", timeout: 30_000, maxBuffer: 8 * 1024 * 1024 });
   const entries = stdout.split(/\r?\n/).filter(Boolean);
-  const evidenceEntry = entries.find((entry) => entry === "EVIDENCE_INDEX.json")
-    ?? entries.find((entry) => entry.endsWith("/EVIDENCE_INDEX.json"));
-  if (!evidenceEntry) throw evidenceProblem("ARTIFACT_EVIDENCE_INDEX_MISSING");
-  const { stdout: bytes } = await execFileAsync("unzip", ["-p", archive.path, evidenceEntry], { encoding: null, timeout: 30_000, maxBuffer: 32 * 1024 * 1024 });
-  return Buffer.from(bytes);
+  const evidenceEntries = entries.filter((entry) => entry === "EVIDENCE_INDEX.json" || entry.endsWith("/EVIDENCE_INDEX.json"));
+  const nestedArchives = entries.filter((entry) => entry.toLowerCase().endsWith(".zip"));
+  const matches = [];
+  const directory = mkdtempSync(resolve(tmpdir(), "filmos-nested-artifact-"));
+  try {
+    for (const evidenceEntry of evidenceEntries) {
+      const { stdout: bytes } = await execFileAsync("unzip", ["-p", archive.path, evidenceEntry], { encoding: null, timeout: 30_000, maxBuffer: 32 * 1024 * 1024 });
+      matches.push(Buffer.from(bytes));
+    }
+    for (let index = 0; index < nestedArchives.length; index += 1) {
+      const nestedEntry = nestedArchives[index];
+      const nestedPath = resolve(directory, `nested-${index}.zip`);
+      const { stdout: nestedBytes } = await execFileAsync("unzip", ["-p", archive.path, nestedEntry], { encoding: null, timeout: 30_000, maxBuffer: 128 * 1024 * 1024 });
+      writeFileSync(nestedPath, nestedBytes, { mode: 0o600 });
+      const { stdout: nestedListing } = await execFileAsync("unzip", ["-Z1", nestedPath], { encoding: "utf8", timeout: 30_000, maxBuffer: 8 * 1024 * 1024 });
+      const nestedEvidenceEntries = nestedListing.split(/\r?\n/).filter(Boolean)
+        .filter((entry) => entry === "EVIDENCE_INDEX.json" || entry.endsWith("/EVIDENCE_INDEX.json"));
+      for (const nestedEvidenceEntry of nestedEvidenceEntries) {
+        const { stdout: evidenceBytes } = await execFileAsync("unzip", ["-p", nestedPath, nestedEvidenceEntry], { encoding: null, timeout: 30_000, maxBuffer: 32 * 1024 * 1024 });
+        matches.push(Buffer.from(evidenceBytes));
+      }
+    }
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+  if (matches.length !== 1) throw evidenceProblem(matches.length ? "ARTIFACT_EVIDENCE_INDEX_AMBIGUOUS" : "ARTIFACT_EVIDENCE_INDEX_MISSING");
+  return matches[0];
 }
 
 function spawnToFile(command, args, outputPath) {

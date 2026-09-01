@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { sha256 } from "./canonical.js";
 import { auditRecord, type AuditSink } from "./audit.js";
+import { chatGPTNoauthMeta } from "./chatgpt-auth.js";
 import type { ProjectGrant } from "./grants.js";
 import type { ReviewReadSource } from "./review-source.js";
 
@@ -38,6 +39,7 @@ export function registerReviewReadTools(server: McpServer, source: ReviewReadSou
       description,
       inputSchema: takesIssue ? z.object({ issue_id: z.string().min(1).max(160) }) : z.object({}),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      _meta: chatGPTNoauthMeta(),
     }, async (input, extra) => {
       try {
         const value = await source.read(name, input as Record<string, unknown>, grant.project_id, extra.signal);

@@ -33,6 +33,10 @@ test("Golden ChatGPT A: authorized Candidate project is readable through streama
     assert.equal(names.some((name) => /apply|approve|delete|task_create/.test(name)), false);
     const dataTool = tools.tools.find((tool) => tool.name === "filmos_get_project_context")!;
     const renderTool = tools.tools.find((tool) => tool.name === "filmos_render_project_overview")!;
+    for (const tool of tools.tools) {
+      assert.deepEqual(tool._meta?.securitySchemes, [{ type: "noauth" }]);
+      assert.deepEqual(tool._meta?.["openai/securitySchemes"], [{ type: "noauth" }]);
+    }
     assert.equal(dataTool._meta?.ui, undefined);
     assert.equal((renderTool._meta?.ui as any).resourceUri, "ui://filmos/project-overview-v1.html");
 
@@ -55,6 +59,28 @@ test("Golden ChatGPT A: authorized Candidate project is readable through streama
   } finally {
     await client.close().catch(() => undefined);
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
+test("OAuth discovery fails closed as JSON because ChatGPT auth is supplied by the Secure Tunnel", async () => {
+  const grants = new MemoryProjectGrantStore();
+  const instance = createFilmOSChatGPTApp({ enabled: true, proposalHandoffEnabled: false, grants, dataSource: new MemoryFilmOSReadDataSource(projects), audit: new MemoryAuditSink() });
+  const server = instance.app.listen(0, "127.0.0.1");
+  await new Promise<void>((resolve) => server.once("listening", resolve));
+  const port = (server.address() as AddressInfo).port;
+  try {
+    for (const path of ["/.well-known/oauth-protected-resource", "/.well-known/oauth-authorization-server"]) {
+      const response = await fetch(`http://127.0.0.1:${port}${path}`);
+      assert.equal(response.status, 404);
+      assert.match(response.headers.get("content-type") ?? "", /^application\/json/);
+      assert.deepEqual(await response.json(), {
+        code: "OAUTH_NOT_CONFIGURED",
+        chatgpt_tool_auth: "noauth",
+        project_authorization: "secure_tunnel_injected_project_grant",
+      });
+    }
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 });
 

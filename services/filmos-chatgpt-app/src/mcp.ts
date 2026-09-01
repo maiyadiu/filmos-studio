@@ -5,6 +5,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z, type ZodTypeAny } from "zod";
 
 import { auditRecord, type AuditSink } from "./audit.js";
+import { chatGPTNoauthMeta } from "./chatgpt-auth.js";
 import { sha256 } from "./canonical.js";
 import type { FilmOSReadDataSource } from "./data-source.js";
 import type { ProjectGrant } from "./grants.js";
@@ -97,12 +98,12 @@ export function createFilmOSMcpServer(options: FilmOSMcpSessionOptions): McpServ
         description: tool.description,
         inputSchema: z.object(zodShape(tool.input_schema.properties, tool.input_schema.required as readonly string[])),
         annotations: tool.annotations,
-        _meta: widget ? {
+        _meta: chatGPTNoauthMeta(widget ? {
           ui: { resourceUri: widget },
           "openai/outputTemplate": widget,
           "openai/toolInvocation/invoking": "Reading authorized FilmOS data",
           "openai/toolInvocation/invoked": "Authorized FilmOS snapshot ready",
-        } : undefined,
+        } : undefined),
       },
       async (input, extra) => callTool(tool.name, input as Record<string, unknown>, options, extra.signal),
     );
