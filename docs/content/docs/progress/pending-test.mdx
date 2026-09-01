@@ -178,4 +178,5 @@ description: 影策已实现功能的手工验证清单与未确认边界
 - [x] 缺失或漂移时按 `INSTALLED_SOURCE_IDENTITY_UNAVAILABLE`、`INSTALLED_SOURCE_IDENTITY_MISMATCH`、`SOURCE_COMMIT_NOT_FOUND`、`SOURCE_TREE_MISMATCH` 或 `APP_RUNTIME_IDENTITY_MISMATCH` 失败关闭。
 - [x] Architecture v2 的初始 Intake Evidence 可持久化，但不伪造 Requirement Delta；Owner 冻结 Delta 后由 Coordinator 确定性进入正式 Evidence Frozen。
 - [x] Review Bus 51 项测试、Coordinator 12 项专项测试、Desktop 61 项 Swift 测试及 Developer Repository 脚本测试通过。
+- [x] Stage B 本地 Canary 完成 Installed SourceIdentity、Owner Gate、v2 Evidence、Assessment 起点及历史 Anchor 链验证，外部请求与付费操作均为 0。
 - [ ] 待 Stage B 固定 Commit 后执行 Formal CI、Artifact 校验、Installed App 可回滚替换与实机 Canary。

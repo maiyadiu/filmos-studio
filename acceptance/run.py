@@ -92,6 +92,13 @@ RC_LOCAL_CHECKS = CURRENT_CHECKS + (
         ("08-agent", "13-qa", "14-chatgpt-app"),
     ),
     Check(
+        "review-bus-stage-b-canary",
+        "Installed SourceIdentity, Owner gate, v2 Evidence and legacy Anchor canary",
+        ("npm", "run", "canary:stage-b"),
+        ROOT / "services" / "filmos-review-bus",
+        ("01-desktop", "08-agent", "13-qa", "14-chatgpt-app"),
+    ),
+    Check(
         "review-cli-watcher",
         "Codex local issue CLI and Review Watcher contract",
         ("npm", "test"),
