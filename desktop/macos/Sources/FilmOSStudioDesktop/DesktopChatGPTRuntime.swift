@@ -111,9 +111,10 @@ final class DesktopChatGPTRuntime: ChatGPTConnectionOperating {
 
     func prepareLocalServices(projectID: String, transportProof: String) async throws {
         try await prepareFilmCoreAuthority()
+        _ = try await ensureFilmCoreProjection(projectID: projectID, contentUnitID: nil, contentUnitKind: nil, canvasID: nil)
         if let activeProjectID, activeProjectID != projectID {
             await disconnectHostSession()
-            stopTunnel()
+            suspendTunnel()
             try await revokeActiveGrant()
             try? FileManager.default.removeItem(at: authorizationHeaderURL)
             try? tokenStore.delete(for: .chatGPTBridgeSession)
@@ -205,6 +206,10 @@ final class DesktopChatGPTRuntime: ChatGPTConnectionOperating {
 
     func stopTunnel() {
         Task { await disconnectHostSession() }
+        suspendTunnel()
+    }
+
+    func suspendTunnel() {
         guard startedServices.contains(secureTunnelServiceID), case .running = supervisor.state(for: secureTunnelServiceID) else {
             return
         }
@@ -271,10 +276,32 @@ final class DesktopChatGPTRuntime: ChatGPTConnectionOperating {
     }
 
     func publishHostContext(_ context: Data, challengeID: String) async throws -> Data {
-        let value = try Self.jsonObject(context)
-        guard value["project_id"] as? String == activeProjectID else {
+        var value = try Self.jsonObject(context)
+        guard let projectID = value["project_id"] as? String,
+              projectID == activeProjectID else {
             throw DesktopChatGPTRuntimeError.hostPublishRejected(nil)
         }
+        let contentUnitID = Self.optionalHostIdentifier(value["content_unit_id"])
+        let canvasID = Self.optionalHostIdentifier(value["canvas_id"])
+        let contentUnitKind = Self.contentUnitKind(value["content_unit_kind"])
+        let filmContext = try await ensureFilmCoreProjection(
+            projectID: projectID,
+            contentUnitID: contentUnitID,
+            contentUnitKind: contentUnitKind,
+            canvasID: canvasID
+        )
+        guard let project = filmContext["film_project"] as? [String: Any],
+              let ref = project["ref"] as? [String: Any],
+              let version = ref["version"] as? Int,
+              version > 0,
+              let contentHash = ref["content_hash"] as? String,
+              contentHash.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil else {
+            throw DesktopChatGPTRuntimeError.filmCoreProjectionUnavailable
+        }
+        value["film_expected_version"] = version
+        value["film_content_hash"] = contentHash
+        value["context_receipt_id"] = try Self.liveContextReceipt(value)
+        value.removeValue(forKey: "content_unit_kind")
         return try await publish(path: "/handoff/live-context", method: "PUT", challengeID: challengeID, key: "context", value: value)
     }
 
@@ -312,6 +339,132 @@ final class DesktopChatGPTRuntime: ChatGPTConnectionOperating {
               let value = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw DesktopChatGPTRuntimeError.hostPayloadInvalid
         }
+        return value
+    }
+
+    private func ensureFilmCoreProjection(
+        projectID: String,
+        contentUnitID: String?,
+        contentUnitKind: String?,
+        canvasID: String?
+    ) async throws -> [String: Any] {
+        guard Self.isHostIdentifier(projectID) else { throw DesktopChatGPTRuntimeError.hostPayloadInvalid }
+        var context = try await filmCoreProjectContext(projectID: projectID)
+        if !(context["film_project"] is [String: Any]) {
+            try await createFilmCoreEntity(
+                entityType: "film_project_extension",
+                host: ["host_project_id": projectID],
+                unitKind: nil
+            )
+            context = try await filmCoreProjectContext(projectID: projectID)
+        }
+        if let contentUnitID {
+            guard Self.isHostIdentifier(contentUnitID) else { throw DesktopChatGPTRuntimeError.hostPayloadInvalid }
+            let mapped = (context["content_units"] as? [[String: Any]] ?? []).contains { unit in
+                let host = unit["host"] as? [String: Any]
+                return host?["host_project_id"] as? String == projectID
+                    && host?["host_unit_id"] as? String == contentUnitID
+            }
+            if !mapped {
+                var host = ["host_project_id": projectID, "host_unit_id": contentUnitID]
+                if let canvasID, Self.isHostIdentifier(canvasID) { host["host_canvas_id"] = canvasID }
+                try await createFilmCoreEntity(
+                    entityType: "content_unit_extension",
+                    host: host,
+                    unitKind: contentUnitKind ?? "episode"
+                )
+                context = try await filmCoreProjectContext(projectID: projectID)
+            }
+        }
+        guard let project = context["film_project"] as? [String: Any],
+              let host = project["host"] as? [String: Any],
+              host["host_project_id"] as? String == projectID else {
+            throw DesktopChatGPTRuntimeError.filmCoreProjectionUnavailable
+        }
+        return context
+    }
+
+    private func filmCoreProjectContext(projectID: String) async throws -> [String: Any] {
+        guard let url = URL(string: "http://127.0.0.1:17650/film/projects/\(Self.urlPath(projectID))/context") else {
+            throw DesktopChatGPTRuntimeError.filmCoreProjectionUnavailable
+        }
+        var request = URLRequest(url: url)
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.timeoutInterval = 5
+        request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse,
+              http.statusCode == 200,
+              let value = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              value["host_project_id"] as? String == projectID else {
+            throw DesktopChatGPTRuntimeError.filmCoreProjectionUnavailable
+        }
+        return value
+    }
+
+    private func createFilmCoreEntity(entityType: String, host: [String: String], unitKind: String?) async throws {
+        guard let url = URL(string: "http://127.0.0.1:17650/film/commands/apply") else {
+            throw DesktopChatGPTRuntimeError.filmCoreProjectionUnavailable
+        }
+        var payload: [String: Any] = [
+            "entity_type": entityType,
+            "host": host,
+            "states": [
+                "creative_stage": "draft",
+                "execution_state": "not_started",
+                "review_state": "not_reviewed",
+                "lock_state": "unlocked",
+                "delivery_state": "not_ready",
+                "stale_state": "fresh",
+            ],
+        ]
+        if let unitKind { payload["unit_kind"] = unitKind }
+        let body: [String: Any] = [
+            "command_type": "entity.create",
+            "target_id": NSNull(),
+            "expected_version": 0,
+            "actor_kind": "system",
+            "payload": payload,
+        ]
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.timeoutInterval = 5
+        request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+        let (_, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse,
+              (200..<300).contains(http.statusCode) || http.statusCode == 409 else {
+            throw DesktopChatGPTRuntimeError.filmCoreProjectionUnavailable
+        }
+    }
+
+    private static func liveContextReceipt(_ value: [String: Any]) throws -> String {
+        var receiptValue = value
+        receiptValue.removeValue(forKey: "context_receipt_id")
+        receiptValue.removeValue(forKey: "content_unit_kind")
+        guard JSONSerialization.isValidJSONObject(receiptValue) else { throw DesktopChatGPTRuntimeError.hostPayloadInvalid }
+        let canonical = try JSONSerialization.data(withJSONObject: receiptValue, options: [.sortedKeys])
+        let hash = SHA256.hash(data: canonical).map { String(format: "%02x", $0) }.joined()
+        return "filmos-live:\(hash)"
+    }
+
+    private static func optionalHostIdentifier(_ value: Any?) -> String? {
+        guard let value = value as? String else { return nil }
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return normalized.isEmpty ? nil : normalized
+    }
+
+    private static func isHostIdentifier(_ value: String) -> Bool {
+        !value.isEmpty && value.count <= 256 && value.unicodeScalars.allSatisfy { scalar in
+            scalar.value >= 0x20 && scalar.value != 0x7f
+        }
+    }
+
+    private static func contentUnitKind(_ value: Any?) -> String? {
+        guard let value = value as? String,
+              ["chapter", "episode", "special", "trailer", "extra", "film", "season", "arc", "volume"].contains(value) else { return nil }
         return value
     }
 
@@ -517,6 +670,11 @@ final class DesktopChatGPTRuntime: ChatGPTConnectionOperating {
         value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
     }
 
+    private static func urlPath(_ value: String) -> String {
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-._~"))
+        return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? ""
+    }
+
     private static func externalRequest(from payload: [String: Any]?) -> ChatGPTExternalRequest? {
         guard payload?["external_account_connected"] as? Bool == true,
               let timestampText = payload?["last_chatgpt_mcp_request_at"] as? String,
@@ -619,12 +777,15 @@ enum DesktopChatGPTRuntimeError: Error, LocalizedError {
     case grantUnavailable
     case tunnelDoctorFailed
     case hostPayloadInvalid
+    case filmCoreProjectionUnavailable
     case hostPublishRejected(String?)
 
     var bridgeErrorCode: String {
         switch self {
         case .hostPayloadInvalid:
             return "CHATGPT_HOST_PAYLOAD_INVALID"
+        case .filmCoreProjectionUnavailable:
+            return "CHATGPT_FILM_CORE_PROJECTION_UNAVAILABLE"
         case let .hostPublishRejected(upstreamCode):
             guard let upstreamCode,
                   upstreamCode.range(of: "^[A-Za-z0-9_]{1,80}$", options: .regularExpression) != nil else {
@@ -645,6 +806,7 @@ enum DesktopChatGPTRuntimeError: Error, LocalizedError {
         case .grantUnavailable: "无法建立同一项目的只读 Project Grant。"
         case .tunnelDoctorFailed: "Secure Tunnel doctor 未通过。"
         case .hostPayloadInvalid: "ChatGPT Host 上下文格式无效。"
+        case .filmCoreProjectionUnavailable: "当前工作台项目未能投影到 Film Core。"
         case .hostPublishRejected: "ChatGPT Host 上下文发布被安全边界拒绝。"
         }
     }

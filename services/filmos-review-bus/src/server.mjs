@@ -164,32 +164,33 @@ function readReviewProjection(service, url, res) {
   const match = /^\/v1\/review\/issues\/([^/]+)\/(evidence|codex-assessment-blind|consensus|architecture-options|task-package|candidate|candidate-history|diff|ci|artifact|findings|codex-responses|decision-template|verify-candidate)$/.exec(url.pathname);
   if (!match) return send(res, 404, { code: "NOT_FOUND" });
   const issue = service.readRedacted(decodeURIComponent(match[1]), requireProject(url));
+  const scope = { issue_id: issue.issue_id, project_id: issue.project_id };
   const views = {
-    evidence: { issue_id: issue.issue_id, evidence: issue.evidence ?? null },
+    evidence: { ...scope, evidence: issue.evidence ?? null },
     "codex-assessment-blind": issue.assessments?.chatgpt && issue.assessments?.codex
-      ? { issue_id: issue.issue_id, own_assessment: issue.assessments.chatgpt, counterpart_assessment: issue.assessments.codex, counterpart_sealed: false, pair_complete: true, consensus_delta: issue.consensus_delta }
-      : { issue_id: issue.issue_id, own_assessment: issue.assessments?.chatgpt ?? null, counterpart_assessment: null, counterpart_sealed: true, pair_complete: false },
+      ? { ...scope, own_assessment: issue.assessments.chatgpt, counterpart_assessment: issue.assessments.codex, counterpart_sealed: false, pair_complete: true, consensus_delta: issue.consensus_delta }
+      : { ...scope, own_assessment: issue.assessments?.chatgpt ?? null, counterpart_assessment: null, counterpart_sealed: true, pair_complete: false },
     consensus: {
-      issue_id: issue.issue_id,
+      ...scope,
       assessment_round: issue.assessment_round ?? 1,
       history: issue.assessment_round_history ?? [],
       proposal: issue.consensus_proposal ?? null,
       responses: issue.consensus_responses ?? [],
       record: issue.consensus_record ?? null,
     },
-    "architecture-options": { issue_id: issue.issue_id, requirement_delta: issue.requirement_delta ?? null, options: issue.architecture_options ?? [] },
-    "task-package": { issue_id: issue.issue_id, task_package: issue.issue_task_package ?? null },
-    candidate: { issue_id: issue.issue_id, candidate: issue.active_candidate ?? null },
-    "candidate-history": { issue_id: issue.issue_id, active_candidate_id: issue.active_candidate?.candidate_id ?? null, history: issue.candidate_history ?? [], stale_bindings: issue.stale_candidate_bindings ?? [] },
-    diff: { issue_id: issue.issue_id, changed_files: issue.active_candidate?.changed_files ?? [], patch_summary: issue.active_candidate?.patch_summary ?? null },
-    ci: { issue_id: issue.issue_id, github_run: issue.active_candidate?.github_run ?? null, machine_verdict: issue.verdicts.machine },
-    artifact: { issue_id: issue.issue_id, artifact: issue.active_candidate ? {
+    "architecture-options": { ...scope, requirement_delta: issue.requirement_delta ?? null, options: issue.architecture_options ?? [] },
+    "task-package": { ...scope, task_package: issue.issue_task_package ?? null },
+    candidate: { ...scope, candidate: issue.active_candidate ?? null },
+    "candidate-history": { ...scope, active_candidate_id: issue.active_candidate?.candidate_id ?? null, history: issue.candidate_history ?? [], stale_bindings: issue.stale_candidate_bindings ?? [] },
+    diff: { ...scope, changed_files: issue.active_candidate?.changed_files ?? [], patch_summary: issue.active_candidate?.patch_summary ?? null },
+    ci: { ...scope, github_run: issue.active_candidate?.github_run ?? null, machine_verdict: issue.verdicts.machine },
+    artifact: { ...scope, artifact: issue.active_candidate ? {
       artifact_id: issue.active_candidate.artifact_id,
       artifact_digest: issue.active_candidate.artifact_digest,
       artifact_commit: issue.active_candidate.artifact_commit,
     } : null },
-    findings: { issue_id: issue.issue_id, findings: issue.findings },
-    "codex-responses": { issue_id: issue.issue_id, responses: issue.finding_responses },
+    findings: { ...scope, findings: issue.findings },
+    "codex-responses": { ...scope, responses: issue.finding_responses },
     "decision-template": decisionTemplate(issue),
     "verify-candidate": verifyCandidate(issue),
   };
@@ -208,6 +209,7 @@ function applyBridgeDecision(service, body, now) {
 function decisionTemplate(issue) {
   return {
     issue_id: issue.issue_id,
+    project_id: issue.project_id,
     assessment_round: issue.assessment_round ?? 1,
     candidate_id: issue.active_candidate?.candidate_id ?? null,
     candidate_commit: issue.active_candidate?.candidate_commit ?? null,
@@ -235,7 +237,7 @@ function verifyCandidate(issue) {
     changed_files: Array.isArray(candidate.changed_files),
     known_limitations: Array.isArray(candidate.known_limitations),
   } : {};
-  return { issue_id: issue.issue_id, candidate_id: candidate?.candidate_id ?? null, checks, verified: candidate ? Object.values(checks).every(Boolean) : false };
+  return { issue_id: issue.issue_id, project_id: issue.project_id, candidate_id: candidate?.candidate_id ?? null, checks, verified: candidate ? Object.values(checks).every(Boolean) : false };
 }
 
 function authenticate(req, expectedToken, revokedHash) {

@@ -335,7 +335,7 @@ function captureIssueContextSnapshot(build: BuildIdentity): IssueContextSnapshot
     const host = typeof window === "undefined" ? null : window.filmOSChatGPTHostStatus ?? null;
     const activeBrainProfileId = typeof window === "undefined" ? undefined : window.localStorage.getItem("filmos.agent.activeBrainProfileId") || undefined;
     const agent = typeof window === "undefined" ? null : useCanvasAgentStore.getState();
-    const contextReceiptId = workbench ? `film:${workbench.filmExpectedVersion ?? 0}:${workbench.filmContentHash || "unavailable"}:canvas:${workbench.canvasId}` : undefined;
+    const contextReceiptId = workbench?.contextReceiptId;
     return {
         appCommit: build.commit,
         appTree: build.tree,
@@ -347,8 +347,8 @@ function captureIssueContextSnapshot(build: BuildIdentity): IssueContextSnapshot
         ...(workbench?.directorUnitId ? { directorUnitId: workbench.directorUnitId } : {}),
         ...(workbench?.shotId ? { shotId: workbench.shotId } : {}),
         ...(workbench?.canvasId ? { canvasId: workbench.canvasId } : {}),
-        ...(workbench?.filmExpectedVersion !== undefined ? { canvasRevision: workbench.filmExpectedVersion } : {}),
-        ...(workbench?.filmContentHash ? { canvasStateHash: workbench.filmContentHash } : {}),
+        ...(workbench ? { canvasRevision: workbench.canvasRevision } : {}),
+        ...(workbench?.canvasStateHash ? { canvasStateHash: workbench.canvasStateHash } : {}),
         selectedNodeIds: workbench?.selectedNodeIds ?? [],
         ...(activeBrainProfileId ? { activeBrainProfileId } : {}),
         ...(agent?.activeThreadId ? { brainSessionId: agent.activeThreadId } : {}),

@@ -201,17 +201,18 @@ async function handleChatGPTHost(request: BrowserRuntimeRequest) {
         context_receipt_id: requiredString(input.contextReceiptId || context.contextReceiptId, "contextReceiptId"),
     };
     const contextReceipt = record(await requestDesktopChatGPTHost("publish_context", liveContext));
+    const publishedContextReceiptId = requiredString(contextReceipt.context_receipt_id || liveContext.context_receipt_id, "contextReceiptId");
     const handoffReceipt = record(await requestDesktopChatGPTHost("publish_handoff", {
         session_id: requiredString(input.brainSessionId, "brainSessionId"),
         turn_id: requiredString(input.turnId, "turnId"),
         task: requiredString(input.prompt, "prompt"),
-        context_receipt_id: requiredString(contextReceipt.context_receipt_id || liveContext.context_receipt_id, "contextReceiptId"),
+        context_receipt_id: publishedContextReceiptId,
     }));
     return {
         handoffId: requiredString(handoffReceipt.handoff_id, "handoffId"),
         hostSessionId: requiredString(input.hostSessionId, "hostSessionId"),
         projectId,
-        contextReceiptId: liveContext.context_receipt_id,
+        contextReceiptId: publishedContextReceiptId,
         status: "waiting_for_host",
         directApplyAvailable: false,
         createdAt: new Date().toISOString(),

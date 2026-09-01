@@ -276,6 +276,7 @@ public enum ChatGPTConnectionError: Error, Equatable, LocalizedError {
     case grantExpired
     case liveGateNotReady
     case writeToolsExposed
+    case hostContextInvalid
 
     public var errorDescription: String? {
         switch self {
@@ -289,6 +290,7 @@ public enum ChatGPTConnectionError: Error, Equatable, LocalizedError {
         case .grantExpired: "Project Grant 已过期。"
         case .liveGateNotReady: "本机连接尚未达到 Live Gate 准备状态。"
         case .writeToolsExposed: "MCP 暴露了写工具，连接已阻断。"
+        case .hostContextInvalid: "当前工作台上下文无效或不属于已授权项目。"
         }
     }
 }
@@ -298,6 +300,7 @@ public protocol ChatGPTConnectionOperating: AnyObject {
     func prepareLocalServices(projectID: String, transportProof: String) async throws
     func runTunnelDoctor(tunnelID: String, runtimeKey: String, transportProof: String, challengeID: String) async throws
     func startTunnel(tunnelID: String, runtimeKey: String, transportProof: String, challengeID: String) throws
+    func suspendTunnel()
     func stopTunnel()
     func revokeProjectSession() async
     func runtimeHealth() async -> ChatGPTRuntimeHealth
@@ -338,6 +341,11 @@ public final class ChatGPTConnectionManager {
     private var currentChallengeID: String?
     private var currentConfiguration: ChatGPTHostConnectionConfig?
     private var currentProjectSession: ChatGPTProjectHostSession?
+    private var currentHostContext: Data?
+    private var publishedHostContext: Data?
+    private var publishedHostChallengeID: String?
+    private var publishedHostGrantID: String?
+    private var publishedHostContextAt: Date?
 
     public init(
         operations: any ChatGPTConnectionOperating,
@@ -381,13 +389,15 @@ public final class ChatGPTConnectionManager {
             preferences.saveProjectSession(currentProjectSession!)
             return
         }
+        currentHostContext = nil
+        clearPublishedHostContextBinding()
         preferences.saveProjectSession(next)
         currentProjectSession = next
         guard let configuration = currentConfiguration ?? preferences.loadConnectionConfig(),
               desiredConnection || configuration.autoConnect else { return }
         let key = try currentRuntimeKey ?? tokenStore.loadString(for: .openAIMCPTunnelRuntimeKey)
         currentRuntimeKey = try Self.validatedRuntimeKey(key)
-        operations.stopTunnel()
+        operations.suspendTunnel()
         try await establish(configuration: configuration, projectSession: next, resetChallenge: true)
     }
 
@@ -396,6 +406,8 @@ public final class ChatGPTConnectionManager {
         monitorTask = nil
         await operations.revokeProjectSession()
         currentProjectSession = nil
+        currentHostContext = nil
+        clearPublishedHostContextBinding()
         preferences.clearProjectSession()
         snapshot = .notConfigured
     }
@@ -422,7 +434,7 @@ public final class ChatGPTConnectionManager {
         }
         let key = try currentRuntimeKey ?? tokenStore.loadString(for: .openAIMCPTunnelRuntimeKey)
         currentRuntimeKey = try Self.validatedRuntimeKey(key)
-        operations.stopTunnel()
+        operations.suspendTunnel()
         try await establish(configuration: configuration, projectSession: projectSession, resetChallenge: false)
     }
 
@@ -436,6 +448,8 @@ public final class ChatGPTConnectionManager {
         currentChallengeID = nil
         currentConfiguration = nil
         currentProjectSession = nil
+        currentHostContext = nil
+        clearPublishedHostContextBinding()
         if clearCredential {
             try? tokenStore.delete(for: .openAIMCPTunnelRuntimeKey)
             preferences.clear()
@@ -454,6 +468,8 @@ public final class ChatGPTConnectionManager {
         currentChallengeID = nil
         currentConfiguration = nil
         currentProjectSession = nil
+        currentHostContext = nil
+        clearPublishedHostContextBinding()
     }
 
     public func refresh() async {
@@ -472,7 +488,7 @@ public final class ChatGPTConnectionManager {
         }
         let challengeID = "live_\(UUID().uuidString.lowercased().replacingOccurrences(of: "-", with: ""))"
         currentChallengeID = challengeID
-        operations.stopTunnel()
+        operations.suspendTunnel()
         try operations.startTunnel(
             tunnelID: configuration.tunnelID,
             runtimeKey: runtimeKey,
@@ -480,6 +496,7 @@ public final class ChatGPTConnectionManager {
             challengeID: challengeID
         )
         try await waitForTunnel()
+        try await publishCurrentHostContextIfReady(force: true)
         snapshot.liveGateChallengeID = challengeID
         let prompt = """
         开始 FilmOS ChatGPT Live Gate。
@@ -492,8 +509,26 @@ public final class ChatGPTConnectionManager {
     }
 
     public func publishHostContext(_ context: Data) async throws -> Data {
+        try validateWorkbenchContext(context)
+        currentHostContext = context
+        clearPublishedHostContextBinding()
         let challengeID = try currentHostChallenge()
-        return try await operations.publishHostContext(context, challengeID: challengeID)
+        let result = try await operations.publishHostContext(context, challengeID: challengeID)
+        let health = await operations.runtimeHealth()
+        recordPublishedHostContext(context, challengeID: challengeID, grantID: health.grantID)
+        return result
+    }
+
+    public func updateWorkbenchContext(_ context: Data?) async throws {
+        guard let context else {
+            currentHostContext = nil
+            clearPublishedHostContextBinding()
+            return
+        }
+        try validateWorkbenchContext(context)
+        currentHostContext = context
+        clearPublishedHostContextBinding()
+        try await publishCurrentHostContextIfReady()
     }
 
     public func publishPendingHostHandoff(_ handoff: Data) async throws -> Data {
@@ -570,6 +605,7 @@ public final class ChatGPTConnectionManager {
             )
             try await waitForTunnel()
             health = await operations.runtimeHealth()
+            try await publishCurrentHostContextIfReady(force: true, health: health)
             apply(health)
             beginMonitoring()
         } catch is CancellationError {
@@ -610,7 +646,7 @@ public final class ChatGPTConnectionManager {
                                 projectID: projectSession.projectID,
                                 transportProof: transportProof
                             )
-                            self.operations.stopTunnel()
+                            self.operations.suspendTunnel()
                             try self.operations.startTunnel(
                                 tunnelID: configuration.tunnelID,
                                 runtimeKey: runtimeKey,
@@ -625,6 +661,7 @@ public final class ChatGPTConnectionManager {
                         }
                     }
                     attempt = 0
+                    try? await self.publishCurrentHostContextIfReady(health: health)
                     self.apply(health)
                     try? await Task.sleep(for: .seconds(self.monitorInterval))
                     continue
@@ -641,7 +678,7 @@ public final class ChatGPTConnectionManager {
                 self.snapshot.tunnelStatus = .starting
                 try? await Task.sleep(for: .seconds(delay))
                 if Task.isCancelled { return }
-                self.operations.stopTunnel()
+                self.operations.suspendTunnel()
                 do {
                     try self.operations.startTunnel(
                         tunnelID: configuration.tunnelID,
@@ -655,6 +692,49 @@ public final class ChatGPTConnectionManager {
                 }
                 attempt += 1
             }
+        }
+    }
+
+    private func publishCurrentHostContextIfReady(force: Bool = false, health providedHealth: ChatGPTRuntimeHealth? = nil) async throws {
+        guard let context = currentHostContext,
+              let challengeID = currentChallengeID,
+              let projectSession = currentProjectSession else { return }
+        let health: ChatGPTRuntimeHealth
+        if let providedHealth { health = providedHealth }
+        else { health = await operations.runtimeHealth() }
+        guard health.filmCoreReady, health.mcpReady, health.tunnelReady,
+              health.authorizedProjectID == projectSession.projectID,
+              health.mcpWriteToolCount == 0,
+              grantIsValid(health.grantExpiresAt) else { return }
+        if !force, publishedHostContext == context,
+           publishedHostChallengeID == challengeID,
+           publishedHostGrantID == health.grantID,
+           let publishedHostContextAt,
+           publishedHostContextAt.timeIntervalSinceNow > -240 { return }
+        _ = try await operations.publishHostContext(context, challengeID: challengeID)
+        recordPublishedHostContext(context, challengeID: challengeID, grantID: health.grantID)
+    }
+
+    private func recordPublishedHostContext(_ context: Data, challengeID: String, grantID: String?) {
+        publishedHostContext = context
+        publishedHostChallengeID = challengeID
+        publishedHostGrantID = grantID
+        publishedHostContextAt = Date()
+    }
+
+    private func clearPublishedHostContextBinding() {
+        publishedHostContext = nil
+        publishedHostChallengeID = nil
+        publishedHostGrantID = nil
+        publishedHostContextAt = nil
+    }
+
+    private func validateWorkbenchContext(_ context: Data) throws {
+        guard context.count <= 256 * 1024,
+              let object = try? JSONSerialization.jsonObject(with: context) as? [String: Any],
+              let projectID = object["project_id"] as? String,
+              projectID == currentProjectSession?.projectID else {
+            throw ChatGPTConnectionError.hostContextInvalid
         }
     }
 

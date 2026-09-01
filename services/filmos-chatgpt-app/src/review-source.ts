@@ -36,8 +36,21 @@ export class HttpReviewReadSource implements ReviewReadSource {
     const response = await fetch(url, { headers: { authorization: `Bearer ${this.token}` }, signal });
     const payload = await response.json() as Record<string, unknown>;
     if (!response.ok) throw Object.assign(new Error(String(payload.code ?? "REVIEW_BUS_READ_FAILED")), { code: payload.code });
+    assertReviewProjectScope(payload, toolName, projectId);
     return payload;
   }
+}
+
+function assertReviewProjectScope(payload: Record<string, unknown>, toolName: string, projectId: string): void {
+  if (toolName === "issue_get_constitution") return;
+  if (toolName === "issue_list_pending") {
+    const issues = payload.issues;
+    if (!Array.isArray(issues) || issues.some((issue) => !issue || typeof issue !== "object" || Array.isArray(issue) || (issue as Record<string, unknown>).project_id !== projectId)) {
+      throw Object.assign(new Error("PROJECT_SCOPE_DENIED"), { code: "PROJECT_SCOPE_DENIED" });
+    }
+    return;
+  }
+  if (payload.project_id !== projectId) throw Object.assign(new Error("PROJECT_SCOPE_DENIED"), { code: "PROJECT_SCOPE_DENIED" });
 }
 
 function issuePath(input: Record<string, unknown>, view: string): string {

@@ -10,7 +10,7 @@ test("Review read adapter stays loopback, bearer protected, and Project Grant sc
   const server = createServer((req, res) => {
     observed = { path: req.url ?? "", authorization: req.headers.authorization };
     res.setHeader("content-type", "application/json");
-    res.end(JSON.stringify({ issue_id: "FILMOS-ISSUE-test", evidence: { redacted: true } }));
+    res.end(JSON.stringify({ issue_id: "FILMOS-ISSUE-test", project_id: "project-scope-a", evidence: { redacted: true } }));
   });
   server.listen(0, "127.0.0.1");
   await new Promise<void>((resolve) => server.once("listening", resolve));
@@ -24,5 +24,22 @@ test("Review read adapter stays loopback, bearer protected, and Project Grant sc
     assert.match(observed?.path ?? "", /project_id=project-scope-a/);
     assert.throws(() => new HttpReviewReadSource("https://review.example.com", token), /must use loopback HTTP/);
     assert.throws(() => new HttpReviewReadSource("https://127.0.0.1:17920", token), /must use loopback HTTP/);
+  } finally { await new Promise<void>((resolve) => server.close(() => resolve())); }
+});
+
+test("Review read adapter rejects a historical Issue projected from another project", async () => {
+  const server = createServer((_req, res) => {
+    res.setHeader("content-type", "application/json");
+    res.end(JSON.stringify({ issue_id: "FILMOS-ISSUE-historical", project_id: "historical-project", evidence: { redacted: true } }));
+  });
+  server.listen(0, "127.0.0.1");
+  await new Promise<void>((resolve) => server.once("listening", resolve));
+  const port = (server.address() as AddressInfo).port;
+  try {
+    const source = new HttpReviewReadSource(`http://127.0.0.1:${port}`, "review-token-review-token-123456");
+    await assert.rejects(
+      source.read("issue_get_evidence", { issue_id: "FILMOS-ISSUE-historical" }, "current-project"),
+      (error: any) => error?.code === "PROJECT_SCOPE_DENIED",
+    );
   } finally { await new Promise<void>((resolve) => server.close(() => resolve())); }
 });

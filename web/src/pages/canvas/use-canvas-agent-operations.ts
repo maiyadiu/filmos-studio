@@ -36,6 +36,7 @@ type UseCanvasAgentOperationsOptions = {
     selectedNodeIds: Set<string>;
     viewport: ViewportTransform;
     viewportSize: { width: number; height: number };
+    canvasRevision?: number;
     filmExpectedVersion?: number;
     filmContentHash?: string;
     nodesRef: { current: CanvasNodeData[] };
@@ -223,6 +224,7 @@ export function useCanvasAgentOperations({
     selectedNodeIds,
     viewport,
     viewportSize,
+    canvasRevision,
     filmExpectedVersion,
     filmContentHash,
     nodesRef,
@@ -241,7 +243,7 @@ export function useCanvasAgentOperations({
     const undoStackRef = useRef<CanvasAgentUndoBatch[]>([]);
     const [undoOpsCount, setUndoOpsCount] = useState(0);
     const [lastAgentChange, setLastAgentChange] = useState<CanvasAgentChange | null>(null);
-    const workbenchContext = useMemo(() => buildWorkbenchContext({ projectId, domainProjectId, title: projectTitle, nodes, selectedNodeIds, viewport, viewportSize, filmExpectedVersion, filmContentHash, activePanel: "canvas" }), [domainProjectId, filmContentHash, filmExpectedVersion, nodes, projectId, projectTitle, selectedNodeIds, viewport, viewportSize]);
+    const workbenchContext = useMemo(() => buildWorkbenchContext({ projectId, domainProjectId, title: projectTitle, nodes, selectedNodeIds, viewport, viewportSize, canvasRevision, filmExpectedVersion, filmContentHash, activePanel: "canvas" }), [canvasRevision, domainProjectId, filmContentHash, filmExpectedVersion, nodes, projectId, projectTitle, selectedNodeIds, viewport, viewportSize]);
     const snapshot = useMemo<CanvasAgentSnapshot>(
         () => applyWorkbenchContext({ projectId, domainProjectId, title: projectTitle, nodes, connections, selectedNodeIds: Array.from(selectedNodeIds), viewport }, workbenchContext),
         [connections, domainProjectId, nodes, projectId, projectTitle, selectedNodeIds, viewport, workbenchContext],

@@ -80,7 +80,7 @@ export class FilmCoreReadClient implements FilmOSReadDataSource {
         return { items: records.map(reviewQueueItem), completeness: "FILM_CORE_AUDIT_INDEX", allowed_states: ["Candidate", "Review Draft"] };
       }
       case "filmos_get_blockers":
-        return { items: deriveBlockers(context), completeness: "DERIVED_FROM_PROJECT_CONTEXT" };
+        return deriveBlockerReport(context, grant.project_id);
       case "filmos_get_recent_changes": {
         const limit = boundedLimit(input.limit);
         const targetIds = [...contextEntityIds(context)].slice(0, 25);
@@ -239,11 +239,54 @@ function searchableDocuments(context: Record<string, unknown>, projectId: string
   });
 }
 
-function deriveBlockers(context: any): unknown[] {
-  return [context?.film_project, ...(context?.content_units ?? []), ...(context?.shots ?? [])].flatMap((item: any) => {
+export function deriveBlockerReport(context: any, projectId: string) {
+  const contextProjectId = typeof context?.host_project_id === "string" ? context.host_project_id : null;
+  if (contextProjectId !== projectId) throw new SecurityBoundaryError("project_scope_denied", "Blocker context is outside the Project Grant");
+  const contentUnits = Array.isArray(context?.content_units) ? context.content_units : [];
+  const shots = Array.isArray(context?.shots) ? context.shots : [];
+  const entities = [context?.film_project, ...contentUnits, ...shots].filter(Boolean);
+  const items: Array<Record<string, unknown>> = [];
+  if (!context?.film_project) {
+    items.push({
+      blocker_id: `FILM_PROJECT_CONTEXT_NOT_PUBLISHED:${projectId}`,
+      code: "FILM_PROJECT_CONTEXT_NOT_PUBLISHED",
+      severity: "P0",
+      project_id: projectId,
+      entity_kind: "film_project_extension",
+      entity_id: projectId,
+      uri: `filmos://project/${projectId}/context/project`,
+      message: "The current Domain Film Project has not been projected into Film Core.",
+      evidence: { host_project_id: contextProjectId, film_project: null, content_unit_count: contentUnits.length, shot_count: shots.length },
+    });
+  }
+  for (const item of entities) {
     const states = item?.states;
-    return states?.stale_state === "fresh" && states?.execution_state !== "failed" ? [] : [{ uri: item?.ref?.film_entity_id, stale_state: states?.stale_state, execution_state: states?.execution_state }];
-  });
+    const staleState = states?.stale_state;
+    const executionState = states?.execution_state;
+    if (staleState === "fresh" && executionState !== "failed") continue;
+    const entityId = String(item?.ref?.film_entity_id ?? "unknown");
+    const entityKind = String(item?.ref?.entity_type ?? "film_entity");
+    const failed = executionState === "failed";
+    const code = failed ? "ENTITY_EXECUTION_FAILED" : "ENTITY_STALE";
+    items.push({
+      blocker_id: `${code}:${entityId}`,
+      code,
+      severity: failed ? "P0" : "P1",
+      project_id: projectId,
+      entity_kind: entityKind,
+      entity_id: entityId,
+      uri: `filmos://project/${projectId}/entity/${encodeURIComponent(entityId)}`,
+      message: failed ? "Film Core reports a failed execution state." : "Film Core reports a non-fresh entity state.",
+      evidence: { stale_state: staleState ?? null, execution_state: executionState ?? null },
+    });
+  }
+  return {
+    items,
+    completeness: "DERIVED_FROM_PROJECT_CONTEXT",
+    project_scope: { requested_project_id: projectId, context_host_project_id: contextProjectId, exact_match: true },
+    evaluation: { status: items.length ? "BLOCKED" : "CLEAR", blocker_count: items.length },
+    evidence: { film_project_present: Boolean(context?.film_project), content_unit_count: contentUnits.length, shot_count: shots.length },
+  };
 }
 
 function boundedLimit(value: unknown): number {

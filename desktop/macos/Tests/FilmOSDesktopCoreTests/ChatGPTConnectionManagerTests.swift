@@ -83,10 +83,69 @@ struct ChatGPTConnectionManagerTests {
         _ = try await manager.publishPendingHostHandoff(handoff)
 
         #expect(operations.publishedContext == context)
+        #expect(operations.publishContextCount == 1)
         #expect(operations.publishedHandoff == handoff)
         #expect(operations.publishedChallengeID?.hasPrefix("live_") == true)
         #expect(context.contains(Data("live_".utf8)) == false)
         #expect(handoff.contains(Data("live_".utf8)) == false)
+        manager.disconnect()
+    }
+
+    @Test
+    func liveWorkbenchContextPublishesAutomaticallyAfterTheProjectGrantAndTunnelAreReady() async throws {
+        let operations = FakeConnectionOperations()
+        let manager = ChatGPTConnectionManager(
+            operations: operations,
+            tokenStore: MemoryTokenStore(),
+            preferences: MemoryConnectionPreferences()
+        )
+        try await manager.connect(tunnelID: "tunnel_12345678", runtimeKey: "runtime", projectID: "host-project-1")
+        let context = Data("{\"project_id\":\"host-project-1\",\"canvas\":{\"canvas_id\":\"canvas-1\"}}".utf8)
+
+        try await manager.updateWorkbenchContext(context)
+
+        #expect(operations.publishContextCount == 1)
+        #expect(operations.publishedContext == context)
+        #expect(operations.publishedChallengeID?.hasPrefix("live_") == true)
+        manager.disconnect()
+    }
+
+    @Test
+    func liveGateChallengeRotationRepublishesTheRetainedWorkbenchContext() async throws {
+        let operations = FakeConnectionOperations()
+        let manager = ChatGPTConnectionManager(
+            operations: operations,
+            tokenStore: MemoryTokenStore(),
+            preferences: MemoryConnectionPreferences()
+        )
+        try await manager.connect(tunnelID: "tunnel_12345678", runtimeKey: "runtime", projectID: "host-project-1")
+        let context = Data("{\"project_id\":\"host-project-1\"}".utf8)
+        try await manager.updateWorkbenchContext(context)
+        let firstChallenge = operations.publishedChallengeID
+
+        _ = try await manager.prepareLiveGate()
+
+        #expect(operations.publishContextCount == 2)
+        #expect(operations.publishedContext == context)
+        #expect(operations.publishedChallengeID != firstChallenge)
+        manager.disconnect()
+    }
+
+    @Test
+    func liveWorkbenchContextFromAnotherProjectFailsClosed() async throws {
+        let operations = FakeConnectionOperations()
+        let manager = ChatGPTConnectionManager(
+            operations: operations,
+            tokenStore: MemoryTokenStore(),
+            preferences: MemoryConnectionPreferences()
+        )
+        try await manager.connect(tunnelID: "tunnel_12345678", runtimeKey: "runtime", projectID: "host-project-1")
+
+        await #expect(throws: ChatGPTConnectionError.hostContextInvalid) {
+            try await manager.updateWorkbenchContext(Data("{\"project_id\":\"host-project-2\"}".utf8))
+        }
+
+        #expect(operations.publishContextCount == 0)
         manager.disconnect()
     }
 
@@ -377,6 +436,7 @@ private final class FakeConnectionOperations: ChatGPTConnectionOperating {
     var publishedContext: Data?
     var publishedHandoff: Data?
     var publishedChallengeID: String?
+    var publishContextCount = 0
 
     func prepareLocalServices(projectID: String, transportProof: String) async throws {
         prepareCount += 1
@@ -413,6 +473,11 @@ private final class FakeConnectionOperations: ChatGPTConnectionOperating {
         health.tunnelReady = false
     }
 
+    func suspendTunnel() {
+        stopCount += 1
+        health.tunnelReady = false
+    }
+
     func revokeProjectSession() async {
         stopTunnel()
         health.authorizedProjectID = nil
@@ -423,6 +488,7 @@ private final class FakeConnectionOperations: ChatGPTConnectionOperating {
     func runtimeHealth() async -> ChatGPTRuntimeHealth { health.value }
 
     func publishHostContext(_ context: Data, challengeID: String) async throws -> Data {
+        publishContextCount += 1
         publishedContext = context
         publishedChallengeID = challengeID
         return Data("{\"accepted\":true,\"context_receipt_id\":\"receipt-1\"}".utf8)

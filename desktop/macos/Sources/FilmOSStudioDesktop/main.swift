@@ -569,7 +569,7 @@ private enum ReviewBusBridgeError: Error {
 private final class WorkbenchWindow: NSObject, @preconcurrency WKNavigationDelegate, @preconcurrency WKUIDelegate, @preconcurrency WKScriptMessageHandler {
     let window: NSWindow
     var onOpenChatGPTConnection: (() -> Void)?
-    var onWorkbenchProjectChanged: ((String, String?, String?) -> Void)?
+    var onWorkbenchProjectChanged: ((String, String?, String?, Data?) -> Void)?
     var onChatGPTHostRequest: ((String, String, Data) -> Void)?
     var onReviewIssueRequest: ((String, Data) -> Void)?
     var onReviewIssueAttachmentRequest: ((String, String, Data) -> Void)?
@@ -711,13 +711,23 @@ private final class WorkbenchWindow: NSObject, @preconcurrency WKNavigationDeleg
             return
         }
         if action == "workbenchContextChanged",
-           Set(body.keys).isSubset(of: ["action", "projectId", "canvasId", "contextReceiptId"]),
+           Set(body.keys).isSubset(of: ["action", "projectId", "canvasId", "contextReceiptId", "context"]),
            let projectID = body["projectId"] as? String {
             let normalized = projectID.trimmingCharacters(in: .whitespacesAndNewlines)
             guard normalized.isEmpty || normalized.range(of: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$", options: .regularExpression) != nil else { return }
             let canvasID = (body["canvasId"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
             let receiptID = (body["contextReceiptId"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-            onWorkbenchProjectChanged?(normalized, canvasID?.isEmpty == false ? canvasID : nil, receiptID?.isEmpty == false ? receiptID : nil)
+            let contextData: Data?
+            if normalized.isEmpty || body["context"] is NSNull || body["context"] == nil {
+                contextData = nil
+            } else if let context = body["context"] as? [String: Any],
+                      JSONSerialization.isValidJSONObject(context),
+                      let data = try? JSONSerialization.data(withJSONObject: context), data.count <= 256 * 1024 {
+                contextData = data
+            } else {
+                return
+            }
+            onWorkbenchProjectChanged?(normalized, canvasID?.isEmpty == false ? canvasID : nil, receiptID?.isEmpty == false ? receiptID : nil, contextData)
             return
         }
         if action == "chatgptHostRequest",
@@ -907,11 +917,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         installMainMenu()
         let workbenchWindow = WorkbenchWindow()
         workbenchWindow.onOpenChatGPTConnection = { [weak self] in self?.openChatGPTConnection() }
-        workbenchWindow.onWorkbenchProjectChanged = { [weak self] projectID, canvasID, receiptID in
+        workbenchWindow.onWorkbenchProjectChanged = { [weak self] projectID, canvasID, receiptID, context in
             guard let manager = self?.coordinator?.chatGPTConnectionManager else { return }
             Task {
                 if projectID.isEmpty { await manager.deactivateProject() }
-                else { try? await manager.activateProject(projectID: projectID, canvasID: canvasID, contextReceiptID: receiptID) }
+                else {
+                    try? await manager.activateProject(projectID: projectID, canvasID: canvasID, contextReceiptID: receiptID)
+                    try? await manager.updateWorkbenchContext(context)
+                }
             }
         }
         workbenchWindow.onChatGPTHostRequest = { [weak self, weak workbenchWindow] requestID, operation, payload in

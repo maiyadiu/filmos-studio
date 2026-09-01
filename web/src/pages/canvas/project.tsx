@@ -1283,6 +1283,7 @@ function InfiniteCanvasPage() {
         selectedNodeIds,
         viewport,
         viewportSize: size,
+        canvasRevision: currentProject?.updatedAt ? Date.parse(currentProject.updatedAt) : 0,
         filmExpectedVersion: linkedProjectQuery.data?.project.revision,
         nodesRef,
         connectionsRef,
