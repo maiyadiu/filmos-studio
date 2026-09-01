@@ -7,7 +7,7 @@ import test from "node:test";
 import { Worker } from "node:worker_threads";
 
 import { sha256 } from "../src/canonical.mjs";
-import { GitHubEvidenceVerifier, readHandoffEvidenceIndex, resolveGitHubCLI } from "../src/github-evidence-verifier.mjs";
+import { GitHubEvidenceVerifier, readArtifactEvidenceIndex, readHandoffEvidenceIndex, resolveGitHubCLI } from "../src/github-evidence-verifier.mjs";
 import { buildLiveRoundtripTrace } from "../src/live-roundtrip-trace.mjs";
 import { ReviewBusService, candidateBinding, fileInScope } from "../src/service.mjs";
 import { allowedOrigin, createReviewBusHttp } from "../src/server.mjs";
@@ -95,6 +95,22 @@ function handoffArtifact({ evidenceEntries = [[`${handoffName}/EVIDENCE_INDEX.js
   copyFileSync(nestedZip, outerEntry);
   const artifactPath = resolve(directory, "artifact.zip");
   execFileSync("zip", ["-q", "-r", artifactPath, outerName.split("/")[0]], { cwd: outerRoot });
+  return { path: artifactPath, cleanup: () => rmSync(directory, { recursive: true, force: true }) };
+}
+
+function candidateArtifact({ evidenceEntries = [["EVIDENCE_INDEX.json", '{"schema_version":"test"}\n']] } = {}) {
+  const directory = mkdtempSync(resolve(tmpdir(), "filmos-review-candidate-artifact-test-"));
+  const outerRoot = resolve(directory, "outer");
+  mkdirSync(outerRoot, { recursive: true });
+  if (evidenceEntries.length === 0) evidenceEntries = [["README.txt", "no evidence index"]];
+  for (const [relativePath, content] of evidenceEntries) {
+    const path = resolve(outerRoot, relativePath);
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, content);
+  }
+  const artifactPath = resolve(directory, "artifact.zip");
+  const roots = [...new Set(evidenceEntries.map(([relativePath]) => relativePath.split("/")[0]))];
+  execFileSync("zip", ["-q", "-r", artifactPath, ...roots], { cwd: outerRoot });
   return { path: artifactPath, cleanup: () => rmSync(directory, { recursive: true, force: true }) };
 }
 
@@ -219,6 +235,35 @@ test("GitHub Artifact resolves the unique nested Handoff Evidence Index and veri
     }).verify(value);
     assert.equal(receipt.checks.evidence_index_hash_matches, true);
   } finally { artifact.cleanup(); }
+});
+
+test("candidate-stage GitHub Artifact accepts one exact root Evidence Index without a final Handoff", async () => {
+  const artifact = candidateArtifact();
+  const expected = Buffer.from('{"schema_version":"test"}\n');
+  const value = candidate({ artifact_id: "456", evidence_index_hash: sha256(expected.toString("utf8")) });
+  try {
+    assert.deepEqual(await readArtifactEvidenceIndex(artifact), expected);
+    const receipt = await new GitHubEvidenceVerifier({
+      apiJson: githubApiFor(value),
+      downloadArtifact: async () => artifact,
+      now: () => new Date("2026-09-01T00:00:00.000Z"),
+    }).verify(value);
+    assert.equal(receipt.checks.evidence_index_hash_matches, true);
+  } finally { artifact.cleanup(); }
+});
+
+test("candidate-stage GitHub Artifact fails closed on missing, duplicate, or nested Evidence Index", async () => {
+  const missing = candidateArtifact({ evidenceEntries: [] });
+  const duplicate = candidateArtifact({ evidenceEntries: [
+    ["EVIDENCE_INDEX.json", "one"],
+    ["rogue/EVIDENCE_INDEX.json", "two"],
+  ] });
+  const nested = candidateArtifact({ evidenceEntries: [["nested/EVIDENCE_INDEX.json", "one"]] });
+  try {
+    await assert.rejects(() => readArtifactEvidenceIndex(missing), /ARTIFACT_EVIDENCE_INDEX_MISSING/);
+    await assert.rejects(() => readArtifactEvidenceIndex(duplicate), /ARTIFACT_EVIDENCE_INDEX_AMBIGUOUS/);
+    await assert.rejects(() => readArtifactEvidenceIndex(nested), /ARTIFACT_EVIDENCE_INDEX_INVALID_NESTING/);
+  } finally { missing.cleanup(); duplicate.cleanup(); nested.cleanup(); }
 });
 
 test("GitHub Artifact fails closed when the Handoff Evidence Index is missing", async () => {

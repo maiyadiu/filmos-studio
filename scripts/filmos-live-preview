@@ -1,0 +1,204 @@
+#!/bin/sh
+set -eu
+
+support_root=${FILMOS_LIVE_PREVIEW_SUPPORT_ROOT:-"$HOME/Library/Application Support/FilmOS Studio/development"}
+source_pointer=${FILMOS_LIVE_PREVIEW_SOURCE_POINTER:-"$support_root/current-source"}
+runtime_root="$support_root/live-preview"
+pid_root="$runtime_root/pids"
+log_root="$runtime_root/logs"
+state_root="$runtime_root/state"
+backend_pid_file="$pid_root/backend.pid"
+web_pid_file="$pid_root/web.pid"
+fingerprint_file="$state_root/source-fingerprint"
+backend_url="http://127.0.0.1:8080/api/health"
+web_url="http://127.0.0.1:3000"
+
+usage() {
+    echo "usage: filmos-live-preview [start|restart|status|stop]" >&2
+}
+
+require_source_root() {
+    if [ ! -f "$source_pointer" ]; then
+        echo "实时预览尚未绑定源码；请先运行 scripts/install-live-preview-launcher" >&2
+        exit 1
+    fi
+    IFS= read -r source_root < "$source_pointer"
+    case "$source_root" in
+        /*) ;;
+        *) echo "实时预览源码指针不是绝对路径: $source_root" >&2; exit 1 ;;
+    esac
+    if [ ! -f "$source_root/web/package.json" ] || [ ! -f "$source_root/backend/go.mod" ]; then
+        echo "实时预览源码目录无效: $source_root" >&2
+        exit 1
+    fi
+    export source_root
+}
+
+find_tool() {
+    tool_name=$1
+    preferred=$2
+    if [ -x "$preferred" ]; then
+        echo "$preferred"
+        return
+    fi
+    command -v "$tool_name" 2>/dev/null || {
+        echo "缺少实时预览依赖: $tool_name" >&2
+        exit 1
+    }
+}
+
+pid_value() {
+    file=$1
+    if [ -f "$file" ]; then sed -n '1p' "$file"; fi
+}
+
+managed_pid_alive() {
+    pid=$1
+    expected_cwd=$2
+    if [ -z "$pid" ] || ! kill -0 "$pid" 2>/dev/null; then return 1; fi
+    actual_cwd=$(/usr/sbin/lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -1)
+    [ "$actual_cwd" = "$expected_cwd" ]
+}
+
+terminate_tree() {
+    pid=$1
+    for child in $(/usr/bin/pgrep -P "$pid" 2>/dev/null || true); do terminate_tree "$child"; done
+    kill -TERM "$pid" 2>/dev/null || true
+}
+
+stop_service() {
+    pid_file=$1
+    expected_cwd=$2
+    pid=$(pid_value "$pid_file")
+    if managed_pid_alive "$pid" "$expected_cwd"; then
+        terminate_tree "$pid"
+        attempts=0
+        while [ "$attempts" -lt 40 ] && kill -0 "$pid" 2>/dev/null; do
+            sleep 0.1
+            attempts=$((attempts + 1))
+        done
+    fi
+    rm -f "$pid_file"
+}
+
+assert_port_free() {
+    port=$1
+    label=$2
+    if /usr/sbin/lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
+        echo "$label 端口 $port 已被其他进程占用；未终止该进程。" >&2
+        /usr/sbin/lsof -nP -iTCP:"$port" -sTCP:LISTEN >&2 || true
+        exit 1
+    fi
+}
+
+wait_for_url() {
+    url=$1
+    label=$2
+    log_file=$3
+    attempts=0
+    while [ "$attempts" -lt 120 ]; do
+        if /usr/bin/curl -fsS --max-time 1 "$url" >/dev/null 2>&1; then return; fi
+        attempts=$((attempts + 1))
+        sleep 0.25
+    done
+    echo "$label 启动失败，日志: $log_file" >&2
+    tail -40 "$log_file" >&2 || true
+    exit 1
+}
+
+source_fingerprint() {
+    if [ -x "$source_root/desktop/macos/scripts/source-fingerprint" ]; then
+        "$source_root/desktop/macos/scripts/source-fingerprint"
+    else
+        git -C "$source_root" rev-parse HEAD
+    fi
+}
+
+print_status() {
+    commit=$(git -C "$source_root" rev-parse HEAD 2>/dev/null || echo unknown)
+    tree=$(git -C "$source_root" rev-parse HEAD^{tree} 2>/dev/null || echo unknown)
+    backend_pid=$(pid_value "$backend_pid_file")
+    web_pid=$(pid_value "$web_pid_file")
+    if managed_pid_alive "$backend_pid" "$source_root/backend"; then backend_state=running; else backend_state=stopped; fi
+    if managed_pid_alive "$web_pid" "$source_root/web"; then web_state=running; else web_state=stopped; fi
+    echo "FILMOS_LIVE_PREVIEW source=$source_root"
+    echo "FILMOS_LIVE_PREVIEW commit=$commit tree=$tree"
+    echo "FILMOS_LIVE_PREVIEW backend=$backend_state pid=${backend_pid:-none} web=$web_state pid=${web_pid:-none}"
+    echo "FILMOS_LIVE_PREVIEW url=$web_url"
+}
+
+start_preview() {
+    mkdir -p "$pid_root" "$log_root" "$state_root" "$source_root/.local/project-workbench-live-preview"
+    current_fingerprint=$(source_fingerprint)
+    previous_fingerprint=""
+    if [ -f "$fingerprint_file" ]; then previous_fingerprint=$(sed -n '1p' "$fingerprint_file"); fi
+    backend_pid=$(pid_value "$backend_pid_file")
+    web_pid=$(pid_value "$web_pid_file")
+
+    if [ "$current_fingerprint" != "$previous_fingerprint" ]; then
+        stop_service "$web_pid_file" "$source_root/web"
+        stop_service "$backend_pid_file" "$source_root/backend"
+        backend_pid=""
+        web_pid=""
+    fi
+
+    if ! managed_pid_alive "$backend_pid" "$source_root/backend"; then
+        rm -f "$backend_pid_file"
+        assert_port_free 8080 "FilmOS Backend"
+        go_bin=$(find_tool go /opt/homebrew/bin/go)
+        (
+            cd "$source_root/backend"
+            exec env \
+                CANVAS_BACKEND_ADDR=127.0.0.1:8080 \
+                CANVAS_BACKEND_DATA_DIR="$source_root/.local/project-workbench-live-preview" \
+                CANVAS_CORS_ORIGINS=http://127.0.0.1:3000,http://localhost:3000 \
+                "$go_bin" run ./cmd/server
+        ) >>"$log_root/backend.log" 2>&1 &
+        echo "$!" > "$backend_pid_file"
+        wait_for_url "$backend_url" "FilmOS Backend" "$log_root/backend.log"
+    fi
+
+    if ! managed_pid_alive "$web_pid" "$source_root/web"; then
+        rm -f "$web_pid_file"
+        assert_port_free 3000 "FilmOS Web"
+        vite_bin="$source_root/web/node_modules/.bin/vite"
+        if [ ! -x "$vite_bin" ]; then
+            echo "缺少 Web 依赖；请先在 $source_root/web 运行 bun install" >&2
+            exit 1
+        fi
+        (
+            cd "$source_root/web"
+            exec env VITE_API_PROXY_TARGET=http://127.0.0.1:8080 "$vite_bin" --host 127.0.0.1 --port 3000
+        ) >>"$log_root/web.log" 2>&1 &
+        echo "$!" > "$web_pid_file"
+        wait_for_url "$web_url" "FilmOS Web" "$log_root/web.log"
+    fi
+
+    fingerprint_tmp="$fingerprint_file.tmp.$$"
+    printf '%s\n' "$current_fingerprint" > "$fingerprint_tmp"
+    mv "$fingerprint_tmp" "$fingerprint_file"
+    print_status
+    if [ "${FILMOS_LIVE_PREVIEW_NO_OPEN:-0}" != "1" ]; then
+        commit=$(git -C "$source_root" rev-parse --short=12 HEAD 2>/dev/null || echo source)
+        /usr/bin/open "$web_url/?filmos-preview=$commit"
+    fi
+}
+
+require_source_root
+command_name=${1:-start}
+case "$command_name" in
+    start) start_preview ;;
+    restart)
+        stop_service "$web_pid_file" "$source_root/web"
+        stop_service "$backend_pid_file" "$source_root/backend"
+        rm -f "$fingerprint_file"
+        start_preview
+        ;;
+    status) print_status ;;
+    stop)
+        stop_service "$web_pid_file" "$source_root/web"
+        stop_service "$backend_pid_file" "$source_root/backend"
+        print_status
+        ;;
+    *) usage; exit 2 ;;
+esac

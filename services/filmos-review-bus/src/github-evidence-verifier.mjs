@@ -10,13 +10,14 @@ import { sha256 } from "./canonical.mjs";
 const execFileAsync = promisify(execFile);
 const DEFAULT_REPOSITORY = "maiyadiu/filmos-studio";
 const HANDOFF_ARCHIVE_PATTERN = /^FilmOS_V1_1_Dual_Expert_Operational_Closure_Handoff_[0-9a-f]{8,64}\.zip$/;
+const defaultReadArtifactEvidenceIndex = (...args) => readArtifactEvidenceIndex(...args);
 
 export class GitHubEvidenceVerifier {
   constructor({
     repository = process.env.FILMOS_REVIEW_GITHUB_REPOSITORY ?? DEFAULT_REPOSITORY,
     apiJson = defaultApiJson,
     downloadArtifact = defaultDownloadArtifact,
-    readArtifactEvidenceIndex = readHandoffEvidenceIndex,
+    readArtifactEvidenceIndex = defaultReadArtifactEvidenceIndex,
     now = () => new Date(),
   } = {}) {
     if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository)) throw evidenceProblem("INVALID_GITHUB_REPOSITORY");
@@ -145,6 +146,22 @@ export async function readHandoffEvidenceIndex(archive) {
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
+}
+
+export async function readArtifactEvidenceIndex(archive) {
+  if (!archive?.path) throw evidenceProblem("ARTIFACT_ARCHIVE_REQUIRED");
+  const outerEntries = await zipEntries(archive.path);
+  const handoffEntries = outerEntries.filter((entry) => HANDOFF_ARCHIVE_PATTERN.test(entry));
+  if (handoffEntries.length > 1) throw evidenceProblem("ARTIFACT_HANDOFF_AMBIGUOUS");
+  if (handoffEntries.length === 1) return readHandoffEvidenceIndex(archive);
+
+  const evidenceEntries = outerEntries.filter((entry) => entry === "EVIDENCE_INDEX.json" || entry.endsWith("/EVIDENCE_INDEX.json"));
+  if (evidenceEntries.length === 0) throw evidenceProblem("ARTIFACT_EVIDENCE_INDEX_MISSING");
+  if (evidenceEntries.length !== 1) throw evidenceProblem("ARTIFACT_EVIDENCE_INDEX_AMBIGUOUS");
+  if (evidenceEntries[0] !== "EVIDENCE_INDEX.json") throw evidenceProblem("ARTIFACT_EVIDENCE_INDEX_INVALID_NESTING");
+  const { stdout: bytes } = await execFileAsync("unzip", ["-p", archive.path, "EVIDENCE_INDEX.json"], { encoding: null, timeout: 30_000, maxBuffer: 32 * 1024 * 1024 });
+  if (!bytes.length) throw evidenceProblem("ARTIFACT_EVIDENCE_INDEX_MISSING");
+  return Buffer.from(bytes);
 }
 
 async function zipEntries(path) {

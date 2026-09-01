@@ -1,0 +1,44 @@
+#!/bin/sh
+set -eu
+
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+default_source=$(CDPATH= cd -- "$script_dir/.." && pwd)
+source_root=${1:-$default_source}
+if [ "$#" -gt 1 ]; then
+    echo "usage: install-live-preview-launcher [source-root]" >&2
+    exit 2
+fi
+case "$source_root" in
+    /*) ;;
+    *) source_root=$(CDPATH= cd -- "$source_root" && pwd) ;;
+esac
+if [ ! -f "$source_root/web/package.json" ] || [ ! -f "$source_root/backend/go.mod" ]; then
+    echo "FilmOS Studio source root is invalid: $source_root" >&2
+    exit 1
+fi
+
+support_root=${FILMOS_LIVE_PREVIEW_SUPPORT_ROOT:-"$HOME/Library/Application Support/FilmOS Studio/development"}
+bin_root="$support_root/bin"
+pointer="$support_root/current-source"
+launcher=${FILMOS_LIVE_PREVIEW_LAUNCHER_PATH:-"$HOME/Applications/FilmOS Studio 实时预览.command"}
+mkdir -p "$bin_root" "$(dirname -- "$launcher")"
+
+installed_runner="$bin_root/filmos-live-preview"
+runner_tmp="$installed_runner.tmp.$$"
+cp "$script_dir/filmos-live-preview" "$runner_tmp"
+chmod 755 "$runner_tmp"
+mv "$runner_tmp" "$installed_runner"
+
+pointer_tmp="$pointer.tmp.$$"
+printf '%s\n' "$source_root" > "$pointer_tmp"
+chmod 600 "$pointer_tmp"
+mv "$pointer_tmp" "$pointer"
+
+launcher_tmp="$launcher.tmp.$$"
+ln -s "$installed_runner" "$launcher_tmp"
+mv -f "$launcher_tmp" "$launcher"
+
+commit=$(git -C "$source_root" rev-parse HEAD 2>/dev/null || echo unknown)
+tree=$(git -C "$source_root" rev-parse HEAD^{tree} 2>/dev/null || echo unknown)
+echo "FILMOS_LIVE_PREVIEW_INSTALLED launcher=$launcher"
+echo "FILMOS_LIVE_PREVIEW_SOURCE source=$source_root commit=$commit tree=$tree"
