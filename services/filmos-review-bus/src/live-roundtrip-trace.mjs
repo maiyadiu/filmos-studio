@@ -185,6 +185,7 @@ function candidateBinding(candidate) {
     github_remote_verification: candidate?.github_remote_verification,
     task_package_content_hash: candidate?.task_package_content_hash,
     consensus_record_hash: candidate?.consensus_record_hash ?? null,
+    architecture_binding_hash: candidate?.architecture_binding_hash ?? null,
     constitution_content_hash: candidate?.constitution_content_hash,
     candidate_nonce: candidate?.candidate_nonce,
     changed_files: candidate?.changed_files,

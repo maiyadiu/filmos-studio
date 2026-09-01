@@ -134,6 +134,9 @@ export function createReviewBusHttp({ service, store, busToken, bridgeToken, con
         if (req.method === "POST" && action === "architecture/assessments/begin") return send(res, 200, issueReceipt(service.beginArchitectureAssessments(issueId, "review-codex-coordinator", now())));
         if (req.method === "GET" && action === "assessments/blind") return send(res, 200, service.assessmentBlind(issueId, String(url.searchParams.get("viewer") ?? "")));
         if (req.method === "POST" && action === "consensus/responses/codex") return send(res, 200, issueReceipt(service.respondConsensus(issueId, "codex", body, now())));
+        if (req.method === "POST" && action === "architecture/consensus/propose") return send(res, 200, issueReceipt(service.proposeArchitectureConsensus(issueId, "review-codex-coordinator", now())));
+        if (req.method === "POST" && action === "architecture/task-package/freeze") return send(res, 200, issueReceipt(service.freezeArchitectureTaskPackage(issueId, body, "codex", now())));
+        if (req.method === "POST" && action === "architecture/implementation/start") return send(res, 200, issueReceipt(service.startArchitectureImplementation(issueId, "codex", now())));
         if (req.method === "POST" && action === "consensus/rounds/next") return send(res, 200, issueReceipt(service.startNextAssessmentRound(issueId, "codex", now())));
         if (req.method === "POST" && action === "architecture/requirement-delta") return send(res, 200, issueReceipt(service.freezeRequirementDelta(issueId, body, "user", now())));
         if (req.method === "POST" && action === "architecture/options") return send(res, 200, issueReceipt(service.setArchitectureOptions(issueId, body.options, "codex", now())));

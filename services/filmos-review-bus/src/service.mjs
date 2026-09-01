@@ -15,6 +15,13 @@ import {
   isArchitectureV2,
   submitArchitectureAssessment as submitArchitectureAssessmentV2,
 } from "./architecture-workflow.mjs";
+import {
+  architectureCandidateBindingHash,
+  freezeArchitectureTaskPackage as freezeArchitectureTaskPackageV2,
+  proposeArchitectureConsensus as proposeArchitectureConsensusV2,
+  respondArchitectureConsensus,
+  startArchitectureImplementation as startArchitectureImplementationV2,
+} from "./architecture-review.mjs";
 import { ARCHITECTURE_STATES, CONSTITUTION_HASH, CONSTITUTION_VERSION, LATE_FINDING_TAXONOMY, MAIN_STATES, MAX_AUTOMATIC_ROUNDS, TASK_PACKAGE_HASH, assertFastScope, classifyLane } from "./contracts.mjs";
 import { evidenceManifest, redactEvidence } from "./redaction.mjs";
 
@@ -243,6 +250,7 @@ export class ReviewBusService {
 
   respondConsensus(issueId, actor, response, now = new Date()) {
     const current = this.requireIssue(issueId);
+    if (isArchitectureV2(current)) return respondArchitectureConsensus({ store: this.store, current, actor, response, now });
     if (!["codex", "chatgpt"].includes(actor)) throw problem("INVALID_CONSENSUS_ACTOR");
     if (!current.consensus_proposal) throw problem("CONSENSUS_PROPOSAL_REQUIRED");
     exactObject(response, ["proposal_content_hash", "position", "requested_changes"]);
@@ -317,6 +325,21 @@ export class ReviewBusService {
 
   setConsensus() { throw problem("CONSENSUS_DUAL_RESPONSE_REQUIRED"); }
 
+  proposeArchitectureConsensus(issueId, actor = "review-codex-coordinator", now = new Date()) {
+    const current = this.requireIssue(issueId);
+    return proposeArchitectureConsensusV2({ store: this.store, current, actor, now });
+  }
+
+  freezeArchitectureTaskPackage(issueId, input, actor = "codex", now = new Date()) {
+    const current = this.requireIssue(issueId);
+    return freezeArchitectureTaskPackageV2({ store: this.store, current, input, actor, now });
+  }
+
+  startArchitectureImplementation(issueId, actor = "codex", now = new Date()) {
+    const current = this.requireIssue(issueId);
+    return startArchitectureImplementationV2({ store: this.store, current, actor, now });
+  }
+
   freezeRequirementDelta(issueId, delta, actor = "user", now = new Date()) {
     const current = this.requireIssue(issueId);
     return freezeRequirementDeltaV2({ store: this.store, current, delta, actor, now });
@@ -334,12 +357,18 @@ export class ReviewBusService {
 
   submitCandidate(issueId, candidate, actor = "codex", now = new Date()) {
     const current = this.requireIssue(issueId);
+    const architectureV2 = isArchitectureV2(current);
     if (actor !== "codex") throw problem("CANDIDATE_SUBMITTER_MUST_BE_CODEX");
     if (current.active_candidate) throw problem("ACTIVE_CANDIDATE_IMMUTABLE");
     requireFields(candidate, ["candidate_id", "base_commit", "candidate_commit", "tree", "branch", "github_run", "artifact_id", "artifact_digest", "artifact_commit", "evidence_index_hash", "github_remote_verification", "task_package_content_hash", "constitution_content_hash", "candidate_nonce", "changed_files", "known_limitations"]);
     if (candidate.base_commit !== current.base_commit) throw problem("CANDIDATE_BASE_MISMATCH");
     if (current.lane !== "fast" && !current.consensus_record) throw problem("IMPLEMENTATION_BLOCKED_NO_CONSENSUS");
     if (current.lane !== "fast" && candidate.consensus_record_hash !== current.consensus_record.contentHash) throw problem("CONSENSUS_RECORD_HASH_MISMATCH");
+    if (architectureV2) {
+      if (current.state !== "CODEX_IMPLEMENTING") throw problem("ARCHITECTURE_IMPLEMENTATION_NOT_STARTED");
+      if (typeof candidate.architecture_binding_hash !== "string") throw problem("ARCHITECTURE_CANDIDATE_BINDING_REQUIRED");
+      if (candidate.architecture_binding_hash !== architectureCandidateBindingHash(current)) throw problem("ARCHITECTURE_CANDIDATE_BINDING_MISMATCH");
+    }
     validateCandidateBinding(candidate, current);
     if (current.lane === "fast") assertFastScope(candidate.changed_files, candidate.patch_summary ?? "");
     if (current.lane === "architecture" && (!current.requirement_delta || !current.architecture_options)) throw problem("ARCHITECTURE_CONSENSUS_PREREQUISITES_MISSING");
@@ -347,6 +376,7 @@ export class ReviewBusService {
     const activeCandidate = { ...base, content_hash: sha256(base) };
     const eventType = current.current_round > 1 ? "candidate.resubmitted" : "candidate.submitted";
     return this.store.append({ issueId, projectId: current.project_id, lane: current.lane, eventType, actor, payload: { candidate: activeCandidate, round: current.current_round }, now,
+      transitionAction: architectureV2 ? "candidate.submit" : null,
       mutate: (next) => {
         next.candidate_history ??= [];
         const previous = [...next.candidate_history].reverse().find((entry) => entry.status === "SUPERSEDED" && !entry.supersededByCandidateId);
@@ -356,7 +386,7 @@ export class ReviewBusService {
         }
         next.candidate_history.push(candidateHistoryEntry(activeCandidate, "ACTIVE"));
         next.active_candidate = activeCandidate;
-        next.state = "WAITING_FOR_CHATGPT_REVIEW";
+        next.state = architectureV2 ? "CANDIDATE_UNDER_REVIEW" : "WAITING_FOR_CHATGPT_REVIEW";
         return next;
       } });
   }
@@ -374,6 +404,7 @@ export class ReviewBusService {
 
   submitChatGPTReviewDecision(issueId, envelope, actor = "chatgpt", now = new Date()) {
     const current = this.requireIssue(issueId);
+    if (isArchitectureV2(current)) throw problem("ARCHITECTURE_VERDICT_AXIS_REQUIRED");
     if (actor !== "chatgpt") throw problem("EXTERNAL_REVIEW_DECISION_ACTOR_REQUIRED");
     exactObject(envelope, ["purpose", "issue_id", "candidate_id", "candidate_commit", "verdict", "summary", "findings", "closed_finding_ids", "reopened_finding_ids", "accepted_limitations", "scope_assessment", "confidence"]);
     requireFields(envelope, ["purpose", "issue_id", "candidate_id", "candidate_commit", "verdict", "summary", "findings", "closed_finding_ids", "reopened_finding_ids", "accepted_limitations", "scope_assessment", "confidence"]);
@@ -473,6 +504,36 @@ export class ReviewBusService {
     }
     const binding = typeof input === "object" ? input.binding : null;
     assertCurrentCandidateBinding(current, binding);
+    if (isArchitectureV2(current)) {
+      if (current.state !== "CANDIDATE_UNDER_REVIEW") throw problem("ARCHITECTURE_CANDIDATE_REVIEW_REQUIRED");
+      const projected = structuredClone(current);
+      projected.verdicts[actor] = verdict;
+      projected.verdict_bindings ??= {};
+      projected.verdict_bindings[actor] = binding;
+      const approved = pilotAllowed(projected);
+      return this.store.append({
+        issueId,
+        projectId: current.project_id,
+        lane: current.lane,
+        eventType: approved ? "candidate.approved" : `verdict.${actor}`,
+        actor,
+        payload: { verdict, binding_hash: sha256(binding) },
+        now,
+        transitionAction: "candidate.verdict",
+        mutate: (next) => {
+          next.verdicts[actor] = verdict;
+          next.verdict_bindings ??= {};
+          next.verdict_bindings[actor] = binding;
+          next.next_pilot_allowed = approved;
+          next.state = approved ? "DUAL_APPROVED" : "CANDIDATE_UNDER_REVIEW";
+          if (approved) {
+            next.dual_signoff = dualSignoff(next, now);
+            markActiveCandidateHistory(next, "APPROVED");
+          }
+          return next;
+        },
+      });
+    }
     const projected = structuredClone(current);
     projected.verdicts[actor] = verdict;
     projected.verdict_bindings ??= {};
@@ -505,11 +566,13 @@ export class ReviewBusService {
     const value = { ...release, issue_id: issueId, candidate_binding: candidateBinding(current.active_candidate), constitution_version: CONSTITUTION_VERSION, constitution_content_hash: CONSTITUTION_HASH, task_package_content_hash: current.task_package_content_hash, created_at: now.toISOString() };
     value.content_hash = sha256(value);
     return this.store.append({ issueId, projectId: current.project_id, lane: current.lane, eventType: "pilot.deployed", actor, payload: value, now,
+      transitionAction: isArchitectureV2(current) ? "pilot.migrate" : null,
       mutate: (next) => { next.pilot_release = value; next.state = next.lane === "architecture" ? "PILOT_MIGRATION" : "PILOT_DEPLOYED"; next.next_pilot_allowed = true; return next; } });
   }
 
   startNextRound(issueId, actor = "codex", now = new Date()) {
     const current = this.requireIssue(issueId);
+    const architectureV2 = isArchitectureV2(current);
     if (!current.active_candidate) throw problem("ACTIVE_CANDIDATE_REQUIRED");
     if (current.verdicts.chatgpt !== "CHANGES_REQUIRED") throw problem("CHANGES_REQUIRED_VERDICT_REQUIRED");
     const openFindings = current.findings.filter((item) => item.status !== "CLOSED" && item.accepted_limitation !== true);
@@ -522,6 +585,7 @@ export class ReviewBusService {
     const superseded = current.active_candidate;
     return this.store.append({ issueId, projectId: current.project_id, lane: current.lane, eventType: "candidate.supersede", actor,
       payload: { round: nextRound, superseded_candidate_id: superseded.candidate_id, superseded_candidate_commit: superseded.candidate_commit },
+      transitionAction: architectureV2 ? "candidate.supersede" : null,
       revokeCandidate: { candidate_id: superseded.candidate_id, candidate_commit: superseded.candidate_commit }, now,
       mutate: (next) => {
         markActiveCandidateHistory(next, "SUPERSEDED", { supersededAt: now.toISOString() });
@@ -533,7 +597,7 @@ export class ReviewBusService {
         next.dual_signoff = null;
         next.next_pilot_allowed = false;
         next.current_round = nextRound;
-        next.state = nextRound > next.max_automatic_rounds && p0 > 0 ? "OWNER_DECISION_REQUIRED" : "CODEX_FIXING";
+        next.state = nextRound > next.max_automatic_rounds && p0 > 0 ? "OWNER_DECISION_REQUIRED" : (architectureV2 ? "CODEX_IMPLEMENTING" : "CODEX_FIXING");
         return next;
       } });
   }
@@ -795,7 +859,7 @@ export function fileInScope(file, descriptor) {
 }
 
 export function candidateBinding(candidate) {
-  return { candidate_id: candidate.candidate_id, base_commit: candidate.base_commit, candidate_commit: candidate.candidate_commit, tree: candidate.tree, branch: candidate.branch, github_run: candidate.github_run, artifact_id: candidate.artifact_id, artifact_digest: candidate.artifact_digest, artifact_commit: candidate.artifact_commit, evidence_index_hash: candidate.evidence_index_hash, github_remote_verification: candidate.github_remote_verification, task_package_content_hash: candidate.task_package_content_hash, consensus_record_hash: candidate.consensus_record_hash ?? null, constitution_content_hash: candidate.constitution_content_hash, candidate_nonce: candidate.candidate_nonce, changed_files: candidate.changed_files, known_limitations: candidate.known_limitations, content_hash: candidate.content_hash };
+  return { candidate_id: candidate.candidate_id, base_commit: candidate.base_commit, candidate_commit: candidate.candidate_commit, tree: candidate.tree, branch: candidate.branch, github_run: candidate.github_run, artifact_id: candidate.artifact_id, artifact_digest: candidate.artifact_digest, artifact_commit: candidate.artifact_commit, evidence_index_hash: candidate.evidence_index_hash, github_remote_verification: candidate.github_remote_verification, task_package_content_hash: candidate.task_package_content_hash, consensus_record_hash: candidate.consensus_record_hash ?? null, architecture_binding_hash: candidate.architecture_binding_hash ?? null, constitution_content_hash: candidate.constitution_content_hash, candidate_nonce: candidate.candidate_nonce, changed_files: candidate.changed_files, known_limitations: candidate.known_limitations, content_hash: candidate.content_hash };
 }
 
 function assertCurrentCandidateBinding(current, binding) {

@@ -9,6 +9,7 @@ import test from "node:test";
 import { Worker } from "node:worker_threads";
 
 import { sha256 } from "../src/canonical.mjs";
+import { architectureCandidateBindingHash } from "../src/architecture-review.mjs";
 import { GitHubEvidenceVerifier, readArtifactEvidenceIndex, readHandoffEvidenceIndex, resolveGitHubCLI } from "../src/github-evidence-verifier.mjs";
 import { buildLiveRoundtripTrace } from "../src/live-roundtrip-trace.mjs";
 import { ReviewBusService, candidateBinding, fileInScope } from "../src/service.mjs";
@@ -105,6 +106,25 @@ const architectureEvidence = [
   { kind: "logs", completeness_kind: "logs", content: "architecture trace" },
   { kind: "source", completeness_kind: "sourceMap", content: { file: "services/filmos-review-bus/src/service.mjs" } },
 ];
+const architectureTaskInput = {
+  allowedChangeScope: ["web/agent.tsx"],
+  explicitNonGoals: ["Canvas schema migration"],
+  implementationPlan: ["Apply the frozen architecture option"],
+  acceptanceGates: ["Architecture v2 tests pass"],
+  rollbackPlan: ["Revert the candidate commit"],
+};
+
+function createAcceptedArchitecture(service, suffix) {
+  const issue = service.createIssue({ issue_id: `FILMOS-ARCH-${suffix}`, project_id: projectId, what_happened: "current structure blocks real work", expected_result: "evolvable structure", location: "project workflow", blocks_work: true, lane: "architecture" });
+  service.freezeRequirementDelta(issue.issue_id, architectureDelta);
+  service.freezeEvidence(issue.issue_id, { source_commit: commit, items: architectureEvidence });
+  service.beginArchitectureAssessments(issue.issue_id);
+  service.submitAssessment(issue.issue_id, "codex", codexAssessment);
+  service.submitAssessment(issue.issue_id, "chatgpt", chatgptAssessment);
+  const ownerGate = service.setArchitectureOptions(issue.issue_id, architectureOptions);
+  const selected = ownerGate.architecture_options.options.find((item) => item.option === "B");
+  return service.acceptArchitectureOption(issue.issue_id, { option: "B", option_content_hash: selected.content_hash, user_authorized: true });
+}
 function candidate(overrides = {}) {
   const value = { candidate_id: "candidate-1", base_commit: commit, candidate_commit: "d".repeat(40), tree: "e".repeat(40), branch: "fix/example", github_run: { id: 123, head_sha: "d".repeat(40), conclusion: "success" }, artifact_id: "artifact-1", artifact_digest: `sha256:${"f".repeat(64)}`, artifact_commit: "d".repeat(40), evidence_index_hash: "a".repeat(64), task_package_content_hash: taskHash, constitution_content_hash: constitutionHash, candidate_nonce: "nonce-1234567890-abcdef", changed_files: ["web/agent.tsx"], known_limitations: [], ...overrides };
   const remote = { schema_version: "filmos.github-evidence-verification.v1", status: "VERIFIED", repository: "maiyadiu/filmos-studio", candidate_commit: value.candidate_commit, candidate_tree: value.tree, branch: value.branch, github_run_id: String(value.github_run.id), artifact_id: String(value.artifact_id), artifact_digest: value.artifact_digest, evidence_index_hash: value.evidence_index_hash, checks: { commit_exists: true, tree_matches: true, branch_exists: true, run_exists: true, run_head_matches: true, run_success: true, artifact_exists: true, artifact_run_matches: true, artifact_digest_matches: true, evidence_index_present: true, evidence_index_hash_matches: true }, verified_at: "2026-08-31T12:00:00.000Z" };
@@ -783,6 +803,114 @@ test("Architecture v2 seals blind Assessments and only the Owner can accept one 
     assert.match(event.payload.transition?.post_projection_hash ?? "", /^[0-9a-f]{64}$/);
   }
   assert.equal(store.verifyEventChain(issue.issue_id), true);
+  store.close();
+});
+
+test("Architecture v2 separates Consensus, Task Package, implementation, Candidate, and three bound Verdict axes", () => {
+  const { service, store } = fixture();
+  const accepted = createAcceptedArchitecture(service, "review-chain");
+  const proposed = service.proposeArchitectureConsensus(accepted.issue_id);
+  assert.equal(proposed.state, "CONSENSUS_PROPOSED");
+  const proposalHash = proposed.consensus_proposal.content_hash;
+  const oneVote = service.respondConsensus(accepted.issue_id, "codex", { proposal_content_hash: proposalHash, position: "ACCEPTED", requested_changes: [] });
+  assert.equal(oneVote.state, "CONSENSUS_PROPOSED");
+  const reached = service.respondConsensus(accepted.issue_id, "chatgpt", { proposal_content_hash: proposalHash, position: "ACCEPTED", requested_changes: [] });
+  assert.equal(reached.state, "CONSENSUS_REACHED");
+  assert.equal(reached.issue_task_package, null);
+
+  const frozen = service.freezeArchitectureTaskPackage(accepted.issue_id, architectureTaskInput);
+  assert.equal(frozen.state, "TASK_PACKAGE_FROZEN");
+  assert.equal(frozen.issue_task_package.consensus_record_hash, reached.consensus_record.contentHash);
+  const taskEventCount = store.events(accepted.issue_id).length;
+  const taskReplay = service.freezeArchitectureTaskPackage(accepted.issue_id, architectureTaskInput);
+  assert.equal(taskReplay.idempotent_replay, true);
+  assert.equal(taskReplay.operation_receipt.receipt_hash, frozen.operation_receipt.receipt_hash);
+  assert.equal(store.events(accepted.issue_id).length, taskEventCount);
+  const implementing = service.startArchitectureImplementation(accepted.issue_id);
+  assert.equal(implementing.state, "CODEX_IMPLEMENTING");
+
+  const candidateValue = candidate({
+    task_package_content_hash: implementing.task_package_content_hash,
+    consensus_record_hash: implementing.consensus_record.contentHash,
+    architecture_binding_hash: architectureCandidateBindingHash(implementing),
+  });
+  assert.throws(() => service.submitCandidate(accepted.issue_id, { ...candidateValue, architecture_binding_hash: "0".repeat(64) }), /ARCHITECTURE_CANDIDATE_BINDING_MISMATCH/);
+  const submitted = service.submitCandidate(accepted.issue_id, candidateValue);
+  assert.equal(submitted.state, "CANDIDATE_UNDER_REVIEW");
+  const binding = candidateBinding(submitted.active_candidate);
+  assert.equal(service.recordVerdict(accepted.issue_id, "codex", { verdict: "LOCAL_ACCEPTED", binding }).state, "CANDIDATE_UNDER_REVIEW");
+  assert.equal(service.recordVerdict(accepted.issue_id, "chatgpt", { verdict: "EXTERNAL_APPROVED", binding }).state, "CANDIDATE_UNDER_REVIEW");
+  const approved = service.recordVerdict(accepted.issue_id, "machine", { verdict: "PASS", binding });
+  assert.equal(approved.state, "DUAL_APPROVED");
+  assert.equal(approved.next_pilot_allowed, true);
+  assert.equal(store.events(accepted.issue_id).filter((event) => event.event_type === "candidate.approved").length, 1);
+  assert.equal(store.verifyEventChain(accepted.issue_id), true);
+  store.close();
+});
+
+test("Architecture v2 returns requested Consensus changes to Option Comparison without overwriting frozen history", () => {
+  const { service, store } = fixture();
+  const accepted = createAcceptedArchitecture(service, "consensus-revision");
+  const proposed = service.proposeArchitectureConsensus(accepted.issue_id);
+  const proposalHash = proposed.consensus_proposal.content_hash;
+  service.respondConsensus(accepted.issue_id, "codex", { proposal_content_hash: proposalHash, position: "ACCEPTED", requested_changes: [] });
+  const revised = service.respondConsensus(accepted.issue_id, "chatgpt", { proposal_content_hash: proposalHash, position: "CHANGES_REQUESTED", requested_changes: ["narrow host boundary"] });
+  assert.equal(revised.state, "OPTION_COMPARISON");
+  assert.equal(revised.architecture_round_history.length, 1);
+  assert.equal(revised.freeze_receipt_history.length, 1);
+  assert.equal(revised.architecture_options, null);
+  assert.equal(revised.accepted_architecture_option, null);
+  const refrozen = service.setArchitectureOptions(accepted.issue_id, architectureOptions.map((item) => ({ ...item, revision: 2 })));
+  assert.equal(refrozen.state, "OWNER_DECISION_REQUIRED");
+  assert.notEqual(refrozen.operation_receipt.receipt_hash, accepted.freeze_receipts.architecture_options.receipt_hash);
+  assert.equal(store.verifyEventChain(accepted.issue_id), true);
+  store.close();
+});
+
+test("Architecture v2 supersedes Candidate A before Candidate B and rejects every stale Verdict binding", () => {
+  const { service, store } = fixture();
+  const accepted = createAcceptedArchitecture(service, "candidate-a-b");
+  const proposed = service.proposeArchitectureConsensus(accepted.issue_id);
+  service.respondConsensus(accepted.issue_id, "codex", { proposal_content_hash: proposed.consensus_proposal.content_hash, position: "ACCEPTED", requested_changes: [] });
+  service.respondConsensus(accepted.issue_id, "chatgpt", { proposal_content_hash: proposed.consensus_proposal.content_hash, position: "ACCEPTED", requested_changes: [] });
+  service.freezeArchitectureTaskPackage(accepted.issue_id, architectureTaskInput);
+  const implementing = service.startArchitectureImplementation(accepted.issue_id);
+  const architectureBindingHash = architectureCandidateBindingHash(implementing);
+  const candidateA = service.submitCandidate(accepted.issue_id, candidate({
+    candidate_id: "architecture-candidate-A",
+    task_package_content_hash: implementing.task_package_content_hash,
+    consensus_record_hash: implementing.consensus_record.contentHash,
+    architecture_binding_hash: architectureBindingHash,
+  }));
+  const bindingA = candidateBinding(candidateA.active_candidate);
+  service.addFinding(accepted.issue_id, strictFinding("finding-architecture-A"));
+  service.respondFinding(accepted.issue_id, { finding_id: "finding-architecture-A", disposition: "FIXED_WITH_EVIDENCE", evidence: ["candidate B will contain the fix"] });
+  service.recordVerdict(accepted.issue_id, "chatgpt", { verdict: "CHANGES_REQUIRED", binding: bindingA });
+  const fixing = service.startNextRound(accepted.issue_id);
+  assert.equal(fixing.state, "CODEX_IMPLEMENTING");
+  assert.equal(fixing.active_candidate, null);
+  assert.equal(fixing.candidate_history[0].status, "SUPERSEDED");
+  assert.equal(fixing.stale_candidate_bindings.length, 1);
+
+  const candidateBValue = candidate({
+    candidate_id: "architecture-candidate-B",
+    candidate_commit: "b".repeat(40),
+    tree: "c".repeat(40),
+    branch: "fix/architecture-b",
+    github_run: { id: 124, head_sha: "b".repeat(40), conclusion: "success" },
+    artifact_id: "artifact-B",
+    artifact_commit: "b".repeat(40),
+    candidate_nonce: "nonce-B-1234567890-abcdef",
+    task_package_content_hash: fixing.task_package_content_hash,
+    consensus_record_hash: fixing.consensus_record.contentHash,
+    architecture_binding_hash: architectureCandidateBindingHash(fixing),
+  });
+  const candidateB = service.submitCandidate(accepted.issue_id, candidateBValue);
+  assert.equal(candidateB.candidate_history.length, 2);
+  assert.equal(candidateB.candidate_history[0].supersededByCandidateId, "architecture-candidate-B");
+  assert.throws(() => service.recordVerdict(accepted.issue_id, "codex", { verdict: "LOCAL_ACCEPTED", binding: bindingA }), /CURRENT_CANDIDATE_BINDING_MISMATCH/);
+  assert.equal(store.events(accepted.issue_id).filter((event) => event.event_type === "candidate.supersede").length, 1);
+  assert.equal(store.verifyEventChain(accepted.issue_id), true);
   store.close();
 });
 
