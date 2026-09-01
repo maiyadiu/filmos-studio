@@ -181,14 +181,16 @@ export function createReviewBusHttp({ service, store, busToken, bridgeToken, con
         const issue = service.readRedacted(issueId, projectId);
         if (!issue.submission_id) throw problem("SUBMISSION_RECEIPT_NOT_FOUND", "SUBMISSION_RECEIPT_NOT_FOUND", 404);
         const submission = store.submissionStatus(issue.submission_id);
+        if (!submission.receipt) throw problem("SUBMISSION_RECEIPT_NOT_FOUND", "SUBMISSION_RECEIPT_NOT_FOUND", 404);
         const receipts = store.readReceipts(issueId, "chatgpt-mcp");
         return send(res, 200, {
           submission_id: issue.submission_id,
           formal_issue_id: issueId,
           project_id: projectId,
           capture_hash: submission.capture_hash,
-          receipt_hash: submission.receipt?.receipt_hash ?? null,
-          projection_content_hash: issue.content_hash,
+          receipt_hash: submission.receipt.receipt_hash,
+          projection_content_hash: submission.receipt.projection_content_hash,
+          current_projection_content_hash: issue.content_hash,
           evidence_manifest_hash: issue.evidence?.manifest?.contentHash ?? issue.evidence?.manifest?.content_hash ?? null,
           pending_read: receipts.some((receipt) => receipt.tool_name === "issue_list_pending"),
           evidence_read: receipts.some((receipt) => receipt.tool_name === "issue_get_evidence"),

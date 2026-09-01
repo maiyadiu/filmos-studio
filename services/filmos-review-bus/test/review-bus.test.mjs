@@ -985,6 +985,8 @@ test("Stage A readback requires the actual MCP handler and rejects the wrong Pro
     const staged = await stagedResponse.json();
     const accepted = await fetch(`${baseURL}/v1/submissions/${stageASubmissionId}/finalize`, { method: "POST", headers, body: JSON.stringify({ project_id: projectId, capture_hash: staged.capture_hash }) });
     const receipt = (await accepted.json()).receipt;
+    service.recordRuntimeObservation(receipt.formal_issue_id, "runtime-after-intake-receipt");
+    assert.notEqual(service.requireIssue(receipt.formal_issue_id).content_hash, receipt.projection_content_hash);
     const mcpHeaders = { ...headers, "x-filmos-read-consumer": "chatgpt-mcp" };
     const wrongProject = await fetch(`${baseURL}/v1/review/issues/${receipt.formal_issue_id}/evidence?project_id=wrong-project`, { headers: mcpHeaders });
     assert.equal(wrongProject.status, 403);
@@ -1002,6 +1004,8 @@ test("Stage A readback requires the actual MCP handler and rejects the wrong Pro
     assert.equal(value.submission_id, stageASubmissionId);
     assert.equal(value.capture_hash, staged.capture_hash);
     assert.equal(value.receipt_hash, receipt.receipt_hash);
+    assert.equal(value.projection_content_hash, receipt.projection_content_hash);
+    assert.equal(value.current_projection_content_hash, service.requireIssue(receipt.formal_issue_id).content_hash);
     assert.equal(value.evidence_manifest_hash, receipt.evidence_manifest_hash);
   } finally { await new Promise((resolve) => server.close(resolve)); store.close(); }
 });
