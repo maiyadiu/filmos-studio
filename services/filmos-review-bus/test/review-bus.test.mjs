@@ -6,7 +6,7 @@ import { resolve } from "node:path";
 import test from "node:test";
 import { Worker } from "node:worker_threads";
 
-import { ReviewBusService, candidateBinding } from "../src/service.mjs";
+import { ReviewBusService, candidateBinding, fileInScope } from "../src/service.mjs";
 import { GitHubEvidenceVerifier } from "../src/github-evidence-verifier.mjs";
 import { allowedOrigin, createReviewBusHttp } from "../src/server.mjs";
 import { ReviewBusStore } from "../src/store.mjs";
@@ -91,6 +91,7 @@ test("Core candidate needs consensus and Codex cannot self-approve external revi
   const value = candidate();
   await assert.rejects(() => service.submitCandidate(issue.issue_id, value), /IMPLEMENTATION_BLOCKED_NO_CONSENSUS/);
   coreConsensus(service, issue.issue_id);
+  await assert.rejects(() => service.submitCandidate(issue.issue_id, candidate({ changed_files: ["web/out-of-scope.ts"] })), /CANDIDATE_SCOPE_EXCEEDED/);
   const submitted = await service.submitCandidate(issue.issue_id, value);
   const binding = candidateBinding(submitted.active_candidate);
   assert.throws(() => service.recordVerdict(issue.issue_id, "codex", "EXTERNAL_APPROVED"), /REVIEW_CODEX_CANNOT_SELF_APPROVE/);
@@ -392,10 +393,13 @@ test("Chrome pairing revoke invalidates the bridge token and every unused challe
 });
 
 test("GitHub evidence verifier independently binds commit, tree, branch, successful Run, Artifact, and Evidence Index", async () => {
-  const releaseManifest = Buffer.from(JSON.stringify({ repository: "maiyadiu/filmos-studio", git_commit_sha: "d".repeat(40), git_tree_sha: "e".repeat(40), evidence_index_hash: "a".repeat(64) }));
-  const archive = storedZip("RELEASE_MANIFEST.json", releaseManifest);
+  const evidenceIndex = Buffer.from('{"schema_version":"filmos.evidence-index.v1"}\n');
+  const evidenceIndexHash = createHash("sha256").update(evidenceIndex).digest("hex");
+  const releaseManifest = Buffer.from(JSON.stringify({ repository: "maiyadiu/filmos-studio", git_commit_sha: "d".repeat(40), git_tree_sha: "e".repeat(40), evidence_index_hash: evidenceIndexHash }));
+  const handoff = storedZip("handoff/EVIDENCE_INDEX.json", evidenceIndex);
+  const archive = storedZipEntries([{ name: "RELEASE_MANIFEST.json", content: releaseManifest }, { name: "FilmOS_Handoff.zip", content: handoff }]);
   const artifactDigest = `sha256:${createHash("sha256").update(archive).digest("hex")}`;
-  const value = candidate({ artifact_id: "789", artifact_digest: artifactDigest });
+  const value = candidate({ artifact_id: "789", artifact_digest: artifactDigest, evidence_index_hash: evidenceIndexHash });
   const fetchImpl = async (url) => {
     const path = String(url);
     if (path.endsWith(`/git/commits/${value.candidate_commit}`)) return jsonResponse({ sha: value.candidate_commit, tree: { sha: value.tree } });
@@ -410,8 +414,15 @@ test("GitHub evidence verifier independently binds commit, tree, branch, success
   assert.equal(receipt.verified, true);
   assert.equal(receipt.artifact_commit, value.candidate_commit);
   assert.equal(receipt.evidence_index_hash, value.evidence_index_hash);
+  assert.equal(receipt.evidence_index_sha256, value.evidence_index_hash);
   const failing = new GitHubEvidenceVerifier({ token: "github-token-for-test", fetchImpl: async (url) => String(url).endsWith("/actions/runs/123") ? jsonResponse({ id: 123, head_sha: value.candidate_commit, head_branch: value.branch, status: "completed", conclusion: "failure" }) : fetchImpl(url) });
   await assert.rejects(() => failing.verify(value), /GITHUB_RUN_NOT_SUCCESSFUL/);
+});
+
+test("candidate scope accepts a frozen exact descriptor for a file created by the candidate", () => {
+  assert.equal(fileInScope("web/new-view.ts", "web/new-view.ts（当前不存在）"), true);
+  assert.equal(fileInScope("web/new-view.ts", "web/new-view.ts（冻结基线中不存在）"), true);
+  assert.equal(fileInScope("web/other.ts", "web/new-view.ts（当前不存在）"), false);
 });
 
 function jsonResponse(value, status = 200) {
@@ -419,25 +430,40 @@ function jsonResponse(value, status = 200) {
 }
 
 function storedZip(name, content) {
-  const filename = Buffer.from(name);
-  const local = Buffer.alloc(30);
-  local.writeUInt32LE(0x04034b50, 0);
-  local.writeUInt16LE(20, 4);
-  local.writeUInt32LE(content.length, 18);
-  local.writeUInt32LE(content.length, 22);
-  local.writeUInt16LE(filename.length, 26);
-  const central = Buffer.alloc(46);
-  central.writeUInt32LE(0x02014b50, 0);
-  central.writeUInt16LE(20, 4);
-  central.writeUInt16LE(20, 6);
-  central.writeUInt32LE(content.length, 20);
-  central.writeUInt32LE(content.length, 24);
-  central.writeUInt16LE(filename.length, 28);
+  return storedZipEntries([{ name, content }]);
+}
+
+function storedZipEntries(values) {
+  const locals = [];
+  const centrals = [];
+  let localOffset = 0;
+  for (const value of values) {
+    const filename = Buffer.from(value.name);
+    const content = Buffer.from(value.content);
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(0x04034b50, 0);
+    local.writeUInt16LE(20, 4);
+    local.writeUInt32LE(content.length, 18);
+    local.writeUInt32LE(content.length, 22);
+    local.writeUInt16LE(filename.length, 26);
+    const central = Buffer.alloc(46);
+    central.writeUInt32LE(0x02014b50, 0);
+    central.writeUInt16LE(20, 4);
+    central.writeUInt16LE(20, 6);
+    central.writeUInt32LE(content.length, 20);
+    central.writeUInt32LE(content.length, 24);
+    central.writeUInt16LE(filename.length, 28);
+    central.writeUInt32LE(localOffset, 42);
+    locals.push(local, filename, content);
+    centrals.push(central, filename);
+    localOffset += local.length + filename.length + content.length;
+  }
+  const centralBytes = Buffer.concat(centrals);
   const end = Buffer.alloc(22);
   end.writeUInt32LE(0x06054b50, 0);
-  end.writeUInt16LE(1, 8);
-  end.writeUInt16LE(1, 10);
-  end.writeUInt32LE(central.length + filename.length, 12);
-  end.writeUInt32LE(local.length + filename.length + content.length, 16);
-  return Buffer.concat([local, filename, content, central, filename, end]);
+  end.writeUInt16LE(values.length, 8);
+  end.writeUInt16LE(values.length, 10);
+  end.writeUInt32LE(centralBytes.length, 12);
+  end.writeUInt32LE(localOffset, 16);
+  return Buffer.concat([...locals, centralBytes, end]);
 }

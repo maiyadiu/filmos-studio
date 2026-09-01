@@ -136,6 +136,7 @@ export class ReviewBusService {
     validateCandidateBinding(candidate, current);
     if (current.lane === "fast") assertFastScope(candidate.changed_files, candidate.patch_summary ?? "");
     else if (!current.consensus_record) throw problem("IMPLEMENTATION_BLOCKED_NO_CONSENSUS");
+    else validateCandidateScope(candidate, current);
     if (current.lane === "architecture" && (!current.requirement_delta || !current.architecture_options)) throw problem("ARCHITECTURE_CONSENSUS_PREREQUISITES_MISSING");
     if (!this.candidateEvidenceVerifier) throw problem("REMOTE_EVIDENCE_VERIFIER_REQUIRED");
     const remoteEvidenceReceipt = await this.candidateEvidenceVerifier.verify(candidate);
@@ -325,6 +326,18 @@ function validateCandidateBinding(candidate, current) {
   if (candidate.task_package_content_hash !== current.task_package_content_hash) throw problem("TASK_PACKAGE_HASH_MISMATCH");
   if (candidate.constitution_content_hash !== CONSTITUTION_HASH) throw problem("CONSTITUTION_HASH_MISMATCH");
   if (typeof candidate.candidate_nonce !== "string" || candidate.candidate_nonce.length < 16) throw problem("CANDIDATE_NONCE_REQUIRED");
+}
+
+function validateCandidateScope(candidate, current) {
+  const allowedScope = current.consensus_record.allowedChangeScope ?? [];
+  if (candidate.changed_files.some((file) => !allowedScope.some((scope) => fileInScope(file, scope)))) throw problem("CANDIDATE_SCOPE_EXCEEDED");
+}
+
+export function fileInScope(file, descriptor) {
+  const scope = descriptor.replace(/\s*（(?:当前|冻结基线中)不存在）\s*$/u, "");
+  if (scope.endsWith("/**")) return file === scope.slice(0, -3) || file.startsWith(scope.slice(0, -2));
+  if (scope.endsWith("/")) return file.startsWith(scope);
+  return file === scope;
 }
 
 export function candidateBinding(candidate) {

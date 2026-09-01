@@ -50,6 +50,8 @@ export class GitHubEvidenceVerifier {
     assertEqual(releaseManifest.git_commit_sha, candidate.candidate_commit, "RELEASE_COMMIT_MISMATCH");
     assertEqual(releaseManifest.git_tree_sha, candidate.tree, "RELEASE_TREE_MISMATCH");
     assertEqual(releaseManifest.evidence_index_hash, candidate.evidence_index_hash, "EVIDENCE_INDEX_HASH_MISMATCH");
+    const evidenceIndexBytes = extractUniqueEvidenceIndex(archive, MAX_MANIFEST_BYTES);
+    assertEqual(digest(evidenceIndexBytes), candidate.evidence_index_hash, "EVIDENCE_INDEX_CONTENT_HASH_MISMATCH");
 
     return {
       verified: true,
@@ -63,6 +65,7 @@ export class GitHubEvidenceVerifier {
       artifact_digest: artifact.digest,
       artifact_commit: releaseManifest.git_commit_sha,
       evidence_index_hash: releaseManifest.evidence_index_hash,
+      evidence_index_sha256: digest(evidenceIndexBytes),
       release_manifest_sha256: digest(releaseManifestBytes),
       checked_at: this.now().toISOString(),
     };
@@ -110,15 +113,35 @@ async function readResponseBytes(response, maximum) {
 function extractUniqueZipEntry(archive, expectedName, maximum) {
   const entries = zipEntries(archive).filter((entry) => entry.name === expectedName || entry.name.endsWith(`/${expectedName}`));
   if (entries.length !== 1) throw problem("RELEASE_MANIFEST_NOT_UNIQUE");
-  const entry = entries[0];
-  if (entry.uncompressedSize > maximum) throw problem("RELEASE_MANIFEST_TOO_LARGE");
+  return extractZipEntry(archive, entries[0], maximum, "RELEASE_MANIFEST_TOO_LARGE");
+}
+
+function extractUniqueEvidenceIndex(archive, maximum) {
+  const direct = zipEntries(archive).filter((entry) => entry.name === "EVIDENCE_INDEX.json" || entry.name.endsWith("/EVIDENCE_INDEX.json"));
+  if (direct.length > 1) throw problem("EVIDENCE_INDEX_NOT_UNIQUE");
+  if (direct.length === 1) return extractZipEntry(archive, direct[0], maximum, "EVIDENCE_INDEX_TOO_LARGE");
+
+  const matches = [];
+  for (const nestedEntry of zipEntries(archive).filter((entry) => entry.name.toLowerCase().endsWith(".zip"))) {
+    const nestedArchive = extractZipEntry(archive, nestedEntry, MAX_ARTIFACT_BYTES, "NESTED_ARTIFACT_TOO_LARGE");
+    const nestedEvidence = zipEntries(nestedArchive).filter((entry) => entry.name === "EVIDENCE_INDEX.json" || entry.name.endsWith("/EVIDENCE_INDEX.json"));
+    if (nestedEvidence.length > 1) throw problem("EVIDENCE_INDEX_NOT_UNIQUE");
+    if (nestedEvidence.length === 1) matches.push(extractZipEntry(nestedArchive, nestedEvidence[0], maximum, "EVIDENCE_INDEX_TOO_LARGE"));
+  }
+  if (matches.length !== 1) throw problem(matches.length ? "EVIDENCE_INDEX_NOT_UNIQUE" : "EVIDENCE_INDEX_MISSING");
+  return matches[0];
+}
+
+function extractZipEntry(archive, entry, maximum, sizeCode) {
+  if (entry.uncompressedSize > maximum) throw problem(sizeCode);
   if (archive.readUInt32LE(entry.localOffset) !== 0x04034b50) throw problem("ARTIFACT_ZIP_INVALID");
   const nameLength = archive.readUInt16LE(entry.localOffset + 26);
   const extraLength = archive.readUInt16LE(entry.localOffset + 28);
   const start = entry.localOffset + 30 + nameLength + extraLength;
   const compressed = archive.subarray(start, start + entry.compressedSize);
   const bytes = entry.compression === 0 ? compressed : entry.compression === 8 ? inflateRawSync(compressed) : null;
-  if (!bytes || bytes.length !== entry.uncompressedSize || bytes.length > maximum) throw problem("ARTIFACT_ZIP_INVALID");
+  if (!bytes || bytes.length !== entry.uncompressedSize) throw problem("ARTIFACT_ZIP_INVALID");
+  if (bytes.length > maximum) throw problem(sizeCode);
   return Buffer.from(bytes);
 }
 
