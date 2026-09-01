@@ -533,7 +533,12 @@ async function confirmAcceptedDraft(draft: LocalIssueDraft) {
 async function migrateStageALegacyDraft() {
     const legacyId = `FILMOS-ISSUE-${STAGE_A_BOOTSTRAP_UUID}`;
     const localDraftId = `local-draft-${STAGE_A_BOOTSTRAP_UUID}`;
-    if (await issueDraftStore.getItem(localDraftId)) return;
+    const current = await issueDraftStore.getItem<LocalIssueDraft>(localDraftId);
+    if (current) {
+        const recovered = stageAStoppedReadbackRecovery(current);
+        if (recovered !== current) await persistDraft(recovered);
+        return;
+    }
     const migrated = await issueDraftStore.iterate<LegacyIssueDraft | LocalIssueDraft | { format?: string }, LocalIssueDraft | undefined>((existing) => (
         stageALegacyDraftMigration(existing, legacyId)
     ));
@@ -562,6 +567,25 @@ export function stageALegacyDraftMigration(
         observedAt: existing.observedAt,
         delivery: "LOCAL_PENDING_REVIEW_BUS",
         retryCount: 0,
+    };
+}
+
+export function stageAStoppedReadbackRecovery(draft: LocalIssueDraft) {
+    const expectedLocalDraftId = `local-draft-${STAGE_A_BOOTSTRAP_UUID}`;
+    const expectedSubmissionId = `FILMOS-SUBMISSION-${STAGE_A_BOOTSTRAP_UUID}`;
+    if (draft.localDraftId !== expectedLocalDraftId
+        || draft.submissionId !== expectedSubmissionId
+        || draft.delivery !== "STOPPED"
+        || (draft.stoppedReason !== "READBACK_HASH_MISMATCH" && draft.lastErrorCode !== "READBACK_HASH_MISMATCH")
+        || !draft.canonicalIssueId
+        || !draft.captureHash
+        || !draft.receipt) return draft;
+    return {
+        ...draft,
+        delivery: "ACCEPTED_AWAITING_READBACK" as const,
+        retryCount: 0,
+        lastErrorCode: undefined,
+        stoppedReason: undefined,
     };
 }
 

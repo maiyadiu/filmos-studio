@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { inferIssueRoutingRisk } from "../src/film/governance/issue-lane";
-import { contextFromPathname, createLocalIssueDraft, currentDomainProjectIdFromContext, issueDraftProjectScopeError, issueDraftReplayMode, issueEvidenceFilesFromClipboard, pastedIssueUploadDescriptor, selectPastedIssueEvidence, stageALegacyDraftMigration } from "../src/film/governance/report-issue";
+import { contextFromPathname, createLocalIssueDraft, currentDomainProjectIdFromContext, issueDraftProjectScopeError, issueDraftReplayMode, issueEvidenceFilesFromClipboard, pastedIssueUploadDescriptor, selectPastedIssueEvidence, stageALegacyDraftMigration, stageAStoppedReadbackRecovery } from "../src/film/governance/report-issue";
 
 const build = {
     commit: "6ea93bfa08381264a1379fe938ade3a7513c7bba",
@@ -102,6 +102,40 @@ describe("usage issue intake", () => {
             delivery: "LOCAL_PENDING_REVIEW_BUS",
             retryCount: 0,
         });
+    });
+
+    test("reopens only the frozen Stage A draft stopped by the obsolete receipt hash contract", () => {
+        const draft = createLocalIssueDraft(
+            { occurred: "正式回执已保存但旧读回合同失败", expected: "升级后只读恢复确认", blocking: false },
+            { pathname: "/projects/ca40511be3ae12112101cc1de6059b95", submissionId: "FILMOS-SUBMISSION-b3274782-30a0-44a1-a05e-01730678da8b", now: "2026-09-01T16:16:00.955Z", build },
+        );
+        const stopped = {
+            ...draft,
+            canonicalIssueId: "FILMOS-ARCH-b3274782-30a0-44a1-a05e-01730678da8b",
+            captureHash: "0".repeat(64),
+            receipt: {
+                schema_version: "filmos.review-submission.receipt.v1",
+                submission_id: draft.submissionId,
+                formal_issue_id: "FILMOS-ARCH-b3274782-30a0-44a1-a05e-01730678da8b",
+                project_id: "ca40511be3ae12112101cc1de6059b95",
+                capture_hash: "0".repeat(64),
+                projection_content_hash: "1".repeat(64),
+                evidence_manifest_hash: "2".repeat(64),
+                receipt_hash: "3".repeat(64),
+                accepted_at: "2026-09-01T16:16:01.000Z",
+            },
+            delivery: "STOPPED",
+            retryCount: 1,
+            lastErrorCode: "READBACK_HASH_MISMATCH",
+            stoppedReason: "READBACK_HASH_MISMATCH",
+        };
+        expect(stageAStoppedReadbackRecovery(stopped)).toMatchObject({
+            delivery: "ACCEPTED_AWAITING_READBACK",
+            retryCount: 0,
+            lastErrorCode: undefined,
+            stoppedReason: undefined,
+        });
+        expect(stageAStoppedReadbackRecovery({ ...stopped, stoppedReason: "PROJECT_SCOPE_DENIED", lastErrorCode: "PROJECT_SCOPE_DENIED" })).toEqual({ ...stopped, stoppedReason: "PROJECT_SCOPE_DENIED", lastErrorCode: "PROJECT_SCOPE_DENIED" });
     });
 
     test("waits without submitting when no active project exists and fails closed after a project switch", () => {
