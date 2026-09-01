@@ -1052,6 +1052,50 @@ test("Stage A intake rejects the legacy one-shot endpoint and exposes a safe non
   } finally { await new Promise((resolve) => server.close(resolve)); store.close(); }
 });
 
+test("legacy Architecture history receives exactly one v2 Anchor without rewriting its prefix", () => {
+  const { service, store } = fixture();
+  const issue = service.createIssue({ issue_id: "FILMOS-ARCH-anchor", project_id: projectId, what_happened: "legacy architecture issue", expected_result: "v2 transition authority", location: "review bus", blocks_work: false, lane: "architecture" }, "user", new Date("2026-09-01T10:00:00.000Z"), { architectureProtocolVersion: null });
+  service.freezeEvidence(issue.issue_id, { source_commit: commit, items: architectureEvidence }, "codex", new Date("2026-09-01T10:01:00.000Z"));
+  const legacy = service.requireIssue(issue.issue_id);
+  const legacyEvents = store.events(issue.issue_id);
+  const legacyDocuments = legacyEvents.map((event) => JSON.stringify(event));
+  const migrationCommit = "b".repeat(40);
+
+  const anchored = service.anchorLegacyArchitecture(issue.issue_id, migrationCommit, new Date("2026-09-02T10:00:00.000Z"));
+
+  assert.equal(anchored.idempotent_replay, false);
+  assert.equal(anchored.issue.architecture_protocol_version, "filmos.architecture-protocol.v2");
+  assert.equal(anchored.issue.protocol_v2_anchor.legacy_projection_hash, legacy.content_hash);
+  assert.equal(anchored.issue.protocol_v2_anchor.legacy_entity_version, legacy.entity_version);
+  assert.equal(anchored.issue.protocol_v2_anchor.legacy_last_event_hash, legacyEvents.at(-1).event_hash);
+  assert.equal(anchored.issue.protocol_v2_anchor.migration_commit, migrationCommit);
+  assert.equal(anchored.verification.legacy_result, "LEGACY_HASH_CHAIN_VALID");
+  assert.equal(anchored.verification.v2_result, "V2_SEMANTIC_CHAIN_VALID_FROM_ANCHOR");
+  assert.equal(anchored.verification.full_history_semantic_pass, false);
+  assert.deepEqual(store.events(issue.issue_id).slice(0, legacyEvents.length).map((event) => JSON.stringify(event)), legacyDocuments);
+  assert.equal(store.events(issue.issue_id).filter((event) => event.event_type === "protocol.v2.anchored").length, 1);
+
+  const replay = service.anchorLegacyArchitecture(issue.issue_id, migrationCommit, new Date("2026-09-02T10:01:00.000Z"));
+  assert.equal(replay.idempotent_replay, true);
+  assert.equal(store.events(issue.issue_id).filter((event) => event.event_type === "protocol.v2.anchored").length, 1);
+  assert.throws(() => service.anchorLegacyArchitecture(issue.issue_id, "c".repeat(40)), /ARCHITECTURE_V2_ANCHOR_CONFLICT/);
+  store.close();
+});
+
+test("v2 Anchor fails closed when the legacy hash chain is invalid and is never added to a v2 Genesis issue", () => {
+  const { service, store } = fixture();
+  const legacy = service.createIssue({ issue_id: "FILMOS-ARCH-broken-anchor", project_id: projectId, what_happened: "legacy issue", expected_result: "valid chain", location: "review bus", blocks_work: false, lane: "architecture" }, "user", new Date(), { architectureProtocolVersion: null });
+  store.db.prepare("INSERT INTO review_events(event_id,issue_id,event_type,actor,payload_json,previous_hash,event_hash,created_at) VALUES(?,?,?,?,?,?,?,?)")
+    .run("review-event-forged", legacy.issue_id, "forged", "system", "{}", "wrong-previous-hash", "f".repeat(64), new Date().toISOString());
+  assert.throws(() => service.anchorLegacyArchitecture(legacy.issue_id, "b".repeat(40)), /LEGACY_HASH_CHAIN_INVALID/);
+  assert.equal(store.events(legacy.issue_id).filter((event) => event.event_type === "protocol.v2.anchored").length, 0);
+
+  const v2 = service.createIssue({ issue_id: "FILMOS-ARCH-v2-genesis", project_id: projectId, what_happened: "new issue", expected_result: "native v2", location: "review bus", blocks_work: false, lane: "architecture" });
+  assert.throws(() => service.anchorLegacyArchitecture(v2.issue_id, "b".repeat(40)), /ARCHITECTURE_LEGACY_ANCHOR_NOT_REQUIRED/);
+  assert.equal(store.events(v2.issue_id).filter((event) => event.event_type === "protocol.v2.anchored").length, 0);
+  store.close();
+});
+
 test("Stage A attachment staging is immutable and Finalize fails closed until every declared byte is verified", async () => {
   const { service, store } = fixture();
   const { server, baseURL, headers } = await startReviewServer(service, store);

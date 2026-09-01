@@ -22,6 +22,7 @@ import {
   respondArchitectureConsensus,
   startArchitectureImplementation as startArchitectureImplementationV2,
 } from "./architecture-review.mjs";
+import { anchorLegacyArchitectureIssue, verifyArchitectureProtocol } from "./architecture-anchor.mjs";
 import { ARCHITECTURE_STATES, CONSTITUTION_HASH, CONSTITUTION_VERSION, LATE_FINDING_TAXONOMY, MAIN_STATES, MAX_AUTOMATIC_ROUNDS, TASK_PACKAGE_HASH, assertFastScope, classifyLane } from "./contracts.mjs";
 import { evidenceManifest, redactEvidence } from "./redaction.mjs";
 
@@ -612,6 +613,14 @@ export class ReviewBusService {
     const value = { ...input, updated_at: now.toISOString() };
     return this.store.append({ issueId, projectId: current.project_id, lane: current.lane, eventType: "codex.coordination", actor, payload: value, now,
       mutate: (next) => { next.codex_coordination = value; return next; } });
+  }
+
+  anchorLegacyArchitecture(issueId, migrationCommit, now = new Date()) {
+    return anchorLegacyArchitectureIssue({ store: this.store, current: this.requireIssue(issueId), migrationCommit, now });
+  }
+
+  verifyArchitectureChain(issueId) {
+    return verifyArchitectureProtocol({ store: this.store, current: this.requireIssue(issueId) });
   }
 
   recordRuntimeObservation(issueId, runtimeInstanceId, now = new Date()) {
