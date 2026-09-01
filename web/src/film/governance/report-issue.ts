@@ -133,7 +133,7 @@ export type SubmissionReceipt = {
     accepted_at: string;
 };
 
-type LegacyIssueDraft = Omit<LocalIssueDraft, "format" | "localDraftId" | "submissionId" | "retryCount" | "delivery"> & {
+export type LegacyIssueDraft = Omit<LocalIssueDraft, "format" | "localDraftId" | "submissionId" | "retryCount" | "delivery"> & {
     format: "filmos.usage-issue-draft/v1";
     issueId: string;
     delivery: "LOCAL_PENDING_REVIEW_BUS" | "REVIEW_BUS_ACCEPTED";
@@ -219,8 +219,9 @@ function installNativeReviewIssueIntake() {
         const snapshot = draft.contextSnapshot ?? captureIssueContextSnapshot(draft.build);
         const projectId = boundProjectId(draft);
         const currentProjectId = currentDomainProjectId();
-        if (!projectId) throw new Error("PROJECT_SCOPE_REQUIRED");
-        if (currentProjectId && currentProjectId !== projectId) throw new Error("SUBMISSION_PROJECT_SCOPE_CONFLICT");
+        const projectScopeError = issueDraftProjectScopeError(projectId, currentProjectId);
+        if (projectScopeError || !projectId) throw new Error(projectScopeError ?? "PROJECT_SCOPE_REQUIRED");
+        const scopedProjectId = projectId;
         const attachmentManifest = await Promise.all(draft.attachments.map(async (item) => ({
             attachment_id: attachmentId(item.id),
             media_type: item.mediaType,
@@ -237,7 +238,7 @@ function installNativeReviewIssueIntake() {
         });
         const payload: Record<string, unknown> = {
             submission_id: draft.submissionId,
-            project_id: projectId,
+            project_id: scopedProjectId,
             what_happened: draft.occurred,
             expected_result: draft.expected,
             location: `${draft.context.surface}:${draft.context.pathname}`,
@@ -255,7 +256,7 @@ function installNativeReviewIssueIntake() {
         const staged = expectObject(await nativeRequest("reviewIssueRequest", payload));
         const captureHash = requireHash(staged.capture_hash, "REVIEW_BUS_INVALID_CAPTURE_HASH");
         if (staged.receipt) {
-            const recoveredReceipt = validateSubmissionReceipt(staged.receipt, draft.submissionId, projectId, captureHash);
+            const recoveredReceipt = validateSubmissionReceipt(staged.receipt, draft.submissionId, scopedProjectId, captureHash);
             const recovered = await persistDraft({
                 ...draft,
                 captureHash,
@@ -284,8 +285,8 @@ function installNativeReviewIssueIntake() {
             }, draft.submissionId);
         }
         current = await persistDraft({ ...current, delivery: "ATTACHMENTS_STAGED", lastDeliveryAt: new Date().toISOString() });
-        const finalized = expectObject(await nativeRequest("reviewIssueFinalizeRequest", { project_id: projectId, capture_hash: captureHash }, draft.submissionId));
-        const receipt = validateSubmissionReceipt(finalized.receipt, draft.submissionId, projectId, captureHash);
+        const finalized = expectObject(await nativeRequest("reviewIssueFinalizeRequest", { project_id: scopedProjectId, capture_hash: captureHash }, draft.submissionId));
+        const receipt = validateSubmissionReceipt(finalized.receipt, draft.submissionId, scopedProjectId, captureHash);
         current = await persistDraft({
             ...current,
             canonicalIssueId: receipt.formal_issue_id,
@@ -455,6 +456,15 @@ async function recordDeliveryFailure(draft: LocalIssueDraft, error: unknown) {
     const persisted = await issueDraftStore.getItem<LocalIssueDraft>(draft.localDraftId);
     const current = persisted && isLocalIssueDraft(persisted) ? persisted : draft;
     const code = safeErrorCode(error);
+    if (code === "PROJECT_CONTEXT_UNAVAILABLE") {
+        return persistDraft({
+            ...current,
+            lastErrorCode: code,
+            lastDeliveryAt: new Date().toISOString(),
+            delivery: current.delivery,
+            stoppedReason: undefined,
+        });
+    }
     const retryCount = current.retryCount + 1;
     const stop = !isRetryableDeliveryError(code) || retryCount >= 5;
     return persistDraft({
@@ -503,13 +513,23 @@ async function confirmAcceptedDraft(draft: LocalIssueDraft) {
 
 async function migrateStageALegacyDraft() {
     const legacyId = `FILMOS-ISSUE-${STAGE_A_BOOTSTRAP_UUID}`;
-    const existing = await issueDraftStore.getItem<LegacyIssueDraft | LocalIssueDraft>(legacyId);
-    if (!existing || existing.format !== "filmos.usage-issue-draft/v1") return;
     const localDraftId = `local-draft-${STAGE_A_BOOTSTRAP_UUID}`;
     if (await issueDraftStore.getItem(localDraftId)) return;
-    const migrated: LocalIssueDraft = {
+    const migrated = await issueDraftStore.iterate<LegacyIssueDraft | LocalIssueDraft | { format?: string }, LocalIssueDraft | undefined>((existing) => (
+        stageALegacyDraftMigration(existing, legacyId)
+    ));
+    if (!migrated) return;
+    await persistDraft(migrated);
+}
+
+export function stageALegacyDraftMigration(
+    existing: LegacyIssueDraft | LocalIssueDraft | { format?: string },
+    legacyId = `FILMOS-ISSUE-${STAGE_A_BOOTSTRAP_UUID}`,
+): LocalIssueDraft | undefined {
+    if (existing.format !== "filmos.usage-issue-draft/v1" || !("issueId" in existing) || existing.issueId !== legacyId) return undefined;
+    return {
         format: ISSUE_DRAFT_FORMAT,
-        localDraftId,
+        localDraftId: `local-draft-${STAGE_A_BOOTSTRAP_UUID}`,
         submissionId: `FILMOS-SUBMISSION-${STAGE_A_BOOTSTRAP_UUID}`,
         legacyLocalId: legacyId,
         state: existing.state,
@@ -524,7 +544,6 @@ async function migrateStageALegacyDraft() {
         delivery: "LOCAL_PENDING_REVIEW_BUS",
         retryCount: 0,
     };
-    await persistDraft(migrated);
 }
 
 function captureIssueContextSnapshot(build: BuildIdentity): IssueContextSnapshot {
@@ -577,6 +596,13 @@ function boundProjectId(draft: LocalIssueDraft) {
 function currentDomainProjectId() {
     const context = typeof window === "undefined" ? null : window.filmOSGetWorkbenchContext?.() ?? null;
     return context?.domainProjectId || context?.projectId || undefined;
+}
+
+export function issueDraftProjectScopeError(boundProject: string | undefined, currentProject: string | undefined) {
+    if (!boundProject) return "PROJECT_SCOPE_REQUIRED";
+    if (!currentProject) return "PROJECT_CONTEXT_UNAVAILABLE";
+    if (currentProject !== boundProject) return "SUBMISSION_PROJECT_SCOPE_CONFLICT";
+    return undefined;
 }
 
 function suggestedLane(risk: Record<string, boolean>) {
@@ -665,5 +691,6 @@ function blobBase64(blob: Blob) {
 if (typeof window !== "undefined") {
     window.setTimeout(() => { void replayPendingIssueDrafts(); }, 1_000);
     window.addEventListener("online", () => { void replayPendingIssueDrafts(); });
+    window.addEventListener("filmos:workbench-context", () => { void replayPendingIssueDrafts(); });
     window.setInterval(() => { void replayPendingIssueDrafts(); }, 30_000);
 }

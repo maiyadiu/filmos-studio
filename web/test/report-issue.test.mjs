@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { inferIssueRoutingRisk } from "../src/film/governance/issue-lane";
-import { contextFromPathname, createLocalIssueDraft, issueDraftReplayMode, issueEvidenceFilesFromClipboard, pastedIssueUploadDescriptor, selectPastedIssueEvidence } from "../src/film/governance/report-issue";
+import { contextFromPathname, createLocalIssueDraft, issueDraftProjectScopeError, issueDraftReplayMode, issueEvidenceFilesFromClipboard, pastedIssueUploadDescriptor, selectPastedIssueEvidence, stageALegacyDraftMigration } from "../src/film/governance/report-issue";
 
 const build = {
     commit: "6ea93bfa08381264a1379fe938ade3a7513c7bba",
@@ -70,6 +70,45 @@ describe("usage issue intake", () => {
         expect(issueDraftReplayMode({ ...draft, delivery: "ACCEPTED_AWAITING_READBACK", canonicalIssueId: "FILMOS-ARCH-b3274782-30a0-44a1-a05e-01730678da8b" })).toBe("READBACK_ONLY");
         expect(issueDraftReplayMode({ ...draft, delivery: "CONFIRMED" })).toBe("NONE");
         expect(issueDraftReplayMode({ ...draft, delivery: "STOPPED", stoppedReason: "PROJECT_SCOPE_DENIED" })).toBe("NONE");
+    });
+
+    test("migrates the frozen Stage A legacy observation without rewriting user evidence", () => {
+        const legacy = {
+            format: "filmos.usage-issue-draft/v1",
+            issueId: "FILMOS-ISSUE-b3274782-30a0-44a1-a05e-01730678da8b",
+            state: "OBSERVED_IN_USE",
+            occurred: "Review Bus 未收到原始正文",
+            expected: "原样保留正文、附件与时间戳",
+            blocking: false,
+            context: { pathname: "/canvas/piOqe5HoHcO6psj7oUduZ", surface: "canvas", projectId: "ca40511be3ae12112101cc1de6059b95", canvasId: "piOqe5HoHcO6psj7oUduZ" },
+            contextSnapshot: { appCommit: "8951d975", appTree: "52f2a685", buildId: "candidate-8951d975-52f2a685", projectId: "ca40511be3ae12112101cc1de6059b95", selectedNodeIds: [], recentAuditIds: [], recentErrorCodes: [], runtimeStatus: {}, providerStatus: {} },
+            build,
+            attachments: [{ id: "shot-1", name: "原始截图.png", mediaType: "image/png", size: 5, content: new Blob(["image"]) }],
+            observedAt: "2026-09-01T16:16:00.955Z",
+            delivery: "LOCAL_PENDING_REVIEW_BUS",
+        };
+        const migrated = stageALegacyDraftMigration(legacy);
+        expect(migrated).toMatchObject({
+            localDraftId: "local-draft-b3274782-30a0-44a1-a05e-01730678da8b",
+            submissionId: "FILMOS-SUBMISSION-b3274782-30a0-44a1-a05e-01730678da8b",
+            legacyLocalId: legacy.issueId,
+            occurred: legacy.occurred,
+            expected: legacy.expected,
+            blocking: false,
+            context: legacy.context,
+            contextSnapshot: legacy.contextSnapshot,
+            attachments: legacy.attachments,
+            observedAt: legacy.observedAt,
+            delivery: "LOCAL_PENDING_REVIEW_BUS",
+            retryCount: 0,
+        });
+    });
+
+    test("waits without submitting when no active project exists and fails closed after a project switch", () => {
+        expect(issueDraftProjectScopeError("project-1", undefined)).toBe("PROJECT_CONTEXT_UNAVAILABLE");
+        expect(issueDraftProjectScopeError("project-1", "project-2")).toBe("SUBMISSION_PROJECT_SCOPE_CONFLICT");
+        expect(issueDraftProjectScopeError("project-1", "project-1")).toBeUndefined();
+        expect(issueDraftProjectScopeError(undefined, "project-1")).toBe("PROJECT_SCOPE_REQUIRED");
     });
 
     test("pasted evidence accepts only bounded image/video bytes and respects remaining slots", () => {
