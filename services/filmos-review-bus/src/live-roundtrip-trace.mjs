@@ -5,11 +5,13 @@ export function buildLiveRoundtripTrace(issue, events, { eventChainVerified = fa
   const history = issue?.candidate_history ?? [];
   const findings = issue?.findings ?? [];
   const remoteReceipts = history.map((entry) => entry?.candidate?.github_remote_verification);
-  const chatgptEvents = events.filter((event) => event.actor === "chatgpt" && [
-    "assessment.chatgpt.submitted",
-    "consensus.responded",
-    "chatgpt.review_decision",
-  ].includes(event.event_type));
+  const chatgptAssessmentEvents = events.filter((event) => event.actor === "chatgpt" && event.event_type === "assessment.chatgpt.submitted");
+  const chatgptConsensusEvents = events.filter((event) => event.actor === "chatgpt" && event.event_type === "consensus.responded");
+  const chatgptReviewEvents = events.filter((event) => event.actor === "chatgpt" && event.event_type === "chatgpt.review_decision");
+  const expectedAssessments = assessmentRounds(issue).map((round) => round.assessment.content_hash);
+  const expectedConsensusResponses = assessmentRounds(issue).map((round) => round.consensus_response.content_hash);
+  const expectedReviewDecisions = issue?.decision_history ?? [];
+  const chatgptEvents = [...chatgptAssessmentEvents, ...chatgptConsensusEvents, ...chatgptReviewEvents];
 
   requireGate(issue?.state === "DUAL_APPROVED", "DUAL_APPROVED_REQUIRED", failures);
   requireGate(history.length === 2, "EXACTLY_TWO_CANDIDATES_REQUIRED", failures);
@@ -31,9 +33,11 @@ export function buildLiveRoundtripTrace(issue, events, { eventChainVerified = fa
   requireGate(Boolean(issue?.consensus_record?.contentHash), "CONSENSUS_RECORD_REQUIRED", failures);
   requireGate((issue?.runtime_recovery?.observed_start_ids ?? []).length >= 2, "RESTART_RECOVERY_REQUIRED", failures);
   requireGate(eventChainVerified === true, "EVENT_CHAIN_VERIFICATION_REQUIRED", failures);
-  requireGate(chatgptEvents.filter((event) => event.event_type === "assessment.chatgpt.submitted").length >= 1, "CHATGPT_ASSESSMENT_WRITEBACK_REQUIRED", failures);
-  requireGate(chatgptEvents.filter((event) => event.event_type === "consensus.responded").length >= 1, "CHATGPT_CONSENSUS_WRITEBACK_REQUIRED", failures);
-  requireGate(chatgptEvents.filter((event) => event.event_type === "chatgpt.review_decision").length === 2, "CHATGPT_A_B_REVIEW_WRITEBACK_REQUIRED", failures);
+  requireGate(assessmentRoundHistoryValid(issue), "ASSESSMENT_ROUND_HISTORY_INTEGRITY_REQUIRED", failures);
+  requireGate(expectedAssessments.length > 0 && exactProjectionEvents(issue.issue_id, chatgptAssessmentEvents, expectedAssessments, (event) => event.payload?.content_hash), "CHATGPT_ASSESSMENT_WRITEBACK_REQUIRED", failures);
+  requireGate(expectedConsensusResponses.length > 0 && exactProjectionEvents(issue.issue_id, chatgptConsensusEvents, expectedConsensusResponses, (event) => event.payload?.content_hash), "CHATGPT_CONSENSUS_WRITEBACK_REQUIRED", failures);
+  requireGate(exactProjectionEvents(issue.issue_id, chatgptReviewEvents, expectedReviewDecisions.map((decision) => decision.content_hash), (event) => event.payload?.decision?.content_hash)
+    && reviewDecisionsMatchCandidates(expectedReviewDecisions, history), "CHATGPT_A_B_REVIEW_WRITEBACK_REQUIRED", failures);
   requireGate(events.some((event) => event.event_type === "assessment.codex.submitted"), "CODEX_ASSESSMENT_REQUIRED", failures);
   requireGate(events.some((event) => event.event_type === "finding.codex_response"), "CODEX_FINDING_RESPONSE_EVENT_REQUIRED", failures);
   requireGate(events.some((event) => event.event_type === "verdict.codex" || (event.event_type === "candidate.approved" && event.actor === "codex")), "CODEX_VERDICT_EVENT_REQUIRED", failures);
@@ -58,9 +62,10 @@ export function buildLiveRoundtripTrace(issue, events, { eventChainVerified = fa
     event_count: events.length,
     chatgpt_user_gesture_writebacks: {
       exact_count: chatgptEvents.length,
-      assessment: chatgptEvents.filter((event) => event.event_type === "assessment.chatgpt.submitted").length,
-      consensus: chatgptEvents.filter((event) => event.event_type === "consensus.responded").length,
-      candidate_reviews: chatgptEvents.filter((event) => event.event_type === "chatgpt.review_decision").length,
+      assessment: chatgptAssessmentEvents.length,
+      consensus: chatgptConsensusEvents.length,
+      candidate_reviews: chatgptReviewEvents.length,
+      assessment_rounds: expectedAssessments.length,
     },
     codex_coordination: {
       status: issue.codex_coordination?.status ?? null,
@@ -107,6 +112,84 @@ function candidateReceipt(entry) {
     artifact_digest: candidate.artifact_digest,
     evidence_index_hash: candidate.evidence_index_hash,
     github_verification_receipt_hash: candidate.github_remote_verification.content_hash,
+  };
+}
+
+function assessmentRounds(issue) {
+  const rounds = (issue?.assessment_round_history ?? []).map((entry) => ({
+    round: entry.assessment_round,
+    assessment: entry.assessments?.chatgpt,
+    consensus_response: entry.consensus_responses?.find((response) => response.actor === "chatgpt"),
+  }));
+  if (issue?.assessments?.chatgpt || issue?.consensus_responses?.some((response) => response.actor === "chatgpt")) {
+    rounds.push({
+      round: issue.assessment_round ?? 1,
+      assessment: issue.assessments?.chatgpt,
+      consensus_response: issue.consensus_responses?.find((response) => response.actor === "chatgpt"),
+    });
+  }
+  return rounds;
+}
+
+function assessmentRoundHistoryValid(issue) {
+  let previousRound = 0;
+  for (const entry of issue?.assessment_round_history ?? []) {
+    const base = { ...entry };
+    delete base.content_hash;
+    if (!Number.isInteger(entry.assessment_round) || entry.assessment_round <= previousRound
+      || !/^[0-9a-f]{64}$/.test(entry.content_hash ?? "") || sha256(base) !== entry.content_hash
+      || !validAssessmentRound(entry.assessment_round, entry.assessments, entry.consensus_responses)) return false;
+    previousRound = entry.assessment_round;
+  }
+  const currentRound = issue?.assessment_round ?? 1;
+  return currentRound > previousRound && validAssessmentRound(currentRound, issue?.assessments, issue?.consensus_responses);
+}
+
+function validAssessmentRound(round, assessments, responses) {
+  const chatgptResponses = (responses ?? []).filter((response) => response.actor === "chatgpt");
+  return /^[0-9a-f]{64}$/.test(assessments?.chatgpt?.content_hash ?? "")
+    && assessments.chatgpt.assessment_round === round
+    && chatgptResponses.length === 1
+    && /^[0-9a-f]{64}$/.test(chatgptResponses[0].content_hash ?? "");
+}
+
+function exactProjectionEvents(issueId, events, expectedHashes, readHash) {
+  if (events.length !== expectedHashes.length || expectedHashes.length === 0) return false;
+  const actual = events.map((event) => event.issue_id === issueId ? readHash(event) : null);
+  if (actual.some((hash) => !/^[0-9a-f]{64}$/.test(hash ?? ""))) return false;
+  return actual.toSorted().join("\n") === expectedHashes.toSorted().join("\n");
+}
+
+function reviewDecisionsMatchCandidates(decisions, history) {
+  if (decisions.length !== 2 || history.length !== 2) return false;
+  return decisions.every((decision, index) => {
+    const candidate = history[index]?.candidate;
+    return decision?.purpose === "CHATGPT_REVIEW_DECISION"
+      && decision?.round === history[index]?.round
+      && sha256(decision?.candidate_binding) === sha256(candidateBinding(candidate));
+  });
+}
+
+function candidateBinding(candidate) {
+  return {
+    candidate_id: candidate?.candidate_id,
+    base_commit: candidate?.base_commit,
+    candidate_commit: candidate?.candidate_commit,
+    tree: candidate?.tree,
+    branch: candidate?.branch,
+    github_run: candidate?.github_run,
+    artifact_id: candidate?.artifact_id,
+    artifact_digest: candidate?.artifact_digest,
+    artifact_commit: candidate?.artifact_commit,
+    evidence_index_hash: candidate?.evidence_index_hash,
+    github_remote_verification: candidate?.github_remote_verification,
+    task_package_content_hash: candidate?.task_package_content_hash,
+    consensus_record_hash: candidate?.consensus_record_hash ?? null,
+    constitution_content_hash: candidate?.constitution_content_hash,
+    candidate_nonce: candidate?.candidate_nonce,
+    changed_files: candidate?.changed_files,
+    known_limitations: candidate?.known_limitations,
+    content_hash: candidate?.content_hash,
   };
 }
 
