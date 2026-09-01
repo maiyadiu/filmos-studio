@@ -93,7 +93,11 @@ export function createReviewBusHttp({ service, store, busToken, bridgeToken, con
               allowed_change_scope: capture.allowed_change_scope,
               screenshot_refs: [],
             };
-            const issue = service.createIssue(report, "user", now(), { submissionId, baseCommit: intakeBootstrap.base_commit });
+            const issue = service.createIssue(report, "user", now(), {
+              submissionId,
+              baseCommit: intakeBootstrap.base_commit,
+              architectureProtocolVersion: null,
+            });
             service.recordRuntimeObservation(issue.issue_id, runtimeInstanceId, now());
             const boundAttachments = bindAttachments(issue.issue_id);
             return service.freezeEvidence(issue.issue_id, {
@@ -127,6 +131,7 @@ export function createReviewBusHttp({ service, store, busToken, bridgeToken, con
         if (req.method === "POST" && action === "evidence/freeze") return send(res, 200, issueReceipt(service.freezeEvidence(issueId, body, "codex", now())));
         if (req.method === "POST" && action === "assessments/codex") return send(res, 200, issueReceipt(service.submitAssessment(issueId, "codex", body, now())));
         if (req.method === "POST" && action === "assessments/chatgpt") return send(res, 200, issueReceipt(service.submitAssessment(issueId, "chatgpt", body, now())));
+        if (req.method === "POST" && action === "architecture/assessments/begin") return send(res, 200, issueReceipt(service.beginArchitectureAssessments(issueId, "review-codex-coordinator", now())));
         if (req.method === "GET" && action === "assessments/blind") return send(res, 200, service.assessmentBlind(issueId, String(url.searchParams.get("viewer") ?? "")));
         if (req.method === "POST" && action === "consensus/responses/codex") return send(res, 200, issueReceipt(service.respondConsensus(issueId, "codex", body, now())));
         if (req.method === "POST" && action === "consensus/rounds/next") return send(res, 200, issueReceipt(service.startNextAssessmentRound(issueId, "codex", now())));
@@ -354,7 +359,17 @@ function authenticateBridge(req, legacyToken, store, now) {
 
 function requireProject(url) { const value = url.searchParams.get("project_id"); if (!value) throw problem("PROJECT_SCOPE_REQUIRED"); return value; }
 function readConsumer(req) { return req.headers["x-filmos-read-consumer"] === "chatgpt-mcp" ? "chatgpt-mcp" : null; }
-function issueReceipt(issue) { return { issue_id: issue.issue_id, lane: issue.lane, state: issue.state, content_hash: issue.content_hash, entity_version: issue.entity_version }; }
+function issueReceipt(issue) {
+  return {
+    issue_id: issue.issue_id,
+    lane: issue.lane,
+    state: issue.state,
+    content_hash: issue.content_hash,
+    entity_version: issue.entity_version,
+    ...(issue.operation_receipt ? { operation_receipt: issue.operation_receipt } : {}),
+    ...(typeof issue.idempotent_replay === "boolean" ? { idempotent_replay: issue.idempotent_replay } : {}),
+  };
+}
 function autoEvidenceItems({ report, evidenceItems, appBuildId, appTree, route, contextSnapshot, capturedAt }) {
   const automatic = [
     { kind: "reproduction", completeness_kind: "reproduction", local_only: true, captured_at: capturedAt, content: { what_happened: report.what_happened, expected_result: report.expected_result, blocks_work: report.blocks_work } },

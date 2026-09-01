@@ -97,6 +97,14 @@ function createFastIssue(service, suffix, scope = ["web/copy.ts"]) {
 
 const codexAssessment = { reproduced: true, root_cause: "host context is stale", call_chain: ["ui", "host"], files: ["web/agent.tsx"], minimal_change: ["refresh context"], regression_risk: "low", tests: ["host context test"], rollback: ["revert"] };
 const chatgptAssessment = { product_goal_fit: false, root_cause: "host context is stale", root_cause_explains_symptom: true, authority_risk: false, resolution_layer: "workflow", workflow_impact: "restores handoff", acceptance_gates: ["host ready"], scope_drift: false };
+const architectureDelta = { current_flow: "single route", current_blocker: "multi route missing", target_experience: "per task routes", must_preserve: ["Film Core authority"], may_change: ["policy adapter"], success_criteria: ["Pilot copy passes"] };
+const architectureOptions = [{ option: "A", kind: "local extension" }, { option: "B", kind: "structure evolution" }, { option: "C", kind: "core rewrite" }];
+const architectureEvidence = [
+  { kind: "reproduction", completeness_kind: "reproduction", content: { steps: ["open architecture issue"] } },
+  { kind: "runtime", completeness_kind: "runtime", content: { state: "ready" } },
+  { kind: "logs", completeness_kind: "logs", content: "architecture trace" },
+  { kind: "source", completeness_kind: "sourceMap", content: { file: "services/filmos-review-bus/src/service.mjs" } },
+];
 function candidate(overrides = {}) {
   const value = { candidate_id: "candidate-1", base_commit: commit, candidate_commit: "d".repeat(40), tree: "e".repeat(40), branch: "fix/example", github_run: { id: 123, head_sha: "d".repeat(40), conclusion: "success" }, artifact_id: "artifact-1", artifact_digest: `sha256:${"f".repeat(64)}`, artifact_commit: "d".repeat(40), evidence_index_hash: "a".repeat(64), task_package_content_hash: taskHash, constitution_content_hash: constitutionHash, candidate_nonce: "nonce-1234567890-abcdef", changed_files: ["web/agent.tsx"], known_limitations: [], ...overrides };
   const remote = { schema_version: "filmos.github-evidence-verification.v1", status: "VERIFIED", repository: "maiyadiu/filmos-studio", candidate_commit: value.candidate_commit, candidate_tree: value.tree, branch: value.branch, github_run_id: String(value.github_run.id), artifact_id: String(value.artifact_id), artifact_digest: value.artifact_digest, evidence_index_hash: value.evidence_index_hash, checks: { commit_exists: true, tree_matches: true, branch_exists: true, run_exists: true, run_head_matches: true, run_success: true, artifact_exists: true, artifact_run_matches: true, artifact_digest_matches: true, evidence_index_present: true, evidence_index_hash_matches: true }, verified_at: "2026-08-31T12:00:00.000Z" };
@@ -717,14 +725,64 @@ test("Fast lane rejects core, provider, budget, and authority changes", () => {
   store.close();
 });
 
-test("Architecture Lane requires Requirement Delta and a complete A/B/C option matrix", () => {
+test("Architecture v2 freezes Requirement and Evidence idempotently without a second domain event", () => {
   const { service, store } = fixture();
   const issue = service.createIssue({ issue_id: "FILMOS-ARCH-options", project_id: projectId, what_happened: "current structure blocks real work", expected_result: "evolvable structure", location: "project workflow", blocks_work: true, lane: "architecture" });
-  assert.throws(() => service.setArchitectureOptions(issue.issue_id, []), /REQUIREMENT_DELTA_REQUIRED/);
-  service.freezeRequirementDelta(issue.issue_id, { current_flow: "single route", current_blocker: "multi route missing", target_experience: "per task routes", must_preserve: ["Film Core authority"], may_change: ["policy adapter"], success_criteria: ["Pilot copy passes"] });
-  assert.throws(() => service.setArchitectureOptions(issue.issue_id, [{ option: "A" }, { option: "B" }]), /ARCHITECTURE_OPTIONS_A_B_C_REQUIRED/);
-  const value = service.setArchitectureOptions(issue.issue_id, [{ option: "A", kind: "local extension" }, { option: "B", kind: "structure evolution" }, { option: "C", kind: "core rewrite" }]);
-  assert.equal(value.state, "OPTION_COMPARISON");
+  const frozen = service.freezeRequirementDelta(issue.issue_id, architectureDelta, "user", new Date("2026-09-02T00:00:00.000Z"));
+  const eventCount = store.events(issue.issue_id).length;
+  const replay = service.freezeRequirementDelta(issue.issue_id, architectureDelta, "user", new Date("2026-09-02T00:10:00.000Z"));
+  assert.equal(replay.idempotent_replay, true);
+  assert.equal(replay.operation_receipt.receipt_hash, frozen.operation_receipt.receipt_hash);
+  assert.equal(replay.entity_version, frozen.entity_version);
+  assert.equal(store.events(issue.issue_id).length, eventCount);
+  assert.throws(() => service.freezeRequirementDelta(issue.issue_id, { ...architectureDelta, target_experience: "different" }), /REQUIREMENT_DELTA_FROZEN_CONFLICT/);
+
+  const evidence = service.freezeEvidence(issue.issue_id, { source_commit: commit, items: architectureEvidence }, "codex", new Date("2026-09-02T00:20:00.000Z"));
+  const evidenceEventCount = store.events(issue.issue_id).length;
+  const evidenceReplay = service.freezeEvidence(issue.issue_id, { source_commit: commit, items: architectureEvidence }, "codex", new Date("2026-09-02T00:30:00.000Z"));
+  assert.equal(evidenceReplay.idempotent_replay, true);
+  assert.equal(evidenceReplay.operation_receipt.receipt_hash, evidence.operation_receipt.receipt_hash);
+  assert.equal(evidenceReplay.entity_version, evidence.entity_version);
+  assert.equal(store.events(issue.issue_id).length, evidenceEventCount);
+  assert.throws(() => service.freezeEvidence(issue.issue_id, { source_commit: commit, items: [...architectureEvidence, { kind: "extra", completeness_kind: "attachment", content: "drift" }] }), /EVIDENCE_FROZEN_CONFLICT/);
+  assert.equal(store.verifyEventChain(issue.issue_id), true);
+  store.close();
+});
+
+test("Architecture v2 seals blind Assessments and only the Owner can accept one frozen A/B/C option", () => {
+  const { service, store } = fixture();
+  const issue = service.createIssue({ issue_id: "FILMOS-ARCH-owner-gate", project_id: projectId, what_happened: "current structure blocks real work", expected_result: "evolvable structure", location: "project workflow", blocks_work: true, lane: "architecture" });
+  service.freezeRequirementDelta(issue.issue_id, architectureDelta);
+  service.freezeEvidence(issue.issue_id, { source_commit: commit, items: architectureEvidence });
+  service.beginArchitectureAssessments(issue.issue_id);
+  service.submitAssessment(issue.issue_id, "codex", codexAssessment);
+  const blind = service.assessmentBlind(issue.issue_id, "chatgpt");
+  assert.equal(blind.counterpart_assessment, null);
+  assert.equal(blind.counterpart_sealed, true);
+  const paired = service.submitAssessment(issue.issue_id, "chatgpt", chatgptAssessment);
+  assert.equal(paired.state, "OPTION_COMPARISON");
+  assert.equal(service.assessmentBlind(issue.issue_id, "chatgpt").pair_complete, true);
+  assert.throws(() => service.setArchitectureOptions(issue.issue_id, architectureOptions.slice(0, 2)), /ARCHITECTURE_OPTIONS_A_B_C_REQUIRED/);
+  const ownerGate = service.setArchitectureOptions(issue.issue_id, architectureOptions);
+  assert.equal(ownerGate.state, "OWNER_DECISION_REQUIRED");
+  const optionsEvents = store.events(issue.issue_id).length;
+  const optionsReplay = service.setArchitectureOptions(issue.issue_id, architectureOptions);
+  assert.equal(optionsReplay.idempotent_replay, true);
+  assert.equal(store.events(issue.issue_id).length, optionsEvents);
+  const selected = ownerGate.architecture_options.options.find((item) => item.option === "B");
+  assert.throws(() => service.acceptArchitectureOption(issue.issue_id, { option: "B", option_content_hash: selected.content_hash, user_authorized: true }, "codex"), /OWNER_AUTHORIZATION_REQUIRED/);
+  assert.throws(() => service.acceptArchitectureOption(issue.issue_id, { option: "B", option_content_hash: "0".repeat(64), user_authorized: true }), /ARCHITECTURE_OPTION_HASH_MISMATCH/);
+  const accepted = service.acceptArchitectureOption(issue.issue_id, { option: "B", option_content_hash: selected.content_hash, user_authorized: true });
+  assert.equal(accepted.state, "ARCHITECTURE_OPTION_ACCEPTED");
+  const acceptEventCount = store.events(issue.issue_id).length;
+  const acceptReplay = service.acceptArchitectureOption(issue.issue_id, { option: "B", option_content_hash: selected.content_hash, user_authorized: true });
+  assert.equal(acceptReplay.idempotent_replay, true);
+  assert.equal(store.events(issue.issue_id).length, acceptEventCount);
+  for (const event of store.events(issue.issue_id)) {
+    assert.equal(typeof event.payload.transition?.transition_contract_hash, "string");
+    assert.match(event.payload.transition?.post_projection_hash ?? "", /^[0-9a-f]{64}$/);
+  }
+  assert.equal(store.verifyEventChain(issue.issue_id), true);
   store.close();
 });
 

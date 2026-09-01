@@ -1,6 +1,20 @@
 import { randomUUID } from "node:crypto";
 
 import { exactObject, problem, sha256 } from "./canonical.mjs";
+import {
+  ARCHITECTURE_PROTOCOL_VERSION,
+  ARCHITECTURE_STATE_MAPPING_VERSION,
+  ARCHITECTURE_TRANSITION_CONTRACT_HASH,
+} from "./architecture-protocol.mjs";
+import {
+  acceptArchitectureOption as acceptArchitectureOptionV2,
+  beginArchitectureAssessments as beginArchitectureAssessmentsV2,
+  freezeArchitectureEvidence,
+  freezeArchitectureOptions,
+  freezeRequirementDelta as freezeRequirementDeltaV2,
+  isArchitectureV2,
+  submitArchitectureAssessment as submitArchitectureAssessmentV2,
+} from "./architecture-workflow.mjs";
 import { ARCHITECTURE_STATES, CONSTITUTION_HASH, CONSTITUTION_VERSION, LATE_FINDING_TAXONOMY, MAIN_STATES, MAX_AUTOMATIC_ROUNDS, TASK_PACKAGE_HASH, assertFastScope, classifyLane } from "./contracts.mjs";
 import { evidenceManifest, redactEvidence } from "./redaction.mjs";
 
@@ -16,7 +30,7 @@ export class ReviewBusService {
     if (this.taskPackageContentHash !== TASK_PACKAGE_HASH) throw problem("TASK_PACKAGE_HASH_MISMATCH");
   }
 
-  createIssue(report, actor = "user", now = new Date(), { submissionId = null, baseCommit = null } = {}) {
+  createIssue(report, actor = "user", now = new Date(), { submissionId = null, baseCommit = null, architectureProtocolVersion = ARCHITECTURE_PROTOCOL_VERSION } = {}) {
     requireFields(report, ["project_id", "what_happened", "expected_result", "location", "blocks_work"]);
     if (submissionId !== null && !/^FILMOS-SUBMISSION-[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(submissionId)) throw problem("INVALID_SUBMISSION_ID");
     const lane = report.lane ?? classifyLane(report.risk ?? {});
@@ -29,9 +43,11 @@ export class ReviewBusService {
     if (!expectedPattern.test(issueId)) throw problem("INVALID_ISSUE_ID");
     if (this.store.get(issueId)) throw problem("ISSUE_ALREADY_EXISTS");
     const initialState = lane === "architecture" ? "REQUIREMENT_OBSERVED" : "OBSERVED_IN_USE";
+    const useArchitectureV2 = lane === "architecture" && architectureProtocolVersion === ARCHITECTURE_PROTOCOL_VERSION;
     return this.store.append({
       issueId, projectId: report.project_id, lane, eventType: "issue.observed", actor,
       payload: { report }, now,
+      transitionAction: useArchitectureV2 ? "protocol.v2.genesis" : null,
       mutate: () => ({
         schema_version: "filmos.review-session.v1", issue_id: issueId, submission_id: submissionId, project_id: report.project_id,
         lane, state: initialState, report, base_commit: baseCommit ?? this.baseCommit,
@@ -43,6 +59,12 @@ export class ReviewBusService {
         codex_coordination: { status: "IDLE", session_id: null, last_action: null, last_error_code: null },
         runtime_recovery: { observed_start_ids: [] },
         verdicts: { codex: null, chatgpt: null, machine: null }, next_pilot_allowed: false,
+        ...(useArchitectureV2 ? {
+          architecture_protocol_version: ARCHITECTURE_PROTOCOL_VERSION,
+          architecture_state_mapping_version: ARCHITECTURE_STATE_MAPPING_VERSION,
+          architecture_transition_contract_hash: ARCHITECTURE_TRANSITION_CONTRACT_HASH,
+          freeze_receipts: {},
+        } : {}),
       }),
     });
   }
@@ -50,6 +72,7 @@ export class ReviewBusService {
   freezeEvidence(issueId, input, actor = "codex", now = new Date()) {
     const current = this.requireIssue(issueId);
     if (!Array.isArray(input.items) || input.items.length === 0) throw problem("EVIDENCE_REQUIRED");
+    if (isArchitectureV2(current)) return freezeArchitectureEvidence({ store: this.store, current, input, actor, now });
     const items = input.items.map((item) => ({ ...item, captured_at: item.captured_at ?? now.toISOString() }));
     const redactedItems = redactEvidence(items);
     const manifest = evidenceManifest({ issueId, sourceCommit: input.source_commit ?? current.base_commit, items, frozenAt: now.toISOString() });
@@ -123,7 +146,7 @@ export class ReviewBusService {
         redacted_alias: metadata.redacted_alias,
       },
     };
-    if (!current.issue_task_package) {
+    if (!current.issue_task_package && !(isArchitectureV2(current) && current.evidence?.manifest)) {
       const frozen = this.freezeEvidence(issueId, { source_commit: current.evidence?.manifest?.sourceCommit ?? current.base_commit, items: [...withoutCurrent, item] }, actor, now);
       return { issue: frozen, attachment: safeAttachmentMetadata(metadata) };
     }
@@ -161,6 +184,7 @@ export class ReviewBusService {
   submitAssessment(issueId, actor, assessment, now = new Date()) {
     if (!['codex', 'chatgpt'].includes(actor)) throw problem("INVALID_ASSESSOR");
     const current = this.requireIssue(issueId);
+    if (isArchitectureV2(current)) return this.submitArchitectureAssessment(issueId, actor, assessment, now);
     if (!current.evidence?.manifest || current.state === "EVIDENCE_REQUIRED") throw problem("EVIDENCE_REQUIRED");
     if (current.assessments[actor]) throw problem("ASSESSMENT_IMMUTABLE");
     requireFields(assessment, actor === "codex"
@@ -195,6 +219,16 @@ export class ReviewBusService {
         return next;
       },
     });
+  }
+
+  beginArchitectureAssessments(issueId, actor = "review-codex-coordinator", now = new Date()) {
+    const current = this.requireIssue(issueId);
+    return beginArchitectureAssessmentsV2({ store: this.store, current, actor, now });
+  }
+
+  submitArchitectureAssessment(issueId, actor, assessment, now = new Date()) {
+    const current = this.requireIssue(issueId);
+    return submitArchitectureAssessmentV2({ store: this.store, current, actor, assessment, now });
   }
 
   assessmentBlind(issueId, viewer) {
@@ -285,30 +319,17 @@ export class ReviewBusService {
 
   freezeRequirementDelta(issueId, delta, actor = "user", now = new Date()) {
     const current = this.requireIssue(issueId);
-    if (current.lane !== "architecture") throw problem("ARCHITECTURE_LANE_REQUIRED");
-    requireFields(delta, ["current_flow", "current_blocker", "target_experience", "must_preserve", "may_change", "success_criteria"]);
-    return this.store.append({ issueId, projectId: current.project_id, lane: current.lane, eventType: "architecture.requirement_delta.frozen", actor, payload: delta, now,
-      mutate: (next) => { next.requirement_delta = { ...delta, content_hash: sha256(delta) }; next.state = "REQUIREMENT_DELTA_FROZEN"; return next; } });
+    return freezeRequirementDeltaV2({ store: this.store, current, delta, actor, now });
   }
 
   setArchitectureOptions(issueId, options, actor = "codex", now = new Date()) {
     const current = this.requireIssue(issueId);
-    if (current.lane !== "architecture" || !current.requirement_delta) throw problem("REQUIREMENT_DELTA_REQUIRED");
-    const names = new Set((options ?? []).map((item) => item.option));
-    if (!["A", "B", "C"].every((name) => names.has(name))) throw problem("ARCHITECTURE_OPTIONS_A_B_C_REQUIRED");
-    return this.store.append({ issueId, projectId: current.project_id, lane: current.lane, eventType: "architecture.options.recorded", actor, payload: { options }, now,
-      mutate: (next) => { next.architecture_options = options; next.state = "OPTION_COMPARISON"; return next; } });
+    return freezeArchitectureOptions({ store: this.store, current, options, actor, now });
   }
 
   acceptArchitectureOption(issueId, input, actor = "user", now = new Date()) {
     const current = this.requireIssue(issueId);
-    if (current.lane !== "architecture" || !current.architecture_options) throw problem("ARCHITECTURE_OPTIONS_REQUIRED");
-    exactObject(input, ["option", "user_authorized"]);
-    if (input.user_authorized !== true) throw problem("OWNER_AUTHORIZATION_REQUIRED");
-    const selected = current.architecture_options.find((item) => item.option === input.option);
-    if (!selected) throw problem("ARCHITECTURE_OPTION_NOT_FOUND");
-    return this.store.append({ issueId, projectId: current.project_id, lane: current.lane, eventType: "architecture.option.accepted", actor, payload: input, now,
-      mutate: (next) => { next.accepted_architecture_option = selected; next.state = "ARCHITECTURE_CHANGE_APPROVED"; return next; } });
+    return acceptArchitectureOptionV2({ store: this.store, current, input, actor, now });
   }
 
   submitCandidate(issueId, candidate, actor = "codex", now = new Date()) {

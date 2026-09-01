@@ -6,6 +6,7 @@ import { dirname, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
 import { canonicalJson, sha256, problem } from "./canonical.mjs";
+import { ARCHITECTURE_PROTOCOL_VERSION, architectureTransitionPayload } from "./architecture-protocol.mjs";
 import { ATTACHMENT_RECEIPT_SCHEMA, RECEIPT_SCHEMA } from "./intake-contract.mjs";
 
 export class ReviewBusStore {
@@ -337,7 +338,7 @@ export class ReviewBusStore {
       .all(issueId, consumer).map((row) => ({ ...row }));
   }
 
-  append({ issueId, eventType, actor, payload, projectId, lane, mutate, revokeCandidate = null, now = new Date() }) {
+  append({ issueId, eventType, actor, payload, projectId, lane, mutate, revokeCandidate = null, transitionAction = null, now = new Date() }) {
     const ownsTransaction = !this.db.isTransaction;
     if (ownsTransaction) this.db.exec("BEGIN IMMEDIATE");
     try {
@@ -345,17 +346,29 @@ export class ReviewBusStore {
       const previous = this.db.prepare("SELECT event_hash FROM review_events WHERE issue_id = ? ORDER BY sequence DESC LIMIT 1").get(issueId);
       const createdAt = now.toISOString();
       const eventId = `review-event-${randomUUID()}`;
-      const eventBase = { event_id: eventId, issue_id: issueId, event_type: eventType, actor, payload, previous_hash: previous?.event_hash ?? null, created_at: createdAt };
-      const eventHash = sha256(eventBase);
-      const next = mutate(structuredClone(current), { eventId, eventHash, createdAt });
+      const next = mutate(structuredClone(current), { eventId, eventHash: null, createdAt });
       if (!next || next.issue_id !== issueId) throw problem("INVALID_PROJECTION");
       next.entity_version = (current?.entity_version ?? 0) + 1;
       next.updated_at = createdAt;
+      const isV2Architecture = next.lane === "architecture"
+        && (next.architecture_protocol_version === ARCHITECTURE_PROTOCOL_VERSION
+          || current?.architecture_protocol_version === ARCHITECTURE_PROTOCOL_VERSION);
+      let eventPayload = payload;
+      if (isV2Architecture) {
+        const action = transitionAction ?? (current && current.state === next.state ? "operational" : null);
+        if (!action) throw problem("ARCHITECTURE_TRANSITION_ACTION_REQUIRED");
+        eventPayload = {
+          ...payload,
+          transition: architectureTransitionPayload({ current, next, action, actor }),
+        };
+      }
       const documentForHash = structuredClone(next);
       delete documentForHash.content_hash;
       next.content_hash = sha256(documentForHash);
+      const eventBase = { event_id: eventId, issue_id: issueId, event_type: eventType, actor, payload: eventPayload, previous_hash: previous?.event_hash ?? null, created_at: createdAt };
+      const eventHash = sha256(eventBase);
       this.db.prepare("INSERT INTO review_events(event_id,issue_id,event_type,actor,payload_json,previous_hash,event_hash,created_at) VALUES(?,?,?,?,?,?,?,?)")
-        .run(eventId, issueId, eventType, actor, canonicalJson(payload), previous?.event_hash ?? null, eventHash, createdAt);
+        .run(eventId, issueId, eventType, actor, canonicalJson(eventPayload), previous?.event_hash ?? null, eventHash, createdAt);
       this.db.prepare(`INSERT INTO review_projections(issue_id,project_id,state,lane,entity_version,document_json,content_hash,updated_at)
         VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(issue_id) DO UPDATE SET project_id=excluded.project_id,state=excluded.state,lane=excluded.lane,entity_version=excluded.entity_version,document_json=excluded.document_json,content_hash=excluded.content_hash,updated_at=excluded.updated_at`)
         .run(issueId, projectId ?? next.project_id, next.state, lane ?? next.lane, next.entity_version, canonicalJson(next), next.content_hash, createdAt);
