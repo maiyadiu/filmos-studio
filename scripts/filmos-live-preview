@@ -10,6 +10,8 @@ state_root="$runtime_root/state"
 backend_pid_file="$pid_root/backend.pid"
 web_pid_file="$pid_root/web.pid"
 fingerprint_file="$state_root/source-fingerprint"
+backend_label="com.filmos.studio.live-preview.backend"
+web_label="com.filmos.studio.live-preview.web"
 backend_url="http://127.0.0.1:8080/api/health"
 web_url="http://127.0.0.1:3000"
 
@@ -52,33 +54,35 @@ pid_value() {
     if [ -f "$file" ]; then sed -n '1p' "$file"; fi
 }
 
-managed_pid_alive() {
-    pid=$1
-    expected_cwd=$2
-    if [ -z "$pid" ] || ! kill -0 "$pid" 2>/dev/null; then return 1; fi
-    actual_cwd=$(/usr/sbin/lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -1)
-    [ "$actual_cwd" = "$expected_cwd" ]
+job_pid() {
+    label=$1
+    job=$(/bin/launchctl print "gui/$UID/$label" 2>/dev/null || true)
+    if ! printf '%s\n' "$job" | /usr/bin/grep -q 'state = running'; then return; fi
+    printf '%s\n' "$job" | sed -n 's/^[[:space:]]*pid = \([0-9][0-9]*\)$/\1/p' | head -1
 }
 
-terminate_tree() {
-    pid=$1
-    for child in $(/usr/bin/pgrep -P "$pid" 2>/dev/null || true); do terminate_tree "$child"; done
-    kill -TERM "$pid" 2>/dev/null || true
+job_alive() {
+    [ -n "$(job_pid "$1")" ]
 }
 
 stop_service() {
-    pid_file=$1
-    expected_cwd=$2
-    pid=$(pid_value "$pid_file")
-    if managed_pid_alive "$pid" "$expected_cwd"; then
-        terminate_tree "$pid"
-        attempts=0
-        while [ "$attempts" -lt 40 ] && kill -0 "$pid" 2>/dev/null; do
-            sleep 0.1
-            attempts=$((attempts + 1))
-        done
-    fi
+    label=$1
+    pid_file=$2
+    /bin/launchctl remove "$label" 2>/dev/null || true
+    attempts=0
+    while [ "$attempts" -lt 40 ] && /bin/launchctl print "gui/$UID/$label" >/dev/null 2>&1; do
+        sleep 0.1
+        attempts=$((attempts + 1))
+    done
     rm -f "$pid_file"
+}
+
+submit_service() {
+    label=$1
+    log_file=$2
+    internal_command=$3
+    /bin/launchctl remove "$label" 2>/dev/null || true
+    /bin/launchctl submit -l "$label" -o "$log_file" -e "$log_file" -- "$0" "$internal_command"
 }
 
 assert_port_free() {
@@ -117,10 +121,10 @@ source_fingerprint() {
 print_status() {
     commit=$(git -C "$source_root" rev-parse HEAD 2>/dev/null || echo unknown)
     tree=$(git -C "$source_root" rev-parse HEAD^{tree} 2>/dev/null || echo unknown)
-    backend_pid=$(pid_value "$backend_pid_file")
-    web_pid=$(pid_value "$web_pid_file")
-    if managed_pid_alive "$backend_pid" "$source_root/backend"; then backend_state=running; else backend_state=stopped; fi
-    if managed_pid_alive "$web_pid" "$source_root/web"; then web_state=running; else web_state=stopped; fi
+    backend_pid=$(job_pid "$backend_label")
+    web_pid=$(job_pid "$web_label")
+    if job_alive "$backend_label"; then backend_state=running; else backend_state=stopped; fi
+    if job_alive "$web_label"; then web_state=running; else web_state=stopped; fi
     echo "FILMOS_LIVE_PREVIEW source=$source_root"
     echo "FILMOS_LIVE_PREVIEW commit=$commit tree=$tree"
     echo "FILMOS_LIVE_PREVIEW backend=$backend_state pid=${backend_pid:-none} web=$web_state pid=${web_pid:-none}"
@@ -132,33 +136,25 @@ start_preview() {
     current_fingerprint=$(source_fingerprint)
     previous_fingerprint=""
     if [ -f "$fingerprint_file" ]; then previous_fingerprint=$(sed -n '1p' "$fingerprint_file"); fi
-    backend_pid=$(pid_value "$backend_pid_file")
-    web_pid=$(pid_value "$web_pid_file")
+    backend_pid=$(job_pid "$backend_label")
+    web_pid=$(job_pid "$web_label")
 
     if [ "$current_fingerprint" != "$previous_fingerprint" ]; then
-        stop_service "$web_pid_file" "$source_root/web"
-        stop_service "$backend_pid_file" "$source_root/backend"
+        stop_service "$web_label" "$web_pid_file"
+        stop_service "$backend_label" "$backend_pid_file"
         backend_pid=""
         web_pid=""
     fi
 
-    if ! managed_pid_alive "$backend_pid" "$source_root/backend"; then
+    if ! job_alive "$backend_label"; then
         rm -f "$backend_pid_file"
         assert_port_free 8080 "FilmOS Backend"
-        go_bin=$(find_tool go /opt/homebrew/bin/go)
-        (
-            cd "$source_root/backend"
-            exec env \
-                CANVAS_BACKEND_ADDR=127.0.0.1:8080 \
-                CANVAS_BACKEND_DATA_DIR="$source_root/.local/project-workbench-live-preview" \
-                CANVAS_CORS_ORIGINS=http://127.0.0.1:3000,http://localhost:3000 \
-                "$go_bin" run ./cmd/server
-        ) >>"$log_root/backend.log" 2>&1 &
-        echo "$!" > "$backend_pid_file"
+        submit_service "$backend_label" "$log_root/backend.log" serve-backend
         wait_for_url "$backend_url" "FilmOS Backend" "$log_root/backend.log"
+        job_pid "$backend_label" > "$backend_pid_file"
     fi
 
-    if ! managed_pid_alive "$web_pid" "$source_root/web"; then
+    if ! job_alive "$web_label"; then
         rm -f "$web_pid_file"
         assert_port_free 3000 "FilmOS Web"
         vite_bin="$source_root/web/node_modules/.bin/vite"
@@ -166,12 +162,9 @@ start_preview() {
             echo "缺少 Web 依赖；请先在 $source_root/web 运行 bun install" >&2
             exit 1
         fi
-        (
-            cd "$source_root/web"
-            exec env VITE_API_PROXY_TARGET=http://127.0.0.1:8080 "$vite_bin" --host 127.0.0.1 --port 3000
-        ) >>"$log_root/web.log" 2>&1 &
-        echo "$!" > "$web_pid_file"
+        submit_service "$web_label" "$log_root/web.log" serve-web
         wait_for_url "$web_url" "FilmOS Web" "$log_root/web.log"
+        job_pid "$web_label" > "$web_pid_file"
     fi
 
     fingerprint_tmp="$fingerprint_file.tmp.$$"
@@ -187,17 +180,32 @@ start_preview() {
 require_source_root
 command_name=${1:-start}
 case "$command_name" in
+    serve-backend)
+        go_bin=$(find_tool go /opt/homebrew/bin/go)
+        cd "$source_root/backend"
+        exec env \
+            CANVAS_BACKEND_ADDR=127.0.0.1:8080 \
+            CANVAS_BACKEND_DATA_DIR="$source_root/.local/project-workbench-live-preview" \
+            CANVAS_CORS_ORIGINS=http://127.0.0.1:3000,http://localhost:3000 \
+            "$go_bin" run ./cmd/server
+        ;;
+    serve-web)
+        node_bin=$(find_tool node /opt/homebrew/bin/node)
+        vite_bin="$source_root/web/node_modules/.bin/vite"
+        cd "$source_root/web"
+        exec env VITE_API_PROXY_TARGET=http://127.0.0.1:8080 "$node_bin" "$vite_bin" --host 127.0.0.1 --port 3000
+        ;;
     start) start_preview ;;
     restart)
-        stop_service "$web_pid_file" "$source_root/web"
-        stop_service "$backend_pid_file" "$source_root/backend"
+        stop_service "$web_label" "$web_pid_file"
+        stop_service "$backend_label" "$backend_pid_file"
         rm -f "$fingerprint_file"
         start_preview
         ;;
     status) print_status ;;
     stop)
-        stop_service "$web_pid_file" "$source_root/web"
-        stop_service "$backend_pid_file" "$source_root/backend"
+        stop_service "$web_label" "$web_pid_file"
+        stop_service "$backend_label" "$backend_pid_file"
         print_status
         ;;
     *) usage; exit 2 ;;
