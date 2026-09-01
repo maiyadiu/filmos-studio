@@ -17,7 +17,14 @@ source_fingerprint_script="$script_dir/source-fingerprint"
 bun_executable=$(command -v bun || true)
 go_executable=$(command -v go || true)
 acceptance_python="$workspace_root/.local/acceptance-venv/bin/python"
-if [ -x "$acceptance_python" ]; then
+python_override=${FILMOS_DESKTOP_PYTHON_EXECUTABLE:-}
+if [ -n "$python_override" ]; then
+    case "$python_override" in
+        /*) ;;
+        *) echo "FILMOS_DESKTOP_PYTHON_EXECUTABLE must be an absolute path" >&2; exit 2 ;;
+    esac
+    python_executable=$python_override
+elif [ -x "$acceptance_python" ]; then
     python_executable="$acceptance_python"
 else
     python_executable=$(command -v python3 || true)
@@ -67,8 +74,8 @@ if [ -z "$go_executable" ] || [ ! -x "$go_executable" ]; then
     echo "go is required to bundle the internal backend" >&2
     exit 1
 fi
-if [ -z "$python_executable" ] || [ ! -x "$python_executable" ] || ! "$python_executable" -c 'import PyInstaller' >/dev/null 2>&1; then
-    echo "Python with PyInstaller is required to bundle Film Core" >&2
+if [ -z "$python_executable" ] || [ ! -x "$python_executable" ] || ! "$python_executable" -c 'import PyInstaller, fastapi, pydantic, uvicorn' >/dev/null 2>&1; then
+    echo "Film Core bundling requires one Python with PyInstaller, FastAPI, Pydantic, and Uvicorn" >&2
     exit 1
 fi
 if [ ! -f "$workspace_root/web/node_modules/vite/bin/vite.js" ]; then

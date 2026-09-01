@@ -131,6 +131,50 @@ fi
 smoke=$(FILMOS_DESKTOP_SMOKE_CHECK=1 "$binary")
 test "$smoke" = '{"application":"FilmOS Studio","services_started":false,"smoke_check":true}'
 
+# A Mach-O helper can still be unusable when PyInstaller silently skips a
+# missing runtime dependency. Launch the packaged Film Core on an ephemeral
+# loopback port and require its real health contract before accepting the app.
+film_core_smoke_root=$(mktemp -d "${TMPDIR:-/tmp}/filmos-film-core-smoke.XXXXXX")
+film_core_smoke_stdout="$film_core_smoke_root/stdout.log"
+film_core_smoke_stderr="$film_core_smoke_root/stderr.log"
+film_core_smoke_port=$(/usr/bin/python3 -c 'import socket; server=socket.socket(); server.bind(("127.0.0.1", 0)); print(server.getsockname()[1]); server.close()')
+film_core_smoke_pid=
+cleanup_film_core_smoke() {
+    if [ -n "$film_core_smoke_pid" ] && kill -0 "$film_core_smoke_pid" 2>/dev/null; then
+        kill -TERM "$film_core_smoke_pid" 2>/dev/null || true
+        wait "$film_core_smoke_pid" 2>/dev/null || true
+    fi
+    find "$film_core_smoke_root" -type f -delete 2>/dev/null || true
+    find "$film_core_smoke_root" -depth -type d -empty -delete 2>/dev/null || true
+}
+trap cleanup_film_core_smoke EXIT HUP INT TERM
+FILMOS_CORE_DB_PATH="$film_core_smoke_root/film-core.sqlite" \
+FILMOS_CORE_HOST=127.0.0.1 \
+FILMOS_CORE_PORT="$film_core_smoke_port" \
+    "$film_core" >"$film_core_smoke_stdout" 2>"$film_core_smoke_stderr" &
+film_core_smoke_pid=$!
+film_core_smoke_ready=false
+film_core_smoke_attempts=0
+while [ "$film_core_smoke_attempts" -lt 60 ]; do
+    if ! kill -0 "$film_core_smoke_pid" 2>/dev/null; then break; fi
+    film_core_health=$(/usr/bin/curl -sS --max-time 1 "http://127.0.0.1:$film_core_smoke_port/health" 2>/dev/null || true)
+    case "$film_core_health" in
+        *'"ok":true'*'"service":"filmos-film-core"'*) film_core_smoke_ready=true; break ;;
+    esac
+    sleep 0.25
+    film_core_smoke_attempts=$((film_core_smoke_attempts + 1))
+done
+if [ "$film_core_smoke_ready" != true ]; then
+    echo "packaged Film Core failed its real loopback health check" >&2
+    tail -n 40 "$film_core_smoke_stderr" >&2 || true
+    exit 1
+fi
+kill -TERM "$film_core_smoke_pid" 2>/dev/null || true
+wait "$film_core_smoke_pid" 2>/dev/null || true
+film_core_smoke_pid=
+cleanup_film_core_smoke
+trap - EXIT HUP INT TERM
+
 bundle_hash=$(
     cd "$bundle"
     find Contents/Info.plist Contents/MacOS Contents/Helpers Contents/Resources -type f -exec shasum -a 256 {} + \
@@ -138,4 +182,4 @@ bundle_hash=$(
         | shasum -a 256 \
         | awk '{print $1}'
 )
-printf 'UNSIGNED_APP_VERIFIED bundle_hash=%s services_started=false\n' "$bundle_hash"
+printf 'UNSIGNED_APP_VERIFIED bundle_hash=%s services_started=false film_core_helper_ready=true\n' "$bundle_hash"

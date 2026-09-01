@@ -52,6 +52,20 @@ def main() -> None:
     for helper in ("FilmOSFilmCore", "FilmOSChatGPTMCP", "FilmOSChatGPTGrant", "tunnel-client", "cloudflared"):
         if helper not in build_script:
             raise RuntimeError(f"desktop bundle is missing ChatGPT helper contract: {helper}")
+    for marker in (
+        "FILMOS_DESKTOP_PYTHON_EXECUTABLE",
+        "import PyInstaller, fastapi, pydantic, uvicorn",
+        "Film Core bundling requires one Python",
+    ):
+        if marker not in build_script:
+            raise RuntimeError(f"desktop Film Core build dependency gate is missing: {marker}")
+    for marker in (
+        "packaged Film Core failed its real loopback health check",
+        '"service":"filmos-film-core"',
+        "film_core_helper_ready=true",
+    ):
+        if marker not in bundle_verifier:
+            raise RuntimeError(f"desktop Film Core packaged-helper gate is missing: {marker}")
     contract_build = build_script.find("npm run build:contracts")
     mcp_compile = build_script.find("bun_executable\" build --compile src/server.ts")
     if contract_build < 0 or mcp_compile < 0 or contract_build > mcp_compile:
