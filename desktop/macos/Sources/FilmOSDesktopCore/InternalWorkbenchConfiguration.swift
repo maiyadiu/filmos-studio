@@ -1,7 +1,7 @@
 import Foundation
 
 public struct InternalWorkbenchConfiguration: Equatable, Sendable {
-    public static let currentSchemaVersion = 3
+    public static let currentSchemaVersion = 4
     public static let agentFeatureFlagIDs = [
         "film.agent_native_brain_selector",
         "film.agent_generic_runtime",
@@ -26,6 +26,9 @@ public struct InternalWorkbenchConfiguration: Equatable, Sendable {
     public let agentFeatureFlags: [String: Bool]
     public let agentFeatureFlagsHash: String
     public let sourceCommit: String
+    public let sourceTree: String
+    public let sourceFingerprintSHA256: String
+    public let sourceRepository: String
     public let releaseChannel: String
     public let buildID: String
     public let externalPaidSubmitEnabled: Bool
@@ -65,6 +68,9 @@ public struct InternalWorkbenchConfiguration: Equatable, Sendable {
         guard payload.agentFeatureFlags.values.allSatisfy({ $0 == expectedValue }),
               payload.agentFeatureFlagsHash.range(of: "^[a-f0-9]{64}$", options: .regularExpression) != nil,
               payload.sourceCommit.range(of: "^[a-f0-9]{40,64}$", options: .regularExpression) != nil,
+              payload.sourceTree.range(of: "^[a-f0-9]{40,64}$", options: .regularExpression) != nil,
+              payload.sourceFingerprintSHA256.range(of: "^[a-f0-9]{64}$", options: .regularExpression) != nil,
+              payload.sourceRepository == "maiyadiu/filmos-studio",
               payload.buildID.range(of: "^[A-Za-z0-9._-]{1,160}$", options: .regularExpression) != nil,
               ["development", "candidate", "pilot", "stable"].contains(payload.releaseChannel),
               payload.releaseChannel != "pilot" || payload.externalPaidSubmitEnabled == false,
@@ -87,6 +93,9 @@ public struct InternalWorkbenchConfiguration: Equatable, Sendable {
             agentFeatureFlags: payload.agentFeatureFlags,
             agentFeatureFlagsHash: payload.agentFeatureFlagsHash,
             sourceCommit: payload.sourceCommit,
+            sourceTree: payload.sourceTree,
+            sourceFingerprintSHA256: payload.sourceFingerprintSHA256,
+            sourceRepository: payload.sourceRepository,
             releaseChannel: payload.releaseChannel,
             buildID: payload.buildID,
             externalPaidSubmitEnabled: payload.externalPaidSubmitEnabled
@@ -110,6 +119,9 @@ public struct InternalWorkbenchConfiguration: Equatable, Sendable {
         let agentFeatureFlags: [String: Bool]
         let agentFeatureFlagsHash: String
         let sourceCommit: String
+        let sourceTree: String
+        let sourceFingerprintSHA256: String
+        let sourceRepository: String
         let releaseChannel: String
         let buildID: String
         let externalPaidSubmitEnabled: Bool
@@ -127,6 +139,9 @@ public struct InternalWorkbenchConfiguration: Equatable, Sendable {
             case agentFeatureFlags = "agent_feature_flags"
             case agentFeatureFlagsHash = "agent_feature_flags_hash"
             case sourceCommit = "source_commit"
+            case sourceTree = "source_tree"
+            case sourceFingerprintSHA256 = "source_fingerprint_sha256"
+            case sourceRepository = "source_repository"
             case releaseChannel = "release_channel"
             case buildID = "build_id"
             case externalPaidSubmitEnabled = "external_paid_submit_enabled"

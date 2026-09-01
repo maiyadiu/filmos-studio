@@ -5,11 +5,6 @@ import Testing
 
 struct ReviewBusRuntimeContractTests {
     @Test
-    func candidateGovernanceBaseDoesNotDriftWithAppRebuilds() {
-        #expect(ReviewBusRuntimeContract.fixedBaseCommit == "ecfc79a9b9f7e91cdfd558747fdc5d2b62e1700a")
-    }
-
-    @Test
     func pilotBusinessRootStillUsesTheSingleGovernanceRoot() {
         let pilotRuntimeRoot = URL(fileURLWithPath: "/Users/example/Library/Application Support/FilmOS Studio Pilot", isDirectory: true)
         let reviewRoot = ReviewBusRuntimeContract.canonicalDirectory(applicationRuntimeRoot: pilotRuntimeRoot)
@@ -23,6 +18,17 @@ struct ReviewBusRuntimeContractTests {
         let worktrees = ReviewBusRuntimeContract.reviewWorktreeDirectory(applicationRuntimeRoot: pilotRuntimeRoot)
         #expect(repository.path == "/Users/example/Library/Application Support/FilmOS Studio/DeveloperRepository/filmos-studio")
         #expect(worktrees.path == "/Users/example/Library/Application Support/FilmOS Studio/review-bus/worktrees")
+    }
+
+    @Test
+    func reviewBusReceivesOnlyBundleIdentityAndDeveloperRepositoryLocators() {
+        let resources = URL(fileURLWithPath: "/Applications/FilmOS Studio.app/Contents/Resources", isDirectory: true)
+        let reviewRoot = URL(fileURLWithPath: "/Users/example/Library/Application Support/FilmOS Studio/review-bus", isDirectory: true)
+        let environment = ReviewBusRuntimeContract.installedSourceIdentityEnvironment(bundleResources: resources, reviewBusDirectory: reviewRoot)
+        #expect(environment["FILMOS_INSTALLED_SOURCE_IDENTITY_PATH"] == "/Applications/FilmOS Studio.app/Contents/Resources/SourceIdentity.json")
+        #expect(environment["FILMOS_INSTALLED_INTERNAL_RUNTIME_PATH"] == "/Applications/FilmOS Studio.app/Contents/Resources/InternalRuntime.json")
+        #expect(environment["FILMOS_REVIEW_DEVELOPER_REPOSITORY_LOCATOR"] == "/Users/example/Library/Application Support/FilmOS Studio/review-bus/developer-repository.json")
+        #expect(environment["FILMOS_REVIEW_BASE_COMMIT"] == nil)
     }
 
     @Test

@@ -13,11 +13,6 @@ public enum ReviewBusRuntimeContract {
         "architecture_gap", "requires_schema_change", "requires_authority_change",
         "data_loss", "security", "cost", "provider_submit", "migration", "core_state",
     ])
-    // The governance task packet freezes this base independently from the
-    // packaged App's source commit. Candidate A and B must remain descendants
-    // of the same review base across App rebuilds.
-    public static let fixedBaseCommit = "ecfc79a9b9f7e91cdfd558747fdc5d2b62e1700a"
-
     public static func canonicalDirectory(applicationRuntimeRoot: URL) -> URL {
         applicationRuntimeRoot
             .deletingLastPathComponent()
@@ -35,6 +30,17 @@ public enum ReviewBusRuntimeContract {
     public static func reviewWorktreeDirectory(applicationRuntimeRoot: URL) -> URL {
         canonicalDirectory(applicationRuntimeRoot: applicationRuntimeRoot)
             .appendingPathComponent("worktrees", isDirectory: true)
+    }
+
+    public static func installedSourceIdentityEnvironment(
+        bundleResources: URL,
+        reviewBusDirectory: URL
+    ) -> [String: String] {
+        [
+            "FILMOS_INSTALLED_SOURCE_IDENTITY_PATH": bundleResources.appendingPathComponent("SourceIdentity.json").path,
+            "FILMOS_INSTALLED_INTERNAL_RUNTIME_PATH": bundleResources.appendingPathComponent("InternalRuntime.json").path,
+            "FILMOS_REVIEW_DEVELOPER_REPOSITORY_LOCATOR": reviewBusDirectory.appendingPathComponent("developer-repository.json").path,
+        ]
     }
 
     public static func chatGPTReadEnvironment(

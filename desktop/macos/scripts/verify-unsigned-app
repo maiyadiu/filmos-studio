@@ -36,13 +36,16 @@ runtime_lacks() {
     ! /usr/bin/plutil -extract "$1" raw -o - "$runtime" >/dev/null 2>&1
 }
 
-test "$(runtime_value schema_version)" = "3"
+test "$(runtime_value schema_version)" = "4"
 expected_support_name=${FILMOS_EXPECTED_APPLICATION_SUPPORT_DIRECTORY_NAME:-FilmOS Studio}
 test "$(runtime_value application_support_directory_name)" = "$expected_support_name"
 test "$(runtime_value backend_data_directory_name)" = "WorkbenchData"
 case "$(runtime_value release_channel)" in development|candidate|pilot|stable) ;; *) exit 1 ;; esac
 test -n "$(runtime_value build_id)"
 printf '%s\n' "$(runtime_value source_commit)" | grep -Eq '^[0-9a-f]{40,64}$'
+printf '%s\n' "$(runtime_value source_tree)" | grep -Eq '^[0-9a-f]{40,64}$'
+printf '%s\n' "$(runtime_value source_fingerprint_sha256)" | grep -Eq '^[0-9a-f]{64}$'
+test "$(runtime_value source_repository)" = "maiyadiu/filmos-studio"
 case "$(runtime_value review_bus_health_url)" in http://127.0.0.1:*/healthz) ;; *) exit 1 ;; esac
 case "$(runtime_value review_bus_issue_url)" in http://127.0.0.1:*/v1/issues) ;; *) exit 1 ;; esac
 case "$(runtime_value external_paid_submit_enabled)" in true|false) ;; *) exit 1 ;; esac
@@ -96,6 +99,10 @@ test "$(/usr/bin/plutil -extract git_tree_sha raw -o - "$source_identity")" = "$
 test "$(/usr/bin/plutil -extract build_id raw -o - "$source_identity")" = "$(runtime_value build_id)"
 test "$(/usr/bin/plutil -extract release_channel raw -o - "$source_identity")" = "$(runtime_value release_channel)"
 test "$(/usr/bin/plutil -extract external_paid_submit_enabled raw -o - "$source_identity")" = "$(runtime_value external_paid_submit_enabled)"
+test "$(/usr/bin/plutil -extract repository raw -o - "$source_identity")" = "$(runtime_value source_repository)"
+test "$(/usr/bin/plutil -extract git_commit_sha raw -o - "$source_identity")" = "$(runtime_value source_commit)"
+test "$(/usr/bin/plutil -extract git_tree_sha raw -o - "$source_identity")" = "$(runtime_value source_tree)"
+test "$embedded_source_fingerprint" = "$(runtime_value source_fingerprint_sha256)"
 file "$binary" | grep -q 'Mach-O'
 file "$backend" | grep -q 'Mach-O'
 file "$web_server" | grep -q 'Mach-O'

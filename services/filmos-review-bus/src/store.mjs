@@ -7,7 +7,7 @@ import { DatabaseSync } from "node:sqlite";
 
 import { canonicalJson, sha256, problem } from "./canonical.mjs";
 import { ARCHITECTURE_PROTOCOL_VERSION, architectureTransitionPayload } from "./architecture-protocol.mjs";
-import { ATTACHMENT_RECEIPT_SCHEMA, RECEIPT_SCHEMA } from "./intake-contract.mjs";
+import { ATTACHMENT_RECEIPT_SCHEMA, INSTALLED_SUBMISSION_SOURCE_SCHEMA, RECEIPT_SCHEMA } from "./intake-contract.mjs";
 
 export class ReviewBusStore {
   constructor(path = ":memory:") {
@@ -174,6 +174,11 @@ export class ReviewBusStore {
     return rows.map((row) => JSON.parse(row.document_json)).filter((item) => !states || states.includes(item.state));
   }
 
+  stageABootstrapAvailableFor(submissionId) {
+    if (this.db.prepare("SELECT 1 AS present FROM review_submissions WHERE submission_id = ?").get(submissionId)) return true;
+    return !this.db.prepare("SELECT 1 AS present FROM review_bootstrap_receipts LIMIT 1").get();
+  }
+
   stageSubmission({ submissionId, projectId, captureSchema, captureHash, capturePayload, now = new Date() }) {
     this.db.exec("BEGIN IMMEDIATE");
     try {
@@ -254,7 +259,7 @@ export class ReviewBusStore {
     return { receipt: attachmentReceipt(row), idempotent_replay: false };
   }
 
-  finalizeSubmission({ submissionId, projectId, captureHash, bootstrap, now = new Date() }, apply) {
+  finalizeSubmission({ submissionId, projectId, captureHash, bootstrap = null, now = new Date() }, apply) {
     this.db.exec("BEGIN IMMEDIATE");
     try {
       const submission = this.db.prepare("SELECT * FROM review_submissions WHERE submission_id = ?").get(submissionId);
@@ -268,9 +273,24 @@ export class ReviewBusStore {
         return { receipt, idempotent_replay: true };
       }
       if (submission.state !== "STAGED") throw problem("FINALIZE_ALREADY_BOUND_CONFLICT");
-      if (bootstrap.submission_id !== submissionId) throw problem("INSTALLED_SOURCE_IDENTITY_UNAVAILABLE", "INSTALLED_SOURCE_IDENTITY_UNAVAILABLE", 503);
-
       const capture = JSON.parse(submission.capture_json);
+      const sourceIdentity = capture.source_identity;
+      const bootstrapMode = sourceIdentity?.schema_version === "filmos.source-identity.bootstrap.v1";
+      if (bootstrapMode) {
+        if (!bootstrap || bootstrap.submission_id !== submissionId
+          || sourceIdentity.build_id !== bootstrap.build_id
+          || sourceIdentity.commit !== bootstrap.base_commit
+          || sourceIdentity.tree !== bootstrap.base_tree) {
+          throw problem("INSTALLED_SOURCE_IDENTITY_MISMATCH", "INSTALLED_SOURCE_IDENTITY_MISMATCH", 503);
+        }
+      } else {
+        const { content_hash: sourceIdentityHash, ...sourceIdentityBase } = sourceIdentity ?? {};
+        if (sourceIdentity?.schema_version !== INSTALLED_SUBMISSION_SOURCE_SCHEMA
+          || !/^[a-f0-9]{64}$/.test(String(sourceIdentityHash ?? ""))
+          || sha256(sourceIdentityBase) !== sourceIdentityHash) {
+          throw problem("INSTALLED_SOURCE_IDENTITY_MISMATCH", "INSTALLED_SOURCE_IDENTITY_MISMATCH", 503);
+        }
+      }
       const manifest = capture.attachment_manifest ?? [];
       const attachments = this.db.prepare("SELECT * FROM review_staged_attachments WHERE submission_id = ? ORDER BY attachment_id").all(submissionId);
       if (attachments.length !== manifest.length) throw problem("SUBMISSION_ATTACHMENT_MISSING", "SUBMISSION_ATTACHMENT_MISSING", 422);
@@ -282,21 +302,24 @@ export class ReviewBusStore {
       }
 
       const consumedAt = now.toISOString();
-      const bootstrapBase = {
-        schema_version: "filmos.source-identity.bootstrap-receipt.v1",
-        submission_id: submissionId,
-        base_commit: bootstrap.base_commit,
-        base_tree: bootstrap.base_tree,
-        build_id: bootstrap.build_id,
-        migration_version: bootstrap.migration_version,
-        consumed: true,
-        consumed_at: consumedAt,
-      };
-      const bootstrapReceipt = { ...bootstrapBase, receipt_hash: sha256(bootstrapBase) };
-      const priorBootstrap = this.db.prepare("SELECT submission_id FROM review_bootstrap_receipts LIMIT 1").get();
-      if (priorBootstrap) throw problem("BOOTSTRAP_ALREADY_CONSUMED");
-      this.db.prepare(`INSERT INTO review_bootstrap_receipts(bootstrap_key,submission_id,migration_version,receipt_json,receipt_hash,consumed_at)
-        VALUES(?,?,?,?,?,?)`).run("stage-a-fixed-source-identity", submissionId, bootstrap.migration_version, canonicalJson(bootstrapReceipt), bootstrapReceipt.receipt_hash, consumedAt);
+      let bootstrapReceipt = null;
+      if (bootstrapMode) {
+        const bootstrapBase = {
+          schema_version: "filmos.source-identity.bootstrap-receipt.v1",
+          submission_id: submissionId,
+          base_commit: bootstrap.base_commit,
+          base_tree: bootstrap.base_tree,
+          build_id: bootstrap.build_id,
+          migration_version: bootstrap.migration_version,
+          consumed: true,
+          consumed_at: consumedAt,
+        };
+        bootstrapReceipt = { ...bootstrapBase, receipt_hash: sha256(bootstrapBase) };
+        const priorBootstrap = this.db.prepare("SELECT submission_id FROM review_bootstrap_receipts LIMIT 1").get();
+        if (priorBootstrap) throw problem("BOOTSTRAP_ALREADY_CONSUMED");
+        this.db.prepare(`INSERT INTO review_bootstrap_receipts(bootstrap_key,submission_id,migration_version,receipt_json,receipt_hash,consumed_at)
+          VALUES(?,?,?,?,?,?)`).run("stage-a-fixed-source-identity", submissionId, bootstrap.migration_version, canonicalJson(bootstrapReceipt), bootstrapReceipt.receipt_hash, consumedAt);
+      }
 
       const bindAttachments = (issueId) => {
         for (const staged of attachments) {
@@ -308,7 +331,7 @@ export class ReviewBusStore {
         }
         return this.listAttachments(issueId);
       };
-      const issue = apply({ capture, attachments: attachments.map(stagedAttachmentRow), bindAttachments, bootstrapReceipt });
+      const issue = apply({ capture, attachments: attachments.map(stagedAttachmentRow), bindAttachments, bootstrapReceipt, sourceIdentity });
       if (!issue || issue.project_id !== projectId || !issue.issue_id) throw problem("INVALID_SUBMISSION_PROJECTION");
       const receiptBase = {
         schema_version: RECEIPT_SCHEMA,
@@ -322,7 +345,9 @@ export class ReviewBusStore {
         projection_content_hash: issue.content_hash,
         evidence_manifest_hash: issue.evidence?.manifest?.contentHash ?? issue.evidence?.manifest?.content_hash ?? null,
         entity_version: issue.entity_version,
-        bootstrap_receipt_hash: bootstrapReceipt.receipt_hash,
+        ...(bootstrapReceipt
+          ? { bootstrap_receipt_hash: bootstrapReceipt.receipt_hash }
+          : { source_identity_hash: sourceIdentity.content_hash }),
         accepted_at: consumedAt,
       };
       const receipt = { ...receiptBase, receipt_hash: sha256(receiptBase) };

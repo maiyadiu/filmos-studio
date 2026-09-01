@@ -9,7 +9,8 @@ import { fileURLToPath } from "node:url";
 import { exactObject, problem, safeEqual, sha256 } from "./canonical.mjs";
 import { CONSTITUTION_HASH, CONSTITUTION_VERSION } from "./contracts.mjs";
 import { GitHubEvidenceVerifier } from "./github-evidence-verifier.mjs";
-import { normalizeStageASubmission, normalizeStagedAttachment, STAGE_A_BOOTSTRAP, SUBMISSION_SCHEMA } from "./intake-contract.mjs";
+import { normalizeInstalledSubmission, normalizeStageASubmission, normalizeStagedAttachment, STAGE_A_BOOTSTRAP, SUBMISSION_SCHEMA } from "./intake-contract.mjs";
+import { loadInstalledSourceIdentity } from "./installed-source-identity.mjs";
 import { buildLiveRoundtripTrace } from "./live-roundtrip-trace.mjs";
 import { ReviewBusService } from "./service.mjs";
 import { ReviewBusStore } from "./store.mjs";
@@ -20,9 +21,14 @@ const challengeRate = new Map();
 const pairingRate = new Map();
 const BRIDGE_PURPOSES = new Set(["CHATGPT_ASSESSMENT", "CHATGPT_CONSENSUS_DECISION", "CHATGPT_REVIEW_DECISION", "CHATGPT_VERDICT", "FINDING_DECISION"]);
 
-export function createReviewBusHttp({ service, store, busToken, bridgeToken, constitution, githubVerifier = new GitHubEvidenceVerifier(), listenPort = DEFAULT_PORT, now = () => new Date(), runtimeInstanceId = `review-runtime-${randomUUID()}`, intakeBootstrap = STAGE_A_BOOTSTRAP }) {
+export function createReviewBusHttp({ service, store, busToken, bridgeToken, constitution, githubVerifier = new GitHubEvidenceVerifier(), listenPort = DEFAULT_PORT, now = () => new Date(), runtimeInstanceId = `review-runtime-${randomUUID()}`, intakeBootstrap = STAGE_A_BOOTSTRAP, installedSourceIdentity = null, sourceIdentityErrorCode = "INSTALLED_SOURCE_IDENTITY_UNAVAILABLE" }) {
   if (String(busToken).length < 24 || String(bridgeToken).length < 24) throw new Error("Review Bus local tokens must contain at least 24 characters");
-  for (const issue of store.list()) service.recordRuntimeObservation(issue.issue_id, runtimeInstanceId, now());
+  for (const initial of store.list()) {
+    if (installedSourceIdentity && initial.lane === "architecture" && initial.architecture_protocol_version !== "filmos.architecture-protocol.v2") {
+      service.anchorLegacyArchitecture(initial.issue_id, installedSourceIdentity.commit, now());
+    }
+    service.recordRuntimeObservation(initial.issue_id, runtimeInstanceId, now());
+  }
   const server = createServer(async (req, res) => {
     setSecurityHeaders(res);
     try {
@@ -30,7 +36,20 @@ export function createReviewBusHttp({ service, store, busToken, bridgeToken, con
       applyCors(req, res);
       const url = new URL(req.url ?? "/", "http://127.0.0.1");
       if (req.method === "OPTIONS") return preflight(req, res);
-      if (req.method === "GET" && url.pathname === "/healthz") return send(res, 200, { ok: true, service: "filmos-review-bus", schema_version: "filmos.review-bus.v1", storage: "sqlite-wal", port: listenPort, constitution_version: CONSTITUTION_VERSION, constitution_content_hash: CONSTITUTION_HASH, external_network_requests: 0, openai_model_api_calls: 0 });
+      if (req.method === "GET" && url.pathname === "/healthz") return send(res, 200, {
+        ok: true,
+        service: "filmos-review-bus",
+        schema_version: "filmos.review-bus.v1",
+        storage: "sqlite-wal",
+        port: listenPort,
+        constitution_version: CONSTITUTION_VERSION,
+        constitution_content_hash: CONSTITUTION_HASH,
+        installed_source_identity: installedSourceIdentity
+          ? { status: "VERIFIED", build_id: installedSourceIdentity.build_id, commit: installedSourceIdentity.commit, tree: installedSourceIdentity.tree, content_hash: installedSourceIdentity.content_hash }
+          : { status: "UNAVAILABLE", error_code: sourceIdentityErrorCode },
+        external_network_requests: 0,
+        openai_model_api_calls: 0,
+      });
 
       const bridgeRoute = url.pathname.startsWith("/v1/bridge/");
       const pairingRoute = req.method === "POST" && url.pathname === "/v1/bridge/pair";
@@ -42,7 +61,12 @@ export function createReviewBusHttp({ service, store, busToken, bridgeToken, con
       const body = ["POST", "PUT"].includes(req.method ?? "") ? await readJson(req, attachmentUpload ? 36 * 1024 * 1024 : 1_048_576) : null;
 
       if (req.method === "POST" && url.pathname === "/v1/submissions") {
-        const normalized = normalizeStageASubmission(body, intakeBootstrap);
+        const stageABootstrap = body?.submission_id === intakeBootstrap.submission_id;
+        if (stageABootstrap && !store.stageABootstrapAvailableFor(intakeBootstrap.submission_id)) throw problem("BOOTSTRAP_ALREADY_CONSUMED");
+        if (!stageABootstrap && !installedSourceIdentity) throw problem(sourceIdentityErrorCode, sourceIdentityErrorCode, 503);
+        const normalized = stageABootstrap
+          ? normalizeStageASubmission(body, intakeBootstrap)
+          : normalizeInstalledSubmission(body, installedSourceIdentity);
         const status = store.stageSubmission({
           submissionId: normalized.payload.submission_id,
           projectId: normalized.payload.project_id,
@@ -80,7 +104,7 @@ export function createReviewBusHttp({ service, store, busToken, bridgeToken, con
         if (req.method === "POST" && action === "finalize") {
           exactObject(body, ["project_id", "capture_hash"]);
           if (typeof body.project_id !== "string" || !/^[a-f0-9]{64}$/.test(body.capture_hash ?? "")) throw problem("INVALID_FINALIZE_REQUEST");
-          const finalized = store.finalizeSubmission({ submissionId, projectId: body.project_id, captureHash: body.capture_hash, bootstrap: intakeBootstrap, now: now() }, ({ capture, attachments, bindAttachments }) => {
+          const finalized = store.finalizeSubmission({ submissionId, projectId: body.project_id, captureHash: body.capture_hash, bootstrap: intakeBootstrap, now: now() }, ({ capture, attachments, bindAttachments, sourceIdentity }) => {
             const report = {
               project_id: capture.project_id,
               what_happened: capture.what_happened,
@@ -95,13 +119,13 @@ export function createReviewBusHttp({ service, store, busToken, bridgeToken, con
             };
             const issue = service.createIssue(report, "user", now(), {
               submissionId,
-              baseCommit: intakeBootstrap.base_commit,
-              architectureProtocolVersion: null,
+              baseCommit: sourceIdentity.commit,
+              ...(sourceIdentity.schema_version === "filmos.source-identity.bootstrap.v1" ? { architectureProtocolVersion: null } : {}),
             });
             service.recordRuntimeObservation(issue.issue_id, runtimeInstanceId, now());
             const boundAttachments = bindAttachments(issue.issue_id);
             return service.freezeEvidence(issue.issue_id, {
-              source_commit: intakeBootstrap.base_commit,
+              source_commit: sourceIdentity.commit,
               items: autoEvidenceItems({
                 report,
                 evidenceItems: attachmentEvidenceItems(boundAttachments),
@@ -113,6 +137,10 @@ export function createReviewBusHttp({ service, store, busToken, bridgeToken, con
               }),
             }, "system", now());
           });
+          const finalizedIssue = service.requireIssue(finalized.receipt.formal_issue_id);
+          if (installedSourceIdentity && finalizedIssue.lane === "architecture" && finalizedIssue.architecture_protocol_version !== "filmos.architecture-protocol.v2") {
+            service.anchorLegacyArchitecture(finalizedIssue.issue_id, installedSourceIdentity.commit, now());
+          }
           return send(res, finalized.idempotent_replay ? 200 : 201, finalized);
         }
       }
@@ -476,9 +504,20 @@ export function startFromEnvironment(env = process.env) {
   const store = new ReviewBusStore(resolve(localDir, "review-bus.sqlite"));
   const constitutionPath = resolve(env.FILMOS_REVIEW_CONSTITUTION_PATH ?? resolve(import.meta.dirname, "../../../governance/FILMOS_CONSTITUTION.json"));
   const constitution = JSON.parse(readFileSync(constitutionPath, "utf8"));
-  const service = new ReviewBusService(store, { baseCommit: env.FILMOS_REVIEW_BASE_COMMIT, taskPackageContentHash: env.FILMOS_REVIEW_TASK_PACKAGE_HASH });
+  let installedSourceIdentity = null;
+  let sourceIdentityErrorCode = "INSTALLED_SOURCE_IDENTITY_UNAVAILABLE";
+  try {
+    installedSourceIdentity = loadInstalledSourceIdentity({
+      sourceIdentityPath: env.FILMOS_INSTALLED_SOURCE_IDENTITY_PATH,
+      internalRuntimePath: env.FILMOS_INSTALLED_INTERNAL_RUNTIME_PATH,
+      repositoryLocatorPath: env.FILMOS_REVIEW_DEVELOPER_REPOSITORY_LOCATOR,
+    });
+  } catch (error) {
+    sourceIdentityErrorCode = safeProblemCode(error?.code ?? "INSTALLED_SOURCE_IDENTITY_UNAVAILABLE");
+  }
+  const service = new ReviewBusService(store, { taskPackageContentHash: env.FILMOS_REVIEW_TASK_PACKAGE_HASH });
   const githubVerifier = new GitHubEvidenceVerifier({ repository: env.FILMOS_REVIEW_GITHUB_REPOSITORY ?? "maiyadiu/filmos-studio" });
-  const server = createReviewBusHttp({ service, store, busToken, bridgeToken, constitution, githubVerifier, listenPort: port });
+  const server = createReviewBusHttp({ service, store, busToken, bridgeToken, constitution, githubVerifier, listenPort: port, installedSourceIdentity, sourceIdentityErrorCode });
   const backupDirectory = resolve(env.FILMOS_REVIEW_BACKUP_DIR ?? resolve(localDir, "backups"));
   const backupIntervalMs = Math.max(60_000, Number(env.FILMOS_REVIEW_BACKUP_INTERVAL_MS ?? 86_400_000));
   const backupTimer = setInterval(() => {

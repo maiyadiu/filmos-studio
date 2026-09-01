@@ -5,6 +5,7 @@ import { exactObject, problem, sha256 } from "./canonical.mjs";
 export const SUBMISSION_SCHEMA = "filmos.review-submission.capture.v1";
 export const RECEIPT_SCHEMA = "filmos.review-submission.receipt.v1";
 export const ATTACHMENT_RECEIPT_SCHEMA = "filmos.review-submission.attachment-receipt.v1";
+export const INSTALLED_SUBMISSION_SOURCE_SCHEMA = "filmos.installed-source-identity.v1";
 
 export const STAGE_A_BOOTSTRAP = Object.freeze({
   submission_id: "FILMOS-SUBMISSION-b3274782-30a0-44a1-a05e-01730678da8b",
@@ -26,9 +27,30 @@ const riskKeys = new Set([
 ]);
 
 export function normalizeStageASubmission(input, bootstrap = STAGE_A_BOOTSTRAP) {
-  exactObject(input, submissionKeys);
   requireSubmissionId(input.submission_id);
   if (input.submission_id !== bootstrap.submission_id) throw problem("INSTALLED_SOURCE_IDENTITY_UNAVAILABLE", "INSTALLED_SOURCE_IDENTITY_UNAVAILABLE", 503);
+  return normalizeSubmission(input, {
+    schema_version: "filmos.source-identity.bootstrap.v1",
+    build_id: bootstrap.build_id,
+    commit: bootstrap.base_commit,
+    tree: bootstrap.base_tree,
+  });
+}
+
+export function normalizeInstalledSubmission(input, installedSourceIdentity) {
+  requireSubmissionId(input?.submission_id);
+  if (!installedSourceIdentity || installedSourceIdentity.schema_version !== INSTALLED_SUBMISSION_SOURCE_SCHEMA
+    || !/^[a-f0-9]{64}$/.test(String(installedSourceIdentity.content_hash ?? ""))) {
+    throw problem("INSTALLED_SOURCE_IDENTITY_UNAVAILABLE", "INSTALLED_SOURCE_IDENTITY_UNAVAILABLE", 503);
+  }
+  if (input.app_build_id !== installedSourceIdentity.build_id || input.app_tree !== installedSourceIdentity.tree) {
+    throw problem("APP_RUNTIME_IDENTITY_MISMATCH", "APP_RUNTIME_IDENTITY_MISMATCH", 503);
+  }
+  return normalizeSubmission(input, installedSourceIdentity);
+}
+
+function normalizeSubmission(input, sourceIdentity) {
+  exactObject(input, submissionKeys);
   requireBoundedString(input.project_id, "INVALID_PROJECT_ID", 128, /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/);
   requireBoundedString(input.what_happened, "INVALID_WHAT_HAPPENED", 4_000);
   requireBoundedString(input.expected_result, "INVALID_EXPECTED_RESULT", 4_000);
@@ -77,12 +99,7 @@ export function normalizeStageASubmission(input, bootstrap = STAGE_A_BOOTSTRAP) 
     app_tree: input.app_tree,
     route: input.route,
     context_snapshot: input.context_snapshot,
-    source_identity: {
-      schema_version: "filmos.source-identity.bootstrap.v1",
-      build_id: bootstrap.build_id,
-      commit: bootstrap.base_commit,
-      tree: bootstrap.base_tree,
-    },
+    source_identity: sourceIdentity,
     attachment_manifest: manifest,
   };
   return { payload, captureHash: sha256(payload) };

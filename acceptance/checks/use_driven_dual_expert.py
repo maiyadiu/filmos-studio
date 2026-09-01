@@ -16,7 +16,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 BASE_COMMIT = "6ea93bfa08381264a1379fe938ade3a7513c7bba"
 BASE_TREE = "51896f7874e21cc9868cb1bfa33b302cd323a925"
-REVIEW_BASE_COMMIT = "ecfc79a9b9f7e91cdfd558747fdc5d2b62e1700a"
 TASK_PACKAGE_HASH = "7cf9bed457611e44a6b1f1bbb96968f20d83edec0d7d00bedfc73c7cdea2a10f"
 CONSTITUTION_HASH = "a61228c66e931cb977928f4d2864ab6556f3fcd163479e31ccebbc6fccf39d41"
 
@@ -94,11 +93,18 @@ def main() -> int:
     )
     require(
         "desktop/macos/Sources/FilmOSDesktopCore/ReviewBusRuntimeContract.swift",
-        ("FilmOS Studio", "FILMOS_REVIEW_BUS_READ_ENABLED", "FILMOS_REVIEW_BUS_AUTH_FILE", REVIEW_BASE_COMMIT),
+        (
+            "FilmOS Studio",
+            "FILMOS_REVIEW_BUS_READ_ENABLED",
+            "FILMOS_REVIEW_BUS_AUTH_FILE",
+            "FILMOS_INSTALLED_SOURCE_IDENTITY_PATH",
+            "FILMOS_INSTALLED_INTERNAL_RUNTIME_PATH",
+            "FILMOS_REVIEW_DEVELOPER_REPOSITORY_LOCATOR",
+        ),
     )
     require(
         "desktop/macos/Sources/FilmOSStudioDesktop/main.swift",
-        ("ReviewBusRuntimeContract.fixedBaseCommit", "FILMOS_GH_EXECUTABLE", "githubCLIPath", "FILMOS_REVIEW_SOURCE_REPOSITORY", "FILMOS_REVIEW_WORKTREE_ROOT"),
+        ("installedSourceIdentityEnvironment", "FILMOS_GH_EXECUTABLE", "githubCLIPath", "FILMOS_REVIEW_SOURCE_REPOSITORY", "FILMOS_REVIEW_WORKTREE_ROOT"),
     )
     require(
         "desktop/macos/scripts/prepare-review-source-repository",

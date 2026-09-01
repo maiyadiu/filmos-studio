@@ -11,6 +11,7 @@ import { Worker } from "node:worker_threads";
 import { sha256 } from "../src/canonical.mjs";
 import { architectureCandidateBindingHash } from "../src/architecture-review.mjs";
 import { GitHubEvidenceVerifier, readArtifactEvidenceIndex, readHandoffEvidenceIndex, resolveGitHubCLI } from "../src/github-evidence-verifier.mjs";
+import { loadInstalledSourceIdentity } from "../src/installed-source-identity.mjs";
 import { buildLiveRoundtripTrace } from "../src/live-roundtrip-trace.mjs";
 import { ReviewBusService, candidateBinding, fileInScope } from "../src/service.mjs";
 import { allowedOrigin, createReviewBusHttp } from "../src/server.mjs";
@@ -62,10 +63,10 @@ function stageABody(overrides = {}) {
   };
 }
 
-async function startReviewServer(service, store) {
+async function startReviewServer(service, store, options = {}) {
   const constitution = JSON.parse(readFileSync(resolve(import.meta.dirname, "../../../governance/FILMOS_CONSTITUTION.json"), "utf8"));
   const token = "bus-token-1234567890-abcdefghijkl";
-  const server = createReviewBusHttp({ service, store, busToken: token, bridgeToken: "bridge-token-1234567890-abcdefghijkl", constitution });
+  const server = createReviewBusHttp({ service, store, busToken: token, bridgeToken: "bridge-token-1234567890-abcdefghijkl", constitution, ...options });
   server.listen(0, "127.0.0.1");
   await new Promise((resolvePromise) => server.once("listening", resolvePromise));
   return {
@@ -73,6 +74,59 @@ async function startReviewServer(service, store) {
     baseURL: `http://127.0.0.1:${server.address().port}`,
     headers: { authorization: `Bearer ${token}`, "content-type": "application/json", origin: "http://127.0.0.1:43100" },
   };
+}
+
+function installedIdentityFixture() {
+  const directory = mkdtempSync(resolve(tmpdir(), "filmos-installed-identity-"));
+  const repository = resolve(directory, "repository");
+  const resources = resolve(directory, "FilmOS Studio.app", "Contents", "Resources");
+  const locatorPath = resolve(directory, "review-bus", "developer-repository.json");
+  mkdirSync(repository, { recursive: true });
+  mkdirSync(resources, { recursive: true });
+  mkdirSync(dirname(locatorPath), { recursive: true });
+  execFileSync("git", ["-C", repository, "init", "-q"]);
+  execFileSync("git", ["-C", repository, "config", "user.name", "FilmOS Test"]);
+  execFileSync("git", ["-C", repository, "config", "user.email", "filmos-test@example.invalid"]);
+  execFileSync("git", ["-C", repository, "remote", "add", "origin", "https://github.com/maiyadiu/filmos-studio.git"]);
+  execFileSync("git", ["-C", repository, "remote", "set-url", "--push", "origin", "git@github.com:maiyadiu/filmos-studio.git"]);
+  writeFileSync(resolve(repository, "source.txt"), "installed source\n");
+  execFileSync("git", ["-C", repository, "add", "source.txt"]);
+  execFileSync("git", ["-C", repository, "commit", "-qm", "test: installed source"]);
+  const sourceCommit = execFileSync("git", ["-C", repository, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+  const sourceTree = execFileSync("git", ["-C", repository, "rev-parse", "HEAD^{tree}"], { encoding: "utf8" }).trim();
+  const fingerprint = "f".repeat(64);
+  const buildID = `candidate-${sourceCommit.slice(0, 8)}-${sourceTree.slice(0, 8)}`;
+  const sourcePath = resolve(resources, "SourceIdentity.json");
+  const runtimePath = resolve(resources, "InternalRuntime.json");
+  const source = {
+    schema_version: "1.0.0",
+    repository: "maiyadiu/filmos-studio",
+    source_fingerprint_sha256: fingerprint,
+    git_commit_sha: sourceCommit,
+    git_tree_sha: sourceTree,
+    source_file_count: 1,
+    source_scopes: ["services/filmos-review-bus"],
+    source_clean: true,
+    build_id: buildID,
+    release_channel: "candidate",
+    external_paid_submit_enabled: false,
+  };
+  const runtime = {
+    schema_version: 4,
+    source_repository: "maiyadiu/filmos-studio",
+    source_commit: sourceCommit,
+    source_tree: sourceTree,
+    source_fingerprint_sha256: fingerprint,
+    build_id: buildID,
+    release_channel: "candidate",
+    external_paid_submit_enabled: false,
+  };
+  const locator = { schema_version: "1.0.0", repository: "maiyadiu/filmos-studio", source_repository: repository, source_commit: sourceCommit, source_tree: sourceTree };
+  writeFileSync(sourcePath, JSON.stringify(source));
+  writeFileSync(runtimePath, JSON.stringify(runtime));
+  writeFileSync(locatorPath, JSON.stringify(locator));
+  const load = () => loadInstalledSourceIdentity({ sourceIdentityPath: sourcePath, internalRuntimePath: runtimePath, repositoryLocatorPath: locatorPath, gitExecutable: "/usr/bin/git" });
+  return { directory, repository, sourcePath, runtimePath, locatorPath, source, runtime, locator, sourceCommit, sourceTree, buildID, load };
 }
 
 function createCoreIssue(service, suffix = "a") {
@@ -1002,6 +1056,127 @@ test("loopback origins with ports are accepted while remote and deceptive origin
   assert.equal(allowedOrigin("https://127.0.0.1:43100"), false);
   assert.equal(allowedOrigin("http://127.0.0.1.evil.example:43100"), false);
   assert.equal(allowedOrigin("https://evil.example"), false);
+});
+
+test("Installed SourceIdentity cross-checks Bundle runtime, repository locator, and real Git objects", () => {
+  const value = installedIdentityFixture();
+  try {
+    const identity = value.load();
+    assert.equal(identity.schema_version, "filmos.installed-source-identity.v1");
+    assert.equal(identity.commit, value.sourceCommit);
+    assert.equal(identity.tree, value.sourceTree);
+    assert.equal(identity.build_id, value.buildID);
+    assert.match(identity.content_hash, /^[a-f0-9]{64}$/);
+
+    writeFileSync(value.runtimePath, JSON.stringify({ ...value.runtime, build_id: "candidate-mismatch" }));
+    assert.throws(() => value.load(), (error) => error.code === "APP_RUNTIME_IDENTITY_MISMATCH");
+    writeFileSync(value.runtimePath, JSON.stringify(value.runtime));
+
+    const absentCommit = "0".repeat(40);
+    writeFileSync(value.sourcePath, JSON.stringify({ ...value.source, git_commit_sha: absentCommit }));
+    writeFileSync(value.runtimePath, JSON.stringify({ ...value.runtime, source_commit: absentCommit }));
+    writeFileSync(value.locatorPath, JSON.stringify({ ...value.locator, source_commit: absentCommit }));
+    assert.throws(() => value.load(), (error) => error.code === "SOURCE_COMMIT_NOT_FOUND");
+
+    const wrongTree = "1".repeat(40);
+    writeFileSync(value.sourcePath, JSON.stringify({ ...value.source, git_tree_sha: wrongTree }));
+    writeFileSync(value.runtimePath, JSON.stringify({ ...value.runtime, source_tree: wrongTree }));
+    writeFileSync(value.locatorPath, JSON.stringify({ ...value.locator, source_tree: wrongTree }));
+    assert.throws(() => value.load(), (error) => error.code === "SOURCE_TREE_MISMATCH");
+  } finally {
+    rmSync(value.directory, { recursive: true, force: true });
+  }
+});
+
+test("new Intake binds the verified Installed App identity and starts Architecture v2 at Genesis", async () => {
+  const value = installedIdentityFixture();
+  const store = new ReviewBusStore(":memory:");
+  const service = new ReviewBusService(store, { taskPackageContentHash: taskHash });
+  const installedSourceIdentity = value.load();
+  const { server, baseURL, headers } = await startReviewServer(service, store, { installedSourceIdentity });
+  const submissionId = "FILMOS-SUBMISSION-33333333-3333-4333-8333-333333333333";
+  const body = stageABody({
+    submission_id: submissionId,
+    app_build_id: installedSourceIdentity.build_id,
+    app_tree: installedSourceIdentity.tree,
+  });
+  try {
+    const health = await (await fetch(`${baseURL}/healthz`)).json();
+    assert.equal(health.installed_source_identity.status, "VERIFIED");
+    assert.equal(health.installed_source_identity.content_hash, installedSourceIdentity.content_hash);
+    const stagedResponse = await fetch(`${baseURL}/v1/submissions`, { method: "POST", headers, body: JSON.stringify(body) });
+    assert.equal(stagedResponse.status, 201);
+    const staged = await stagedResponse.json();
+    const finalizedResponse = await fetch(`${baseURL}/v1/submissions/${submissionId}/finalize`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ project_id: projectId, capture_hash: staged.capture_hash }),
+    });
+    const finalized = await finalizedResponse.json();
+    assert.equal(finalizedResponse.status, 201, JSON.stringify(finalized));
+    assert.equal(finalized.receipt.formal_issue_id, "FILMOS-ARCH-33333333-3333-4333-8333-333333333333");
+    assert.equal(finalized.receipt.source_identity_hash, installedSourceIdentity.content_hash);
+    assert.equal("bootstrap_receipt_hash" in finalized.receipt, false);
+    const issue = service.requireIssue(finalized.receipt.formal_issue_id);
+    assert.equal(issue.base_commit, installedSourceIdentity.commit);
+    assert.equal(issue.architecture_protocol_version, "filmos.architecture-protocol.v2");
+    assert.equal(issue.state, "REQUIREMENT_OBSERVED");
+    assert.equal(issue.requirement_delta, undefined);
+    assert.match(issue.intake_evidence_receipt?.receipt_hash ?? "", /^[a-f0-9]{64}$/);
+    assert.match(issue.evidence?.manifest?.contentHash ?? "", /^[a-f0-9]{64}$/);
+    assert.equal(store.events(issue.issue_id).filter((event) => event.event_type === "architecture.intake_evidence.recorded").length, 1);
+    assert.equal(store.events(issue.issue_id).filter((event) => event.event_type === "protocol.v2.anchored").length, 0);
+    assert.equal(store.db.prepare("SELECT COUNT(*) AS count FROM review_bootstrap_receipts").get().count, 0);
+
+    const requirement = service.freezeRequirementDelta(issue.issue_id, architectureDelta, "user", new Date("2026-09-02T01:00:00.000Z"));
+    assert.equal(requirement.state, "REQUIREMENT_DELTA_FROZEN");
+    const evidence = service.freezeEvidence(issue.issue_id, {
+      source_commit: installedSourceIdentity.commit,
+      items: issue.evidence.local_items,
+    }, "codex", new Date("2026-09-02T01:01:00.000Z"));
+    assert.equal(evidence.state, "ARCHITECTURE_EVIDENCE_FROZEN");
+    assert.equal(store.events(issue.issue_id).filter((event) => event.event_type === "evidence.frozen").length, 1);
+    assert.equal(store.verifyEventChain(issue.issue_id), true);
+  } finally {
+    await new Promise((resolvePromise) => server.close(resolvePromise));
+    store.close();
+    rmSync(value.directory, { recursive: true, force: true });
+  }
+});
+
+test("new Intake fails closed without Installed SourceIdentity while legacy base and history remain unchanged", async () => {
+  const store = new ReviewBusStore(":memory:");
+  const service = new ReviewBusService(store, { baseCommit: commit, taskPackageContentHash: taskHash });
+  const legacy = service.createIssue({ issue_id: "FILMOS-ARCH-source-history", project_id: projectId, what_happened: "legacy", expected_result: "anchor only", location: "review bus", blocks_work: false, lane: "architecture" }, "user", new Date(), { architectureProtocolVersion: null });
+  const { server, baseURL, headers } = await startReviewServer(service, store, { sourceIdentityErrorCode: "INSTALLED_SOURCE_IDENTITY_UNAVAILABLE" });
+  try {
+    const body = stageABody({ submission_id: "FILMOS-SUBMISSION-44444444-4444-4444-8444-444444444444" });
+    const response = await fetch(`${baseURL}/v1/submissions`, { method: "POST", headers, body: JSON.stringify(body) });
+    assert.equal(response.status, 503);
+    assert.deepEqual(await response.json(), { status: 503, code: "INSTALLED_SOURCE_IDENTITY_UNAVAILABLE", message: "INSTALLED_SOURCE_IDENTITY_UNAVAILABLE", retryable: true });
+    assert.equal(service.requireIssue(legacy.issue_id).base_commit, commit);
+  } finally {
+    await new Promise((resolvePromise) => server.close(resolvePromise));
+    store.close();
+  }
+});
+
+test("verified startup appends one v2 Anchor without changing a legacy Issue base commit", async () => {
+  const value = installedIdentityFixture();
+  const store = new ReviewBusStore(":memory:");
+  const service = new ReviewBusService(store, { baseCommit: commit, taskPackageContentHash: taskHash });
+  const legacy = service.createIssue({ issue_id: "FILMOS-ARCH-startup-anchor", project_id: projectId, what_happened: "legacy", expected_result: "v2 anchor", location: "review bus", blocks_work: false, lane: "architecture" }, "user", new Date(), { architectureProtocolVersion: null });
+  const { server } = await startReviewServer(service, store, { installedSourceIdentity: value.load() });
+  try {
+    const anchored = service.requireIssue(legacy.issue_id);
+    assert.equal(anchored.base_commit, commit);
+    assert.equal(anchored.protocol_v2_anchor.migration_commit, value.sourceCommit);
+    assert.equal(store.events(legacy.issue_id).filter((event) => event.event_type === "protocol.v2.anchored").length, 1);
+  } finally {
+    await new Promise((resolvePromise) => server.close(resolvePromise));
+    store.close();
+    rmSync(value.directory, { recursive: true, force: true });
+  }
 });
 
 test("Stage A intake finalizes one canonical Architecture Issue and recovers a lost receipt idempotently", async () => {

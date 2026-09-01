@@ -102,6 +102,16 @@ export class ReviewCodexCoordinator {
                 return;
             }
             const full = await this.bus.fullContext(issue.issue_id, issue.project_id, signal);
+            if (issue.state === "REQUIREMENT_DELTA_FROZEN") {
+                const evidence = asRecordOrEmpty(full.evidence);
+                const items = Array.isArray(evidence.local_items) ? evidence.local_items : [];
+                if (items.length === 0) throw new Error("ARCHITECTURE_INTAKE_EVIDENCE_UNAVAILABLE");
+                await this.bus.post(issue.issue_id, "evidence/freeze", {
+                    source_commit: asRecordOrEmpty(evidence.manifest).sourceCommit ?? full.base_commit,
+                    items,
+                }, signal);
+                return;
+            }
             const workflow = modelWorkflow(issue, full);
             if (!workflow) {
                 await this.coordination(issue, { status: "IDLE", session_id: null, attempt_id: null, last_action: `NO_AUTOMATION:${issue.state}`, last_error_code: null }, signal);

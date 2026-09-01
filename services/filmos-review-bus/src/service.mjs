@@ -13,6 +13,7 @@ import {
   freezeArchitectureOptions,
   freezeRequirementDelta as freezeRequirementDeltaV2,
   isArchitectureV2,
+  recordArchitectureIntakeEvidence,
   submitArchitectureAssessment as submitArchitectureAssessmentV2,
 } from "./architecture-workflow.mjs";
 import {
@@ -38,7 +39,7 @@ const MAX_TEXT_ATTACHMENT_BYTES = 1024 * 1024;
 export class ReviewBusService {
   constructor(store, options = {}) {
     this.store = store;
-    this.baseCommit = options.baseCommit ?? "ecfc79a9b9f7e91cdfd558747fdc5d2b62e1700a";
+    this.baseCommit = options.baseCommit ?? null;
     this.taskPackageContentHash = options.taskPackageContentHash ?? TASK_PACKAGE_HASH;
     if (this.taskPackageContentHash !== TASK_PACKAGE_HASH) throw problem("TASK_PACKAGE_HASH_MISMATCH");
   }
@@ -55,6 +56,9 @@ export class ReviewBusService {
     const expectedPattern = lane === "architecture" ? /^FILMOS-ARCH-[A-Za-z0-9-]{1,120}$/ : /^FILMOS-ISSUE-[A-Za-z0-9-]{1,120}$/;
     if (!expectedPattern.test(issueId)) throw problem("INVALID_ISSUE_ID");
     if (this.store.get(issueId)) throw problem("ISSUE_ALREADY_EXISTS");
+    const resolvedBaseCommit = baseCommit ?? this.baseCommit;
+    if (resolvedBaseCommit === null) throw problem("INSTALLED_SOURCE_IDENTITY_UNAVAILABLE", "INSTALLED_SOURCE_IDENTITY_UNAVAILABLE", 503);
+    if (!/^[a-f0-9]{40,64}$/.test(resolvedBaseCommit)) throw problem("INSTALLED_SOURCE_IDENTITY_MISMATCH", "INSTALLED_SOURCE_IDENTITY_MISMATCH", 503);
     const initialState = lane === "architecture" ? "REQUIREMENT_OBSERVED" : "OBSERVED_IN_USE";
     const useArchitectureV2 = lane === "architecture" && architectureProtocolVersion === ARCHITECTURE_PROTOCOL_VERSION;
     return this.store.append({
@@ -63,7 +67,7 @@ export class ReviewBusService {
       transitionAction: useArchitectureV2 ? "protocol.v2.genesis" : null,
       mutate: () => ({
         schema_version: "filmos.review-session.v1", issue_id: issueId, submission_id: submissionId, project_id: report.project_id,
-        lane, state: initialState, report, base_commit: baseCommit ?? this.baseCommit,
+        lane, state: initialState, report, base_commit: resolvedBaseCommit,
         constitution_version: CONSTITUTION_VERSION, constitution_content_hash: CONSTITUTION_HASH,
         build_lineage_task_package_hash: this.taskPackageContentHash, task_package_content_hash: null,
         issue_task_package: null, current_round: 1, assessment_round: 1,
@@ -88,7 +92,10 @@ export class ReviewBusService {
   freezeEvidence(issueId, input, actor = "codex", now = new Date()) {
     const current = this.requireIssue(issueId);
     if (!Array.isArray(input.items) || input.items.length === 0) throw problem("EVIDENCE_REQUIRED");
-    if (isArchitectureV2(current)) return freezeArchitectureEvidence({ store: this.store, current, input, actor, now });
+    if (isArchitectureV2(current)) {
+      if (!current.requirement_delta && actor === "system") return recordArchitectureIntakeEvidence({ store: this.store, current, input, actor, now });
+      return freezeArchitectureEvidence({ store: this.store, current, input, actor, now });
+    }
     const items = input.items.map((item) => ({ ...item, captured_at: item.captured_at ?? now.toISOString() }));
     const redactedItems = redactEvidence(items);
     const manifest = evidenceManifest({ issueId, sourceCommit: input.source_commit ?? current.base_commit, items, frozenAt: now.toISOString() });

@@ -297,21 +297,26 @@ test("stable terminal coordination key survives restart while a changed key resu
 test("Architecture coordinator advances deterministic states without a model turn", async () => {
     const posts: string[] = [];
     const issues = [
+        { issue_id: "FILMOS-ARCH-requirement", project_id: "project-1", lane: "architecture", state: "REQUIREMENT_DELTA_FROZEN", coordination_key: "2".repeat(64) },
         { issue_id: "FILMOS-ARCH-evidence", project_id: "project-1", lane: "architecture", state: "ARCHITECTURE_EVIDENCE_FROZEN", coordination_key: "e".repeat(64) },
         { issue_id: "FILMOS-ARCH-accepted", project_id: "project-1", lane: "architecture", state: "ARCHITECTURE_OPTION_ACCEPTED", coordination_key: "f".repeat(64) },
         { issue_id: "FILMOS-ARCH-task", project_id: "project-1", lane: "architecture", state: "TASK_PACKAGE_FROZEN", coordination_key: "1".repeat(64) },
     ];
     const bus: ReviewBusCoordinatorPort = {
         async pendingAll() { return issues.splice(0, 1); }, async pending() { return []; },
-        async fullContext() { throw new Error("MUST_NOT_READ_FULL_CONTEXT"); },
+        async fullContext(issueId) {
+            if (issueId !== "FILMOS-ARCH-requirement") throw new Error("MUST_NOT_READ_FULL_CONTEXT");
+            return { base_commit: "a".repeat(40), evidence: { manifest: { sourceCommit: "a".repeat(40) }, local_items: [{ kind: "source" }] } };
+        },
         async coordinationResult() { throw new Error("NO_STORED_RESULT"); },
         async post(issueId, action) { posts.push(`${issueId}:${action}`); return {}; },
     };
     const coordinator = new ReviewCodexCoordinator(bus, { async ensure() { throw new Error("MUST_NOT_CREATE_SESSION"); }, async run() { throw new Error("MUST_NOT_RUN"); } }, { async prepare() { throw new Error("MUST_NOT_PREPARE"); } }, () => ({}));
 
-    await coordinator.tick(); await coordinator.tick(); await coordinator.tick();
+    await coordinator.tick(); await coordinator.tick(); await coordinator.tick(); await coordinator.tick();
 
     assert.deepEqual(posts, [
+        "FILMOS-ARCH-requirement:evidence/freeze",
         "FILMOS-ARCH-evidence:architecture/assessments/begin",
         "FILMOS-ARCH-accepted:architecture/consensus/propose",
         "FILMOS-ARCH-task:architecture/implementation/start",

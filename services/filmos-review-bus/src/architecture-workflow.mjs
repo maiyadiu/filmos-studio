@@ -8,6 +8,50 @@ export function isArchitectureV2(value) {
   return value?.lane === "architecture" && value.architecture_protocol_version === ARCHITECTURE_PROTOCOL_VERSION;
 }
 
+export function recordArchitectureIntakeEvidence({ store, current, input, actor, now }) {
+  assertProtocol(current);
+  if (current.state !== "REQUIREMENT_OBSERVED" || actor !== "system") throw problem("REQUIREMENT_DELTA_REQUIRED");
+  const semanticHash = evidenceFreezeSemanticHash(input, current);
+  if (current.intake_evidence_receipt) {
+    if (current.intake_evidence_receipt.semantic_hash !== semanticHash) throw problem("EVIDENCE_FROZEN_CONFLICT", "EVIDENCE_FROZEN_CONFLICT", 409);
+    return freezeOperationResult(current, current.intake_evidence_receipt, true);
+  }
+  const items = input.items.map((item) => ({ ...item, captured_at: item.captured_at ?? now.toISOString() }));
+  const redactedItems = redactEvidence(items);
+  const manifest = evidenceManifest({ issueId: current.issue_id, sourceCommit: input.source_commit ?? current.base_commit, items, frozenAt: now.toISOString() });
+  const complete = manifest.completeness.reproduction
+    && manifest.completeness.runtime
+    && manifest.completeness.logs
+    && manifest.completeness.sourceMap;
+  if (!complete) throw problem("EVIDENCE_REQUIRED", "EVIDENCE_REQUIRED", 422);
+  const receipt = freezeReceipt({
+    issueId: current.issue_id,
+    kind: "intake_evidence",
+    semanticHash,
+    actor,
+    fromState: current.state,
+    toState: current.state,
+    now,
+  });
+  const appended = store.append({
+    issueId: current.issue_id,
+    projectId: current.project_id,
+    lane: current.lane,
+    eventType: "architecture.intake_evidence.recorded",
+    actor,
+    payload: { manifest, redacted_items: redactedItems, receipt_hash: receipt.receipt_hash },
+    now,
+    transitionAction: "operational",
+    mutate: (next) => {
+      next.evidence = { local_items: items, redacted_items: redactedItems, manifest };
+      next.attachments = store.listAttachments(current.issue_id);
+      next.intake_evidence_receipt = receipt;
+      return next;
+    },
+  });
+  return freezeOperationResult(appended, receipt, false);
+}
+
 export function freezeArchitectureEvidence({ store, current, input, actor, now }) {
   const semanticHash = evidenceFreezeSemanticHash(input, current);
   const existingReceipt = current.freeze_receipts?.evidence ?? null;

@@ -94,6 +94,7 @@ fi
 source_identity_before=$("$source_fingerprint_script" --json)
 source_commit=$(printf '%s' "$source_identity_before" | /usr/bin/plutil -extract git_commit_sha raw -o - -)
 source_tree=$(printf '%s' "$source_identity_before" | /usr/bin/plutil -extract git_tree_sha raw -o - -)
+source_fingerprint=$(printf '%s' "$source_identity_before" | /usr/bin/plutil -extract source_fingerprint_sha256 raw -o - -)
 release_channel=${FILMOS_DESKTOP_RELEASE_CHANNEL:-}
 if [ -z "$release_channel" ]; then
     if [ "$agent_runtime_profile" = "filmos-candidate" ]; then release_channel=candidate; else release_channel=development; fi
@@ -237,7 +238,7 @@ iconutil -c icns "$iconset" -o "$staging/FilmOSStudio.icns"
     --backend-health-url "http://127.0.0.1:$backend_port/api/health" \
     --application-support-directory-name "$application_support_directory_name" \
     --backend-data-directory-name "WorkbenchData"
-FILMOS_RUNTIME_RELEASE_CHANNEL="$release_channel" FILMOS_RUNTIME_BUILD_ID="$build_id" FILMOS_RUNTIME_PAID_SUBMIT="$external_paid_submit_enabled" FILMOS_RUNTIME_SOURCE_COMMIT="$source_commit" FILMOS_RUNTIME_REVIEW_BUS_PORT="$review_bus_port" \
+FILMOS_RUNTIME_RELEASE_CHANNEL="$release_channel" FILMOS_RUNTIME_BUILD_ID="$build_id" FILMOS_RUNTIME_PAID_SUBMIT="$external_paid_submit_enabled" FILMOS_RUNTIME_SOURCE_COMMIT="$source_commit" FILMOS_RUNTIME_SOURCE_TREE="$source_tree" FILMOS_RUNTIME_SOURCE_FINGERPRINT="$source_fingerprint" FILMOS_RUNTIME_REVIEW_BUS_PORT="$review_bus_port" \
     "$python_executable" - "$staging/InternalRuntime.json" <<'PY'
 import json
 import os
@@ -246,11 +247,14 @@ from pathlib import Path
 
 path = Path(sys.argv[1])
 payload = json.loads(path.read_text(encoding="utf-8"))
-payload["schema_version"] = 3
+payload["schema_version"] = 4
 payload["release_channel"] = os.environ["FILMOS_RUNTIME_RELEASE_CHANNEL"]
 payload["build_id"] = os.environ["FILMOS_RUNTIME_BUILD_ID"]
 payload["external_paid_submit_enabled"] = os.environ["FILMOS_RUNTIME_PAID_SUBMIT"] == "true"
 payload["source_commit"] = os.environ["FILMOS_RUNTIME_SOURCE_COMMIT"]
+payload["source_tree"] = os.environ["FILMOS_RUNTIME_SOURCE_TREE"]
+payload["source_fingerprint_sha256"] = os.environ["FILMOS_RUNTIME_SOURCE_FINGERPRINT"]
+payload["source_repository"] = "maiyadiu/filmos-studio"
 port = os.environ["FILMOS_RUNTIME_REVIEW_BUS_PORT"]
 payload["review_bus_health_url"] = f"http://127.0.0.1:{port}/healthz"
 payload["review_bus_issue_url"] = f"http://127.0.0.1:{port}/v1/issues"
@@ -295,17 +299,21 @@ payload = json.loads(os.environ["FILMOS_SOURCE_IDENTITY"])
 payload["build_id"] = os.environ["FILMOS_BUILD_ID"]
 payload["release_channel"] = os.environ["FILMOS_RELEASE_CHANNEL"]
 payload["external_paid_submit_enabled"] = os.environ["FILMOS_PAID_SUBMIT"] == "true"
+payload["repository"] = "maiyadiu/filmos-studio"
 Path(sys.argv[1]).write_text(json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
 PY
 /usr/bin/ditto "$workspace_root/web/dist" "$bundle/Contents/Resources/Web"
 /usr/bin/plutil -lint "$bundle/Contents/Info.plist" >/dev/null
 runtime="$bundle/Contents/Resources/InternalRuntime.json"
-test "$(/usr/bin/plutil -extract schema_version raw -o - "$runtime")" = "3"
+test "$(/usr/bin/plutil -extract schema_version raw -o - "$runtime")" = "4"
 test "$(/usr/bin/plutil -extract application_support_directory_name raw -o - "$runtime")" = "$application_support_directory_name"
 test "$(/usr/bin/plutil -extract release_channel raw -o - "$runtime")" = "$release_channel"
 test "$(/usr/bin/plutil -extract build_id raw -o - "$runtime")" = "$build_id"
 test "$(/usr/bin/plutil -extract external_paid_submit_enabled raw -o - "$runtime")" = "$external_paid_submit_enabled"
 test "$(/usr/bin/plutil -extract source_commit raw -o - "$runtime")" = "$source_commit"
+test "$(/usr/bin/plutil -extract source_tree raw -o - "$runtime")" = "$source_tree"
+test "$(/usr/bin/plutil -extract source_fingerprint_sha256 raw -o - "$runtime")" = "$source_fingerprint"
+test "$(/usr/bin/plutil -extract source_repository raw -o - "$runtime")" = "maiyadiu/filmos-studio"
 test "$(/usr/bin/plutil -extract review_bus_health_url raw -o - "$runtime")" = "http://127.0.0.1:$review_bus_port/healthz"
 test -n "$(/usr/bin/plutil -extract start_url raw -o - "$runtime")"
 source_identity_after=$("$source_fingerprint_script" --json)

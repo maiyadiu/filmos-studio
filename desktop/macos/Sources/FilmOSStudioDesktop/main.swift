@@ -51,6 +51,7 @@ private final class InternalWorkbenchCoordinator {
         let canvasAgentMCPExecutable = helpersDirectory.appendingPathComponent("FilmOSCanvasAgentMCP")
         let reviewBusExecutable = helpersDirectory.appendingPathComponent("FilmOSReviewBus")
         let constitutionURL = bundleResources.appendingPathComponent("FILMOS_CONSTITUTION.json")
+        let sourceIdentityURL = bundleResources.appendingPathComponent("SourceIdentity.json")
         let webRoot = bundleResources.appendingPathComponent("Web", isDirectory: true)
         let webEntry = webRoot.appendingPathComponent("index.html")
         let applicationRuntimeRoot = applicationSupportDirectory.appendingPathComponent(
@@ -78,7 +79,9 @@ private final class InternalWorkbenchCoordinator {
         guard fileManager.isExecutableFile(atPath: canvasAgentMCPExecutable.path) else {
             throw DesktopWorkbenchError.missingBundledCanvasAgentMCP
         }
-        guard fileManager.isExecutableFile(atPath: reviewBusExecutable.path), fileManager.isReadableFile(atPath: constitutionURL.path) else {
+        guard fileManager.isExecutableFile(atPath: reviewBusExecutable.path),
+              fileManager.isReadableFile(atPath: constitutionURL.path),
+              fileManager.isReadableFile(atPath: sourceIdentityURL.path) else {
             throw DesktopWorkbenchError.missingBundledReviewBus
         }
         guard fileManager.fileExists(atPath: webEntry.path) else {
@@ -163,7 +166,12 @@ private final class InternalWorkbenchCoordinator {
         reviewBusEnvironment["FILMOS_REVIEW_BUS_PORT"] = String(configuration.reviewBusHealthURL.port ?? 17920)
         reviewBusEnvironment["FILMOS_REVIEW_BUS_LOCAL_DIR"] = reviewBusDirectory.path
         reviewBusEnvironment["FILMOS_REVIEW_CONSTITUTION_PATH"] = constitutionURL.path
-        reviewBusEnvironment["FILMOS_REVIEW_BASE_COMMIT"] = ReviewBusRuntimeContract.fixedBaseCommit
+        for (key, value) in ReviewBusRuntimeContract.installedSourceIdentityEnvironment(
+            bundleResources: bundleResources,
+            reviewBusDirectory: reviewBusDirectory
+        ) {
+            reviewBusEnvironment[key] = value
+        }
         if let githubCLIPath = Self.githubCLIPath() {
             // Finder/Dock launches do not inherit an interactive shell PATH.
             // The Review Bus needs gh for remote Run/Artifact verification.

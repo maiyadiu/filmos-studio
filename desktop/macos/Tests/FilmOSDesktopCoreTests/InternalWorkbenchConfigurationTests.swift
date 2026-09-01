@@ -14,6 +14,9 @@ struct InternalWorkbenchConfigurationTests {
         #expect(configuration.agentRuntimeProfile == "integration")
         #expect(configuration.agentFeatureFlags.count == 10)
         #expect(configuration.releaseChannel == "development")
+        #expect(configuration.sourceTree == "51896f78d2c8331649a8d1d2cb7f61ceca01c530")
+        #expect(configuration.sourceFingerprintSHA256 == String(repeating: "c", count: 64))
+        #expect(configuration.sourceRepository == "maiyadiu/filmos-studio")
         #expect(configuration.externalPaidSubmitEnabled == false)
         #expect(configuration.reviewBusIssueURL.absoluteString == "http://127.0.0.1:17920/v1/issues")
     }
@@ -47,7 +50,7 @@ struct InternalWorkbenchConfigurationTests {
         Data(
             """
             {
-              "schema_version": 3,
+              "schema_version": 4,
               "start_url": "\(startURL)",
               "web_health_url": "http://127.0.0.1:43100/",
               "backend_health_url": "http://127.0.0.1:43101/api/health",
@@ -57,6 +60,9 @@ struct InternalWorkbenchConfigurationTests {
               "backend_data_directory_name": "\(dataDirectoryName)",
               "agent_runtime_profile": "integration",
               "source_commit": "6ea93bfa08381264a1379fe938ade3a7513c7bba",
+              "source_tree": "51896f78d2c8331649a8d1d2cb7f61ceca01c530",
+              "source_fingerprint_sha256": "\(String(repeating: "c", count: 64))",
+              "source_repository": "maiyadiu/filmos-studio",
               "release_channel": "development",
               "build_id": "development-6ea93bfa-51896f78",
               "external_paid_submit_enabled": false,

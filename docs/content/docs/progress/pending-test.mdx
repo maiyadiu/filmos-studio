@@ -171,3 +171,11 @@ description: 影策已实现功能的手工验证清单与未确认边界
 - [x] Dreamina、Flova、RunningHub、ComfyUI 状态统一进入 Engine Connection 同步器；Project Policy、Model Lock 与 Budget 在项目设置中持久化。
 - [x] ChatGPT 当前项目上下文改为完整 SHA-256，并保留精确的 Host context invalid 错误。
 - [ ] 用户从最终固定 Commit 重装的 App 验证项目级生成设置、Engine 状态与 ChatGPT Host 交互文案。
+
+## Review Bus Installed SourceIdentity
+
+- [x] 新 Intake 不再从固定历史 Commit 推断源码，必须同时验证 App Bundle `SourceIdentity.json`、`InternalRuntime.json`、Developer Repository Locator 和实际 Git Commit/Tree。
+- [x] 缺失或漂移时按 `INSTALLED_SOURCE_IDENTITY_UNAVAILABLE`、`INSTALLED_SOURCE_IDENTITY_MISMATCH`、`SOURCE_COMMIT_NOT_FOUND`、`SOURCE_TREE_MISMATCH` 或 `APP_RUNTIME_IDENTITY_MISMATCH` 失败关闭。
+- [x] Architecture v2 的初始 Intake Evidence 可持久化，但不伪造 Requirement Delta；Owner 冻结 Delta 后由 Coordinator 确定性进入正式 Evidence Frozen。
+- [x] Review Bus 51 项测试、Coordinator 12 项专项测试、Desktop 61 项 Swift 测试及 Developer Repository 脚本测试通过。
+- [ ] 待 Stage B 固定 Commit 后执行 Formal CI、Artifact 校验、Installed App 可回滚替换与实机 Canary。

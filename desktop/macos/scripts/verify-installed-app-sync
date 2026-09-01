@@ -5,6 +5,7 @@ script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 bundle=${1:-"$HOME/Applications/FilmOS Studio.app"}
 identity="$bundle/Contents/Resources/SourceIdentity.json"
 runtime="$bundle/Contents/Resources/InternalRuntime.json"
+locator=${FILMOS_REVIEW_DEVELOPER_REPOSITORY_LOCATOR:-"$HOME/Library/Application Support/FilmOS Studio/review-bus/developer-repository.json"}
 
 if [ ! -d "$bundle" ]; then
     echo "installed FilmOS Studio.app is missing: $bundle" >&2
@@ -16,6 +17,10 @@ if [ ! -f "$identity" ]; then
 fi
 if [ ! -f "$runtime" ]; then
     echo "installed FilmOS Studio.app has no runtime contract: $runtime" >&2
+    exit 1
+fi
+if [ ! -f "$locator" ]; then
+    echo "installed FilmOS Studio.app has no developer repository locator" >&2
     exit 1
 fi
 
@@ -31,5 +36,15 @@ fi
 
 commit=$(/usr/bin/plutil -extract git_commit_sha raw -o - "$identity")
 tree=$(/usr/bin/plutil -extract git_tree_sha raw -o - "$identity")
+repository=$(/usr/bin/plutil -extract repository raw -o - "$identity")
+locator_repository=$(/usr/bin/plutil -extract repository raw -o - "$locator")
+locator_path=$(/usr/bin/plutil -extract source_repository raw -o - "$locator")
+locator_commit=$(/usr/bin/plutil -extract source_commit raw -o - "$locator")
+locator_tree=$(/usr/bin/plutil -extract source_tree raw -o - "$locator")
+test "$repository" = "maiyadiu/filmos-studio"
+test "$locator_repository" = "$repository"
+test "$locator_commit" = "$commit"
+test "$locator_tree" = "$tree"
+test "$(/usr/bin/git -C "$locator_path" rev-parse "$commit^{tree}")" = "$tree"
 printf 'LOCAL_APP_SYNC_VERIFIED source_fingerprint=%s commit=%s tree=%s path=%s\n' \
     "$embedded" "$commit" "$tree" "$bundle"
