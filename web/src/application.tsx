@@ -12,13 +12,21 @@ import { installDesktopBackupBridge } from "@/lib/desktop-backup-bridge";
 import { router } from "@/router";
 
 document.body.style.fontFamily = '"SF Pro Display","SF Pro Text","PingFang SC","Microsoft YaHei","Helvetica Neue",sans-serif';
-installDesktopBackupBridge();
 
-createRoot(document.getElementById("root")!).render(
-    <React.StrictMode>
-        <AppProviders>
-            <RouterProvider router={router} />
-            <ReportIssuePortal />
-        </AppProviders>
-    </React.StrictMode>,
-);
+async function startApplication() {
+    installDesktopBackupBridge();
+    if (import.meta.env.VITE_FILMOS_UI_GOLDEN_CAPTURE === "true") {
+        const { installUiGoldenFixture } = await import("@/film/governance/ui-golden-fixture");
+        installUiGoldenFixture();
+    }
+    createRoot(document.getElementById("root")!).render(
+        <React.StrictMode>
+            <AppProviders>
+                <RouterProvider router={router} />
+                <ReportIssuePortal />
+            </AppProviders>
+        </React.StrictMode>,
+    );
+}
+
+void startApplication();

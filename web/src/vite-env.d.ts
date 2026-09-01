@@ -9,4 +9,5 @@ interface ImportMetaEnv {
     readonly VITE_FILMOS_BUILD_ID?: string;
     readonly VITE_FILMOS_RELEASE_CHANNEL?: "development" | "candidate" | "pilot" | "stable";
     readonly VITE_FILMOS_EXTERNAL_PAID_SUBMIT_ENABLED?: "true" | "false";
+    readonly VITE_FILMOS_UI_GOLDEN_CAPTURE?: "true" | "false";
 }

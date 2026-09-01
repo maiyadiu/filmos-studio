@@ -5,7 +5,7 @@ import { Bug, Paperclip, Send } from "lucide-react";
 import { useEffect, useMemo, useState, type ClipboardEvent } from "react";
 
 import { currentBuildIdentity, releaseChannelLabel, shortSourceHash } from "@/film/governance/build-identity";
-import { createLocalIssueDraft, issueEvidenceFilesFromClipboard, saveIssueDraft, selectPastedIssueEvidence, type IssueAttachment, type IssueSurface } from "@/film/governance/report-issue";
+import { createLocalIssueDraft, issueEvidenceFilesFromClipboard, pastedIssueUploadDescriptor, saveIssueDraft, selectPastedIssueEvidence, type IssueAttachment, type IssueSurface } from "@/film/governance/report-issue";
 
 export function ReportIssuePortal() {
     const { message } = App.useApp();
@@ -73,14 +73,16 @@ export function ReportIssuePortal() {
         if (pasted.oversizedCount) message.error("单个截图或录屏不能超过25MB");
         setFiles((current) => [...current, ...pasted.accepted.map<UploadFile>((file) => {
             const uid = `paste-${crypto.randomUUID()}`;
+            const descriptor = pastedIssueUploadDescriptor(file, uid);
             return {
-            uid,
-            name: file.name || `粘贴截图-${new Date().toISOString()}.png`,
-            type: file.type,
-            size: file.size,
-            originFileObj: Object.assign(file, { uid, lastModifiedDate: new Date(file.lastModified) }) as RcFile,
-            status: "done",
-        }; })]);
+                uid: descriptor.uid,
+                name: descriptor.name,
+                type: descriptor.mediaType,
+                size: descriptor.size,
+                originFileObj: descriptor.file as RcFile,
+                status: descriptor.status,
+            };
+        })]);
         if (pasted.truncatedCount) message.warning("最多保留5个截图或录屏");
     };
 

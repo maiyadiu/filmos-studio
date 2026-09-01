@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { inferIssueRoutingRisk } from "../src/film/governance/issue-lane";
-import { contextFromPathname, createLocalIssueDraft, issueEvidenceFilesFromClipboard, selectPastedIssueEvidence } from "../src/film/governance/report-issue";
+import { contextFromPathname, createLocalIssueDraft, issueEvidenceFilesFromClipboard, pastedIssueUploadDescriptor, selectPastedIssueEvidence } from "../src/film/governance/report-issue";
 
 const build = {
     commit: "6ea93bfa08381264a1379fe938ade3a7513c7bba",
@@ -80,6 +80,23 @@ describe("usage issue intake", () => {
         });
         expect(selected).toHaveLength(1);
         expect(selected[0]).toBe(screenshot);
+    });
+
+    test("wraps pasted evidence without mutating browser File readonly properties", () => {
+        const screenshot = new File(["image"], "连接失败截图.png", { type: "image/png", lastModified: 123 });
+        const ownKeysBefore = Reflect.ownKeys(screenshot);
+        const descriptor = pastedIssueUploadDescriptor(screenshot, "paste-123");
+        expect(descriptor).toMatchObject({
+            uid: "paste-123",
+            name: "连接失败截图.png",
+            mediaType: "image/png",
+            size: 5,
+            status: "done",
+        });
+        expect(descriptor.file).toBe(screenshot);
+        expect(Reflect.ownKeys(screenshot)).toEqual(ownKeysBefore);
+        expect(Object.prototype.hasOwnProperty.call(screenshot, "uid")).toBe(false);
+        expect(Object.prototype.hasOwnProperty.call(screenshot, "lastModifiedDate")).toBe(false);
     });
 
     test("infers lane risk without asking the reporter to classify the issue", () => {

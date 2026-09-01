@@ -12,6 +12,8 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from ui_golden import capture_packaged_ui
+
 
 ROOT = Path(__file__).resolve().parents[2]
 LOCAL_RUNTIME_PORT = 17371
@@ -127,6 +129,7 @@ def main() -> None:
     with tempfile.TemporaryDirectory(prefix="filmos-desktop-acceptance-") as directory:
         bundle = Path(directory) / "FilmOS Studio.app"
         support_name = f"FilmOS Acceptance {Path(directory).name[-8:]}"
+        ui_golden_root = os.environ.get("FILMOS_ACCEPTANCE_UI_GOLDEN_CAPTURE_ROOT", "").strip()
         environment = os.environ.copy()
         environment.update({
             "FILMOS_DESKTOP_WEB_PORT": str(web_port),
@@ -135,6 +138,13 @@ def main() -> None:
             "FILMOS_DESKTOP_APPLICATION_SUPPORT_DIRECTORY_NAME": support_name,
             "FILMOS_EXPECTED_APPLICATION_SUPPORT_DIRECTORY_NAME": support_name,
         })
+        if ui_golden_root:
+            environment.update({
+                "VITE_FILMOS_UI_GOLDEN_CAPTURE": "true",
+                "FILMOS_DESKTOP_RUNTIME_PROFILE": "filmos-candidate",
+                "FILMOS_DESKTOP_RELEASE_CHANNEL": "candidate",
+                "FILMOS_DESKTOP_EXTERNAL_PAID_SUBMIT_ENABLED": "false",
+            })
         tunnel_archive_cache = ROOT / ".local" / "cache" / "tunnel-client" / "tunnel-client-v0.0.13-darwin-arm64.zip"
         if tunnel_archive_cache.is_file():
             environment["FILMOS_TUNNEL_CLIENT_ARCHIVE_CACHE"] = str(tunnel_archive_cache)
@@ -192,6 +202,9 @@ def main() -> None:
                 data_directory = support_directory / "WorkbenchData"
                 if not data_directory.is_dir():
                     raise RuntimeError("desktop backend data directory was not created in Application Support")
+                ui_golden = None
+                if ui_golden_root:
+                    ui_golden = capture_packaged_ui(bundle, web_port, backend_port, Path(ui_golden_root).resolve())
             finally:
                 if process is not None:
                     request_app_termination(process)
@@ -224,6 +237,7 @@ def main() -> None:
             "data_location": "$HOME/Library/Application Support/<acceptance-run>/WorkbenchData",
             "services_stopped_after_quit": True,
             "isolated_review_bus_port": True,
+            "ui_golden_captures": len(ui_golden["captures"]) if ui_golden_root and ui_golden else 0,
         }, ensure_ascii=False, sort_keys=True))
 
 

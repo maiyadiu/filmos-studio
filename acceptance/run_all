@@ -15,7 +15,16 @@ ARTIFACT_ROOT=${FILMOS_ACCEPTANCE_ARTIFACT_ROOT:-"$ROOT/.local/acceptance-artifa
 EVIDENCE_ROOT=${FILMOS_ACCEPTANCE_EVIDENCE_ROOT:-"$ARTIFACT_ROOT/runs"}
 RELEASE_MANIFEST="$ARTIFACT_ROOT/RELEASE_MANIFEST.json"
 HANDOFF_ARTIFACT_ROOT="$ARTIFACT_ROOT"
+UI_GOLDEN_ROOT="$ARTIFACT_ROOT/ui-golden"
 mkdir -p "$EVIDENCE_ROOT"
+
+if [ -n "${FILMOS_V1_1_EXTERNAL_LIVE_TRACE:-}" ]; then
+    if [ -e "$UI_GOLDEN_ROOT" ]; then
+        printf '%s\n' "formal UI Golden root must not already exist: $UI_GOLDEN_ROOT" >&2
+        exit 2
+    fi
+    export FILMOS_ACCEPTANCE_UI_GOLDEN_CAPTURE_ROOT="$UI_GOLDEN_ROOT"
+fi
 
 "$ROOT/.local/acceptance-venv/bin/python" "$ROOT/acceptance/run.py" \
     --suite rc-local \
@@ -48,11 +57,17 @@ if [ "$CLEAN" = "1" ]; then
     cp "$ROOT/acceptance/EVIDENCE_INDEX.json" "$ARTIFACT_ROOT/EVIDENCE_INDEX.json"
     if [ -n "${FILMOS_V1_1_EXTERNAL_LIVE_TRACE:-}" ]; then
         "$ROOT/.local/acceptance-venv/bin/python" \
+            "$ROOT/acceptance/checks/ui_golden.py" finalize \
+            --capture-root "$UI_GOLDEN_ROOT" \
+            --release-manifest "$RELEASE_MANIFEST"
+        "$ROOT/.local/acceptance-venv/bin/python" \
             "$ROOT/acceptance/build_use_driven_dual_expert_handoff.py" \
             --receipt "$RECEIPT" \
             --release-manifest "$RELEASE_MANIFEST" \
             --artifact-root "$HANDOFF_ARTIFACT_ROOT" \
-            --live-trace "$FILMOS_V1_1_EXTERNAL_LIVE_TRACE"
+            --live-trace "$FILMOS_V1_1_EXTERNAL_LIVE_TRACE" \
+            --ui-root "$UI_GOLDEN_ROOT/ui" \
+            --ui-freshness "$UI_GOLDEN_ROOT/UI_GOLDEN_FRESHNESS.json"
     fi
 fi
 

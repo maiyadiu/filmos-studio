@@ -147,6 +147,14 @@ def verify_ui_golden(ui_root: Path, freshness_path: Path, release: dict[str, Any
     value = load_json(freshness_path)
     if value.get("status") != "PASSED" or value.get("ui_source_fingerprint") != value.get("packaged_app_source_fingerprint"):
         raise RuntimeError("UI Golden freshness did not bind the packaged App to source")
+    for key in ("git_commit_sha", "git_tree_sha", "build_id"):
+        if value.get(key) != release.get(key):
+            raise RuntimeError(f"UI Golden release binding mismatch: {key}")
+    environment = value.get("capture_environment")
+    if not isinstance(environment, dict) or environment.get("packaged_app") != "FilmOS Studio.app" or environment.get("network") != "loopback-only":
+        raise RuntimeError("UI Golden packaged-App capture environment is incomplete")
+    if environment.get("external_network_requests") != 0 or environment.get("openai_model_api_calls") != 0 or environment.get("paid_provider_operations") != 0:
+        raise RuntimeError("UI Golden capture crossed the zero-cost boundary")
     captures = value.get("captures")
     if not isinstance(captures, list):
         raise RuntimeError("UI Golden capture manifest is required")
@@ -183,6 +191,8 @@ def main() -> int:
     parser.add_argument("--release-manifest", required=True, type=Path)
     parser.add_argument("--artifact-root", required=True, type=Path)
     parser.add_argument("--live-trace", required=True, type=Path)
+    parser.add_argument("--ui-root", required=True, type=Path)
+    parser.add_argument("--ui-freshness", required=True, type=Path)
     args = parser.parse_args()
 
     receipt_path = args.receipt.resolve()
@@ -297,8 +307,8 @@ def main() -> int:
             readiness="READY_FOR_USER_AUTHORIZATION", real_submit="NOT_EXECUTED", real_provider_operations=0, real_provider_cost=0,
         ))
 
-        ui_root = ROOT / "acceptance" / "golden" / "v1-1-operational-closure" / "ui"
-        freshness = ROOT / "acceptance" / "golden" / "v1-1-operational-closure" / "UI_GOLDEN_FRESHNESS.json"
+        ui_root = args.ui_root.resolve()
+        freshness = args.ui_freshness.resolve()
         verify_ui_golden(ui_root, freshness, release)
         shutil.copytree(ui_root, package / "ui")
         shutil.copy2(freshness, package / "UI_GOLDEN_FRESHNESS.json")

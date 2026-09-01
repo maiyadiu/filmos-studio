@@ -53,6 +53,17 @@ export function selectPastedIssueEvidence(files: File[], currentCount: number) {
     };
 }
 
+export function pastedIssueUploadDescriptor(file: File, uid: string) {
+    return {
+        uid,
+        name: file.name || `粘贴截图-${new Date().toISOString()}.png`,
+        mediaType: file.type,
+        size: file.size,
+        file,
+        status: "done" as const,
+    };
+}
+
 export type IssueContext = {
     pathname: string;
     surface: IssueSurface;
