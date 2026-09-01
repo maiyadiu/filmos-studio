@@ -16,11 +16,15 @@ export class ReviewBusService {
     if (this.taskPackageContentHash !== TASK_PACKAGE_HASH) throw problem("TASK_PACKAGE_HASH_MISMATCH");
   }
 
-  createIssue(report, actor = "user", now = new Date()) {
+  createIssue(report, actor = "user", now = new Date(), { submissionId = null, baseCommit = null } = {}) {
     requireFields(report, ["project_id", "what_happened", "expected_result", "location", "blocks_work"]);
+    if (submissionId !== null && !/^FILMOS-SUBMISSION-[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(submissionId)) throw problem("INVALID_SUBMISSION_ID");
     const lane = report.lane ?? classifyLane(report.risk ?? {});
     if (!["fast", "core", "architecture"].includes(lane)) throw problem("INVALID_LANE");
-    const issueId = report.issue_id ?? `${lane === "architecture" ? "FILMOS-ARCH" : "FILMOS-ISSUE"}-${randomUUID()}`;
+    const submissionSuffix = submissionId?.replace(/^FILMOS-SUBMISSION-/, "") ?? null;
+    const issueId = submissionSuffix
+      ? `${lane === "architecture" ? "FILMOS-ARCH" : "FILMOS-ISSUE"}-${submissionSuffix}`
+      : (report.issue_id ?? `${lane === "architecture" ? "FILMOS-ARCH" : "FILMOS-ISSUE"}-${randomUUID()}`);
     const expectedPattern = lane === "architecture" ? /^FILMOS-ARCH-[A-Za-z0-9-]{1,120}$/ : /^FILMOS-ISSUE-[A-Za-z0-9-]{1,120}$/;
     if (!expectedPattern.test(issueId)) throw problem("INVALID_ISSUE_ID");
     if (this.store.get(issueId)) throw problem("ISSUE_ALREADY_EXISTS");
@@ -29,8 +33,8 @@ export class ReviewBusService {
       issueId, projectId: report.project_id, lane, eventType: "issue.observed", actor,
       payload: { report }, now,
       mutate: () => ({
-        schema_version: "filmos.review-session.v1", issue_id: issueId, project_id: report.project_id,
-        lane, state: initialState, report, base_commit: this.baseCommit,
+        schema_version: "filmos.review-session.v1", issue_id: issueId, submission_id: submissionId, project_id: report.project_id,
+        lane, state: initialState, report, base_commit: baseCommit ?? this.baseCommit,
         constitution_version: CONSTITUTION_VERSION, constitution_content_hash: CONSTITUTION_HASH,
         build_lineage_task_package_hash: this.taskPackageContentHash, task_package_content_hash: null,
         issue_task_package: null, current_round: 1, assessment_round: 1,

@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import { exactObject, problem, safeEqual, sha256 } from "./canonical.mjs";
 import { CONSTITUTION_HASH, CONSTITUTION_VERSION } from "./contracts.mjs";
 import { GitHubEvidenceVerifier } from "./github-evidence-verifier.mjs";
+import { normalizeStageASubmission, normalizeStagedAttachment, STAGE_A_BOOTSTRAP, SUBMISSION_SCHEMA } from "./intake-contract.mjs";
 import { buildLiveRoundtripTrace } from "./live-roundtrip-trace.mjs";
 import { ReviewBusService } from "./service.mjs";
 import { ReviewBusStore } from "./store.mjs";
@@ -19,7 +20,7 @@ const challengeRate = new Map();
 const pairingRate = new Map();
 const BRIDGE_PURPOSES = new Set(["CHATGPT_ASSESSMENT", "CHATGPT_CONSENSUS_DECISION", "CHATGPT_REVIEW_DECISION", "CHATGPT_VERDICT", "FINDING_DECISION"]);
 
-export function createReviewBusHttp({ service, store, busToken, bridgeToken, constitution, githubVerifier = new GitHubEvidenceVerifier(), listenPort = DEFAULT_PORT, now = () => new Date(), runtimeInstanceId = `review-runtime-${randomUUID()}` }) {
+export function createReviewBusHttp({ service, store, busToken, bridgeToken, constitution, githubVerifier = new GitHubEvidenceVerifier(), listenPort = DEFAULT_PORT, now = () => new Date(), runtimeInstanceId = `review-runtime-${randomUUID()}`, intakeBootstrap = STAGE_A_BOOTSTRAP }) {
   if (String(busToken).length < 24 || String(bridgeToken).length < 24) throw new Error("Review Bus local tokens must contain at least 24 characters");
   for (const issue of store.list()) service.recordRuntimeObservation(issue.issue_id, runtimeInstanceId, now());
   const server = createServer(async (req, res) => {
@@ -36,24 +37,83 @@ export function createReviewBusHttp({ service, store, busToken, bridgeToken, con
       const bridgeIdentity = bridgeRoute && !pairingRoute
         ? authenticateBridge(req, bridgeToken, store, now())
         : (!bridgeRoute ? authenticate(req, busToken, null) : null);
-      const attachmentUpload = req.method === "POST" && /^\/v1\/issues\/[^/]+\/attachments$/.test(url.pathname);
+      const attachmentUpload = req.method === "POST" && (/^\/v1\/issues\/[^/]+\/attachments$/.test(url.pathname)
+        || /^\/v1\/submissions\/[^/]+\/attachments$/.test(url.pathname));
       const body = ["POST", "PUT"].includes(req.method ?? "") ? await readJson(req, attachmentUpload ? 36 * 1024 * 1024 : 1_048_576) : null;
 
+      if (req.method === "POST" && url.pathname === "/v1/submissions") {
+        const normalized = normalizeStageASubmission(body, intakeBootstrap);
+        const status = store.stageSubmission({
+          submissionId: normalized.payload.submission_id,
+          projectId: normalized.payload.project_id,
+          captureSchema: SUBMISSION_SCHEMA,
+          captureHash: normalized.captureHash,
+          capturePayload: normalized.payload,
+          now: now(),
+        });
+        return send(res, status.idempotent_replay ? 200 : 201, status);
+      }
+      const submissionRoute = /^\/v1\/submissions\/([^/]+)(?:\/(attachments|finalize))?$/.exec(url.pathname);
+      if (submissionRoute) {
+        const submissionId = decodeURIComponent(submissionRoute[1]);
+        const action = submissionRoute[2] ?? "";
+        if (req.method === "GET" && !action) {
+          const status = store.submissionStatus(submissionId);
+          if (status.project_id !== requireProject(url)) throw problem("PROJECT_SCOPE_DENIED", "PROJECT_SCOPE_DENIED", 403);
+          return send(res, 200, status);
+        }
+        if (req.method === "POST" && action === "attachments") {
+          const attachment = normalizeStagedAttachment(body);
+          const staged = store.stageAttachment({
+            submissionId,
+            attachmentId: attachment.attachment_id,
+            mediaType: attachment.media_type,
+            originalName: attachment.original_name,
+            sizeBytes: attachment.size_bytes,
+            digest: attachment.sha256,
+            bytes: attachment.bytes,
+            capturedAt: attachment.captured_at,
+            now: now(),
+          });
+          return send(res, staged.idempotent_replay ? 200 : 201, staged);
+        }
+        if (req.method === "POST" && action === "finalize") {
+          exactObject(body, ["project_id", "capture_hash"]);
+          if (typeof body.project_id !== "string" || !/^[a-f0-9]{64}$/.test(body.capture_hash ?? "")) throw problem("INVALID_FINALIZE_REQUEST");
+          const finalized = store.finalizeSubmission({ submissionId, projectId: body.project_id, captureHash: body.capture_hash, bootstrap: intakeBootstrap, now: now() }, ({ capture, attachments, bindAttachments }) => {
+            const report = {
+              project_id: capture.project_id,
+              what_happened: capture.what_happened,
+              expected_result: capture.expected_result,
+              location: capture.location,
+              blocks_work: capture.blocks_work,
+              captured_at: capture.captured_at,
+              suggested_lane: capture.suggested_lane,
+              risk: capture.risk,
+              allowed_change_scope: capture.allowed_change_scope,
+              screenshot_refs: [],
+            };
+            const issue = service.createIssue(report, "user", now(), { submissionId, baseCommit: intakeBootstrap.base_commit });
+            service.recordRuntimeObservation(issue.issue_id, runtimeInstanceId, now());
+            const boundAttachments = bindAttachments(issue.issue_id);
+            return service.freezeEvidence(issue.issue_id, {
+              source_commit: intakeBootstrap.base_commit,
+              items: autoEvidenceItems({
+                report,
+                evidenceItems: attachmentEvidenceItems(boundAttachments),
+                appBuildId: capture.app_build_id,
+                appTree: capture.app_tree,
+                route: capture.route,
+                contextSnapshot: capture.context_snapshot,
+                capturedAt: capture.captured_at,
+              }),
+            }, "system", now());
+          });
+          return send(res, finalized.idempotent_replay ? 200 : 201, finalized);
+        }
+      }
       if (req.method === "POST" && url.pathname === "/v1/issues") {
-        const allowed = ["project_id", "what_happened", "expected_result", "location", "blocks_work", "screenshot_refs", "risk", "lane", "issue_id", "allowed_change_scope", "evidence_items", "app_build_id", "app_tree", "route", "context_snapshot"];
-        assertAllowedKeys(body, allowed);
-        const { evidence_items: evidenceItems = [], app_build_id: appBuildId = null, app_tree: appTree = null, route = null, context_snapshot: contextSnapshot = null, ...report } = body;
-        const existing = report.issue_id ? store.get(report.issue_id) : null;
-        if (existing && (existing.project_id !== report.project_id
-          || existing.report.what_happened !== report.what_happened
-          || existing.report.expected_result !== report.expected_result)) throw problem("ISSUE_IDEMPOTENCY_CONFLICT");
-        const issue = existing ?? service.createIssue(report, "user", now());
-        if (!existing) service.recordRuntimeObservation(issue.issue_id, runtimeInstanceId, now());
-        const frozen = existing ?? service.freezeEvidence(issue.issue_id, {
-          source_commit: issue.base_commit,
-          items: autoEvidenceItems({ report, evidenceItems, appBuildId, appTree, route, contextSnapshot, now: now() }),
-        }, "system", now());
-        return send(res, 201, issueReceipt(frozen));
+        throw problem("INTAKE_PROTOCOL_UPGRADE_REQUIRED");
       }
       let match = /^\/v1\/issues\/([^/]+)(?:\/(.*))?$/.exec(url.pathname);
       if (match) {
@@ -86,7 +146,12 @@ export function createReviewBusHttp({ service, store, busToken, bridgeToken, con
         if (req.method === "POST" && action === "pilot") return send(res, 200, issueReceipt(service.deployPilot(issueId, body, "system", now())));
         if (req.method === "POST" && action === "codex-coordination") return send(res, 200, issueReceipt(service.recordCodexCoordination(issueId, body, "review-codex-coordinator", now())));
       }
-      if (req.method === "GET" && url.pathname === "/v1/review/pending") return send(res, 200, { issues: service.pending(requireProject(url)) });
+      if (req.method === "GET" && url.pathname === "/v1/review/pending") {
+        const projectId = requireProject(url);
+        const issues = service.pending(projectId);
+        if (readConsumer(req) === "chatgpt-mcp") for (const issue of issues) store.recordReadReceipt({ issueId: issue.issue_id, projectId, consumer: "chatgpt-mcp", toolName: "issue_list_pending", projectionContentHash: issue.content_hash, now: now() });
+        return send(res, 200, { issues });
+      }
       if (req.method === "GET" && url.pathname === "/v1/review/internal/pending") return send(res, 200, { issues: service.pendingAll() });
       if (req.method === "GET" && url.pathname === "/v1/review/constitution") return send(res, 200, constitution);
       if (req.method === "GET" && url.pathname === "/v1/review/admin/issues") return send(res, 200, { issues: service.listRedactedAdmin() });
@@ -109,13 +174,34 @@ export function createReviewBusHttp({ service, store, busToken, bridgeToken, con
       }
       const internal = /^\/v1\/review\/internal\/issues\/([^/]+)\/full-context$/.exec(url.pathname);
       if (req.method === "GET" && internal) return send(res, 200, service.readLocalFull(decodeURIComponent(internal[1]), requireProject(url)));
+      const intakeConfirmation = /^\/v1\/review\/internal\/issues\/([^/]+)\/intake-confirmation$/.exec(url.pathname);
+      if (req.method === "GET" && intakeConfirmation) {
+        const issueId = decodeURIComponent(intakeConfirmation[1]);
+        const projectId = requireProject(url);
+        const issue = service.readRedacted(issueId, projectId);
+        if (!issue.submission_id) throw problem("SUBMISSION_RECEIPT_NOT_FOUND", "SUBMISSION_RECEIPT_NOT_FOUND", 404);
+        const submission = store.submissionStatus(issue.submission_id);
+        const receipts = store.readReceipts(issueId, "chatgpt-mcp");
+        return send(res, 200, {
+          submission_id: issue.submission_id,
+          formal_issue_id: issueId,
+          project_id: projectId,
+          capture_hash: submission.capture_hash,
+          receipt_hash: submission.receipt?.receipt_hash ?? null,
+          projection_content_hash: issue.content_hash,
+          evidence_manifest_hash: issue.evidence?.manifest?.contentHash ?? issue.evidence?.manifest?.content_hash ?? null,
+          pending_read: receipts.some((receipt) => receipt.tool_name === "issue_list_pending"),
+          evidence_read: receipts.some((receipt) => receipt.tool_name === "issue_get_evidence"),
+          receipts,
+        });
+      }
       const liveTrace = /^\/v1\/review\/internal\/issues\/([^/]+)\/live-roundtrip-trace$/.exec(url.pathname);
       if (req.method === "GET" && liveTrace) {
         const issueId = decodeURIComponent(liveTrace[1]);
         const issue = service.readLocalFull(issueId, requireProject(url));
         return send(res, 200, buildLiveRoundtripTrace(issue, store.events(issueId), { eventChainVerified: store.verifyEventChain(issueId), generatedAt: now() }));
       }
-      if (req.method === "GET" && url.pathname.startsWith("/v1/review/issues/")) return readReviewProjection(service, url, res);
+      if (req.method === "GET" && url.pathname.startsWith("/v1/review/issues/")) return readReviewProjection(service, store, url, req, res, now());
 
       if (pairingRoute) {
         if (!/^chrome-extension:\/\/[a-p]{32}$/.test(req.headers.origin ?? "")) throw problem("CHROME_EXTENSION_ORIGIN_REQUIRED", "CHROME_EXTENSION_ORIGIN_REQUIRED", 403);
@@ -154,13 +240,15 @@ export function createReviewBusHttp({ service, store, busToken, bridgeToken, con
       }
       return send(res, 404, { code: "NOT_FOUND" });
     } catch (error) {
-      return send(res, Number(error.status ?? 400), { code: error.code ?? "REVIEW_BUS_ERROR", message: error.message });
+      const status = Number(error.status ?? 400);
+      const code = safeProblemCode(error.code);
+      return send(res, status, { status, code, message: code, retryable: retryableProblem(code, status) });
     }
   });
   return server;
 }
 
-function readReviewProjection(service, url, res) {
+function readReviewProjection(service, store, url, req, res, now) {
   const match = /^\/v1\/review\/issues\/([^/]+)\/(evidence|codex-assessment-blind|consensus|architecture-options|task-package|candidate|candidate-history|diff|ci|artifact|findings|codex-responses|decision-template|verify-candidate)$/.exec(url.pathname);
   if (!match) return send(res, 404, { code: "NOT_FOUND" });
   const issue = service.readRedacted(decodeURIComponent(match[1]), requireProject(url));
@@ -194,6 +282,15 @@ function readReviewProjection(service, url, res) {
     "decision-template": decisionTemplate(issue),
     "verify-candidate": verifyCandidate(issue),
   };
+  if (match[2] === "evidence" && readConsumer(req) === "chatgpt-mcp") store.recordReadReceipt({
+    issueId: issue.issue_id,
+    projectId: issue.project_id,
+    consumer: "chatgpt-mcp",
+    toolName: "issue_get_evidence",
+    projectionContentHash: issue.content_hash,
+    evidenceManifestHash: issue.evidence?.manifest?.contentHash ?? issue.evidence?.manifest?.content_hash ?? null,
+    now,
+  });
   return send(res, 200, views[match[2]]);
 }
 
@@ -254,9 +351,9 @@ function authenticateBridge(req, legacyToken, store, now) {
 }
 
 function requireProject(url) { const value = url.searchParams.get("project_id"); if (!value) throw problem("PROJECT_SCOPE_REQUIRED"); return value; }
+function readConsumer(req) { return req.headers["x-filmos-read-consumer"] === "chatgpt-mcp" ? "chatgpt-mcp" : null; }
 function issueReceipt(issue) { return { issue_id: issue.issue_id, lane: issue.lane, state: issue.state, content_hash: issue.content_hash, entity_version: issue.entity_version }; }
-function autoEvidenceItems({ report, evidenceItems, appBuildId, appTree, route, contextSnapshot, now }) {
-  const capturedAt = now.toISOString();
+function autoEvidenceItems({ report, evidenceItems, appBuildId, appTree, route, contextSnapshot, capturedAt }) {
   const automatic = [
     { kind: "reproduction", completeness_kind: "reproduction", local_only: true, captured_at: capturedAt, content: { what_happened: report.what_happened, expected_result: report.expected_result, blocks_work: report.blocks_work } },
     { kind: "runtime", completeness_kind: "runtime", local_only: true, captured_at: capturedAt, content: { app_build_id: appBuildId, app_tree: appTree, platform: process.platform, architecture: process.arch, node: process.version, runtime_status: contextSnapshot?.runtimeStatus ?? {}, provider_status: contextSnapshot?.providerStatus ?? {} } },
@@ -270,7 +367,30 @@ function autoEvidenceItems({ report, evidenceItems, appBuildId, appTree, route, 
   if (Array.isArray(report.screenshot_refs) && report.screenshot_refs.length) automatic.push({ kind: "screenshot", completeness_kind: "screenshot", local_only: true, captured_at: capturedAt, content: { local_references: report.screenshot_refs } });
   return [...automatic, ...(Array.isArray(evidenceItems) ? evidenceItems : [])];
 }
+function attachmentEvidenceItems(attachments) {
+  return attachments.map((attachment) => ({
+    evidence_id: `evidence-${attachment.attachment_id}`,
+    kind: attachment.media_type.startsWith("image/") ? "screenshot" : "attachment",
+    completeness_kind: attachment.media_type.startsWith("image/") ? "screenshot" : "attachment",
+    local_only: true,
+    redacted_alias: attachment.redacted_alias,
+    captured_at: attachment.captured_at,
+    content: {
+      attachment_id: attachment.attachment_id,
+      sha256: attachment.sha256,
+      media_type: attachment.media_type,
+      size_bytes: attachment.size_bytes,
+      redacted_alias: attachment.redacted_alias,
+    },
+  }));
+}
 function assertAllowedKeys(value, allowed) { if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).some((key) => !allowed.includes(key))) throw problem("INVALID_BODY"); }
+
+function safeProblemCode(value) { return /^[A-Z0-9_]{1,96}$/.test(String(value ?? "")) ? String(value) : "REVIEW_BUS_ERROR"; }
+function retryableProblem(code, status) {
+  if (status === 503 && ["INTAKE_TEMPORARILY_UNAVAILABLE", "MCP_READBACK_UNAVAILABLE", "INSTALLED_SOURCE_IDENTITY_UNAVAILABLE"].includes(code)) return true;
+  return false;
+}
 
 async function readJson(req, limit = 1_048_576) {
   const chunks = []; let size = 0;
@@ -286,7 +406,7 @@ function isLoopbackHost(value = "") { const host = value.startsWith("[") ? value
 function preflight(req, res) {
   const origin = req.headers.origin ?? "";
   if (!allowedOrigin(origin)) return send(res, 403, { code: "ORIGIN_DENIED" });
-  applyCors(req, res); res.setHeader("Access-Control-Allow-Headers", "authorization,content-type,x-filmos-user-gesture"); res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS"); res.statusCode = 204; res.end();
+  applyCors(req, res); res.setHeader("Access-Control-Allow-Headers", "authorization,content-type,x-filmos-user-gesture,x-filmos-read-consumer"); res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS"); res.statusCode = 204; res.end();
 }
 
 function applyCors(req, res) { const origin = req.headers.origin ?? ""; if (origin && !allowedOrigin(origin)) throw problem("ORIGIN_DENIED", "ORIGIN_DENIED", 403); if (origin) { res.setHeader("Access-Control-Allow-Origin", origin); res.setHeader("Vary", "Origin"); } }

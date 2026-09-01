@@ -1,11 +1,12 @@
 import { randomBytes, randomInt, randomUUID } from "node:crypto";
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
 import { canonicalJson, sha256, problem } from "./canonical.mjs";
+import { ATTACHMENT_RECEIPT_SCHEMA, RECEIPT_SCHEMA } from "./intake-contract.mjs";
 
 export class ReviewBusStore {
   constructor(path = ":memory:") {
@@ -41,6 +42,57 @@ export class ReviewBusStore {
         document_json TEXT NOT NULL,
         content_hash TEXT NOT NULL,
         updated_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS review_submissions (
+        submission_id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        capture_schema TEXT NOT NULL,
+        capture_hash TEXT NOT NULL,
+        capture_json TEXT NOT NULL,
+        state TEXT NOT NULL,
+        formal_issue_id TEXT UNIQUE,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS review_submissions_project_created ON review_submissions(project_id, created_at);
+      CREATE TABLE IF NOT EXISTS review_staged_attachments (
+        attachment_id TEXT PRIMARY KEY,
+        submission_id TEXT NOT NULL,
+        media_type TEXT NOT NULL,
+        size_bytes INTEGER NOT NULL,
+        sha256 TEXT NOT NULL,
+        original_name TEXT NOT NULL,
+        local_path TEXT NOT NULL,
+        captured_at TEXT NOT NULL,
+        staged_at TEXT NOT NULL,
+        bound_issue_id TEXT,
+        bound_at TEXT
+      );
+      CREATE INDEX IF NOT EXISTS review_staged_attachments_submission ON review_staged_attachments(submission_id, attachment_id);
+      CREATE TABLE IF NOT EXISTS review_submission_receipts (
+        submission_id TEXT PRIMARY KEY,
+        formal_issue_id TEXT NOT NULL UNIQUE,
+        receipt_json TEXT NOT NULL,
+        receipt_hash TEXT NOT NULL UNIQUE,
+        created_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS review_bootstrap_receipts (
+        bootstrap_key TEXT PRIMARY KEY,
+        submission_id TEXT NOT NULL UNIQUE,
+        migration_version TEXT NOT NULL,
+        receipt_json TEXT NOT NULL,
+        receipt_hash TEXT NOT NULL UNIQUE,
+        consumed_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS review_read_receipts (
+        issue_id TEXT NOT NULL,
+        project_id TEXT NOT NULL,
+        consumer TEXT NOT NULL,
+        tool_name TEXT NOT NULL,
+        projection_content_hash TEXT NOT NULL,
+        evidence_manifest_hash TEXT,
+        read_at TEXT NOT NULL,
+        PRIMARY KEY(issue_id, consumer, tool_name)
       );
       CREATE TABLE IF NOT EXISTS bridge_challenges (
         challenge_id TEXT PRIMARY KEY,
@@ -87,6 +139,10 @@ export class ReviewBusStore {
       );
       CREATE TRIGGER IF NOT EXISTS review_events_no_update BEFORE UPDATE ON review_events BEGIN SELECT RAISE(ABORT, 'REVIEW_EVENT_APPEND_ONLY'); END;
       CREATE TRIGGER IF NOT EXISTS review_events_no_delete BEFORE DELETE ON review_events BEGIN SELECT RAISE(ABORT, 'REVIEW_EVENT_APPEND_ONLY'); END;
+      CREATE TRIGGER IF NOT EXISTS review_submission_receipts_no_update BEFORE UPDATE ON review_submission_receipts BEGIN SELECT RAISE(ABORT, 'SUBMISSION_RECEIPT_IMMUTABLE'); END;
+      CREATE TRIGGER IF NOT EXISTS review_submission_receipts_no_delete BEFORE DELETE ON review_submission_receipts BEGIN SELECT RAISE(ABORT, 'SUBMISSION_RECEIPT_IMMUTABLE'); END;
+      CREATE TRIGGER IF NOT EXISTS review_bootstrap_receipts_no_update BEFORE UPDATE ON review_bootstrap_receipts BEGIN SELECT RAISE(ABORT, 'BOOTSTRAP_RECEIPT_IMMUTABLE'); END;
+      CREATE TRIGGER IF NOT EXISTS review_bootstrap_receipts_no_delete BEFORE DELETE ON review_bootstrap_receipts BEGIN SELECT RAISE(ABORT, 'BOOTSTRAP_RECEIPT_IMMUTABLE'); END;
     `);
   }
 
@@ -102,6 +158,183 @@ export class ReviewBusStore {
       ? this.db.prepare("SELECT document_json FROM review_projections WHERE project_id = ? ORDER BY updated_at DESC").all(projectId)
       : this.db.prepare("SELECT document_json FROM review_projections ORDER BY updated_at DESC").all();
     return rows.map((row) => JSON.parse(row.document_json)).filter((item) => !states || states.includes(item.state));
+  }
+
+  stageSubmission({ submissionId, projectId, captureSchema, captureHash, capturePayload, now = new Date() }) {
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const existing = this.db.prepare("SELECT * FROM review_submissions WHERE submission_id = ?").get(submissionId);
+      if (existing) {
+        if (existing.project_id !== projectId || existing.capture_hash !== captureHash) throw problem("SUBMISSION_IDEMPOTENCY_CONFLICT");
+        const result = this.submissionStatus(submissionId);
+        this.db.exec("COMMIT");
+        return { ...result, idempotent_replay: true };
+      }
+      const timestamp = now.toISOString();
+      this.db.prepare(`INSERT INTO review_submissions(submission_id,project_id,capture_schema,capture_hash,capture_json,state,created_at,updated_at)
+        VALUES(?,?,?,?,?,?,?,?)`).run(submissionId, projectId, captureSchema, captureHash, canonicalJson(capturePayload), "STAGED", timestamp, timestamp);
+      const result = this.submissionStatus(submissionId);
+      this.db.exec("COMMIT");
+      return { ...result, idempotent_replay: false };
+    } catch (error) {
+      if (this.db.isTransaction) this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  submissionStatus(submissionId) {
+    const row = this.db.prepare("SELECT * FROM review_submissions WHERE submission_id = ?").get(submissionId);
+    if (!row) throw problem("SUBMISSION_NOT_FOUND", "SUBMISSION_NOT_FOUND", 404);
+    const receiptRow = this.db.prepare("SELECT receipt_json FROM review_submission_receipts WHERE submission_id = ?").get(submissionId);
+    return {
+      submission_id: row.submission_id,
+      project_id: row.project_id,
+      capture_schema: row.capture_schema,
+      capture_hash: row.capture_hash,
+      state: row.state,
+      formal_issue_id: row.formal_issue_id ?? null,
+      attachment_count: this.db.prepare("SELECT COUNT(*) AS count FROM review_staged_attachments WHERE submission_id = ?").get(submissionId).count,
+      receipt: receiptRow ? JSON.parse(receiptRow.receipt_json) : null,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+    };
+  }
+
+  stageAttachment({ submissionId, attachmentId, mediaType, originalName, sizeBytes, digest, bytes, capturedAt, now = new Date() }) {
+    const submission = this.db.prepare("SELECT capture_json,state FROM review_submissions WHERE submission_id = ?").get(submissionId);
+    if (!submission) throw problem("SUBMISSION_NOT_FOUND", "SUBMISSION_NOT_FOUND", 404);
+    if (submission.state !== "STAGED") throw problem("SUBMISSION_ALREADY_FINALIZED");
+    const existing = this.db.prepare("SELECT * FROM review_staged_attachments WHERE attachment_id = ?").get(attachmentId);
+    if (existing) {
+      if (existing.submission_id !== submissionId || existing.sha256 !== digest || Number(existing.size_bytes) !== sizeBytes) throw problem("ATTACHMENT_ID_CONFLICT");
+      return { receipt: attachmentReceipt(existing), idempotent_replay: true };
+    }
+    const manifest = JSON.parse(submission.capture_json).attachment_manifest ?? [];
+    const declared = manifest.find((item) => item.attachment_id === attachmentId);
+    if (!declared) throw problem("SUBMISSION_ATTACHMENT_UNDECLARED", "SUBMISSION_ATTACHMENT_UNDECLARED", 422);
+    if (declared.media_type !== mediaType || declared.original_name !== originalName || declared.size_bytes !== sizeBytes
+      || declared.sha256 !== digest || declared.captured_at !== capturedAt) throw problem("ATTACHMENT_MANIFEST_MISMATCH", "ATTACHMENT_MANIFEST_MISMATCH", 422);
+    const objectDirectory = resolve(this.evidenceRoot, "submission-objects", digest.slice(0, 2));
+    mkdirSync(objectDirectory, { recursive: true, mode: 0o700 });
+    chmodSync(objectDirectory, 0o700);
+    const localPath = resolve(objectDirectory, `${digest}.bin`);
+    if (existsSync(localPath)) {
+      const current = readFileSync(localPath);
+      if (current.length !== sizeBytes || createHash("sha256").update(current).digest("hex") !== digest) throw problem("ATTACHMENT_INTEGRITY_FAILURE", "ATTACHMENT_INTEGRITY_FAILURE", 422);
+    } else {
+      const temporaryPath = resolve(objectDirectory, `.${digest}.${randomUUID()}.tmp`);
+      writeFileSync(temporaryPath, bytes, { flag: "wx", mode: 0o600, flush: true });
+      try {
+        if (createHash("sha256").update(readFileSync(temporaryPath)).digest("hex") !== digest) throw problem("ATTACHMENT_INTEGRITY_FAILURE", "ATTACHMENT_INTEGRITY_FAILURE", 422);
+        renameSync(temporaryPath, localPath);
+        chmodSync(localPath, 0o600);
+      } finally {
+        if (existsSync(temporaryPath)) unlinkSync(temporaryPath);
+      }
+    }
+
+    const stagedAt = now.toISOString();
+    this.db.prepare(`INSERT INTO review_staged_attachments(attachment_id,submission_id,media_type,size_bytes,sha256,original_name,local_path,captured_at,staged_at)
+      VALUES(?,?,?,?,?,?,?,?,?)`).run(attachmentId, submissionId, mediaType, sizeBytes, digest, originalName, localPath, capturedAt, stagedAt);
+    const row = this.db.prepare("SELECT * FROM review_staged_attachments WHERE attachment_id = ?").get(attachmentId);
+    return { receipt: attachmentReceipt(row), idempotent_replay: false };
+  }
+
+  finalizeSubmission({ submissionId, projectId, captureHash, bootstrap, now = new Date() }, apply) {
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const submission = this.db.prepare("SELECT * FROM review_submissions WHERE submission_id = ?").get(submissionId);
+      if (!submission) throw problem("SUBMISSION_NOT_FOUND", "SUBMISSION_NOT_FOUND", 404);
+      if (submission.project_id !== projectId) throw problem("SUBMISSION_PROJECT_SCOPE_CONFLICT");
+      if (submission.capture_hash !== captureHash) throw problem("SUBMISSION_IDEMPOTENCY_CONFLICT");
+      const existingReceipt = this.db.prepare("SELECT receipt_json FROM review_submission_receipts WHERE submission_id = ?").get(submissionId);
+      if (existingReceipt) {
+        const receipt = JSON.parse(existingReceipt.receipt_json);
+        this.db.exec("COMMIT");
+        return { receipt, idempotent_replay: true };
+      }
+      if (submission.state !== "STAGED") throw problem("FINALIZE_ALREADY_BOUND_CONFLICT");
+      if (bootstrap.submission_id !== submissionId) throw problem("INSTALLED_SOURCE_IDENTITY_UNAVAILABLE", "INSTALLED_SOURCE_IDENTITY_UNAVAILABLE", 503);
+
+      const capture = JSON.parse(submission.capture_json);
+      const manifest = capture.attachment_manifest ?? [];
+      const attachments = this.db.prepare("SELECT * FROM review_staged_attachments WHERE submission_id = ? ORDER BY attachment_id").all(submissionId);
+      if (attachments.length !== manifest.length) throw problem("SUBMISSION_ATTACHMENT_MISSING", "SUBMISSION_ATTACHMENT_MISSING", 422);
+      for (const declared of manifest) {
+        const staged = attachments.find((item) => item.attachment_id === declared.attachment_id);
+        if (!staged) throw problem("SUBMISSION_ATTACHMENT_MISSING", "SUBMISSION_ATTACHMENT_MISSING", 422);
+        const bytes = existsSync(staged.local_path) ? readFileSync(staged.local_path) : null;
+        if (!bytes || bytes.length !== declared.size_bytes || createHash("sha256").update(bytes).digest("hex") !== declared.sha256) throw problem("ATTACHMENT_INTEGRITY_FAILURE", "ATTACHMENT_INTEGRITY_FAILURE", 422);
+      }
+
+      const consumedAt = now.toISOString();
+      const bootstrapBase = {
+        schema_version: "filmos.source-identity.bootstrap-receipt.v1",
+        submission_id: submissionId,
+        base_commit: bootstrap.base_commit,
+        base_tree: bootstrap.base_tree,
+        build_id: bootstrap.build_id,
+        migration_version: bootstrap.migration_version,
+        consumed: true,
+        consumed_at: consumedAt,
+      };
+      const bootstrapReceipt = { ...bootstrapBase, receipt_hash: sha256(bootstrapBase) };
+      const priorBootstrap = this.db.prepare("SELECT submission_id FROM review_bootstrap_receipts LIMIT 1").get();
+      if (priorBootstrap) throw problem("BOOTSTRAP_ALREADY_CONSUMED");
+      this.db.prepare(`INSERT INTO review_bootstrap_receipts(bootstrap_key,submission_id,migration_version,receipt_json,receipt_hash,consumed_at)
+        VALUES(?,?,?,?,?,?)`).run("stage-a-fixed-source-identity", submissionId, bootstrap.migration_version, canonicalJson(bootstrapReceipt), bootstrapReceipt.receipt_hash, consumedAt);
+
+      const bindAttachments = (issueId) => {
+        for (const staged of attachments) {
+          const redactedAlias = `evidence://${issueId}/${staged.attachment_id}`;
+          this.db.prepare(`INSERT INTO review_attachments(attachment_id,issue_id,media_type,size_bytes,sha256,original_name,redacted_alias,local_path,captured_at)
+            VALUES(?,?,?,?,?,?,?,?,?)`).run(staged.attachment_id, issueId, staged.media_type, staged.size_bytes, staged.sha256, staged.original_name, redactedAlias, staged.local_path, staged.captured_at);
+          this.db.prepare("UPDATE review_staged_attachments SET bound_issue_id = ?, bound_at = ? WHERE attachment_id = ?")
+            .run(issueId, consumedAt, staged.attachment_id);
+        }
+        return this.listAttachments(issueId);
+      };
+      const issue = apply({ capture, attachments: attachments.map(stagedAttachmentRow), bindAttachments, bootstrapReceipt });
+      if (!issue || issue.project_id !== projectId || !issue.issue_id) throw problem("INVALID_SUBMISSION_PROJECTION");
+      const receiptBase = {
+        schema_version: RECEIPT_SCHEMA,
+        submission_id: submissionId,
+        formal_issue_id: issue.issue_id,
+        project_id: projectId,
+        lane: issue.lane,
+        state: issue.state,
+        capture_schema: submission.capture_schema,
+        capture_hash: captureHash,
+        projection_content_hash: issue.content_hash,
+        evidence_manifest_hash: issue.evidence?.manifest?.contentHash ?? issue.evidence?.manifest?.content_hash ?? null,
+        entity_version: issue.entity_version,
+        bootstrap_receipt_hash: bootstrapReceipt.receipt_hash,
+        accepted_at: consumedAt,
+      };
+      const receipt = { ...receiptBase, receipt_hash: sha256(receiptBase) };
+      this.db.prepare("INSERT INTO review_submission_receipts(submission_id,formal_issue_id,receipt_json,receipt_hash,created_at) VALUES(?,?,?,?,?)")
+        .run(submissionId, issue.issue_id, canonicalJson(receipt), receipt.receipt_hash, consumedAt);
+      this.db.prepare("UPDATE review_submissions SET state = ?, formal_issue_id = ?, updated_at = ? WHERE submission_id = ?")
+        .run("ACCEPTED_AWAITING_READBACK", issue.issue_id, consumedAt, submissionId);
+      this.db.exec("COMMIT");
+      return { receipt, idempotent_replay: false };
+    } catch (error) {
+      if (this.db.isTransaction) this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  recordReadReceipt({ issueId, projectId, consumer, toolName, projectionContentHash, evidenceManifestHash = null, now = new Date() }) {
+    this.db.prepare(`INSERT INTO review_read_receipts(issue_id,project_id,consumer,tool_name,projection_content_hash,evidence_manifest_hash,read_at)
+      VALUES(?,?,?,?,?,?,?) ON CONFLICT(issue_id,consumer,tool_name) DO UPDATE SET
+      project_id=excluded.project_id,projection_content_hash=excluded.projection_content_hash,
+      evidence_manifest_hash=excluded.evidence_manifest_hash,read_at=excluded.read_at`)
+      .run(issueId, projectId, consumer, toolName, projectionContentHash, evidenceManifestHash, now.toISOString());
+  }
+
+  readReceipts(issueId, consumer) {
+    return this.db.prepare("SELECT issue_id,project_id,consumer,tool_name,projection_content_hash,evidence_manifest_hash,read_at FROM review_read_receipts WHERE issue_id = ? AND consumer = ? ORDER BY tool_name")
+      .all(issueId, consumer).map((row) => ({ ...row }));
   }
 
   append({ issueId, eventType, actor, payload, projectId, lane, mutate, revokeCandidate = null, now = new Date() }) {
@@ -299,10 +532,40 @@ export class ReviewBusStore {
   backup(destination) {
     if (this.path === ":memory:") throw problem("MEMORY_DATABASE_CANNOT_BACKUP");
     mkdirSync(dirname(destination), { recursive: true, mode: 0o700 });
-    this.db.exec("PRAGMA wal_checkpoint(FULL)");
-    copyFileSync(this.path, destination);
+    if (existsSync(destination)) throw problem("BACKUP_DESTINATION_EXISTS");
+    const quoted = String(destination).replaceAll("'", "''");
+    this.db.exec(`VACUUM INTO '${quoted}'`);
+    chmodSync(destination, 0o600);
     return { destination, sha256: createHash("sha256").update(readFileSync(destination)).digest("hex") };
   }
+}
+
+function stagedAttachmentRow(row) {
+  return {
+    attachment_id: row.attachment_id,
+    submission_id: row.submission_id,
+    media_type: row.media_type,
+    size_bytes: Number(row.size_bytes),
+    sha256: row.sha256,
+    original_name: row.original_name,
+    local_path: row.local_path,
+    captured_at: row.captured_at,
+    staged_at: row.staged_at,
+  };
+}
+
+function attachmentReceipt(row) {
+  const base = {
+    schema_version: ATTACHMENT_RECEIPT_SCHEMA,
+    submission_id: row.submission_id,
+    attachment_id: row.attachment_id,
+    media_type: row.media_type,
+    size_bytes: Number(row.size_bytes),
+    sha256: row.sha256,
+    captured_at: row.captured_at,
+    staged_at: row.staged_at,
+  };
+  return { ...base, receipt_hash: sha256(base) };
 }
 
 function attachmentRow(row) {
