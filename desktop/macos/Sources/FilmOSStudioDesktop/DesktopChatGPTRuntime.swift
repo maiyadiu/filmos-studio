@@ -266,6 +266,7 @@ final class DesktopChatGPTRuntime: ChatGPTConnectionOperating {
             mcpWriteToolCount: healthPayload?["mcp_write_tool_count"] as? Int ?? 0,
             mcpPaidToolCount: healthPayload?["mcp_paid_tool_count"] as? Int ?? 0,
             mcpDestructiveToolCount: healthPayload?["mcp_destructive_tool_count"] as? Int ?? 0,
+            mcpInstanceID: healthPayload?["mcp_instance_id"] as? String,
             grantID: scopedGrantID ?? activeGrantID,
             authorizedProjectID: scopedProjectID,
             profileID: healthPayload?["profile_id"] as? String ?? "chatgpt.subscription.host.pro_readonly",

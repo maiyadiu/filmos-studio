@@ -31,6 +31,8 @@ test("native Agent handoff exposes only the current Project Grant and Secure Tun
   await new Promise<void>((resolve) => server.once("listening", resolve));
   const baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   const authorization = `Bearer ${issued.token}`;
+  const health = await (await fetch(`${baseUrl}/health`)).json() as any;
+  assert.match(health.mcp_instance_id, /^[0-9a-f-]{36}$/);
   const contextReceiptId = "context-receipt-001";
   const context = {
     project_id: projectA,

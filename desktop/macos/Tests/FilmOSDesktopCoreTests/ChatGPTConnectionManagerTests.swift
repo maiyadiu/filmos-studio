@@ -132,6 +132,29 @@ struct ChatGPTConnectionManagerTests {
     }
 
     @Test
+    func mcpProcessRestartRepublishesTheRetainedWorkbenchContext() async throws {
+        let operations = FakeConnectionOperations()
+        operations.health.mcpInstanceID = "mcp-instance-1"
+        let manager = ChatGPTConnectionManager(
+            operations: operations,
+            tokenStore: MemoryTokenStore(),
+            preferences: MemoryConnectionPreferences(),
+            monitorInterval: 0.02
+        )
+        try await manager.connect(tunnelID: "tunnel_12345678", runtimeKey: "runtime", projectID: "host-project-1")
+        let context = Data("{\"project_id\":\"host-project-1\"}".utf8)
+        try await manager.updateWorkbenchContext(context)
+        let initialPublishes = operations.publishContextCount
+
+        operations.health.mcpInstanceID = "mcp-instance-2"
+        let republished = await waitUntil { operations.publishContextCount > initialPublishes }
+
+        #expect(republished)
+        #expect(operations.publishedContext == context)
+        manager.disconnect()
+    }
+
+    @Test
     func liveWorkbenchContextFromAnotherProjectFailsClosed() async throws {
         let operations = FakeConnectionOperations()
         let manager = ChatGPTConnectionManager(
@@ -512,6 +535,7 @@ private final class MutableHealth {
     var mcpWriteToolCount = 0
     var mcpPaidToolCount = 0
     var mcpDestructiveToolCount = 0
+    var mcpInstanceID: String? = "mcp-instance-1"
     var grantID: String?
     var authorizedProjectID: String?
     var externalRequest: ChatGPTExternalRequest?
@@ -527,6 +551,7 @@ private final class MutableHealth {
             mcpWriteToolCount: mcpWriteToolCount,
             mcpPaidToolCount: mcpPaidToolCount,
             mcpDestructiveToolCount: mcpDestructiveToolCount,
+            mcpInstanceID: mcpInstanceID,
             grantID: grantID,
             authorizedProjectID: authorizedProjectID,
             externalRequest: externalRequest

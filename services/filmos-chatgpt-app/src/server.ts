@@ -58,6 +58,7 @@ export type FilmOSChatGPTAppOptions = {
 
 export function createFilmOSChatGPTApp(options: FilmOSChatGPTAppOptions) {
   const app = express();
+  const mcpInstanceId = randomUUID();
   const sessions = new Map<string, Session>();
   const observations = new Map<string, { last_read_at: string; last_context_snapshot: { uri: string | null; version: number | null; state_hash: string | null } }>();
   const externalObservations = new Map<string, Map<string, ExternalObservation>>();
@@ -87,6 +88,7 @@ export function createFilmOSChatGPTApp(options: FilmOSChatGPTAppOptions) {
 
   app.get("/health", (_req, res) => res.json({
     ok: true,
+    mcp_instance_id: mcpInstanceId,
     feature: "film.chatgpt_app",
     enabled: options.enabled,
     profile_id: hostProfileId,

@@ -71,6 +71,7 @@ public struct ChatGPTRuntimeHealth: Equatable, Sendable {
     public let mcpWriteToolCount: Int
     public let mcpPaidToolCount: Int
     public let mcpDestructiveToolCount: Int
+    public let mcpInstanceID: String?
     public let grantID: String?
     public let authorizedProjectID: String?
     public let profileID: String
@@ -88,6 +89,7 @@ public struct ChatGPTRuntimeHealth: Equatable, Sendable {
         mcpWriteToolCount: Int = 0,
         mcpPaidToolCount: Int = 0,
         mcpDestructiveToolCount: Int = 0,
+        mcpInstanceID: String? = nil,
         grantID: String? = nil,
         authorizedProjectID: String? = nil,
         profileID: String = "chatgpt.subscription.host.pro_readonly",
@@ -104,6 +106,7 @@ public struct ChatGPTRuntimeHealth: Equatable, Sendable {
         self.mcpWriteToolCount = mcpWriteToolCount
         self.mcpPaidToolCount = mcpPaidToolCount
         self.mcpDestructiveToolCount = mcpDestructiveToolCount
+        self.mcpInstanceID = mcpInstanceID
         self.grantID = grantID
         self.authorizedProjectID = authorizedProjectID
         self.profileID = profileID
@@ -345,7 +348,9 @@ public final class ChatGPTConnectionManager {
     private var publishedHostContext: Data?
     private var publishedHostChallengeID: String?
     private var publishedHostGrantID: String?
+    private var publishedHostMCPInstanceID: String?
     private var publishedHostContextAt: Date?
+    private var connectionActivity: NSObjectProtocol?
 
     public init(
         operations: any ChatGPTConnectionOperating,
@@ -409,6 +414,7 @@ public final class ChatGPTConnectionManager {
         currentHostContext = nil
         clearPublishedHostContextBinding()
         preferences.clearProjectSession()
+        endConnectionActivity()
         snapshot = .notConfigured
     }
 
@@ -450,6 +456,7 @@ public final class ChatGPTConnectionManager {
         currentProjectSession = nil
         currentHostContext = nil
         clearPublishedHostContextBinding()
+        endConnectionActivity()
         if clearCredential {
             try? tokenStore.delete(for: .openAIMCPTunnelRuntimeKey)
             preferences.clear()
@@ -470,6 +477,7 @@ public final class ChatGPTConnectionManager {
         currentProjectSession = nil
         currentHostContext = nil
         clearPublishedHostContextBinding()
+        endConnectionActivity()
     }
 
     public func refresh() async {
@@ -515,7 +523,7 @@ public final class ChatGPTConnectionManager {
         let challengeID = try currentHostChallenge()
         let result = try await operations.publishHostContext(context, challengeID: challengeID)
         let health = await operations.runtimeHealth()
-        recordPublishedHostContext(context, challengeID: challengeID, grantID: health.grantID)
+        recordPublishedHostContext(context, challengeID: challengeID, grantID: health.grantID, mcpInstanceID: health.mcpInstanceID)
         return result
     }
 
@@ -564,6 +572,7 @@ public final class ChatGPTConnectionManager {
     private func establish(configuration: ChatGPTHostConnectionConfig, projectSession: ChatGPTProjectHostSession, resetChallenge: Bool) async throws {
         monitorTask?.cancel()
         desiredConnection = true
+        beginConnectionActivity()
         currentConfiguration = configuration
         currentProjectSession = projectSession
         let runtimeKey = try currentRuntimeKey ?? tokenStore.loadString(for: .openAIMCPTunnelRuntimeKey)
@@ -709,16 +718,18 @@ public final class ChatGPTConnectionManager {
         if !force, publishedHostContext == context,
            publishedHostChallengeID == challengeID,
            publishedHostGrantID == health.grantID,
+           publishedHostMCPInstanceID == health.mcpInstanceID,
            let publishedHostContextAt,
            publishedHostContextAt.timeIntervalSinceNow > -240 { return }
         _ = try await operations.publishHostContext(context, challengeID: challengeID)
-        recordPublishedHostContext(context, challengeID: challengeID, grantID: health.grantID)
+        recordPublishedHostContext(context, challengeID: challengeID, grantID: health.grantID, mcpInstanceID: health.mcpInstanceID)
     }
 
-    private func recordPublishedHostContext(_ context: Data, challengeID: String, grantID: String?) {
+    private func recordPublishedHostContext(_ context: Data, challengeID: String, grantID: String?, mcpInstanceID: String? = nil) {
         publishedHostContext = context
         publishedHostChallengeID = challengeID
         publishedHostGrantID = grantID
+        publishedHostMCPInstanceID = mcpInstanceID
         publishedHostContextAt = Date()
     }
 
@@ -726,7 +737,22 @@ public final class ChatGPTConnectionManager {
         publishedHostContext = nil
         publishedHostChallengeID = nil
         publishedHostGrantID = nil
+        publishedHostMCPInstanceID = nil
         publishedHostContextAt = nil
+    }
+
+    private func beginConnectionActivity() {
+        guard connectionActivity == nil else { return }
+        connectionActivity = ProcessInfo.processInfo.beginActivity(
+            options: [.userInitiatedAllowingIdleSystemSleep],
+            reason: "Maintain the user-enabled FilmOS ChatGPT Secure Tunnel and live workbench receipt"
+        )
+    }
+
+    private func endConnectionActivity() {
+        guard let connectionActivity else { return }
+        ProcessInfo.processInfo.endActivity(connectionActivity)
+        self.connectionActivity = nil
     }
 
     private func validateWorkbenchContext(_ context: Data) throws {
@@ -811,6 +837,7 @@ public final class ChatGPTConnectionManager {
     }
 
     private func fail(_ error: Error) {
+        endConnectionActivity()
         snapshot.state = error as? ChatGPTConnectionError == .grantExpired ? .grantExpired : .tunnelFailed
         snapshot.lastError = Self.safeError(error)
         if snapshot.state == .grantExpired { snapshot.grantStatus = .expired }
