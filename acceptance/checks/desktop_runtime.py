@@ -21,6 +21,13 @@ FILM_CORE_PORT = 17650
 CHATGPT_MCP_PORT = 17840
 
 
+def bind_acceptance_build_id(environment: dict[str, str]) -> dict[str, str]:
+    acceptance_build_id = environment.get("FILMOS_ACCEPTANCE_BUILD_ID")
+    if acceptance_build_id:
+        environment["FILMOS_DESKTOP_BUILD_ID"] = acceptance_build_id
+    return environment
+
+
 def port_open(port: int) -> bool:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client:
         client.settimeout(0.2)
@@ -130,7 +137,7 @@ def main() -> None:
         bundle = Path(directory) / "FilmOS Studio.app"
         support_name = f"FilmOS Acceptance {Path(directory).name[-8:]}"
         ui_golden_root = os.environ.get("FILMOS_ACCEPTANCE_UI_GOLDEN_CAPTURE_ROOT", "").strip()
-        environment = os.environ.copy()
+        environment = bind_acceptance_build_id(os.environ.copy())
         environment.update({
             "FILMOS_DESKTOP_WEB_PORT": str(web_port),
             "FILMOS_DESKTOP_BACKEND_PORT": str(backend_port),
