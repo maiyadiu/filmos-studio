@@ -12,7 +12,7 @@ import { ReviewBusStore } from "../../../services/filmos-review-bus/src/store.mj
 
 const execFileAsync = promisify(execFile);
 
-test("filmos CLI creates a real IssueSession through the loopback Review Bus", async () => {
+test("filmos CLI fails closed for legacy intake and still reads existing IssueSessions", async () => {
   const temp = mkdtempSync(resolve(tmpdir(), "filmos-review-cli-"));
   const token = "bus-token-1234567890-abcdefghijkl";
   const store = new ReviewBusStore(":memory:");
@@ -24,10 +24,24 @@ test("filmos CLI creates a real IssueSession through the loopback Review Bus", a
   const input = resolve(temp, "issue.json");
   writeFileSync(input, JSON.stringify({ project_id: "filmos-global", what_happened: "button unclear", expected_result: "clear label", location: "settings", blocks_work: false }));
   try {
-    const { stdout } = await execFileAsync(process.execPath, [resolve(import.meta.dirname, "../filmos"), "issue", "create", "--json", input], { env: { ...process.env, FILMOS_REVIEW_BUS_TOKEN: token, FILMOS_REVIEW_BUS_BASE_URL: `http://127.0.0.1:${port}` } });
-    const receipt = JSON.parse(stdout);
-    assert.match(receipt.issue_id, /^FILMOS-ISSUE-/);
-    assert.equal(receipt.state, "EVIDENCE_REQUIRED");
-    assert.ok(service.requireIssue(receipt.issue_id).evidence.manifest.contentHash);
+    const environment = { ...process.env, FILMOS_REVIEW_BUS_TOKEN: token, FILMOS_REVIEW_BUS_BASE_URL: `http://127.0.0.1:${port}` };
+    await assert.rejects(
+      execFileAsync(process.execPath, [resolve(import.meta.dirname, "../filmos"), "issue", "create", "--json", input], { env: environment }),
+      (error) => error.code === 1 && error.stderr.trim() === "INTAKE_PROTOCOL_UPGRADE_REQUIRED",
+    );
+
+    const existing = service.createIssue({
+      project_id: "filmos-global",
+      issue_id: "FILMOS-ISSUE-cli-existing",
+      what_happened: "existing issue",
+      expected_result: "remain readable",
+      location: "settings",
+      blocks_work: false,
+    }, "acceptance-fixture");
+    const { stdout } = await execFileAsync(process.execPath, [resolve(import.meta.dirname, "../filmos"), "issue", "status", "--issue", existing.issue_id, "--project", "filmos-global"], { env: environment });
+    const projection = JSON.parse(stdout);
+    assert.equal(projection.issue_id, existing.issue_id);
+    assert.equal(projection.state, "OBSERVED_IN_USE");
+    assert.equal(projection.content_hash, service.requireIssue(existing.issue_id).content_hash);
   } finally { await new Promise((resolve) => server.close(resolve)); store.close(); }
 });

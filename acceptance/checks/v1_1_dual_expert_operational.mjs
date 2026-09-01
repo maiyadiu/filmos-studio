@@ -20,6 +20,31 @@ const LEGACY_BRIDGE_TOKEN = "operational-bridge-token-1234567890abcdef";
 const EXTENSION_ORIGIN = "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const SCREENSHOT_BYTES = Buffer.from("FilmOS V1.1 pasted screenshot operational evidence\n", "utf8");
 const constitution = JSON.parse(readFileSync(resolve(import.meta.dirname, "../../governance/FILMOS_CONSTITUTION.json"), "utf8"));
+const OPERATIONAL_REPORT = {
+  project_id: PROJECT_ID,
+  issue_id: ISSUE_ID,
+  what_happened: "Feedback must trigger the dual-expert operational loop.",
+  expected_result: "Codex assessment, ChatGPT writeback, Candidate A to B, and dual signoff are durable.",
+  location: "web/src/components/governance/ReportIssuePortal.tsx",
+  blocks_work: true,
+  risk: { core_state: true },
+  screenshot_refs: ["clipboard://pasted-screenshot"],
+  app_build_id: "operational-preflight",
+  app_tree: "local-acceptance-only",
+  route: "/projects/11111111-1111-4111-8111-111111111111/chapters",
+  context_snapshot: {
+    projectId: PROJECT_ID,
+    domainProjectId: PROJECT_ID,
+    contentUnitId: "content-unit-1",
+    sceneId: null,
+    directorUnitId: null,
+    shotId: null,
+    runtimeStatus: { reviewBus: "ready" },
+    providerStatus: { externalPaidSubmit: false },
+    recentAuditIds: ["audit-operational-1"],
+    recentErrorCodes: [],
+  },
+};
 
 const directory = mkdtempSync(resolve(tmpdir(), "filmos-v1-1-operational-"));
 const databasePath = resolve(directory, "review-bus.sqlite");
@@ -31,31 +56,6 @@ try {
   runtime = await startRuntime();
   const first = runtime;
 
-  await request(first.url, "POST", "/v1/issues", {
-    project_id: PROJECT_ID,
-    issue_id: ISSUE_ID,
-    what_happened: "Feedback must trigger the dual-expert operational loop.",
-    expected_result: "Codex assessment, ChatGPT writeback, Candidate A to B, and dual signoff are durable.",
-    location: "web/src/components/governance/ReportIssuePortal.tsx",
-    blocks_work: true,
-    risk: { core_state: true },
-    screenshot_refs: ["clipboard://pasted-screenshot"],
-    app_build_id: "operational-preflight",
-    app_tree: "local-acceptance-only",
-    route: "/projects/11111111-1111-4111-8111-111111111111/chapters",
-    context_snapshot: {
-      projectId: PROJECT_ID,
-      domainProjectId: PROJECT_ID,
-      contentUnitId: "content-unit-1",
-      sceneId: null,
-      directorUnitId: null,
-      shotId: null,
-      runtimeStatus: { reviewBus: "ready" },
-      providerStatus: { externalPaidSubmit: false },
-      recentAuditIds: ["audit-operational-1"],
-      recentErrorCodes: [],
-    },
-  });
   assert.equal((await full(first.url)).lane, "core");
   const backgroundPending = await request(first.url, "GET", "/v1/review/internal/pending");
   assert.equal(backgroundPending.issues.some((item) => item.issue_id === ISSUE_ID && item.project_id === PROJECT_ID), true);
@@ -238,6 +238,13 @@ try {
 async function startRuntime() {
   const store = new ReviewBusStore(databasePath);
   const service = new ReviewBusService(store, { baseCommit: BASE_COMMIT, taskPackageContentHash: TASK_PACKAGE_HASH });
+  if (!store.get(ISSUE_ID)) {
+    service.createIssue(OPERATIONAL_REPORT, "acceptance-fixture");
+    service.freezeEvidence(ISSUE_ID, {
+      source_commit: BASE_COMMIT,
+      items: operationalEvidenceItems(),
+    }, "acceptance-fixture");
+  }
   const githubVerifier = { async verify(value) { return remoteReceipt(value); } };
   const server = createReviewBusHttp({ service, store, busToken: BUS_TOKEN, bridgeToken: LEGACY_BRIDGE_TOKEN, constitution, githubVerifier, listenPort: 0 });
   server.listen(0, "127.0.0.1");
@@ -245,6 +252,16 @@ async function startRuntime() {
   const address = server.address();
   assert(address && typeof address === "object");
   return { store, service, server, url: `http://127.0.0.1:${address.port}` };
+}
+
+function operationalEvidenceItems() {
+  const capturedAt = "2026-08-31T12:00:00.000Z";
+  return [
+    { kind: "reproduction", completeness_kind: "reproduction", local_only: true, captured_at: capturedAt, content: { what_happened: OPERATIONAL_REPORT.what_happened, expected_result: OPERATIONAL_REPORT.expected_result, blocks_work: true } },
+    { kind: "runtime", completeness_kind: "runtime", local_only: true, captured_at: capturedAt, content: { app_build_id: OPERATIONAL_REPORT.app_build_id, app_tree: OPERATIONAL_REPORT.app_tree, runtime_status: OPERATIONAL_REPORT.context_snapshot.runtimeStatus, provider_status: OPERATIONAL_REPORT.context_snapshot.providerStatus } },
+    { kind: "logs", completeness_kind: "logs", local_only: true, captured_at: capturedAt, content: { recent_audit_ids: OPERATIONAL_REPORT.context_snapshot.recentAuditIds, recent_error_codes: [] } },
+    { kind: "source_map", completeness_kind: "sourceMap", local_only: true, captured_at: capturedAt, content: { location: OPERATIONAL_REPORT.location, route: OPERATIONAL_REPORT.route } },
+  ];
 }
 
 async function stopRuntime(value) {
