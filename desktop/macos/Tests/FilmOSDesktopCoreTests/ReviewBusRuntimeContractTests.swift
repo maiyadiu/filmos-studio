@@ -42,20 +42,38 @@ struct ReviewBusRuntimeContractTests {
     }
 
     @Test
-    func nativeIssueBridgeAcceptsBoundedStructuredRiskForReviewBusClassification() throws {
+    func nativeSubmissionBridgeAcceptsTheExactStagedIntakeContract() throws {
         let payload: [String: Any] = [
+            "submission_id": "FILMOS-SUBMISSION-b3274782-30a0-44a1-a05e-01730678da8b",
             "project_id": "project-1",
             "what_happened": "Candidate A failed before ChatGPT Findings writeback",
             "expected_result": "Candidate B must pass with dual signoff",
             "location": "agent:/canvas/project-1",
             "blocks_work": true,
+            "captured_at": "2026-09-01T16:16:00.955Z",
             "risk": ["core_state": true],
-            "screenshot_refs": [],
-            "issue_id": "FILMOS-ISSUE-risk-contract",
+            "suggested_lane": "core",
+            "allowed_change_scope": [],
+            "app_build_id": NSNull(),
+            "app_tree": NSNull(),
+            "route": "/canvas/project-1",
             "context_snapshot": ["selectedNodeIds": []],
+            "attachment_manifest": [],
         ]
         let data = try JSONSerialization.data(withJSONObject: payload)
-        #expect(ReviewBusRuntimeContract.isValidIssueSubmission(data))
+        #expect(ReviewBusRuntimeContract.isValidSubmission(data))
+        let finalize = try JSONSerialization.data(withJSONObject: ["project_id": "project-1", "capture_hash": String(repeating: "a", count: 64)])
+        #expect(ReviewBusRuntimeContract.isValidSubmissionFinalize(finalize))
+        let attachment = try JSONSerialization.data(withJSONObject: [
+            "attachment_id": "attachment-stage-a-1",
+            "media_type": "image/png",
+            "original_name": "反馈截图.png",
+            "size_bytes": 5,
+            "sha256": String(repeating: "b", count: 64),
+            "base64": "aW1hZ2U=",
+            "captured_at": "2026-09-01T16:16:00.955Z",
+        ])
+        #expect(ReviewBusRuntimeContract.isValidStagedAttachment(attachment))
     }
 
     @Test
@@ -64,18 +82,18 @@ struct ReviewBusRuntimeContractTests {
             "project_id": "project-1",
             "lane": "fast",
         ])
-        #expect(!ReviewBusRuntimeContract.isValidIssueSubmission(clientLane))
+        #expect(!ReviewBusRuntimeContract.isValidSubmission(clientLane))
 
         let unknownRisk = try JSONSerialization.data(withJSONObject: [
             "project_id": "project-1",
             "risk": ["arbitrary": true],
         ])
-        #expect(!ReviewBusRuntimeContract.isValidIssueSubmission(unknownRisk))
+        #expect(!ReviewBusRuntimeContract.isValidSubmission(unknownRisk))
 
         let nonBooleanRisk = try JSONSerialization.data(withJSONObject: [
             "project_id": "project-1",
             "risk": ["core_state": "yes"],
         ])
-        #expect(!ReviewBusRuntimeContract.isValidIssueSubmission(nonBooleanRisk))
+        #expect(!ReviewBusRuntimeContract.isValidSubmission(nonBooleanRisk))
     }
 }

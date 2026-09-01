@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { Worker } from "node:worker_threads";
 
@@ -19,6 +21,7 @@ const commit = "ecfc79a9b9f7e91cdfd558747fdc5d2b62e1700a";
 const taskHash = "7cf9bed457611e44a6b1f1bbb96968f20d83edec0d7d00bedfc73c7cdea2a10f";
 const constitutionHash = "a61228c66e931cb977928f4d2864ab6556f3fcd163479e31ccebbc6fccf39d41";
 const handoffName = "FilmOS_V1_1_Dual_Expert_Operational_Closure_Handoff_deadbeef";
+const stageASubmissionId = "FILMOS-SUBMISSION-b3274782-30a0-44a1-a05e-01730678da8b";
 
 test("GitHub CLI resolver honors an explicit executable for Dock-launched Review Bus", () => {
   assert.equal(resolveGitHubCLI({ FILMOS_GH_EXECUTABLE: "/bin/sh" }), "/bin/sh");
@@ -35,6 +38,40 @@ function fixture() {
   const store = new ReviewBusStore(":memory:");
   const service = new ReviewBusService(store, { baseCommit: commit, taskPackageContentHash: taskHash });
   return { store, service };
+}
+
+function stageABody(overrides = {}) {
+  return {
+    submission_id: stageASubmissionId,
+    project_id: projectId,
+    what_happened: "Review Bus intake did not accept the saved local draft.",
+    expected_result: "Review Bus assigns the Architecture lane and returns one canonical Issue ID.",
+    location: "agent:/canvas/example",
+    blocks_work: false,
+    captured_at: "2026-09-01T16:16:00.955Z",
+    risk: { architecture_gap: true },
+    suggested_lane: "architecture",
+    allowed_change_scope: [],
+    app_build_id: "candidate-8951d975-52f2a685",
+    app_tree: "52f2a6853ff89a9aa231b6d5b00f6f0712a20b97",
+    route: "/canvas/example",
+    context_snapshot: { domainProjectId: projectId, recentAuditIds: [], recentErrorCodes: ["INVALID_ISSUE_ID"], runtimeStatus: { reviewBus: "ready" }, providerStatus: {} },
+    attachment_manifest: [],
+    ...overrides,
+  };
+}
+
+async function startReviewServer(service, store) {
+  const constitution = JSON.parse(readFileSync(resolve(import.meta.dirname, "../../../governance/FILMOS_CONSTITUTION.json"), "utf8"));
+  const token = "bus-token-1234567890-abcdefghijkl";
+  const server = createReviewBusHttp({ service, store, busToken: token, bridgeToken: "bridge-token-1234567890-abcdefghijkl", constitution });
+  server.listen(0, "127.0.0.1");
+  await new Promise((resolvePromise) => server.once("listening", resolvePromise));
+  return {
+    server,
+    baseURL: `http://127.0.0.1:${server.address().port}`,
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json", origin: "http://127.0.0.1:43100" },
+  };
 }
 
 function createCoreIssue(service, suffix = "a") {
@@ -199,6 +236,11 @@ test("Review Bus uses SQLite WAL, immutable events, and redacts the external evi
   const backup = store.backup(resolve(directory, "backups/review-bus.sqlite"));
   assert.equal(existsSync(backup.destination), true);
   assert.match(backup.sha256, /^[0-9a-f]{64}$/);
+  const backupDatabase = new DatabaseSync(backup.destination, { readOnly: true });
+  assert.equal(backupDatabase.prepare("PRAGMA integrity_check").get().integrity_check, "ok");
+  assert.equal(backupDatabase.prepare("SELECT COUNT(*) AS count FROM review_projections").get().count, store.db.prepare("SELECT COUNT(*) AS count FROM review_projections").get().count);
+  assert.equal(backupDatabase.prepare("SELECT COUNT(*) AS count FROM review_events").get().count, store.db.prepare("SELECT COUNT(*) AS count FROM review_events").get().count);
+  backupDatabase.close();
   store.close();
 });
 
@@ -776,27 +818,192 @@ test("loopback origins with ports are accepted while remote and deceptive origin
   assert.equal(allowedOrigin("https://evil.example"), false);
 });
 
-test("single issue intake always freezes a manifest and fails closed when evidence is incomplete", async () => {
+test("Stage A intake finalizes one canonical Architecture Issue and recovers a lost receipt idempotently", async () => {
   const { service, store } = fixture();
-  const constitution = JSON.parse(readFileSync(resolve(import.meta.dirname, "../../../governance/FILMOS_CONSTITUTION.json"), "utf8"));
-  const token = "bus-token-1234567890-abcdefghijkl";
-  const server = createReviewBusHttp({ service, store, busToken: token, bridgeToken: "bridge-token-1234567890-abcdefghijkl", constitution });
-  server.listen(0, "127.0.0.1");
-  await new Promise((resolve) => server.once("listening", resolve));
-  const port = server.address().port;
+  const { server, baseURL, headers } = await startReviewServer(service, store);
+  const body = stageABody();
   try {
-    const response = await fetch(`http://127.0.0.1:${port}/v1/issues`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json", origin: "http://127.0.0.1:43100" }, body: JSON.stringify({ project_id: "filmos-global", what_happened: "dialog crashed", expected_result: "dialog stays open", location: "global settings", blocks_work: true, app_build_id: "pilot-0", app_tree: "1".repeat(40), route: "/settings" }) });
-    assert.equal(response.status, 201);
-    const receipt = await response.json();
-    assert.equal(receipt.state, "EVIDENCE_REQUIRED");
-    const projection = service.requireIssue(receipt.issue_id);
+    const stagedResponse = await fetch(`${baseURL}/v1/submissions`, { method: "POST", headers, body: JSON.stringify(body) });
+    assert.equal(stagedResponse.status, 201);
+    const staged = await stagedResponse.json();
+    assert.match(staged.capture_hash, /^[a-f0-9]{64}$/);
+    const finalizeBody = { project_id: projectId, capture_hash: staged.capture_hash };
+    const lostReceipt = await fetch(`${baseURL}/v1/submissions/${stageASubmissionId}/finalize`, { method: "POST", headers, body: JSON.stringify(finalizeBody) });
+    assert.equal(lostReceipt.status, 201);
+    // Deliberately do not consume the first response body: the server succeeded but the client lost its receipt.
+    const replay = await fetch(`${baseURL}/v1/submissions/${stageASubmissionId}/finalize`, { method: "POST", headers, body: JSON.stringify(finalizeBody) });
+    assert.equal(replay.status, 200);
+    const result = await replay.json();
+    assert.equal(result.idempotent_replay, true);
+    assert.equal(result.receipt.formal_issue_id, "FILMOS-ARCH-b3274782-30a0-44a1-a05e-01730678da8b");
+    assert.equal(result.receipt.submission_id, stageASubmissionId);
+    assert.equal(result.receipt.project_id, projectId);
+    assert.equal(result.receipt.capture_hash, staged.capture_hash);
+    assert.equal(result.receipt.state, "ARCHITECTURE_EVIDENCE_FROZEN");
+    const projection = service.requireIssue(result.receipt.formal_issue_id);
     assert.ok(projection.evidence.manifest.contentHash);
     assert.equal(projection.evidence.manifest.completeness.reproduction, true);
-    assert.equal(projection.evidence.manifest.completeness.logs, false);
+    assert.equal(projection.evidence.manifest.completeness.logs, true);
+    assert.equal(projection.report.captured_at, body.captured_at);
+    assert.equal(projection.report.blocks_work, false);
+    assert.equal(store.events(projection.issue_id).filter((event) => event.event_type === "issue.observed").length, 1);
+    assert.equal(store.list().filter((item) => item.issue_id === projection.issue_id).length, 1);
+    assert.equal(store.db.prepare("SELECT COUNT(*) AS count FROM review_submission_receipts").get().count, 1);
+    assert.equal(store.db.prepare("SELECT COUNT(*) AS count FROM review_bootstrap_receipts").get().count, 1);
   } finally {
     await new Promise((resolve) => server.close(resolve));
     store.close();
   }
+});
+
+test("Stage A intake rejects the legacy one-shot endpoint and exposes a safe non-retryable contract", async () => {
+  const { service, store } = fixture();
+  const { server, baseURL, headers } = await startReviewServer(service, store);
+  try {
+    const response = await fetch(`${baseURL}/v1/issues`, { method: "POST", headers, body: JSON.stringify({ project_id: projectId }) });
+    assert.equal(response.status, 409);
+    assert.deepEqual(await response.json(), { status: 409, code: "INTAKE_PROTOCOL_UPGRADE_REQUIRED", message: "INTAKE_PROTOCOL_UPGRADE_REQUIRED", retryable: false });
+  } finally { await new Promise((resolve) => server.close(resolve)); store.close(); }
+});
+
+test("Stage A attachment staging is immutable and Finalize fails closed until every declared byte is verified", async () => {
+  const { service, store } = fixture();
+  const { server, baseURL, headers } = await startReviewServer(service, store);
+  const bytes = Buffer.from("stage-a-screenshot-bytes");
+  const digest = createHash("sha256").update(bytes).digest("hex");
+  const attachment = {
+    attachment_id: "attachment-stage-a-1",
+    media_type: "image/png",
+    original_name: "反馈截图.png",
+    size_bytes: bytes.length,
+    sha256: digest,
+    captured_at: "2026-09-01T16:16:00.955Z",
+  };
+  try {
+    const stagedResponse = await fetch(`${baseURL}/v1/submissions`, { method: "POST", headers, body: JSON.stringify(stageABody({ attachment_manifest: [attachment] })) });
+    const staged = await stagedResponse.json();
+    const finalize = () => fetch(`${baseURL}/v1/submissions/${stageASubmissionId}/finalize`, { method: "POST", headers, body: JSON.stringify({ project_id: projectId, capture_hash: staged.capture_hash }) });
+    const missing = await finalize();
+    assert.equal(missing.status, 422);
+    assert.equal((await missing.json()).code, "SUBMISSION_ATTACHMENT_MISSING");
+    assert.equal(store.list().length, 0);
+
+    const uploadBody = { ...attachment, base64: bytes.toString("base64") };
+    const uploaded = await fetch(`${baseURL}/v1/submissions/${stageASubmissionId}/attachments`, { method: "POST", headers, body: JSON.stringify(uploadBody) });
+    assert.equal(uploaded.status, 201);
+    const uploadReceipt = await uploaded.json();
+    assert.equal(uploadReceipt.receipt.sha256, digest);
+    const replay = await fetch(`${baseURL}/v1/submissions/${stageASubmissionId}/attachments`, { method: "POST", headers, body: JSON.stringify(uploadBody) });
+    assert.equal(replay.status, 200);
+    assert.equal((await replay.json()).receipt.receipt_hash, uploadReceipt.receipt.receipt_hash);
+
+    const changedBytes = Buffer.from("different-stage-a-screenshot");
+    const conflict = await fetch(`${baseURL}/v1/submissions/${stageASubmissionId}/attachments`, { method: "POST", headers, body: JSON.stringify({ ...uploadBody, size_bytes: changedBytes.length, sha256: createHash("sha256").update(changedBytes).digest("hex"), base64: changedBytes.toString("base64") }) });
+    assert.equal(conflict.status, 409);
+    assert.equal((await conflict.json()).code, "ATTACHMENT_ID_CONFLICT");
+
+    const accepted = await finalize();
+    assert.equal(accepted.status, 201);
+    const receipt = (await accepted.json()).receipt;
+    const issue = service.requireIssue(receipt.formal_issue_id);
+    assert.equal(issue.attachments.length, 1);
+    assert.equal(issue.attachments[0].sha256, digest);
+    assert.equal(issue.evidence.local_items.some((item) => item.content?.attachment_id === attachment.attachment_id), true);
+  } finally { await new Promise((resolve) => server.close(resolve)); store.close(); }
+});
+
+test("Stage A preserves project scope and submission identity across conflicts and concurrent windows", async () => {
+  const { service, store } = fixture();
+  const legacy = createCoreIssue(service, "legacy-v8-preserved");
+  const { server, baseURL, headers } = await startReviewServer(service, store);
+  const legacyEvents = store.events(legacy.issue_id).map((event) => event.event_hash);
+  const legacyProjectionHash = store.get(legacy.issue_id).content_hash;
+  try {
+    const stagedResponse = await fetch(`${baseURL}/v1/submissions`, { method: "POST", headers, body: JSON.stringify(stageABody()) });
+    const staged = await stagedResponse.json();
+    const conflictingStage = await fetch(`${baseURL}/v1/submissions`, { method: "POST", headers, body: JSON.stringify(stageABody({ what_happened: "changed after the stable local draft" })) });
+    assert.equal(conflictingStage.status, 409);
+    assert.equal((await conflictingStage.json()).code, "SUBMISSION_IDEMPOTENCY_CONFLICT");
+    const wrongProject = await fetch(`${baseURL}/v1/submissions/${stageASubmissionId}/finalize`, { method: "POST", headers, body: JSON.stringify({ project_id: "22222222-2222-4222-8222-222222222222", capture_hash: staged.capture_hash }) });
+    assert.equal(wrongProject.status, 409);
+    assert.equal((await wrongProject.json()).code, "SUBMISSION_PROJECT_SCOPE_CONFLICT");
+    assert.equal(store.submissionStatus(stageASubmissionId).state, "STAGED");
+
+    const requests = [1, 2].map(() => fetch(`${baseURL}/v1/submissions/${stageASubmissionId}/finalize`, { method: "POST", headers, body: JSON.stringify({ project_id: projectId, capture_hash: staged.capture_hash }) }));
+    const results = await Promise.all(requests);
+    assert.deepEqual(results.map((response) => response.status).sort(), [200, 201]);
+    const receipts = await Promise.all(results.map((response) => response.json()));
+    assert.equal(receipts[0].receipt.receipt_hash, receipts[1].receipt.receipt_hash);
+    const issueId = receipts[0].receipt.formal_issue_id;
+    assert.equal(store.events(issueId).filter((event) => event.event_type === "issue.observed").length, 1);
+    assert.equal(store.list().filter((item) => item.issue_id === issueId).length, 1);
+    assert.deepEqual(store.events(legacy.issue_id).map((event) => event.event_hash), legacyEvents);
+    assert.equal(store.get(legacy.issue_id).content_hash, legacyProjectionHash);
+  } finally { await new Promise((resolve) => server.close(resolve)); store.close(); }
+});
+
+test("Stage A resumes a staged Submission and returns the immutable Receipt after process restart", async () => {
+  const directory = mkdtempSync(resolve(tmpdir(), "filmos-stage-a-restart-"));
+  const databasePath = resolve(directory, "review-bus.sqlite");
+  let store = new ReviewBusStore(databasePath);
+  let service = new ReviewBusService(store, { baseCommit: commit, taskPackageContentHash: taskHash });
+  let running = await startReviewServer(service, store);
+  try {
+    const stagedResponse = await fetch(`${running.baseURL}/v1/submissions`, { method: "POST", headers: running.headers, body: JSON.stringify(stageABody()) });
+    const staged = await stagedResponse.json();
+    await new Promise((resolvePromise) => running.server.close(resolvePromise));
+    store.close();
+
+    store = new ReviewBusStore(databasePath);
+    service = new ReviewBusService(store, { baseCommit: commit, taskPackageContentHash: taskHash });
+    running = await startReviewServer(service, store);
+    const accepted = await fetch(`${running.baseURL}/v1/submissions/${stageASubmissionId}/finalize`, { method: "POST", headers: running.headers, body: JSON.stringify({ project_id: projectId, capture_hash: staged.capture_hash }) });
+    assert.equal(accepted.status, 201);
+    const original = (await accepted.json()).receipt;
+    await new Promise((resolvePromise) => running.server.close(resolvePromise));
+    store.close();
+
+    store = new ReviewBusStore(databasePath);
+    service = new ReviewBusService(store, { baseCommit: commit, taskPackageContentHash: taskHash });
+    running = await startReviewServer(service, store);
+    const replay = await fetch(`${running.baseURL}/v1/submissions/${stageASubmissionId}/finalize`, { method: "POST", headers: running.headers, body: JSON.stringify({ project_id: projectId, capture_hash: staged.capture_hash }) });
+    assert.equal(replay.status, 200);
+    assert.deepEqual((await replay.json()).receipt, original);
+    assert.equal(store.db.prepare("SELECT COUNT(*) AS count FROM review_submission_receipts").get().count, 1);
+  } finally {
+    if (running.server.listening) await new Promise((resolvePromise) => running.server.close(resolvePromise));
+    store.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("Stage A readback requires the actual MCP handler and rejects the wrong Project Grant", async () => {
+  const { service, store } = fixture();
+  const { server, baseURL, headers } = await startReviewServer(service, store);
+  try {
+    const stagedResponse = await fetch(`${baseURL}/v1/submissions`, { method: "POST", headers, body: JSON.stringify(stageABody()) });
+    const staged = await stagedResponse.json();
+    const accepted = await fetch(`${baseURL}/v1/submissions/${stageASubmissionId}/finalize`, { method: "POST", headers, body: JSON.stringify({ project_id: projectId, capture_hash: staged.capture_hash }) });
+    const receipt = (await accepted.json()).receipt;
+    const mcpHeaders = { ...headers, "x-filmos-read-consumer": "chatgpt-mcp" };
+    const wrongProject = await fetch(`${baseURL}/v1/review/issues/${receipt.formal_issue_id}/evidence?project_id=wrong-project`, { headers: mcpHeaders });
+    assert.equal(wrongProject.status, 403);
+    assert.equal((await wrongProject.json()).code, "PROJECT_SCOPE_DENIED");
+    const pending = await fetch(`${baseURL}/v1/review/pending?project_id=${projectId}`, { headers: mcpHeaders });
+    assert.equal(pending.status, 200);
+    assert.equal((await pending.json()).issues.some((item) => item.issue_id === receipt.formal_issue_id), true);
+    const evidence = await fetch(`${baseURL}/v1/review/issues/${receipt.formal_issue_id}/evidence?project_id=${projectId}`, { headers: mcpHeaders });
+    assert.equal(evidence.status, 200);
+    const confirmation = await fetch(`${baseURL}/v1/review/internal/issues/${receipt.formal_issue_id}/intake-confirmation?project_id=${projectId}`, { headers });
+    assert.equal(confirmation.status, 200);
+    const value = await confirmation.json();
+    assert.equal(value.pending_read, true);
+    assert.equal(value.evidence_read, true);
+    assert.equal(value.submission_id, stageASubmissionId);
+    assert.equal(value.capture_hash, staged.capture_hash);
+    assert.equal(value.receipt_hash, receipt.receipt_hash);
+    assert.equal(value.evidence_manifest_hash, receipt.evidence_manifest_hash);
+  } finally { await new Promise((resolve) => server.close(resolve)); store.close(); }
 });
 
 test("Chrome pairing revoke invalidates the bridge token and every unused challenge", async () => {

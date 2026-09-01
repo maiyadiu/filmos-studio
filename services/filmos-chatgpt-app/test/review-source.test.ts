@@ -5,10 +5,10 @@ import test from "node:test";
 
 import { HttpReviewReadSource } from "../src/review-source.js";
 
-test("Review read adapter stays loopback, bearer protected, and Project Grant scoped", async () => {
-  let observed: { path: string; authorization: string | undefined } | null = null;
+test("Review read adapter stays loopback, bearer protected, Project Grant scoped, and identifies the actual MCP handler", async () => {
+  let observed: { path: string; authorization: string | undefined; consumer: string | undefined } | null = null;
   const server = createServer((req, res) => {
-    observed = { path: req.url ?? "", authorization: req.headers.authorization };
+    observed = { path: req.url ?? "", authorization: req.headers.authorization, consumer: req.headers["x-filmos-read-consumer"] as string | undefined };
     res.setHeader("content-type", "application/json");
     res.end(JSON.stringify({ issue_id: "FILMOS-ISSUE-test", project_id: "project-scope-a", evidence: { redacted: true } }));
   });
@@ -21,6 +21,7 @@ test("Review read adapter stays loopback, bearer protected, and Project Grant sc
     const value = await source.read("issue_get_evidence", { issue_id: "FILMOS-ISSUE-test" }, "project-scope-a");
     assert.equal(value.issue_id, "FILMOS-ISSUE-test");
     assert.equal(observed?.authorization, `Bearer ${token}`);
+    assert.equal(observed?.consumer, "chatgpt-mcp");
     assert.match(observed?.path ?? "", /project_id=project-scope-a/);
     assert.throws(() => new HttpReviewReadSource("https://review.example.com", token), /must use loopback HTTP/);
     assert.throws(() => new HttpReviewReadSource("https://127.0.0.1:17920", token), /must use loopback HTTP/);

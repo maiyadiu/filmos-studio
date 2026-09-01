@@ -5,8 +5,9 @@
   "type": "module",
   "engines": {"node": ">=22.5"},
   "scripts": {
-    "build": "node --check src/server.mjs && node --check src/service.mjs && node --check src/store.mjs && node --check src/github-evidence-verifier.mjs && node --check src/live-roundtrip-trace.mjs",
+    "build": "node --check src/server.mjs && node --check src/service.mjs && node --check src/store.mjs && node --check src/intake-contract.mjs && node --check src/github-evidence-verifier.mjs && node --check src/live-roundtrip-trace.mjs",
     "test": "node --test test/*.test.mjs",
+    "canary:stage-a": "node scripts/stage-a-canary.mjs",
     "start": "node src/server.mjs",
     "rotate-bridge-token": "node src/pairing-cli.mjs"
   }

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { inferIssueRoutingRisk } from "../src/film/governance/issue-lane";
-import { contextFromPathname, createLocalIssueDraft, issueEvidenceFilesFromClipboard, pastedIssueUploadDescriptor, selectPastedIssueEvidence } from "../src/film/governance/report-issue";
+import { contextFromPathname, createLocalIssueDraft, issueDraftReplayMode, issueEvidenceFilesFromClipboard, pastedIssueUploadDescriptor, selectPastedIssueEvidence } from "../src/film/governance/report-issue";
 
 const build = {
     commit: "6ea93bfa08381264a1379fe938ade3a7513c7bba",
@@ -31,10 +31,11 @@ describe("usage issue intake", () => {
         expect(globalThis.window).toBeUndefined();
         const draft = createLocalIssueDraft(
             { occurred: " 点击后报错 ", expected: " 继续工作 ", blocking: true },
-            { pathname: "/projects/project-1", issueId: "FILMOS-ISSUE-12345678-1234-4123-8123-123456789abc", now: "2026-08-31T00:00:00.000Z", build },
+            { pathname: "/projects/project-1", localDraftId: "local-draft-12345678-1234-4123-8123-123456789abc", submissionId: "FILMOS-SUBMISSION-12345678-1234-4123-8123-123456789abc", now: "2026-08-31T00:00:00.000Z", build },
         );
         expect(draft).toMatchObject({
-            issueId: "FILMOS-ISSUE-12345678-1234-4123-8123-123456789abc",
+            localDraftId: "local-draft-12345678-1234-4123-8123-123456789abc",
+            submissionId: "FILMOS-SUBMISSION-12345678-1234-4123-8123-123456789abc",
             state: "OBSERVED_IN_USE",
             occurred: "点击后报错",
             expected: "继续工作",
@@ -45,16 +46,30 @@ describe("usage issue intake", () => {
     });
 
     test("rejects empty observations and oversized local evidence", () => {
-        expect(() => createLocalIssueDraft({ occurred: " ", expected: "ok", blocking: false }, { issueId: "FILMOS-ISSUE-12345678-1234-4123-8123-123456789abc", now: "2026-08-31T00:00:00.000Z", build })).toThrow("请填写发生了什么");
-        expect(() => createLocalIssueDraft({ occurred: "bad", expected: "ok", blocking: false, attachments: [{ id: "a", name: "large.mov", mediaType: "video/quicktime", size: 26 * 1024 * 1024, content: new Blob() }] }, { issueId: "FILMOS-ISSUE-12345678-1234-4123-8123-123456789abc", now: "2026-08-31T00:00:00.000Z", build })).toThrow("单个不超过25MB");
+        expect(() => createLocalIssueDraft({ occurred: " ", expected: "ok", blocking: false }, { submissionId: "FILMOS-SUBMISSION-12345678-1234-4123-8123-123456789abc", now: "2026-08-31T00:00:00.000Z", build })).toThrow("请填写发生了什么");
+        expect(() => createLocalIssueDraft({ occurred: "bad", expected: "ok", blocking: false, attachments: [{ id: "a", name: "large.mov", mediaType: "video/quicktime", size: 26 * 1024 * 1024, content: new Blob() }] }, { submissionId: "FILMOS-SUBMISSION-12345678-1234-4123-8123-123456789abc", now: "2026-08-31T00:00:00.000Z", build })).toThrow("单个不超过25MB");
     });
 
-    test("generates the cross-track canonical issue id", () => {
+    test("generates only local draft and submission identifiers before Review Bus acceptance", () => {
         const draft = createLocalIssueDraft(
             { occurred: "error", expected: "work", blocking: false },
             { pathname: "/", now: "2026-08-31T00:00:00.000Z", build },
         );
-        expect(draft.issueId).toMatch(/^FILMOS-ISSUE-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+        expect(draft.localDraftId).toMatch(/^local-draft-[0-9a-f-]{36}$/i);
+        expect(draft.submissionId).toMatch(/^FILMOS-SUBMISSION-[0-9a-f-]{36}$/i);
+        expect(draft.canonicalIssueId).toBeUndefined();
+    });
+
+    test("never POSTs again after a formal Receipt has been persisted", () => {
+        const draft = createLocalIssueDraft(
+            { occurred: "服务端成功但客户端在回执后崩溃", expected: "重启后只做读回", blocking: false },
+            { pathname: "/projects/project-1", submissionId: "FILMOS-SUBMISSION-b3274782-30a0-44a1-a05e-01730678da8b", now: "2026-09-01T16:16:00.955Z", build },
+        );
+        expect(issueDraftReplayMode(draft)).toBe("SUBMIT_OR_RESUME");
+        expect(issueDraftReplayMode({ ...draft, delivery: "SUBMISSION_STAGED" })).toBe("SUBMIT_OR_RESUME");
+        expect(issueDraftReplayMode({ ...draft, delivery: "ACCEPTED_AWAITING_READBACK", canonicalIssueId: "FILMOS-ARCH-b3274782-30a0-44a1-a05e-01730678da8b" })).toBe("READBACK_ONLY");
+        expect(issueDraftReplayMode({ ...draft, delivery: "CONFIRMED" })).toBe("NONE");
+        expect(issueDraftReplayMode({ ...draft, delivery: "STOPPED", stoppedReason: "PROJECT_SCOPE_DENIED" })).toBe("NONE");
     });
 
     test("pasted evidence accepts only bounded image/video bytes and respects remaining slots", () => {
