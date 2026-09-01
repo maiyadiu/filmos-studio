@@ -250,7 +250,16 @@ payload["review_bus_issue_url"] = f"http://127.0.0.1:{port}/v1/issues"
 path.write_text(json.dumps(payload, ensure_ascii=False, sort_keys=True), encoding="utf-8")
 PY
 
-install -m 0755 "$binary" "$bundle/Contents/MacOS/FilmOSStudioDesktop"
+# Sign a detached staging copy before it enters the app bundle. Signing the
+# executable in-place under Contents/MacOS makes codesign treat the enclosing
+# directory as a bundle and creates Contents/_CodeSignature/CodeResources,
+# which is distribution material and must not exist in a local Beta build.
+install -m 0755 "$binary" "$staging/FilmOSStudioDesktop"
+/usr/bin/codesign --force --sign - \
+    --identifier "$bundle_identifier" \
+    --requirements "=designated => identifier \"$bundle_identifier\"" \
+    "$staging/FilmOSStudioDesktop"
+install -m 0755 "$staging/FilmOSStudioDesktop" "$bundle/Contents/MacOS/FilmOSStudioDesktop"
 install -m 0755 "$staging/FilmOSBackend" "$bundle/Contents/Helpers/FilmOSBackend"
 install -m 0755 "$staging/FilmOSWeb" "$bundle/Contents/Helpers/FilmOSWeb"
 install -m 0755 "$staging/pyinstaller-dist/FilmOSFilmCore" "$bundle/Contents/Helpers/FilmOSFilmCore"
@@ -265,14 +274,6 @@ install -m 0644 "$package_dir/App/Info.plist" "$bundle/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName $app_display_name" "$bundle/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleName $app_display_name" "$bundle/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $bundle_identifier" "$bundle/Contents/Info.plist"
-# Swift emits an ad-hoc signature whose default designated requirement is its
-# changing cdhash. Give the local desktop executable a stable designated
-# requirement so macOS Keychain authorization survives source rebuilds while
-# the bundle remains an unsigned local candidate with no distribution material.
-/usr/bin/codesign --force --sign - \
-    --identifier "$bundle_identifier" \
-    --requirements "=designated => identifier \"$bundle_identifier\"" \
-    "$bundle/Contents/MacOS/FilmOSStudioDesktop"
 install -m 0644 "$staging/FilmOSStudio.icns" "$bundle/Contents/Resources/FilmOSStudio.icns"
 install -m 0644 "$staging/InternalRuntime.json" "$bundle/Contents/Resources/InternalRuntime.json"
 install -m 0644 "$workspace_root/governance/FILMOS_CONSTITUTION.json" "$bundle/Contents/Resources/FILMOS_CONSTITUTION.json"
