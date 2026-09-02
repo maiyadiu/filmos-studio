@@ -271,6 +271,13 @@ private final class InternalWorkbenchCoordinator {
         ) {
             reviewBusEnvironment[key] = value
         }
+        if runtimeLayout.isSourceRuntime {
+            // Source preview must verify the exact checked-out repository
+            // without overwriting the Installed App's durable locator.
+            reviewBusEnvironment["FILMOS_REVIEW_DEVELOPER_REPOSITORY_LOCATOR"] = bundleResources
+                .appendingPathComponent("DeveloperRepository.json")
+                .path
+        }
         if let githubCLIPath = Self.githubCLIPath() {
             // Finder/Dock launches do not inherit an interactive shell PATH.
             // The Review Bus needs gh for remote Run/Artifact verification.
@@ -1227,6 +1234,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var proposalRuntime: Result<ProposalOpenRuntime, Error>?
     private var chatGPTConnectionWindow: ChatGPTConnectionWindow?
     private var sourceTerminationSignals: [DispatchSourceSignal] = []
+    private var isTerminatingSourceRuntime = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         installSourceTerminationHandlersIfNeeded()
@@ -1335,10 +1343,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         for signalNumber in [SIGINT, SIGTERM] {
             Darwin.signal(signalNumber, SIG_IGN)
             let source = DispatchSource.makeSignalSource(signal: signalNumber, queue: .main)
-            source.setEventHandler { NSApp.terminate(nil) }
+            source.setEventHandler { [weak self] in self?.terminateSourceRuntime() }
             source.resume()
             sourceTerminationSignals.append(source)
         }
+    }
+
+    private func terminateSourceRuntime() {
+        guard !isTerminatingSourceRuntime else { return }
+        isTerminatingSourceRuntime = true
+        launchTask?.cancel()
+        coordinator?.stopOwnedServices()
+        NSApp.terminate(nil)
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {

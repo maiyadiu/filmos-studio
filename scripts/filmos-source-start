@@ -13,6 +13,7 @@ start_lock_owner="$start_lock/owner.pid"
 log_file="$runtime_root/source-host.log"
 web_url="http://127.0.0.1:43100"
 backend_url="http://127.0.0.1:43101/api/health"
+source_ports="43100 43101 17371 17650 17920"
 
 usage() {
     echo "usage: filmos-source-start [start|status|stop|prepare]" >&2
@@ -43,6 +44,71 @@ host_alive() {
     [ -n "$candidate_pid" ] \
         && kill -0 "$candidate_pid" 2>/dev/null \
         && host_process_matches "$candidate_pid"
+}
+
+collect_descendant_pids() {
+    parent_pid=$1
+    for child_pid in $(/usr/bin/pgrep -P "$parent_pid" 2>/dev/null || true); do
+        printf '%s\n' "$child_pid"
+        collect_descendant_pids "$child_pid"
+    done
+}
+
+source_service_pid_matches() {
+    service_pid=$1
+    kill -0 "$service_pid" 2>/dev/null || return 1
+    service_cwd=$(/usr/sbin/lsof -a -p "$service_pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p')
+    case "$service_cwd" in
+        "$source_root"|"$source_root"/*) return 0 ;;
+    esac
+    /usr/sbin/lsof -a -p "$service_pid" -d txt -Fn 2>/dev/null \
+        | /usr/bin/grep -Fqx "n$runtime_root/Compiled/FilmOSBackend" && return 0
+    /usr/sbin/lsof -a -p "$service_pid" -d txt -Fn 2>/dev/null \
+        | /usr/bin/grep -F "n$runtime_root/" >/dev/null && return 0
+    return 1
+}
+
+source_ports_free() {
+    for port_number in $source_ports; do
+        if /usr/sbin/lsof -nP -iTCP:"$port_number" -sTCP:LISTEN >/dev/null 2>&1; then
+            return 1
+        fi
+    done
+    return 0
+}
+
+terminate_verified_source_pids() {
+    service_pids=$1
+    verified_pids=""
+    for service_pid in $service_pids; do
+        kill -0 "$service_pid" 2>/dev/null || continue
+        if ! source_service_pid_matches "$service_pid"; then
+            echo "拒绝结束未验证的源码子进程 PID $service_pid。" >&2
+            return 1
+        fi
+        case " $verified_pids " in
+            *" $service_pid "*) ;;
+            *) verified_pids="$verified_pids $service_pid" ;;
+        esac
+    done
+    for service_pid in $verified_pids; do
+        /bin/kill -TERM "$service_pid"
+    done
+}
+
+wait_for_source_shutdown() {
+    service_pids=$1
+    attempts=0
+    while [ "$attempts" -lt 150 ]; do
+        any_running=false
+        for service_pid in $service_pids; do
+            if kill -0 "$service_pid" 2>/dev/null; then any_running=true; break; fi
+        done
+        if [ "$any_running" = false ] && source_ports_free; then return 0; fi
+        sleep 0.1
+        attempts=$((attempts + 1))
+    done
+    return 1
 }
 
 lock_owner_pid() {
@@ -186,6 +252,10 @@ start_host() {
         /usr/bin/osascript -e 'tell application "System Events" to set frontmost of first process whose unix id is '"$(host_pid)"' to true' >/dev/null 2>&1 || true
         return
     fi
+    if ! source_ports_free; then
+        echo "FilmOS Studio 源码端口已被其他进程占用；未启动或结束任何未知进程。" >&2
+        exit 1
+    fi
     rm -f "$pid_file"
     claim_start_lock
     prepare_runtime
@@ -219,7 +289,9 @@ start_host() {
     done
     echo "FilmOS Studio 源码宿主未在时限内就绪。最近日志：" >&2
     tail -n 40 "$log_file" >&2 || true
+    descendant_pids=""
     if host_alive; then
+        descendant_pids=$(collect_descendant_pids "$launched_pid")
         kill "$launched_pid"
         shutdown_attempts=0
         while kill -0 "$launched_pid" 2>/dev/null && [ "$shutdown_attempts" -lt 150 ]; do
@@ -231,6 +303,13 @@ start_host() {
             exit 1
         fi
     fi
+    if ! wait_for_source_shutdown "$descendant_pids"; then
+        terminate_verified_source_pids "$descendant_pids" || exit 1
+        if ! wait_for_source_shutdown "$descendant_pids"; then
+            echo "启动失败后的源码子服务仍未停止；未执行强制结束。" >&2
+            exit 1
+        fi
+    fi
     rm -f "$pid_file"
     release_start_lock
     exit 1
@@ -239,6 +318,7 @@ start_host() {
 stop_host() {
     if host_alive; then
         candidate_pid=$(host_pid)
+        descendant_pids=$(collect_descendant_pids "$candidate_pid")
         kill "$candidate_pid"
         attempts=0
         while kill -0 "$candidate_pid" 2>/dev/null && [ "$attempts" -lt 150 ]; do
@@ -248,6 +328,13 @@ stop_host() {
         if kill -0 "$candidate_pid" 2>/dev/null; then
             echo "FilmOS Studio 源码宿主未在时限内停止；已保留 PID 与启动锁，未执行强制结束。" >&2
             exit 1
+        fi
+        if ! wait_for_source_shutdown "$descendant_pids"; then
+            terminate_verified_source_pids "$descendant_pids" || exit 1
+            if ! wait_for_source_shutdown "$descendant_pids"; then
+                echo "FilmOS Studio 源码子服务未在时限内停止；未执行强制结束。" >&2
+                exit 1
+            fi
         fi
     elif lock_active; then
         echo "FilmOS Studio 源码宿主仍在启动；未终止未验证的进程。" >&2

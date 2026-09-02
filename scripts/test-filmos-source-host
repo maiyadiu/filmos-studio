@@ -58,6 +58,7 @@ const [sourceRoot, runtimeRoot] = process.argv.slice(2);
 const resources = resolve(runtimeRoot, "Resources");
 const identity = JSON.parse(readFileSync(resolve(resources, "SourceIdentity.json"), "utf8"));
 const runtime = JSON.parse(readFileSync(resolve(resources, "InternalRuntime.json"), "utf8"));
+const locator = JSON.parse(readFileSync(resolve(resources, "DeveloperRepository.json"), "utf8"));
 const expected = JSON.parse(execFileSync(resolve(sourceRoot, "desktop/macos/scripts/source-fingerprint"), ["--json"], {
   cwd: sourceRoot,
   encoding: "utf8",
@@ -74,6 +75,13 @@ if (runtime.application_support_directory_name !== "FilmOS Studio"
     || runtime.external_paid_submit_enabled !== false) {
   throw new Error("SOURCE_RUNTIME_POLICY_MISMATCH");
 }
+if (locator.schema_version !== "1.0.0"
+    || locator.repository !== "maiyadiu/filmos-studio"
+    || resolve(locator.source_repository) !== resolve(sourceRoot)
+    || locator.source_commit !== identity.git_commit_sha
+    || locator.source_tree !== identity.git_tree_sha) {
+  throw new Error("SOURCE_REPOSITORY_LOCATOR_MISMATCH");
+}
 NODE
 
 "$launcher" start >/dev/null
@@ -81,7 +89,17 @@ NODE
 /usr/bin/curl -fsS --max-time 5 http://127.0.0.1:43100/ >/dev/null
 /usr/bin/curl -fsS --max-time 5 http://127.0.0.1:43101/api/health >/dev/null
 /usr/bin/curl -fsS --max-time 5 http://127.0.0.1:17650/health >/dev/null
-/usr/bin/curl -fsS --max-time 5 http://127.0.0.1:17920/healthz >/dev/null
+/usr/bin/curl -fsS --max-time 5 http://127.0.0.1:17920/healthz > "$runtime_root/test-review-health.json"
+"$node_bin" - "$runtime_root/test-review-health.json" "$runtime_root/Resources/SourceIdentity.json" <<'NODE'
+const { readFileSync } = require("node:fs");
+const [healthPath, identityPath] = process.argv.slice(2);
+const health = JSON.parse(readFileSync(healthPath, "utf8"));
+const identity = JSON.parse(readFileSync(identityPath, "utf8"));
+const expectedStatus = identity.source_clean ? "VERIFIED" : "UNAVAILABLE";
+if (health.installed_source_identity?.status !== expectedStatus) {
+  throw new Error(`SOURCE_REVIEW_IDENTITY_STATUS:${health.installed_source_identity?.status}`);
+}
+NODE
 /usr/bin/curl -fsS --max-time 5 http://127.0.0.1:17371/health \
     | /usr/bin/grep -q '"dreamina_module_loaded":true'
 

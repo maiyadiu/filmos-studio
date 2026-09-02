@@ -12,6 +12,7 @@ const sourceRoot = resolve(sourceRootInput);
 const resources = resolve(resourcesInput);
 const runtimePath = resolve(resources, "InternalRuntime.json");
 const identityPath = resolve(resources, "SourceIdentity.json");
+const repositoryLocatorPath = resolve(resources, "DeveloperRepository.json");
 const sourceIdentity = JSON.parse(execFileSync(
   resolve(sourceRoot, "desktop/macos/scripts/source-fingerprint"),
   ["--json"],
@@ -38,9 +39,17 @@ Object.assign(sourceIdentity, {
   external_paid_submit_enabled: false,
   repository: "maiyadiu/filmos-studio",
 });
+const repositoryLocator = {
+  schema_version: "1.0.0",
+  repository: "maiyadiu/filmos-studio",
+  source_repository: sourceRoot,
+  source_commit: sourceIdentity.git_commit_sha,
+  source_tree: sourceIdentity.git_tree_sha,
+};
 
 atomicJSON(runtimePath, runtime);
 atomicJSON(identityPath, sourceIdentity);
+atomicJSON(repositoryLocatorPath, repositoryLocator);
 process.stdout.write(`${JSON.stringify({
   mode: "source-host",
   build_id: buildID,
