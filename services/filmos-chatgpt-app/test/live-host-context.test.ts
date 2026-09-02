@@ -111,6 +111,15 @@ test("native Agent handoff exposes only the current Project Grant and Secure Tun
     assert.equal(live.structuredContent.visible_node_summaries[0].title, "[REDACTED]");
     assert.equal(live.structuredContent.source_identity.build_id, "candidate-test-12345678");
     assert.equal(live.structuredContent.source_identity.git_commit_sha, "c".repeat(40));
+    assert.equal(live.structuredContent.project_grant_id, issued.grant.grant_id);
+    assert.equal(live.structuredContent.challenge_id, challenge);
+    assert.deepEqual(live.structuredContent.binding, {
+      project_id: projectA,
+      project_grant_id: issued.grant.grant_id,
+      challenge_id: challenge,
+      context_receipt_id: contextReceiptId,
+      expires_at: live.structuredContent.expires_at,
+    });
 
     const liveBlockers = await client.callTool({ name: "filmos_get_blockers", arguments: {} }) as any;
     assert.equal(liveBlockers.structuredContent.data.evaluation.status, "CLEAR");

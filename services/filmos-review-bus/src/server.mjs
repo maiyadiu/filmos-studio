@@ -307,8 +307,18 @@ function readReviewProjection(service, store, url, req, res, now) {
   if (!match) return send(res, 404, { code: "NOT_FOUND" });
   const issue = service.readRedacted(decodeURIComponent(match[1]), requireProject(url));
   const scope = { issue_id: issue.issue_id, submission_id: issue.submission_id ?? null, project_id: issue.project_id };
+  const submission = issue.submission_id ? store.submissionStatus(issue.submission_id) : null;
+  const intakeReceipt = submission?.receipt ?? null;
   const views = {
-    evidence: { ...scope, evidence: issue.evidence ?? null },
+    evidence: {
+      ...scope,
+      formal_issue_id: intakeReceipt?.formal_issue_id ?? issue.issue_id,
+      capture_hash: submission?.capture_hash ?? null,
+      receipt_hash: intakeReceipt?.receipt_hash ?? null,
+      evidence_manifest_hash: intakeReceipt?.evidence_manifest_hash ?? issue.evidence?.manifest?.contentHash ?? issue.evidence?.manifest?.content_hash ?? null,
+      current_evidence_manifest_hash: issue.evidence?.manifest?.contentHash ?? issue.evidence?.manifest?.content_hash ?? null,
+      evidence: issue.evidence ?? null,
+    },
     "codex-assessment-blind": issue.assessments?.chatgpt && issue.assessments?.codex
       ? { ...scope, own_assessment: issue.assessments.chatgpt, counterpart_assessment: issue.assessments.codex, counterpart_sealed: false, pair_complete: true, consensus_delta: issue.consensus_delta }
       : { ...scope, own_assessment: issue.assessments?.chatgpt ?? null, counterpart_assessment: null, counterpart_sealed: true, pair_complete: false },

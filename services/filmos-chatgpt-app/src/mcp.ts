@@ -132,11 +132,23 @@ async function callTool(name: string, input: Record<string, unknown>, options: F
       if (!options.liveGate?.tunneled || !options.liveGate.challengeId || !options.hostContext) {
         throw new SecurityBoundaryError("secure_tunnel_context_required", "Live workbench handoff requires the current Secure Tunnel challenge");
       }
+      const context = options.hostContext.requireContext(options.grant, options.liveGate.challengeId);
       const value = name === "filmos_get_live_workbench_context"
-        ? options.hostContext.requireContext(options.grant, options.liveGate.challengeId)
+        ? {
+            ...context,
+            project_grant_id: options.grant.grant_id,
+            challenge_id: options.liveGate.challengeId,
+            binding: {
+              project_id: options.grant.project_id,
+              project_grant_id: options.grant.grant_id,
+              challenge_id: options.liveGate.challengeId,
+              context_receipt_id: context.context_receipt_id,
+              expires_at: context.expires_at,
+            },
+          }
         : {
             handoff: options.hostContext.requireHandoff(options.grant, options.liveGate.challengeId),
-            context: options.hostContext.requireContext(options.grant, options.liveGate.challengeId),
+            context,
           };
       const outputHash = sha256(value);
       notifyRead(options, correlationId, name, `filmos://project/${options.grant.project_id}/host/${name}`, 1, outputHash);

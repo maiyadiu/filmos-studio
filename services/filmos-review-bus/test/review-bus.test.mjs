@@ -1445,7 +1445,13 @@ test("Stage A readback requires the actual MCP handler and rejects the wrong Pro
     assert.equal(pendingIssue.submission_id, stageASubmissionId);
     const evidence = await fetch(`${baseURL}/v1/review/issues/${receipt.formal_issue_id}/evidence?project_id=${projectId}`, { headers: mcpHeaders });
     assert.equal(evidence.status, 200);
-    assert.equal((await evidence.json()).submission_id, stageASubmissionId);
+    const evidenceBody = await evidence.json();
+    assert.equal(evidenceBody.submission_id, stageASubmissionId);
+    assert.equal(evidenceBody.formal_issue_id, receipt.formal_issue_id);
+    assert.equal(evidenceBody.capture_hash, staged.capture_hash);
+    assert.equal(evidenceBody.receipt_hash, receipt.receipt_hash);
+    assert.equal(evidenceBody.evidence_manifest_hash, receipt.evidence_manifest_hash);
+    assert.equal(evidenceBody.current_evidence_manifest_hash, service.requireIssue(receipt.formal_issue_id).evidence.manifest.contentHash);
     const confirmation = await fetch(`${baseURL}/v1/review/internal/issues/${receipt.formal_issue_id}/intake-confirmation?project_id=${projectId}`, { headers });
     assert.equal(confirmation.status, 200);
     const value = await confirmation.json();
