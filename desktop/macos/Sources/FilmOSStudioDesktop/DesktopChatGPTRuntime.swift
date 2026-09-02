@@ -30,6 +30,7 @@ final class DesktopChatGPTRuntime: ChatGPTConnectionOperating {
     private var activeProjectID: String?
     private var activeGrantID: String?
     private var activeGrantToken: String?
+    private var isShuttingDown = false
 
     init(
         supervisor: ServiceSupervisor,
@@ -127,6 +128,7 @@ final class DesktopChatGPTRuntime: ChatGPTConnectionOperating {
     }
 
     func prepareLocalServices(projectID: String, transportProof: String) async throws {
+        try ensureOperational()
         if !startedServices.contains(secureTunnelServiceID) {
             try await recoverAbandonedHelper(
                 pidFileURL: tunnelPIDFileURL,
@@ -143,7 +145,9 @@ final class DesktopChatGPTRuntime: ChatGPTConnectionOperating {
             )
         }
         try await prepareFilmCoreAuthority()
+        try ensureOperational()
         _ = try await ensureFilmCoreProjection(projectID: projectID, contentUnitID: nil, contentUnitKind: nil, canvasID: nil)
+        try ensureOperational()
         if let activeProjectID, activeProjectID != projectID {
             await disconnectHostSession()
             suspendTunnel()
@@ -156,10 +160,13 @@ final class DesktopChatGPTRuntime: ChatGPTConnectionOperating {
             self.activeProjectID = nil
         }
         let renewed = try await ensureGrant(projectID: projectID)
+        try ensureOperational()
         guard await Self.endpointReady(reviewBusHealthURL.absoluteString) else {
             throw DesktopChatGPTRuntimeError.reviewBusUnavailable
         }
+        try ensureOperational()
         let mcpReady = await Self.endpointReady("http://127.0.0.1:\(chatGPTMCPPort)/health")
+        try ensureOperational()
         if mcpReady, activeTransportProof == transportProof, !renewed { return }
         if startedServices.contains(chatGPTMCPServiceID), case .running = supervisor.state(for: chatGPTMCPServiceID) {
             try? supervisor.stop(chatGPTMCPServiceID)
@@ -178,6 +185,7 @@ final class DesktopChatGPTRuntime: ChatGPTConnectionOperating {
     }
 
     func prepareFilmCoreAuthority() async throws {
+        try ensureOperational()
         try await ensureService(filmCoreServiceID) { await Self.endpointReady("http://127.0.0.1:\(self.filmCorePort)/health") }
     }
 
@@ -187,6 +195,7 @@ final class DesktopChatGPTRuntime: ChatGPTConnectionOperating {
         transportProof: String,
         challengeID: String
     ) async throws {
+        try ensureOperational()
         let executable = tunnelClientURL
         let arguments = Self.tunnelArguments(
             mode: "doctor",
@@ -212,6 +221,7 @@ final class DesktopChatGPTRuntime: ChatGPTConnectionOperating {
                 timeout: 45
             )
         }.value
+        try ensureOperational()
         guard succeeded else { throw DesktopChatGPTRuntimeError.tunnelDoctorFailed }
     }
 
@@ -221,6 +231,7 @@ final class DesktopChatGPTRuntime: ChatGPTConnectionOperating {
         transportProof: String,
         challengeID: String
     ) throws {
+        try ensureOperational()
         if case .running = supervisor.state(for: secureTunnelServiceID) { return }
         try? FileManager.default.removeItem(at: tunnelHealthURLFile)
         let values = Self.tunnelRuntimeEnvironment(
@@ -264,6 +275,7 @@ final class DesktopChatGPTRuntime: ChatGPTConnectionOperating {
     }
 
     func stopOwnedServices() {
+        isShuttingDown = true
         let runningIDs = [secureTunnelServiceID, chatGPTMCPServiceID, filmCoreServiceID].filter { id in
             guard startedServices.contains(id), case .running = supervisor.state(for: id) else { return false }
             return true
@@ -617,21 +629,36 @@ final class DesktopChatGPTRuntime: ChatGPTConnectionOperating {
         runtimeEnvironment: ServiceRuntimeEnvironment = .empty,
         readiness: @escaping () async -> Bool
     ) async throws {
-        if await readiness() { return }
+        try ensureOperational()
+        let ready = await readiness()
+        try ensureOperational()
+        if ready { return }
         do {
+            try ensureOperational()
             try supervisor.start(id, runtimeEnvironment: runtimeEnvironment)
             startedServices.insert(id)
         } catch {
-            if await readiness() { throw DesktopChatGPTRuntimeError.portOwnedByAnotherProcess(id == filmCoreServiceID ? filmCorePort : chatGPTMCPPort) }
+            if error is CancellationError { throw error }
+            let ready = await readiness()
+            try ensureOperational()
+            if ready { throw DesktopChatGPTRuntimeError.portOwnedByAnotherProcess(id == filmCoreServiceID ? filmCorePort : chatGPTMCPPort) }
             throw error
         }
         for _ in 0..<120 {
-            try Task.checkCancellation()
-            if await readiness() { return }
+            try ensureOperational()
+            let ready = await readiness()
+            try ensureOperational()
+            if ready { return }
             if case .stopped = supervisor.state(for: id) { break }
             try await Task.sleep(for: .milliseconds(250))
         }
         throw DesktopChatGPTRuntimeError.serviceUnavailable
+    }
+
+    private func ensureOperational() throws {
+        if isShuttingDown || Task.isCancelled {
+            throw CancellationError()
+        }
     }
 
     private func recoverAbandonedHelper(

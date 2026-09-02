@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import signal
 import shutil
 import socket
 import subprocess
@@ -77,6 +78,47 @@ def terminate_app(process: subprocess.Popen[bytes]) -> None:
     subprocess.run(("osascript", "-l", "JavaScript", "-e", script), text=True, capture_output=True, check=False)
 
 
+def bundle_helper_pids(bundle: Path) -> list[int]:
+    prefix = str(bundle / "Contents/Helpers") + "/"
+    result = subprocess.run(
+        ("ps", "-axo", "pid=,command="),
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    pids: list[int] = []
+    for line in result.stdout.splitlines():
+        fields = line.strip().split(None, 1)
+        if len(fields) == 2 and fields[0].isdigit() and fields[1].startswith(prefix):
+            pids.append(int(fields[0]))
+    return pids
+
+
+def stop_exact_processes(pids: list[int]) -> None:
+    for pid in pids:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline:
+        live = []
+        for pid in pids:
+            try:
+                os.kill(pid, 0)
+                live.append(pid)
+            except ProcessLookupError:
+                pass
+        if not live:
+            return
+        time.sleep(0.05)
+    for pid in pids:
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+
+
 def main() -> None:
     fixed_ports = (LOCAL_RUNTIME_PORT, FILM_CORE_PORT, CHATGPT_MCP_PORT)
     occupied = [port for port in fixed_ports if port_open(port)]
@@ -136,6 +178,7 @@ def main() -> None:
         support = Path.home() / "Library/Application Support" / support_name
         app_log = root / "candidate-app.log"
         with app_log.open("wb") as app_output:
+            shutdown_error: Exception | None = None
             try:
                 process = subprocess.Popen(
                     (str(bundle / "Contents/MacOS/FilmOSStudioDesktop"),),
@@ -171,29 +214,41 @@ def main() -> None:
                 if any(health.get(key) != value for key, value in expected.items()):
                     raise RuntimeError(f"candidate Local Runtime health mismatch: {health}")
             finally:
-                if process is not None:
-                    terminate_app(process)
-                    try:
-                        process.wait(timeout=15)
-                    except subprocess.TimeoutExpired:
-                        process.terminate()
-                        process.wait(timeout=5)
-                    wait_for(
-                        lambda: not any(
-                            port_open(port)
-                            for port in (
-                                web_port,
-                                backend_port,
-                                review_bus_port,
-                                LOCAL_RUNTIME_PORT,
-                                FILM_CORE_PORT,
-                                CHATGPT_MCP_PORT,
-                            )
-                        ),
-                        15,
-                        "candidate App services did not stop",
-                    )
-                shutil.rmtree(support, ignore_errors=True)
+                try:
+                    if process is not None:
+                        terminate_app(process)
+                        try:
+                            process.wait(timeout=15)
+                        except subprocess.TimeoutExpired:
+                            process.terminate()
+                            process.wait(timeout=5)
+                        wait_for(
+                            lambda: not any(
+                                port_open(port)
+                                for port in (
+                                    web_port,
+                                    backend_port,
+                                    review_bus_port,
+                                    LOCAL_RUNTIME_PORT,
+                                    FILM_CORE_PORT,
+                                    CHATGPT_MCP_PORT,
+                                )
+                            ),
+                            15,
+                            "candidate App services did not stop",
+                        )
+                        wait_for(
+                            lambda: not bundle_helper_pids(bundle),
+                            15,
+                            "candidate App left bundled helper processes behind",
+                        )
+                except Exception as error:
+                    shutdown_error = error
+                finally:
+                    stop_exact_processes(bundle_helper_pids(bundle))
+                    shutil.rmtree(support, ignore_errors=True)
+                if shutdown_error is not None:
+                    raise shutdown_error
 
         print(json.dumps({
             "gate_id": "AGENT-CANDIDATE-ACTIVATION-001",

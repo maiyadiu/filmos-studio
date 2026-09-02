@@ -27,6 +27,7 @@ private final class InternalWorkbenchCoordinator {
     private let localRuntimeHealthURL: URL
     private let reviewBusTokenURL: URL
     private var startedServices: Set<ServiceID> = []
+    private var isShuttingDown = false
 
     init(bundle: Bundle = .main) throws {
         guard let resourceURL = bundle.url(forResource: "InternalRuntime", withExtension: "json") else {
@@ -276,7 +277,9 @@ private final class InternalWorkbenchCoordinator {
     }
 
     func prepare() async throws -> URL {
+        try ensureOperational()
         try await chatGPTRuntime.prepareFilmCoreAuthority()
+        try ensureOperational()
         try await ensureService(
             reviewBusServiceID,
             displayName: "问题与双专家 Review Bus",
@@ -303,10 +306,12 @@ private final class InternalWorkbenchCoordinator {
                 await Self.webIsReady(at: configuration.webHealthURL)
             }
         )
+        try ensureOperational()
         return startURL
     }
 
     func stopOwnedServices() {
+        isShuttingDown = true
         chatGPTConnectionManager.prepareForApplicationTermination()
         chatGPTRuntime.stopOwnedServices()
         let runningIDs = [webServiceID, backendServiceID, localRuntimeServiceID, reviewBusServiceID].filter { id in
@@ -438,27 +443,42 @@ private final class InternalWorkbenchCoordinator {
         displayName: String,
         readiness: @escaping () async -> Bool
     ) async throws {
-        if await readiness() { return }
+        try ensureOperational()
+        let ready = await readiness()
+        try ensureOperational()
+        if ready { return }
 
         if !startedServices.contains(id) {
             do {
+                try ensureOperational()
                 try supervisor.start(id)
                 startedServices.insert(id)
             } catch {
-                if await readiness() { return }
+                if error is CancellationError { throw error }
+                let ready = await readiness()
+                try ensureOperational()
+                if ready { return }
                 throw DesktopWorkbenchError.serviceLaunchFailed(displayName)
             }
         }
 
         for _ in 0..<120 {
-            try Task.checkCancellation()
-            if await readiness() { return }
+            try ensureOperational()
+            let ready = await readiness()
+            try ensureOperational()
+            if ready { return }
             if case .stopped = supervisor.state(for: id) {
                 break
             }
             try await Task.sleep(for: .milliseconds(250))
         }
         throw DesktopWorkbenchError.serviceUnavailable(displayName)
+    }
+
+    private func ensureOperational() throws {
+        if isShuttingDown || Task.isCancelled {
+            throw CancellationError()
+        }
     }
 
     private static func safeBaseEnvironment() -> [String: String] {

@@ -2,13 +2,13 @@
   "handwritten_runtime_hotspots": {
     "baseline_commit": "ae2dc2f72a88d570bd23b8cecc19f887cd2763aa",
     "baseline_lines": 10844,
-    "current_lines": 10809,
-    "delta": -35,
+    "current_lines": 10829,
+    "delta": -15,
     "files": [
       {
         "baseline_lines": 1624,
-        "current_lines": 1579,
-        "delta": -45,
+        "current_lines": 1599,
+        "delta": -25,
         "path": "desktop/macos/Sources/FilmOSStudioDesktop/main.swift"
       },
       {
