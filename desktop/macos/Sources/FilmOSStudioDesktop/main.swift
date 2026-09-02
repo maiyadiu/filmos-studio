@@ -1118,6 +1118,9 @@ private final class WorkbenchWindow: NSObject, @preconcurrency WKNavigationDeleg
                         self.emitVerticalCanaryEvent("RECOVERY_CONFIRMED", status: status)
                         return
                     }
+                    if attempt == 0 || attempt % 30 == 0, let status = result as? [String: Any] {
+                        self.emitVerticalCanaryEvent("RECOVERY_REPLAYED", status: status)
+                    }
                     if !emittedPending, let status = result as? [String: Any] {
                         self.emitVerticalCanaryEvent("RECOVERY_PENDING", status: status)
                         emittedPending = true
