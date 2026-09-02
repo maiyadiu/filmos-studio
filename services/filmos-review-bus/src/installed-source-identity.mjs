@@ -9,7 +9,9 @@ const BUNDLE_SOURCE_SCHEMA = "1.0.0";
 const INTERNAL_RUNTIME_SCHEMA = 4;
 const OFFICIAL_REPOSITORY = "maiyadiu/filmos-studio";
 const OFFICIAL_REMOTES = new Set([
+  "https://github.com/maiyadiu/filmos-studio",
   "https://github.com/maiyadiu/filmos-studio.git",
+  "git@github.com:maiyadiu/filmos-studio",
   "git@github.com:maiyadiu/filmos-studio.git",
 ]);
 

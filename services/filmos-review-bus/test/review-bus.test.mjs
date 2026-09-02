@@ -1068,6 +1068,15 @@ test("Installed SourceIdentity cross-checks Bundle runtime, repository locator, 
     assert.equal(identity.build_id, value.buildID);
     assert.match(identity.content_hash, /^[a-f0-9]{64}$/);
 
+    execFileSync("git", ["-C", value.repository, "remote", "set-url", "origin", "https://github.com/maiyadiu/filmos-studio"]);
+    execFileSync("git", ["-C", value.repository, "remote", "set-url", "--push", "origin", "git@github.com:maiyadiu/filmos-studio"]);
+    assert.equal(value.load().content_hash, identity.content_hash);
+
+    execFileSync("git", ["-C", value.repository, "remote", "set-url", "origin", "https://github.com/maiyadiu/filmos-studio.evil.example"]);
+    assert.throws(() => value.load(), (error) => error.code === "INSTALLED_SOURCE_IDENTITY_MISMATCH");
+    execFileSync("git", ["-C", value.repository, "remote", "set-url", "origin", "https://github.com/maiyadiu/filmos-studio.git"]);
+    execFileSync("git", ["-C", value.repository, "remote", "set-url", "--push", "origin", "git@github.com:maiyadiu/filmos-studio.git"]);
+
     writeFileSync(value.runtimePath, JSON.stringify({ ...value.runtime, build_id: "candidate-mismatch" }));
     assert.throws(() => value.load(), (error) => error.code === "APP_RUNTIME_IDENTITY_MISMATCH");
     writeFileSync(value.runtimePath, JSON.stringify(value.runtime));
