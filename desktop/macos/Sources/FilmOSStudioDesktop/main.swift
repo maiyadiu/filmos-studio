@@ -373,15 +373,7 @@ private final class InternalWorkbenchCoordinator {
     }
 
     private func validatedReviewBusResponse(_ data: Data, response: URLResponse, allowedStatus: Set<Int>, maximumSize: Int = 512 * 1024) throws -> Data {
-        guard let http = response as? HTTPURLResponse, data.count <= maximumSize,
-              let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        else { throw ReviewBusBridgeError.rejected }
-        guard allowedStatus.contains(http.statusCode) else {
-            let rawCode = payload["code"] as? String ?? "REVIEW_BUS_REJECTED"
-            let code = rawCode.range(of: "^[A-Z0-9_]{1,96}$", options: .regularExpression) != nil ? rawCode : "REVIEW_BUS_REJECTED"
-            throw ReviewBusBridgeError.server(code)
-        }
-        return data
+        try DesktopRPCContract.validateHTTPResponse(data, response: response, allowedStatus: allowedStatus, maximumBytes: maximumSize)
     }
 
     func reviewCenterRequest(operation: String, payload: [String: String]) async throws -> Data {
@@ -662,6 +654,11 @@ private enum ReviewBusBridgeError: Error {
     }
 }
 
+private func reviewBusBridgeCode(_ error: Error, fallback: String) -> String {
+    if let bridge = error as? ReviewBusBridgeError { return bridge.code }
+    return DesktopRPCContract.secureErrorCode(error, fallback: fallback)
+}
+
 private struct ReviewVerticalCanaryConfiguration {
     let phase: String
     let projectID: String
@@ -909,59 +906,20 @@ private final class WorkbenchWindow: NSObject, @preconcurrency WKNavigationDeleg
             onWorkbenchProjectChanged?(normalized, canvasID?.isEmpty == false ? canvasID : nil, receiptID?.isEmpty == false ? receiptID : nil, contextData)
             return
         }
-        if action == "chatgptHostRequest",
-           Set(body.keys) == Set(["action", "requestId", "operation", "payload"]),
-           let requestID = body["requestId"] as? String,
-           requestID.range(of: "^[A-Fa-f0-9-]{36}$", options: .regularExpression) != nil,
-           let operation = body["operation"] as? String,
-           ["publish_context", "publish_handoff"].contains(operation),
-           let payload = body["payload"] as? [String: Any],
-           JSONSerialization.isValidJSONObject(payload),
-           let data = try? JSONSerialization.data(withJSONObject: payload), data.count <= 256 * 1024 {
-            onChatGPTHostRequest?(requestID, operation, data)
+        if let request = DesktopRPCContract.parseRequest(body) {
+            switch request {
+            case let .chatGPTHost(requestID, operation, payload):
+                onChatGPTHostRequest?(requestID, operation, payload)
+            case let .reviewIssue(requestID, payload):
+                onReviewIssueRequest?(requestID, payload)
+            case let .reviewIssueAttachment(requestID, submissionID, payload):
+                onReviewIssueAttachmentRequest?(requestID, submissionID, payload)
+            case let .reviewIssueFinalize(requestID, submissionID, payload):
+                onReviewIssueFinalizeRequest?(requestID, submissionID, payload)
+            case let .reviewCenter(requestID, operation, payload):
+                onReviewCenterRequest?(requestID, operation, payload)
+            }
             return
-        }
-        if action == "reviewIssueRequest",
-           Set(body.keys) == Set(["action", "requestId", "payload"]),
-           let requestID = body["requestId"] as? String,
-           requestID.range(of: "^[A-Fa-f0-9-]{36}$", options: .regularExpression) != nil,
-           let payload = body["payload"] as? [String: Any],
-           JSONSerialization.isValidJSONObject(payload),
-           let data = try? JSONSerialization.data(withJSONObject: payload), data.count <= 512 * 1024 {
-            onReviewIssueRequest?(requestID, data)
-            return
-        }
-        if action == "reviewIssueAttachmentRequest",
-           Set(body.keys) == Set(["action", "requestId", "submissionId", "payload"]),
-           let requestID = body["requestId"] as? String,
-           requestID.range(of: "^[A-Fa-f0-9-]{36}$", options: .regularExpression) != nil,
-           let submissionID = body["submissionId"] as? String,
-           submissionID.range(of: "^FILMOS-SUBMISSION-[a-f0-9-]{36}$", options: .regularExpression) != nil,
-           let payload = body["payload"] as? [String: Any],
-           JSONSerialization.isValidJSONObject(payload),
-           let data = try? JSONSerialization.data(withJSONObject: payload), data.count <= 36 * 1024 * 1024 {
-            onReviewIssueAttachmentRequest?(requestID, submissionID, data)
-            return
-        }
-        if action == "reviewIssueFinalizeRequest",
-           Set(body.keys) == Set(["action", "requestId", "submissionId", "payload"]),
-           let requestID = body["requestId"] as? String,
-           requestID.range(of: "^[A-Fa-f0-9-]{36}$", options: .regularExpression) != nil,
-           let submissionID = body["submissionId"] as? String,
-           submissionID.range(of: "^FILMOS-SUBMISSION-[a-f0-9-]{36}$", options: .regularExpression) != nil,
-           let payload = body["payload"] as? [String: Any],
-           JSONSerialization.isValidJSONObject(payload),
-           let data = try? JSONSerialization.data(withJSONObject: payload), data.count <= 512 * 1024 {
-            onReviewIssueFinalizeRequest?(requestID, submissionID, data)
-            return
-        }
-        if action == "reviewCenterRequest",
-           Set(body.keys) == Set(["action", "requestId", "operation", "payload"]),
-           let requestID = body["requestId"] as? String,
-           requestID.range(of: "^[A-Fa-f0-9-]{36}$", options: .regularExpression) != nil,
-           let operation = body["operation"] as? String,
-           let payload = body["payload"] as? [String: String] {
-            onReviewCenterRequest?(requestID, operation, payload)
         }
     }
 
@@ -996,23 +954,19 @@ private final class WorkbenchWindow: NSObject, @preconcurrency WKNavigationDeleg
     }
 
     func resolveChatGPTHostRequest(requestID: String, data: Data?, error: String?) {
-        let result = data.flatMap { try? JSONSerialization.jsonObject(with: $0) }
-        Task {
-            _ = try? await webView.callAsyncJavaScript(
-                "window.filmOSResolveChatGPTHostRequest?.(requestId, result, error);",
-                arguments: ["requestId": requestID, "result": result ?? NSNull(), "error": error ?? NSNull()],
-                in: nil,
-                contentWorld: .page
-            )
-        }
+        resolveDesktopRPCRequest(callbackName: "filmOSResolveChatGPTHostRequest", requestID: requestID, data: data, error: error)
     }
 
     func resolveReviewIssueRequest(requestID: String, data: Data?, error: String?) {
+        resolveDesktopRPCRequest(callbackName: "filmOSResolveReviewIssue", requestID: requestID, data: data, error: error)
+    }
+
+    private func resolveDesktopRPCRequest(callbackName: String, requestID: String, data: Data?, error: String?) {
         let result = data.flatMap { try? JSONSerialization.jsonObject(with: $0) }
         Task {
             _ = try? await webView.callAsyncJavaScript(
-                "window.filmOSResolveReviewIssue?.(requestId, result, error);",
-                arguments: ["requestId": requestID, "result": result ?? NSNull(), "error": error ?? NSNull()],
+                "const resolver=window[callbackName];if(typeof resolver==='function')resolver(requestId,result,error);",
+                arguments: ["callbackName": callbackName, "requestId": requestID, "result": result ?? NSNull(), "error": error ?? NSNull()],
                 in: nil,
                 contentWorld: .page
             )
@@ -1235,7 +1189,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     let result = try await coordinator.stageReviewSubmission(payload)
                     workbenchWindow?.resolveReviewIssueRequest(requestID: requestID, data: result, error: nil)
                 } catch {
-                    let code = (error as? ReviewBusBridgeError)?.code ?? "REVIEW_BUS_REQUEST_FAILED"
+                    let code = reviewBusBridgeCode(error, fallback: "REVIEW_BUS_REQUEST_FAILED")
                     workbenchWindow?.resolveReviewIssueRequest(requestID: requestID, data: nil, error: code)
                 }
             }
@@ -1250,7 +1204,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     let result = try await coordinator.stageReviewAttachment(submissionID: submissionID, data: payload)
                     workbenchWindow?.resolveReviewIssueRequest(requestID: requestID, data: result, error: nil)
                 } catch {
-                    let code = (error as? ReviewBusBridgeError)?.code ?? "REVIEW_BUS_ATTACHMENT_FAILED"
+                    let code = reviewBusBridgeCode(error, fallback: "REVIEW_BUS_ATTACHMENT_FAILED")
                     workbenchWindow?.resolveReviewIssueRequest(requestID: requestID, data: nil, error: code)
                 }
             }
@@ -1269,7 +1223,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     }
                     workbenchWindow?.resolveReviewIssueRequest(requestID: requestID, data: result, error: nil)
                 } catch {
-                    let code = (error as? ReviewBusBridgeError)?.code ?? "REVIEW_BUS_FINALIZE_FAILED"
+                    let code = reviewBusBridgeCode(error, fallback: "REVIEW_BUS_FINALIZE_FAILED")
                     workbenchWindow?.resolveReviewIssueRequest(requestID: requestID, data: nil, error: code)
                 }
             }
@@ -1284,7 +1238,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     let result = try await coordinator.reviewCenterRequest(operation: operation, payload: payload)
                     workbenchWindow?.resolveReviewIssueRequest(requestID: requestID, data: result, error: nil)
                 } catch {
-                    let code = (error as? ReviewBusBridgeError)?.code ?? "REVIEW_CENTER_REQUEST_FAILED"
+                    let code = reviewBusBridgeCode(error, fallback: "REVIEW_CENTER_REQUEST_FAILED")
                     workbenchWindow?.resolveReviewIssueRequest(requestID: requestID, data: nil, error: code)
                 }
             }

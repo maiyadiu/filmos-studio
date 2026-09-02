@@ -1,4 +1,5 @@
 import localforage from "localforage";
+import { isDesktopRpcAvailable, requestDesktopRpc } from "@/film/adapters/yingce/desktop-rpc-client";
 
 import { currentBuildIdentity, type BuildIdentity } from "@/film/governance/build-identity";
 import { inferIssueRoutingRisk } from "@/film/governance/issue-lane";
@@ -197,15 +198,11 @@ declare global {
         filmOSReviewIssueIntake?: (draft: LocalIssueDraft) => Promise<LocalIssueDraft>;
         filmOSReviewCenterRequest?: (operation: string, payload?: Record<string, string>) => Promise<unknown>;
         filmOSReplayReviewIssues?: () => Promise<{ delivered: number; pending: number }>;
-        filmOSResolveReviewIssue?: (requestId: string, result: unknown, error: string | null) => void;
         filmOSReviewVerticalCanary?: ReviewVerticalCanaryConfig;
         filmOSRunReviewVerticalCanary?: () => Promise<ReviewVerticalCanaryStatus>;
         filmOSReadReviewVerticalCanary?: () => Promise<ReviewVerticalCanaryStatus>;
-        webkit?: { messageHandlers?: { filmosDesktop?: { postMessage: (message: unknown) => void } } };
     }
 }
-
-const nativeResolvers = new Map<string, { resolve: (value: unknown) => void; reject: (reason: Error) => void; timeout: number }>();
 
 const issueDraftStore = localforage.createInstance({
     name: "FilmOS Studio",
@@ -220,25 +217,15 @@ const migrationTombstoneStore = localforage.createInstance({
 });
 
 function installNativeReviewIssueIntake() {
-    const handler = window.webkit?.messageHandlers?.filmosDesktop;
-    if (!handler) return;
-    window.filmOSResolveReviewIssue = (requestId, result, error) => {
-        const pending = nativeResolvers.get(requestId);
-        if (!pending) return;
-        window.clearTimeout(pending.timeout);
-        nativeResolvers.delete(requestId);
-        if (error) pending.reject(new Error(error));
-        else if (result && typeof result === "object") pending.resolve(result);
-        else pending.reject(new Error("REVIEW_BUS_INVALID_RESPONSE"));
-    };
-    const nativeRequest = (action: "reviewIssueRequest" | "reviewIssueAttachmentRequest" | "reviewIssueFinalizeRequest", payload: Record<string, unknown>, submissionId?: string) => new Promise<unknown>((resolve, reject) => {
-        const requestId = crypto.randomUUID();
-        const timeout = window.setTimeout(() => {
-            nativeResolvers.delete(requestId);
-            reject(new Error("REVIEW_BUS_TIMEOUT"));
-        }, action === "reviewIssueAttachmentRequest" ? 60_000 : 20_000);
-        nativeResolvers.set(requestId, { resolve, reject, timeout });
-        handler.postMessage({ action, requestId, ...(submissionId ? { submissionId } : {}), payload });
+    if (!isDesktopRpcAvailable()) return;
+    const nativeRequest = (action: "reviewIssueRequest" | "reviewIssueAttachmentRequest" | "reviewIssueFinalizeRequest", payload: Record<string, unknown>, submissionId?: string) => requestDesktopRpc({
+        action,
+        ...(submissionId ? { submissionId } : {}),
+        payload,
+    } as Parameters<typeof requestDesktopRpc>[0], {
+        timeoutMs: action === "reviewIssueAttachmentRequest" ? 60_000 : 20_000,
+        timeoutCode: "REVIEW_BUS_TIMEOUT",
+        unavailableCode: "REVIEW_BUS_UNAVAILABLE",
     });
     window.filmOSReviewIssueIntake = async (draft) => {
         const replayMode = issueDraftReplayMode(draft);
@@ -326,11 +313,10 @@ function installNativeReviewIssueIntake() {
         });
         return confirmAcceptedDraft(current);
     };
-    window.filmOSReviewCenterRequest = (operation, payload = {}) => new Promise((resolve, reject) => {
-        const requestId = crypto.randomUUID();
-        const timeout = window.setTimeout(() => { nativeResolvers.delete(requestId); reject(new Error("REVIEW_CENTER_TIMEOUT")); }, 15_000);
-        nativeResolvers.set(requestId, { resolve, reject, timeout });
-        handler.postMessage({ action: "reviewCenterRequest", requestId, operation, payload });
+    window.filmOSReviewCenterRequest = (operation, payload = {}) => requestDesktopRpc({ action: "reviewCenterRequest", operation, payload }, {
+        timeoutMs: 15_000,
+        timeoutCode: "REVIEW_CENTER_TIMEOUT",
+        unavailableCode: "REVIEW_BUS_UNAVAILABLE",
     });
 }
 

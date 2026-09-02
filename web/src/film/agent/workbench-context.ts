@@ -1,5 +1,6 @@
 import type { CanvasAgentSnapshot } from "@/lib/canvas/canvas-agent-ops";
 import type { CanvasNodeData, ViewportTransform } from "@/types/canvas";
+import { postDesktopHostMessage } from "@/film/adapters/yingce/desktop-rpc-client";
 
 export type WorkbenchContextV1 = {
     schemaVersion: "1";
@@ -88,16 +89,15 @@ export function publishWorkbenchContext(context: WorkbenchContextV1 | undefined)
     const getter = () => published ? structuredClone(published) : null;
     window.filmOSGetWorkbenchContext = getter;
     window.dispatchEvent(new CustomEvent("filmos:workbench-context", { detail: getter() }));
-    const desktop = window.webkit?.messageHandlers?.filmosDesktop;
-    if (desktop && (!context || !context.domainProjectId)) desktop.postMessage({ action: "workbenchContextChanged", projectId: "", canvasId: context?.canvasId || "", contextReceiptId: "", context: null });
-    if (desktop && context?.domainProjectId) void buildLiveWorkbenchContextDraft(context).then((liveContext) => {
+    if (!context || !context.domainProjectId) postDesktopHostMessage({ action: "workbenchContextChanged", projectId: "", canvasId: context?.canvasId || "", contextReceiptId: "", context: null });
+    if (context?.domainProjectId) void buildLiveWorkbenchContextDraft(context).then((liveContext) => {
         if (!active) return;
         if (published) {
             published.canvasStateHash = liveContext.canvas_state_hash;
             published.contextReceiptId = liveContext.context_receipt_id;
         }
         window.dispatchEvent(new CustomEvent("filmos:workbench-context", { detail: getter() }));
-        desktop.postMessage({
+        postDesktopHostMessage({
             action: "workbenchContextChanged",
             projectId: context.domainProjectId || "",
             canvasId: context.canvasId,
@@ -236,8 +236,6 @@ declare global {
     interface Window {
         filmOSGetWorkbenchContext?: () => WorkbenchContextV1 | null;
         filmOSChatGPTHostStatus?: FilmOSDesktopChatGPTHostStatus;
-        filmOSResolveChatGPTHostRequest?: (requestId: string, result?: unknown, error?: string) => void;
-        webkit?: { messageHandlers?: { filmosDesktop?: { postMessage(message: unknown): void } } };
     }
 }
 
