@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { mkdirSync, realpathSync, statSync } from "node:fs";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 
@@ -31,7 +31,15 @@ export class ReviewWorktreeManager {
         const source = String(environment.FILMOS_REVIEW_SOURCE_REPOSITORY || "").trim();
         const root = String(environment.FILMOS_REVIEW_WORKTREE_ROOT || "").trim();
         if (!source || !root) return undefined;
-        const allowed = join(homedir(), "Library", "Application Support", "FilmOS Studio");
+        const acceptanceRoot = String(environment.FILMOS_REVIEW_ACCEPTANCE_ALLOWED_ROOT || "").trim();
+        let allowed = join(homedir(), "Library", "Application Support", "FilmOS Studio");
+        if (acceptanceRoot) {
+            const temporaryRoot = resolve(tmpdir());
+            const declaredAcceptanceRoot = resolve(acceptanceRoot);
+            assertWithin(declaredAcceptanceRoot, temporaryRoot);
+            realpathSync(declaredAcceptanceRoot);
+            allowed = declaredAcceptanceRoot;
+        }
         return new ReviewWorktreeManager(source, root, allowed);
     }
 

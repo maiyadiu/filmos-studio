@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, realpathSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
@@ -40,6 +40,27 @@ test("rejects the Application Support root itself as a source or worktree", () =
     const allowedRoot = mkdtempSync(join(tmpdir(), "filmos-review-boundary-"));
     assert.throws(
         () => new ReviewWorktreeManager(allowedRoot, join(allowedRoot, "worktrees"), allowedRoot),
+        /REVIEW_WORKTREE_OUTSIDE_APPLICATION_SUPPORT/,
+    );
+});
+
+test("acceptance override is restricted to a descendant of the operating-system temporary directory", () => {
+    const allowedRoot = mkdtempSync(join(tmpdir(), "filmos-review-acceptance-"));
+    const source = join(allowedRoot, "source");
+    const worktreeRoot = join(allowedRoot, "worktrees");
+    mkdirSync(source);
+    const manager = ReviewWorktreeManager.fromEnvironment({
+        FILMOS_REVIEW_SOURCE_REPOSITORY: source,
+        FILMOS_REVIEW_WORKTREE_ROOT: worktreeRoot,
+        FILMOS_REVIEW_ACCEPTANCE_ALLOWED_ROOT: allowedRoot,
+    });
+    assert.ok(manager);
+    assert.throws(
+        () => ReviewWorktreeManager.fromEnvironment({
+            FILMOS_REVIEW_SOURCE_REPOSITORY: source,
+            FILMOS_REVIEW_WORKTREE_ROOT: worktreeRoot,
+            FILMOS_REVIEW_ACCEPTANCE_ALLOWED_ROOT: homedir(),
+        }),
         /REVIEW_WORKTREE_OUTSIDE_APPLICATION_SUPPORT/,
     );
 });

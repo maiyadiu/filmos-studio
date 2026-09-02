@@ -171,7 +171,14 @@ private final class InternalWorkbenchCoordinator {
             .deletingLastPathComponent()
             .appendingPathComponent("DeveloperRepository", isDirectory: true)
             .appendingPathComponent("filmos-studio", isDirectory: true)
-        let reviewWorktreeDirectory = ReviewBusRuntimeContract.reviewWorktreeDirectory(applicationRuntimeRoot: applicationRuntimeRoot)
+        let reviewWorktreeDirectory: URL
+        if verticalCanaryEnabled {
+            let acceptanceRoot = reviewBusDirectory.deletingLastPathComponent()
+            reviewWorktreeDirectory = reviewBusDirectory.appendingPathComponent("worktrees", isDirectory: true)
+            localRuntimeEnvironment["FILMOS_REVIEW_ACCEPTANCE_ALLOWED_ROOT"] = acceptanceRoot.path
+        } else {
+            reviewWorktreeDirectory = ReviewBusRuntimeContract.reviewWorktreeDirectory(applicationRuntimeRoot: applicationRuntimeRoot)
+        }
         if fileManager.fileExists(atPath: developerRepository.path) {
             try fileManager.createDirectory(at: reviewWorktreeDirectory, withIntermediateDirectories: true)
             localRuntimeEnvironment["FILMOS_REVIEW_SOURCE_REPOSITORY"] = developerRepository.path
