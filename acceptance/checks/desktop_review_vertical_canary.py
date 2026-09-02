@@ -119,7 +119,12 @@ def wait_event(log_path: Path, event_name: str, timeout: float = 45) -> dict[str
         selected = next((item for item in reversed(canary_events(log_path)) if item.get("event") == event_name), None)
         return selected is not None
 
-    wait_for(present, timeout, f"packaged app did not emit {event_name}")
+    try:
+        wait_for(present, timeout, f"packaged app did not emit {event_name}")
+    except RuntimeError as error:
+        events = canary_events(log_path)
+        log_tail = log_path.read_text(encoding="utf-8", errors="replace")[-12000:] if log_path.is_file() else ""
+        raise RuntimeError(f"{error}; observed_events={events}; log_tail=\n{log_tail}") from error
     assert selected is not None
     return selected
 

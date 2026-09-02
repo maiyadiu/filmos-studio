@@ -843,8 +843,8 @@ if (typeof window !== "undefined") {
     installReviewVerticalCanary();
     const requestReplay = () => { void requestIssueDraftReplay().catch(() => undefined); };
     window.filmOSReplayReviewIssues = requestIssueDraftReplay;
-    if (window.filmOSReviewVerticalCanary?.phase !== "seed") window.setTimeout(requestReplay, 1_000);
+    if (!window.filmOSReviewVerticalCanary) window.setTimeout(requestReplay, 1_000);
     window.addEventListener("online", requestReplay);
     window.addEventListener("filmos:workbench-context", requestReplay);
-    window.setInterval(requestReplay, 30_000);
+    if (!window.filmOSReviewVerticalCanary) window.setInterval(requestReplay, 30_000);
 }

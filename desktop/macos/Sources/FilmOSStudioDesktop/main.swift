@@ -1098,17 +1098,17 @@ private final class WorkbenchWindow: NSObject, @preconcurrency WKNavigationDeleg
                 return
             }
             var emittedPending = false
-            for _ in 0..<90 {
+            for attempt in 0..<90 {
                 do {
                     let result = try await self.webView.callAsyncJavaScript(
                         """
                         if (typeof window.filmOSReplayReviewIssues !== "function" || typeof window.filmOSReadReviewVerticalCanary !== "function") {
                             throw new Error("VERTICAL_CANARY_WEB_HOOK_UNAVAILABLE");
                         }
-                        await window.filmOSReplayReviewIssues();
+                        if (shouldReplay) await window.filmOSReplayReviewIssues();
                         return await window.filmOSReadReviewVerticalCanary();
                         """,
-                        arguments: [:],
+                        arguments: ["shouldReplay": attempt == 0 || attempt % 30 == 0],
                         in: nil,
                         contentWorld: .page
                     )
