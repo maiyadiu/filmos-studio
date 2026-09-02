@@ -1444,6 +1444,7 @@ test("Stage A readback requires the actual MCP handler and rejects the wrong Pro
     assert.equal(value.projection_content_hash, receipt.projection_content_hash);
     assert.equal(value.current_projection_content_hash, service.requireIssue(receipt.formal_issue_id).content_hash);
     assert.equal(value.evidence_manifest_hash, receipt.evidence_manifest_hash);
+    assert.equal(value.current_evidence_manifest_hash, service.requireIssue(receipt.formal_issue_id).evidence.manifest.contentHash);
   } finally { await new Promise((resolve) => server.close(resolve)); store.close(); }
 });
 

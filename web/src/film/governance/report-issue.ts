@@ -799,6 +799,14 @@ function assertConfirmationMatches(draft: LocalIssueDraft, confirmation: Record<
         || confirmation.receipt_hash !== draft.receipt?.receipt_hash
         || confirmation.projection_content_hash !== draft.receipt?.projection_content_hash
         || confirmation.evidence_manifest_hash !== draft.receipt?.evidence_manifest_hash) throw new Error("READBACK_HASH_MISMATCH");
+    const currentProjectionHash = requireHash(confirmation.current_projection_content_hash, "READBACK_HASH_MISMATCH");
+    const currentEvidenceHash = requireHash(confirmation.current_evidence_manifest_hash, "READBACK_HASH_MISMATCH");
+    const receipts = Array.isArray(confirmation.receipts) ? confirmation.receipts.map(expectOptionalObject).filter(Boolean) : [];
+    const matchesCurrent = (toolName: string) => receipts.some((receipt) => receipt?.tool_name === toolName
+        && receipt?.projection_content_hash === currentProjectionHash
+        && receipt?.evidence_manifest_hash === currentEvidenceHash);
+    if ((confirmation.pending_read === true && !matchesCurrent("issue_list_pending"))
+        || (confirmation.evidence_read === true && !matchesCurrent("issue_get_evidence"))) throw new Error("READBACK_HASH_MISMATCH");
 }
 
 function safeErrorCode(error: unknown) {
