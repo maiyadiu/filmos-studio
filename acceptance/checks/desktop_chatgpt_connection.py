@@ -83,7 +83,9 @@ def main() -> None:
         '"CONTROL_PLANE_API_KEY"',
         '"FILMOS_SECURE_TUNNEL_PROOF"',
         '"X-FilmOS-Live-Gate-Challenge: env:FILMOS_LIVE_GATE_CHALLENGE"',
-        '"http://127.0.0.1:17650/film"',
+        'filmCorePort: Int = 17650',
+        '"FILMOS_CORE_BASE_URL"',
+        '"http://127.0.0.1:\\(filmCorePort)/film"',
         'mcpWriteToolCount: healthPayload?["mcp_write_tool_count"] as? Int ?? 0',
     )
     if not all(marker in runtime_source for marker in required_runtime_markers):
