@@ -2,13 +2,13 @@
   "handwritten_runtime_hotspots": {
     "baseline_commit": "ae2dc2f72a88d570bd23b8cecc19f887cd2763aa",
     "baseline_lines": 10844,
-    "current_lines": 10807,
-    "delta": -37,
+    "current_lines": 10809,
+    "delta": -35,
     "files": [
       {
         "baseline_lines": 1624,
-        "current_lines": 1578,
-        "delta": -46,
+        "current_lines": 1579,
+        "delta": -45,
         "path": "desktop/macos/Sources/FilmOSStudioDesktop/main.swift"
       },
       {
@@ -19,8 +19,8 @@
       },
       {
         "baseline_lines": 946,
-        "current_lines": 954,
-        "delta": 8,
+        "current_lines": 955,
+        "delta": 9,
         "path": "services/filmos-review-bus/src/service.mjs"
       },
       {
