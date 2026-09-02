@@ -71,7 +71,19 @@ def main() -> int:
     )
     require(
         "services/filmos-review-bus/src/service.mjs",
-        ("FILMOS-ISSUE", "FILMOS-ARCH", "EVIDENCE_REQUIRED", "REVIEW_CODEX_CANNOT_SELF_CLOSE", "pilotAllowed", "github_remote_verification", "runtime_recovery"),
+        (
+            "REVIEW_ISSUE_PREFIX",
+            "REVIEW_ARCHITECTURE_ISSUE_PREFIX",
+            "EVIDENCE_REQUIRED",
+            "REVIEW_CODEX_CANNOT_SELF_CLOSE",
+            "pilotAllowed",
+            "github_remote_verification",
+            "runtime_recovery",
+        ),
+    )
+    require(
+        "packages/filmos-review-contract/contract.v1.json",
+        ('"issue_prefix": "FILMOS-ISSUE"', '"architecture_issue_prefix": "FILMOS-ARCH"'),
     )
     require("services/filmos-review-bus/src/github-evidence-verifier.mjs", ("maiyadiu/filmos-studio", "evidence_index_hash_matches", "GITHUB_REMOTE_EVIDENCE_MISMATCH", "FILMOS_GH_EXECUTABLE"))
     require("services/filmos-review-bus/src/live-roundtrip-trace.mjs", ("EXACTLY_TWO_CANDIDATES_REQUIRED", "CODEX_SUBSCRIPTION_COORDINATION_REQUIRED", "FORMAL_GITHUB_REMOTE_EVIDENCE_REQUIRED"))
@@ -124,7 +136,11 @@ def main() -> int:
         "web/src/film/governance/report-issue.ts",
         ("FILMOS-ISSUE-", "OBSERVED_IN_USE", "filmOSReviewIssueIntake"),
     )
-    require("web/src/application.tsx", ("ReportIssuePortal",))
+    require("web/src/application.tsx", ("YingceGlobalIssuePortal",))
+    require(
+        "web/src/film/adapters/yingce/contributions/global-issue-portal.ts",
+        ("ReportIssuePortal", 'slot: "global-issue-portal"'),
+    )
 
     extension = json.loads(read("extensions/filmos-review-bridge/manifest.json"))
     if extension.get("permissions") != ["storage"] or extension.get("host_permissions") != [

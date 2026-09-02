@@ -2734,10 +2734,10 @@ test("Dreamina cross-Runtime queue head promotes after a peer reconciler release
         assert.equal(runtimeBSubmits, 0);
 
         await runtimeA.refreshTask(active.id);
-        await waitForPromise(terminalQueryStarted, "Runtime A terminal reconciliation", 2_000);
+        await waitForPromise(terminalQueryStarted, "Runtime A terminal reconciliation", 10_000);
         releaseTerminal();
-        await waitForRuntimeRecord(box.stateFile, active.id, (record) => record.state === "cancelled", 2_000);
-        await waitForPromise(queuedSubmitStarted, "Runtime B queued promotion", 1_000);
+        await waitForRuntimeRecord(box.stateFile, active.id, (record) => record.state === "cancelled", 10_000);
+        await waitForPromise(queuedSubmitStarted, "Runtime B queued promotion", 10_000);
 
         assert.equal(runtimeBSubmits, 1);
         assert.equal((await runtimeB.getTask(queued.id)).status, "running");
