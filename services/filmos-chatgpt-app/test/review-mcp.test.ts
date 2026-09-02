@@ -47,8 +47,15 @@ test("ChatGPT Review MCP registry is strictly read-only and preserves the blind 
     const blind = await client.callTool({ name: "issue_get_codex_assessment_blind", arguments: { issue_id: "FILMOS-ISSUE-test" } }) as any;
     assert.equal(blind.structuredContent.counterpart_assessment, null);
     assert.equal(blind.structuredContent.counterpart_sealed, true);
+    const denied = await client.callTool({ name: "issue_get_evidence", arguments: {
+      issue_id: "FILMOS-ISSUE-test",
+      expected_project_id: "wrong-project",
+    } }) as any;
+    assert.equal(denied.isError, true);
+    assert.equal(JSON.parse(denied.content[0].text).code, "PROJECT_SCOPE_DENIED");
     assert.deepEqual(calls, [{ tool: "issue_get_codex_assessment_blind", project: projectA }]);
     assert.ok(audit.records.some((record) => record.action === "issue_get_codex_assessment_blind" && record.project_id === projectA && record.outcome === "ALLOW"));
+    assert.ok(audit.records.some((record) => record.action === "issue_get_evidence" && record.project_id === projectA && record.outcome === "DENY" && record.code === "PROJECT_SCOPE_DENIED"));
     const health = await fetch(`http://127.0.0.1:${port}/health`);
     const body = await health.json() as any;
     assert.equal(body.mcp_write_tool_count, 0);

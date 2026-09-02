@@ -202,12 +202,20 @@ private struct LegacyStoredChatGPTConnection: Codable {
     let autoConnect: Bool
 }
 
+private struct StoredChatGPTWorkbenchContext: Codable {
+    let projectID: String
+    let context: Data
+}
+
 @MainActor
 public protocol ChatGPTConnectionPreferencesStoring: AnyObject {
     func loadConnectionConfig() -> ChatGPTHostConnectionConfig?
     func saveConnectionConfig(_ value: ChatGPTHostConnectionConfig)
     func loadProjectSession() -> ChatGPTProjectHostSession?
     func saveProjectSession(_ value: ChatGPTProjectHostSession)
+    func loadWorkbenchContext(for projectID: String) -> Data?
+    func saveWorkbenchContext(_ value: Data, for projectID: String)
+    func clearWorkbenchContext()
     func clearProjectSession()
     func clear()
 }
@@ -217,12 +225,14 @@ public final class UserDefaultsChatGPTConnectionPreferences: ChatGPTConnectionPr
     private let defaults: UserDefaults
     private let connectionKey: String
     private let sessionKey: String
+    private let workbenchContextKey: String
     private let legacyKey: String
 
     public init(defaults: UserDefaults = .standard, key: String = "filmos.chatgpt.host.connection.v2") {
         self.defaults = defaults
         connectionKey = key
         sessionKey = "filmos.chatgpt.host.project-session.v2"
+        workbenchContextKey = "filmos.chatgpt.host.workbench-context.v1"
         legacyKey = "filmos.chatgpt.connection.v1"
     }
 
@@ -248,14 +258,33 @@ public final class UserDefaultsChatGPTConnectionPreferences: ChatGPTConnectionPr
         defaults.set(data, forKey: sessionKey)
     }
 
+    public func loadWorkbenchContext(for projectID: String) -> Data? {
+        guard let data = defaults.data(forKey: workbenchContextKey),
+              let stored = try? JSONDecoder().decode(StoredChatGPTWorkbenchContext.self, from: data),
+              stored.projectID == projectID else { return nil }
+        return stored.context
+    }
+
+    public func saveWorkbenchContext(_ value: Data, for projectID: String) {
+        let stored = StoredChatGPTWorkbenchContext(projectID: projectID, context: value)
+        guard let data = try? JSONEncoder().encode(stored) else { return }
+        defaults.set(data, forKey: workbenchContextKey)
+    }
+
+    public func clearWorkbenchContext() {
+        defaults.removeObject(forKey: workbenchContextKey)
+    }
+
     public func clear() {
         defaults.removeObject(forKey: connectionKey)
         defaults.removeObject(forKey: sessionKey)
+        defaults.removeObject(forKey: workbenchContextKey)
         defaults.removeObject(forKey: legacyKey)
     }
 
     public func clearProjectSession() {
         defaults.removeObject(forKey: sessionKey)
+        clearWorkbenchContext()
     }
 
     private func migrateLegacyIfNeeded() {
@@ -377,6 +406,8 @@ public final class ChatGPTConnectionManager {
         preferences.saveConnectionConfig(configuration)
         preferences.saveProjectSession(projectSession)
         currentRuntimeKey = key
+        currentHostContext = preferences.loadWorkbenchContext(for: projectSession.projectID)
+        clearPublishedHostContextBinding()
         try await establish(configuration: configuration, projectSession: projectSession, resetChallenge: currentChallengeID == nil)
     }
 
@@ -392,10 +423,16 @@ public final class ChatGPTConnectionManager {
                 lastExternalObservation: currentProjectSession?.lastExternalObservation
             )
             preferences.saveProjectSession(currentProjectSession!)
+            if currentHostContext == nil {
+                currentHostContext = preferences.loadWorkbenchContext(for: next.projectID)
+                clearPublishedHostContextBinding()
+            }
+            try await publishCurrentHostContextIfReady()
             return
         }
         currentHostContext = nil
         clearPublishedHostContextBinding()
+        preferences.clearWorkbenchContext()
         preferences.saveProjectSession(next)
         currentProjectSession = next
         guard let configuration = currentConfiguration ?? preferences.loadConnectionConfig(),
@@ -425,6 +462,8 @@ public final class ChatGPTConnectionManager {
             try Task.checkCancellation()
             let key = try tokenStore.loadString(for: .openAIMCPTunnelRuntimeKey)
             currentRuntimeKey = try Self.validatedRuntimeKey(key)
+            currentHostContext = preferences.loadWorkbenchContext(for: projectSession.projectID)
+            clearPublishedHostContextBinding()
             try await establish(configuration: configuration, projectSession: projectSession, resetChallenge: true)
         } catch is CancellationError {
             return
@@ -440,6 +479,10 @@ public final class ChatGPTConnectionManager {
         }
         let key = try currentRuntimeKey ?? tokenStore.loadString(for: .openAIMCPTunnelRuntimeKey)
         currentRuntimeKey = try Self.validatedRuntimeKey(key)
+        if currentHostContext == nil {
+            currentHostContext = preferences.loadWorkbenchContext(for: projectSession.projectID)
+            clearPublishedHostContextBinding()
+        }
         operations.suspendTunnel()
         try await establish(configuration: configuration, projectSession: projectSession, resetChallenge: false)
     }
@@ -518,7 +561,11 @@ public final class ChatGPTConnectionManager {
 
     public func publishHostContext(_ context: Data) async throws -> Data {
         try validateWorkbenchContext(context)
+        guard let projectID = currentProjectSession?.projectID else {
+            throw ChatGPTConnectionError.hostContextInvalid
+        }
         currentHostContext = context
+        preferences.saveWorkbenchContext(context, for: projectID)
         clearPublishedHostContextBinding()
         let challengeID = try currentHostChallenge()
         let result = try await operations.publishHostContext(context, challengeID: challengeID)
@@ -530,11 +577,16 @@ public final class ChatGPTConnectionManager {
     public func updateWorkbenchContext(_ context: Data?) async throws {
         guard let context else {
             currentHostContext = nil
+            preferences.clearWorkbenchContext()
             clearPublishedHostContextBinding()
             return
         }
         try validateWorkbenchContext(context)
+        guard let projectID = currentProjectSession?.projectID else {
+            throw ChatGPTConnectionError.hostContextInvalid
+        }
         currentHostContext = context
+        preferences.saveWorkbenchContext(context, for: projectID)
         clearPublishedHostContextBinding()
         try await publishCurrentHostContextIfReady()
     }

@@ -166,7 +166,8 @@ async function callTool(name: string, input: Record<string, unknown>, options: F
       await allowedAudit(options, correlationId, name, proposal.content_hash, byteSize(result));
       return { structuredContent: result, content: [{ type: "text" as const, text: "A signed local proposal package is ready. Nothing was applied to FilmOS." }] };
     }
-    const payload = await options.dataSource.read(name, input, options.grant, signal);
+    let payload = await options.dataSource.read(name, input, options.grant, signal);
+    if (name === "filmos_get_blockers") payload = withLiveWorkbenchBlocker(payload, options);
     notifyRead(options, correlationId, name, payload.uri, payload.version, payload.state_hash);
     await allowedAudit(options, correlationId, name, payload.state_hash, byteSize(payload));
     return {
@@ -178,6 +179,63 @@ async function callTool(name: string, input: Record<string, unknown>, options: F
     await options.audit.write(auditRecord({ correlation_id: correlationId, action: name, grant_id: options.grant.grant_id, project_id: options.grant.project_id, outcome: error instanceof SecurityBoundaryError ? "DENY" : "ERROR", result_size: 0, code }));
     return { isError: true, content: [{ type: "text" as const, text: JSON.stringify({ code, message: error instanceof Error ? error.message : "FilmOS read failed" }) }] };
   }
+}
+
+function withLiveWorkbenchBlocker(payload: Awaited<ReturnType<FilmOSReadDataSource["read"]>>, options: FilmOSMcpSessionOptions) {
+  const data = payload.data && typeof payload.data === "object" && !Array.isArray(payload.data)
+    ? structuredClone(payload.data as Record<string, unknown>)
+    : {};
+  const items = Array.isArray(data.items) ? structuredClone(data.items) : [];
+  let liveContext: ReturnType<ChatGPTHostContextStore["requireContext"]> | null = null;
+  let liveError: SecurityBoundaryError | null = null;
+  try {
+    if (!options.liveGate?.tunneled || !options.liveGate.challengeId || !options.hostContext) {
+      throw new SecurityBoundaryError("secure_tunnel_context_required", "Live workbench context requires the current Secure Tunnel challenge");
+    }
+    liveContext = options.hostContext.requireContext(options.grant, options.liveGate.challengeId);
+  } catch (error) {
+    liveError = error instanceof SecurityBoundaryError
+      ? error
+      : new SecurityBoundaryError("live_workbench_context_unavailable", "Live workbench context could not be verified");
+  }
+  if (liveError) items.push({
+    blocker_id: `LIVE_WORKBENCH_CONTEXT_UNAVAILABLE:${options.grant.project_id}`,
+    code: liveError.code,
+    severity: "P0",
+    project_id: options.grant.project_id,
+    entity_kind: "live_workbench_context",
+    entity_id: options.grant.project_id,
+    uri: `filmos://project/${options.grant.project_id}/host/live-workbench-context`,
+    message: liveError.message,
+    evidence: { project_grant_id: options.grant.grant_id, tunnel_challenge_bound: Boolean(options.liveGate?.challengeId) },
+  });
+  const projectScope = data.project_scope && typeof data.project_scope === "object" && !Array.isArray(data.project_scope)
+    ? data.project_scope as Record<string, unknown>
+    : {};
+  const evidence = data.evidence && typeof data.evidence === "object" && !Array.isArray(data.evidence)
+    ? data.evidence as Record<string, unknown>
+    : {};
+  return {
+    ...payload,
+    data: {
+      ...data,
+      items,
+      completeness: "DERIVED_FROM_PROJECT_AND_LIVE_CONTEXT",
+      project_scope: {
+        ...projectScope,
+        live_context_project_id: liveContext?.project_id ?? null,
+        live_context_exact_match: liveContext?.project_id === options.grant.project_id,
+      },
+      evaluation: { status: items.length ? "BLOCKED" : "CLEAR", blocker_count: items.length },
+      evidence: {
+        ...evidence,
+        live_context_bound: Boolean(liveContext),
+        live_context_receipt_id: liveContext?.context_receipt_id ?? null,
+        live_context_canvas_id: liveContext?.canvas_id ?? null,
+        live_context_captured_at: liveContext?.captured_at ?? null,
+      },
+    },
+  };
 }
 
 async function allowedAudit(options: FilmOSMcpSessionOptions, correlationId: string, action: string, outputHash: string, resultSize: number) {

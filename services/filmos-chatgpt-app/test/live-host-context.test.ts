@@ -49,6 +49,16 @@ test("native Agent handoff exposes only the current Project Grant and Secure Tun
     film_expected_version: 3,
     film_content_hash: "b".repeat(64),
     context_receipt_id: contextReceiptId,
+    source_identity: {
+      schema_version: "1.0.0",
+      build_id: "candidate-test-12345678",
+      repository: "maiyadiu/filmos-studio",
+      git_commit_sha: "c".repeat(40),
+      git_tree_sha: "d".repeat(40),
+      source_fingerprint_sha256: "e".repeat(64),
+      release_channel: "candidate",
+      source_clean: true,
+    },
   };
 
   const published = await fetch(`${baseUrl}/handoff/live-context`, {
@@ -99,6 +109,16 @@ test("native Agent handoff exposes only the current Project Grant and Secure Tun
     assert.equal(live.structuredContent.canvas_revision, 7);
     assert.deepEqual(live.structuredContent.selected_node_ids, ["node-a", "node-b"]);
     assert.equal(live.structuredContent.visible_node_summaries[0].title, "[REDACTED]");
+    assert.equal(live.structuredContent.source_identity.build_id, "candidate-test-12345678");
+    assert.equal(live.structuredContent.source_identity.git_commit_sha, "c".repeat(40));
+
+    const liveBlockers = await client.callTool({ name: "filmos_get_blockers", arguments: {} }) as any;
+    assert.equal(liveBlockers.structuredContent.data.evaluation.status, "CLEAR");
+    assert.equal(liveBlockers.structuredContent.data.evaluation.blocker_count, 0);
+    assert.equal(liveBlockers.structuredContent.data.completeness, "DERIVED_FROM_PROJECT_AND_LIVE_CONTEXT");
+    assert.equal(liveBlockers.structuredContent.data.project_scope.live_context_exact_match, true);
+    assert.equal(liveBlockers.structuredContent.data.evidence.live_context_bound, true);
+    assert.equal(liveBlockers.structuredContent.data.evidence.live_context_receipt_id, contextReceiptId);
 
     const pending = await client.callTool({ name: "filmos_get_pending_agent_handoff", arguments: {} }) as any;
     assert.equal(pending.structuredContent.handoff.status, "PENDING_CHATGPT");
@@ -126,6 +146,13 @@ test("native Agent handoff exposes only the current Project Grant and Secure Tun
     const denied = await otherClient.callTool({ name: "filmos_get_live_workbench_context", arguments: {} }) as any;
     assert.equal(denied.isError, true);
     assert.equal(JSON.parse(denied.content[0].text).code, "live_workbench_context_unavailable");
+
+    const blocked = await otherClient.callTool({ name: "filmos_get_blockers", arguments: {} }) as any;
+    assert.equal(blocked.structuredContent.data.evaluation.status, "BLOCKED");
+    assert.equal(blocked.structuredContent.data.evaluation.blocker_count, 1);
+    assert.equal(blocked.structuredContent.data.items[0].code, "live_workbench_context_unavailable");
+    assert.equal(blocked.structuredContent.data.items[0].severity, "P0");
+    assert.equal(blocked.structuredContent.data.evidence.live_context_bound, false);
 
     const crossProject = await fetch(`${baseUrl}/handoff/live-context`, {
       method: "PUT",

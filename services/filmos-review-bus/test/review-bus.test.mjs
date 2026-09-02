@@ -1439,9 +1439,13 @@ test("Stage A readback requires the actual MCP handler and rejects the wrong Pro
     assert.equal((await wrongProject.json()).code, "PROJECT_SCOPE_DENIED");
     const pending = await fetch(`${baseURL}/v1/review/pending?project_id=${projectId}`, { headers: mcpHeaders });
     assert.equal(pending.status, 200);
-    assert.equal((await pending.json()).issues.some((item) => item.issue_id === receipt.formal_issue_id), true);
+    const pendingBody = await pending.json();
+    const pendingIssue = pendingBody.issues.find((item) => item.issue_id === receipt.formal_issue_id);
+    assert.ok(pendingIssue);
+    assert.equal(pendingIssue.submission_id, stageASubmissionId);
     const evidence = await fetch(`${baseURL}/v1/review/issues/${receipt.formal_issue_id}/evidence?project_id=${projectId}`, { headers: mcpHeaders });
     assert.equal(evidence.status, 200);
+    assert.equal((await evidence.json()).submission_id, stageASubmissionId);
     const confirmation = await fetch(`${baseURL}/v1/review/internal/issues/${receipt.formal_issue_id}/intake-confirmation?project_id=${projectId}`, { headers });
     assert.equal(confirmation.status, 200);
     const value = await confirmation.json();

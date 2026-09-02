@@ -796,6 +796,7 @@ function readSummary(value, store, includeCoordination) {
   const coordination = value.codex_coordination ?? null;
   const summary = {
     issue_id: value.issue_id,
+    submission_id: value.submission_id ?? null,
     project_id: value.project_id,
     lane: value.lane,
     state: value.state,

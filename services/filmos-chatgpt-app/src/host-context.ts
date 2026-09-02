@@ -18,8 +18,20 @@ export type LiveWorkbenchContext = {
   film_expected_version: number | null;
   film_content_hash: string | null;
   context_receipt_id: string;
+  source_identity: InstalledSourceIdentity | null;
   captured_at: string;
   expires_at: string;
+};
+
+export type InstalledSourceIdentity = {
+  schema_version: string;
+  build_id: string;
+  repository: string;
+  git_commit_sha: string;
+  git_tree_sha: string;
+  source_fingerprint_sha256: string;
+  release_channel: string;
+  source_clean: boolean;
 };
 
 export type PendingAgentHandoff = {
@@ -131,8 +143,26 @@ function normalizeContext(raw: unknown, grant: ProjectGrant, expiresAt: Date, no
     film_expected_version: input.film_expected_version === null || input.film_expected_version === undefined ? null : positiveInteger(input.film_expected_version, "film_expected_version"),
     film_content_hash: input.film_content_hash === null || input.film_content_hash === undefined ? null : requiredHash(input.film_content_hash, "film_content_hash"),
     context_receipt_id: requiredText(input.context_receipt_id, "context_receipt_id", 256),
+    source_identity: installedSourceIdentity(input.source_identity),
     captured_at: now.toISOString(),
     expires_at: expiresAt.toISOString(),
+  };
+}
+
+function installedSourceIdentity(value: unknown): InstalledSourceIdentity | null {
+  if (value === null || value === undefined) return null;
+  const input = requireRecord(value, "source_identity");
+  const sourceClean = input.source_clean;
+  if (typeof sourceClean !== "boolean") throw new SecurityBoundaryError("invalid_live_context", "source_identity.source_clean must be boolean");
+  return {
+    schema_version: requiredText(input.schema_version, "source_identity.schema_version", 32),
+    build_id: requiredText(input.build_id, "source_identity.build_id", 128),
+    repository: requiredText(input.repository, "source_identity.repository", 256),
+    git_commit_sha: requiredGitObject(input.git_commit_sha, "source_identity.git_commit_sha"),
+    git_tree_sha: requiredGitObject(input.git_tree_sha, "source_identity.git_tree_sha"),
+    source_fingerprint_sha256: requiredHash(input.source_fingerprint_sha256, "source_identity.source_fingerprint_sha256"),
+    release_channel: requiredText(input.release_channel, "source_identity.release_channel", 64),
+    source_clean: sourceClean,
   };
 }
 
@@ -160,6 +190,11 @@ function optionalText(value: unknown, max: number) {
 function requiredHash(value: unknown, name: string) {
   const text = requiredText(value, name, 64);
   if (!/^[0-9a-f]{64}$/.test(text)) throw new SecurityBoundaryError("invalid_live_context", `${name} must be SHA-256`);
+  return text;
+}
+function requiredGitObject(value: unknown, name: string) {
+  const text = requiredText(value, name, 64);
+  if (!/^[0-9a-f]{40,64}$/.test(text)) throw new SecurityBoundaryError("invalid_live_context", `${name} must be a Git object id`);
   return text;
 }
 function positiveInteger(value: unknown, name: string) {

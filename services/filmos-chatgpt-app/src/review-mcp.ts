@@ -8,6 +8,7 @@ import { chatGPTNoauthMeta } from "./chatgpt-auth.js";
 import type { ProjectGrant } from "./grants.js";
 import type { ReviewReadSource } from "./review-source.js";
 import { REVIEW_ISSUE_ID_PATTERN } from "./generated-review-contract.js";
+import { SecurityBoundaryError } from "./security.js";
 
 export const REVIEW_READ_TOOLS = [
   ["issue_list_pending", "List pending FilmOS issues", "List pending Developer Governance issues inside the current Project Grant."],
@@ -38,17 +39,24 @@ export function registerReviewReadTools(server: McpServer, source: ReviewReadSou
     server.registerTool(name, {
       title,
       description,
-      inputSchema: takesIssue ? z.object({ issue_id: z.string().regex(REVIEW_ISSUE_ID_PATTERN) }) : z.object({}),
+      inputSchema: takesIssue ? z.object({
+        issue_id: z.string().regex(REVIEW_ISSUE_ID_PATTERN),
+        expected_project_id: z.string().min(1).max(256).optional(),
+      }) : z.object({}),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
       _meta: chatGPTNoauthMeta(),
     }, async (input, extra) => {
       try {
-        const value = await source.read(name, input as Record<string, unknown>, grant.project_id, extra.signal);
+        const argumentsObject = input as { issue_id?: string; expected_project_id?: string };
+        if (takesIssue && typeof argumentsObject.expected_project_id === "string" && argumentsObject.expected_project_id !== grant.project_id) {
+          throw new SecurityBoundaryError("PROJECT_SCOPE_DENIED", "Expected project does not match the current Project Grant");
+        }
+        const value = await source.read(name, argumentsObject as Record<string, unknown>, grant.project_id, extra.signal);
         const outputHash = sha256(value);
         await audit.write(auditRecord({ correlation_id: randomUUID(), action: name, grant_id: grant.grant_id, project_id: grant.project_id, outcome: "ALLOW", output_hash: outputHash, result_size: Buffer.byteLength(JSON.stringify(value)) }));
         return { structuredContent: value, content: [{ type: "text" as const, text: `Read-only FilmOS Review Bus result ${outputHash}` }] };
       } catch (error) {
-        await audit.write(auditRecord({ correlation_id: randomUUID(), action: name, grant_id: grant.grant_id, project_id: grant.project_id, outcome: "ERROR", result_size: 0, code: (error as { code?: string }).code ?? "REVIEW_BUS_READ_FAILED" }));
+        await audit.write(auditRecord({ correlation_id: randomUUID(), action: name, grant_id: grant.grant_id, project_id: grant.project_id, outcome: error instanceof SecurityBoundaryError ? "DENY" : "ERROR", result_size: 0, code: (error as { code?: string }).code ?? "REVIEW_BUS_READ_FAILED" }));
         return { isError: true, content: [{ type: "text" as const, text: JSON.stringify({ code: (error as { code?: string }).code ?? "REVIEW_BUS_READ_FAILED", message: error instanceof Error ? error.message : "Review Bus read failed" }) }] };
       }
     });

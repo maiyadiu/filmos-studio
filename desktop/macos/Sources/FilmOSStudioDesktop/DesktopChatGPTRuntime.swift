@@ -21,6 +21,7 @@ final class DesktopChatGPTRuntime: ChatGPTConnectionOperating {
     private let mcpPIDFileURL: URL
     private let tunnelPIDFileURL: URL
     private let reviewBusHealthURL: URL
+    private let installedSourceIdentity: [String: Any]
     private let filmCorePort: Int
     private let chatGPTMCPPort: Int
     private var startedServices: Set<ServiceID> = []
@@ -36,6 +37,7 @@ final class DesktopChatGPTRuntime: ChatGPTConnectionOperating {
         applicationRuntimeRoot: URL,
         reviewBusDirectory: URL,
         reviewBusHealthURL: URL,
+        sourceIdentityURL: URL,
         baseEnvironment: [String: String],
         filmCorePort: Int = 17650,
         chatGPTMCPPort: Int = 17840,
@@ -44,6 +46,7 @@ final class DesktopChatGPTRuntime: ChatGPTConnectionOperating {
         self.supervisor = supervisor
         self.tokenStore = tokenStore
         self.reviewBusHealthURL = reviewBusHealthURL
+        installedSourceIdentity = try Self.loadInstalledSourceIdentity(from: sourceIdentityURL)
         self.filmCorePort = filmCorePort
         self.chatGPTMCPPort = chatGPTMCPPort
         tunnelClientURL = helpersDirectory.appendingPathComponent("tunnel-client")
@@ -331,9 +334,38 @@ final class DesktopChatGPTRuntime: ChatGPTConnectionOperating {
         }
         value["film_expected_version"] = version
         value["film_content_hash"] = contentHash
+        value["source_identity"] = installedSourceIdentity
         value["context_receipt_id"] = try Self.liveContextReceipt(value)
         value.removeValue(forKey: "content_unit_kind")
         return try await publish(path: "/handoff/live-context", method: "PUT", challengeID: challengeID, key: "context", value: value)
+    }
+
+    private static func loadInstalledSourceIdentity(from url: URL) throws -> [String: Any] {
+        guard let data = try? Data(contentsOf: url),
+              let value = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let schemaVersion = value["schema_version"] as? String, !schemaVersion.isEmpty,
+              let buildID = value["build_id"] as? String, !buildID.isEmpty,
+              let repository = value["repository"] as? String, !repository.isEmpty,
+              let commit = value["git_commit_sha"] as? String,
+              commit.range(of: "^[0-9a-f]{40,64}$", options: .regularExpression) != nil,
+              let tree = value["git_tree_sha"] as? String,
+              tree.range(of: "^[0-9a-f]{40,64}$", options: .regularExpression) != nil,
+              let fingerprint = value["source_fingerprint_sha256"] as? String,
+              fingerprint.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil,
+              let releaseChannel = value["release_channel"] as? String, !releaseChannel.isEmpty,
+              value["source_clean"] is Bool else {
+            throw DesktopChatGPTRuntimeError.hostPublishRejected(nil)
+        }
+        return [
+            "schema_version": schemaVersion,
+            "build_id": buildID,
+            "repository": repository,
+            "git_commit_sha": commit,
+            "git_tree_sha": tree,
+            "source_fingerprint_sha256": fingerprint,
+            "release_channel": releaseChannel,
+            "source_clean": value["source_clean"]!,
+        ]
     }
 
     func publishPendingHostHandoff(_ handoff: Data, challengeID: String) async throws -> Data {

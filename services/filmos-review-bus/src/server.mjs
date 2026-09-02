@@ -306,7 +306,7 @@ function readReviewProjection(service, store, url, req, res, now) {
   const match = /^\/v1\/review\/issues\/([^/]+)\/(evidence|codex-assessment-blind|consensus|architecture-options|task-package|candidate|candidate-history|diff|ci|artifact|findings|codex-responses|decision-template|verify-candidate)$/.exec(url.pathname);
   if (!match) return send(res, 404, { code: "NOT_FOUND" });
   const issue = service.readRedacted(decodeURIComponent(match[1]), requireProject(url));
-  const scope = { issue_id: issue.issue_id, project_id: issue.project_id };
+  const scope = { issue_id: issue.issue_id, submission_id: issue.submission_id ?? null, project_id: issue.project_id };
   const views = {
     evidence: { ...scope, evidence: issue.evidence ?? null },
     "codex-assessment-blind": issue.assessments?.chatgpt && issue.assessments?.codex

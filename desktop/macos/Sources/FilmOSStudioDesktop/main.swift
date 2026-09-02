@@ -252,6 +252,7 @@ private final class InternalWorkbenchCoordinator {
             applicationRuntimeRoot: applicationRuntimeRoot,
             reviewBusDirectory: reviewBusDirectory,
             reviewBusHealthURL: configuration.reviewBusHealthURL,
+            sourceIdentityURL: sourceIdentityURL,
             baseEnvironment: Self.safeBaseEnvironment(),
             filmCorePort: filmCorePort,
             chatGPTMCPPort: chatGPTMCPPort

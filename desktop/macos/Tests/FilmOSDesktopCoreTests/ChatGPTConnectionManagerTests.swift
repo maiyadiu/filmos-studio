@@ -111,6 +111,56 @@ struct ChatGPTConnectionManagerTests {
     }
 
     @Test
+    func appRestartRepublishesTheLastValidatedWorkbenchContextForTheSameProject() async throws {
+        let preferences = MemoryConnectionPreferences()
+        let tokens = MemoryTokenStore()
+        let firstOperations = FakeConnectionOperations()
+        let firstManager = ChatGPTConnectionManager(
+            operations: firstOperations,
+            tokenStore: tokens,
+            preferences: preferences
+        )
+        try await firstManager.connect(tunnelID: "tunnel_12345678", runtimeKey: "runtime", projectID: "host-project-1")
+        let context = Data("{\"project_id\":\"host-project-1\",\"canvas_id\":\"canvas-1\"}".utf8)
+        try await firstManager.updateWorkbenchContext(context)
+        firstManager.prepareForApplicationTermination()
+
+        let secondOperations = FakeConnectionOperations()
+        let secondManager = ChatGPTConnectionManager(
+            operations: secondOperations,
+            tokenStore: tokens,
+            preferences: preferences
+        )
+        await secondManager.autoConnectIfConfigured()
+
+        #expect(secondOperations.publishContextCount == 1)
+        #expect(secondOperations.publishedContext == context)
+        #expect(secondOperations.publishedChallengeID?.hasPrefix("live_") == true)
+        secondManager.disconnect()
+    }
+
+    @Test
+    func persistedWorkbenchContextIsProjectScopedAndClearedOnProjectSwitch() async throws {
+        let operations = FakeConnectionOperations()
+        let preferences = MemoryConnectionPreferences()
+        let manager = ChatGPTConnectionManager(
+            operations: operations,
+            tokenStore: MemoryTokenStore(),
+            preferences: preferences
+        )
+        try await manager.connect(tunnelID: "tunnel_12345678", runtimeKey: "runtime", projectID: "host-project-1")
+        let context = Data("{\"project_id\":\"host-project-1\"}".utf8)
+        try await manager.updateWorkbenchContext(context)
+
+        try await manager.activateProject(projectID: "host-project-2", canvasID: "canvas-2")
+
+        #expect(preferences.loadWorkbenchContext(for: "host-project-1") == nil)
+        #expect(preferences.loadWorkbenchContext(for: "host-project-2") == nil)
+        #expect(operations.publishedContext != Data("{\"project_id\":\"host-project-2\"}".utf8))
+        manager.disconnect()
+    }
+
+    @Test
     func liveGateChallengeRotationRepublishesTheRetainedWorkbenchContext() async throws {
         let operations = FakeConnectionOperations()
         let manager = ChatGPTConnectionManager(
@@ -435,12 +485,16 @@ private final class MemoryTokenStore: SecureTokenStoring, @unchecked Sendable {
 private final class MemoryConnectionPreferences: ChatGPTConnectionPreferencesStoring {
     var configuration: ChatGPTHostConnectionConfig?
     var session: ChatGPTProjectHostSession?
+    var workbenchContext: (projectID: String, value: Data)?
     func loadConnectionConfig() -> ChatGPTHostConnectionConfig? { configuration }
     func saveConnectionConfig(_ value: ChatGPTHostConnectionConfig) { configuration = value }
     func loadProjectSession() -> ChatGPTProjectHostSession? { session }
     func saveProjectSession(_ value: ChatGPTProjectHostSession) { session = value }
-    func clearProjectSession() { session = nil }
-    func clear() { configuration = nil; session = nil }
+    func loadWorkbenchContext(for projectID: String) -> Data? { workbenchContext?.projectID == projectID ? workbenchContext?.value : nil }
+    func saveWorkbenchContext(_ value: Data, for projectID: String) { workbenchContext = (projectID, value) }
+    func clearWorkbenchContext() { workbenchContext = nil }
+    func clearProjectSession() { session = nil; workbenchContext = nil }
+    func clear() { configuration = nil; session = nil; workbenchContext = nil }
 }
 
 @MainActor
