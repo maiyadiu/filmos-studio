@@ -156,6 +156,25 @@ def wait_http(url: str, timeout: float = 25) -> None:
     wait_for(ready, timeout, f"service did not become ready: {url}")
 
 
+def wait_packaged_services(
+    process: subprocess.Popen[bytes],
+    log_path: Path,
+    ports: tuple[int, ...],
+    phase: str,
+    timeout: float = 30,
+) -> None:
+    try:
+        wait_for(lambda: all(port_open(port) for port in ports), timeout, f"{phase} packaged app services did not start")
+    except RuntimeError as error:
+        port_status = {str(port): port_open(port) for port in ports}
+        log_tail = ""
+        if log_path.is_file():
+            log_tail = log_path.read_text(encoding="utf-8", errors="replace")[-12000:]
+        raise RuntimeError(
+            f"{error}; process_exit={process.poll()}; port_status={port_status}; log_tail=\n{log_tail}"
+        ) from error
+
+
 def assert_exact_database(database: Path, receipt_hash: str) -> dict[str, Any]:
     connection = sqlite3.connect(database)
     connection.row_factory = sqlite3.Row
@@ -292,7 +311,7 @@ def main() -> None:
             seed_log = directory / "seed-app.log"
             seed_environment = {**environment, "FILMOS_DESKTOP_VERTICAL_CANARY_PHASE": "seed"}
             app_process, app_output = start_process((str(bundle / "Contents/MacOS/FilmOSStudioDesktop"),), seed_environment, seed_log)
-            wait_for(lambda: all(port_open(port) for port in lifecycle_ports[:-1]), 30, "seed packaged app services did not start")
+            wait_packaged_services(app_process, seed_log, lifecycle_ports[:-1], "seed")
             seed_event = wait_event(seed_log, "FINALIZE_COMMITTED_RECEIPT_DROPPED", 60)
             receipt = ((seed_event.get("result") or {}).get("receipt") or {})
             if receipt.get("formal_issue_id") != ISSUE_ID or receipt.get("project_id") != PROJECT_ID:
@@ -305,7 +324,7 @@ def main() -> None:
             recover_log = directory / "recover-app.log"
             recover_environment = {**environment, "FILMOS_DESKTOP_VERTICAL_CANARY_PHASE": "recover"}
             app_process, app_output = start_process((str(bundle / "Contents/MacOS/FilmOSStudioDesktop"),), recover_environment, recover_log)
-            wait_for(lambda: all(port_open(port) for port in lifecycle_ports[:-1]), 30, "recovery packaged app services did not start")
+            wait_packaged_services(app_process, recover_log, lifecycle_ports[:-1], "recovery")
             pending_event = wait_event(recover_log, "RECOVERY_PENDING", 45)
             if (pending_event.get("status") or {}).get("pending_count") != 1:
                 raise RuntimeError(f"recovery did not restore exactly one local pending draft: {pending_event}")
