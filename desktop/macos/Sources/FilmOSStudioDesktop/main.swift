@@ -1,5 +1,6 @@
 import AppKit
 import CryptoKit
+import Darwin
 import FilmOSDesktopCore
 import UniformTypeIdentifiers
 import WebKit
@@ -13,6 +14,53 @@ private let backendServiceID: ServiceID = "backend"
 private let webServiceID: ServiceID = "web"
 private let localRuntimeServiceID: ServiceID = "local-runtime"
 private let reviewBusServiceID: ServiceID = "review-bus"
+
+private struct DesktopRuntimeLayout {
+    let resourcesDirectory: URL
+    let helpersDirectory: URL
+    let sourceRoot: URL?
+    let runtimeRoot: URL?
+
+    var isSourceRuntime: Bool { sourceRoot != nil }
+
+    static func resolve(bundle: Bundle, environment: [String: String]) throws -> DesktopRuntimeLayout {
+        let rawRuntimeRoot = environment["FILMOS_DESKTOP_SOURCE_RUNTIME_ROOT"]
+        let rawSourceRoot = environment["FILMOS_DESKTOP_SOURCE_ROOT"]
+        if rawRuntimeRoot != nil || rawSourceRoot != nil {
+            guard let rawRuntimeRoot, let rawSourceRoot else {
+                throw DesktopWorkbenchError.invalidSourceRuntimeDirectory
+            }
+            let runtimeRoot = URL(fileURLWithPath: rawRuntimeRoot, isDirectory: true)
+                .standardizedFileURL.resolvingSymlinksInPath().standardizedFileURL
+            let sourceRoot = URL(fileURLWithPath: rawSourceRoot, isDirectory: true)
+                .standardizedFileURL.resolvingSymlinksInPath().standardizedFileURL
+            let allowedRuntimeRoot = sourceRoot.appendingPathComponent(".local/source-host", isDirectory: true)
+                .standardizedFileURL.path
+            guard rawRuntimeRoot.hasPrefix("/"), rawSourceRoot.hasPrefix("/"),
+                  runtimeRoot.path == allowedRuntimeRoot,
+                  FileManager.default.fileExists(atPath: sourceRoot.appendingPathComponent("web/package.json").path),
+                  FileManager.default.fileExists(atPath: sourceRoot.appendingPathComponent("backend/go.mod").path)
+            else {
+                throw DesktopWorkbenchError.invalidSourceRuntimeDirectory
+            }
+            return DesktopRuntimeLayout(
+                resourcesDirectory: runtimeRoot.appendingPathComponent("Resources", isDirectory: true),
+                helpersDirectory: runtimeRoot.appendingPathComponent("Helpers", isDirectory: true),
+                sourceRoot: sourceRoot,
+                runtimeRoot: runtimeRoot
+            )
+        }
+        guard let resourcesDirectory = bundle.resourceURL else {
+            throw DesktopWorkbenchError.missingRuntimeDirectory
+        }
+        return DesktopRuntimeLayout(
+            resourcesDirectory: resourcesDirectory,
+            helpersDirectory: bundle.bundleURL.appendingPathComponent("Contents/Helpers", isDirectory: true),
+            sourceRoot: nil,
+            runtimeRoot: nil
+        )
+    }
+}
 
 @MainActor
 private final class InternalWorkbenchCoordinator {
@@ -30,22 +78,23 @@ private final class InternalWorkbenchCoordinator {
     private var isShuttingDown = false
 
     init(bundle: Bundle = .main) throws {
-        guard let resourceURL = bundle.url(forResource: "InternalRuntime", withExtension: "json") else {
+        let processEnvironment = ProcessInfo.processInfo.environment
+        let runtimeLayout = try DesktopRuntimeLayout.resolve(bundle: bundle, environment: processEnvironment)
+        let resourceURL = runtimeLayout.resourcesDirectory.appendingPathComponent("InternalRuntime.json")
+        guard FileManager.default.isReadableFile(atPath: resourceURL.path) else {
             throw DesktopWorkbenchError.missingRuntimeConfiguration
         }
         let configuration = try InternalWorkbenchConfiguration.load(from: resourceURL)
         let fileManager = FileManager.default
 
-        guard
-            let bundleResources = bundle.resourceURL,
-            let applicationSupportDirectory = fileManager.urls(
+        guard let applicationSupportDirectory = fileManager.urls(
                 for: .applicationSupportDirectory,
                 in: .userDomainMask
-            ).first
-        else {
+            ).first else {
             throw DesktopWorkbenchError.missingRuntimeDirectory
         }
-        let helpersDirectory = bundle.bundleURL.appendingPathComponent("Contents/Helpers", isDirectory: true)
+        let bundleResources = runtimeLayout.resourcesDirectory
+        let helpersDirectory = runtimeLayout.helpersDirectory
         let backendExecutable = helpersDirectory.appendingPathComponent("FilmOSBackend")
         let webExecutable = helpersDirectory.appendingPathComponent("FilmOSWeb")
         let localRuntimeExecutable = helpersDirectory.appendingPathComponent("FilmOSLocalRuntime")
@@ -65,7 +114,6 @@ private final class InternalWorkbenchCoordinator {
         )
         let workingDirectory = applicationRuntimeRoot.appendingPathComponent("Runtime", isDirectory: true)
         let reviewBusDirectory: URL
-        let processEnvironment = ProcessInfo.processInfo.environment
         let verticalCanaryEnabled = processEnvironment["FILMOS_DESKTOP_VERTICAL_CANARY_PHASE"] != nil
         let localRuntimePort: Int
         let filmCorePort: Int
@@ -137,7 +185,12 @@ private final class InternalWorkbenchCoordinator {
         else {
             throw DesktopWorkbenchError.invalidRuntimeEndpoints
         }
-        var backendEnvironment = Self.safeBaseEnvironment()
+        var baseEnvironment = Self.safeBaseEnvironment()
+        if let sourceRoot = runtimeLayout.sourceRoot, let runtimeRoot = runtimeLayout.runtimeRoot {
+            baseEnvironment["FILMOS_DESKTOP_SOURCE_ROOT"] = sourceRoot.path
+            baseEnvironment["FILMOS_DESKTOP_SOURCE_RUNTIME_ROOT"] = runtimeRoot.path
+        }
+        var backendEnvironment = baseEnvironment
         backendEnvironment["CANVAS_BACKEND_ADDR"] = "\(backendHost):\(backendPort)"
         backendEnvironment["CANVAS_BACKEND_DATA_DIR"] = backendDataDirectory.path
         backendEnvironment["CANVAS_CORS_ORIGINS"] = Self.origin(for: configuration.webHealthURL)
@@ -155,7 +208,7 @@ private final class InternalWorkbenchCoordinator {
 
         let localRuntimeDirectory = applicationRuntimeRoot.appendingPathComponent("LocalRuntime", isDirectory: true)
         try fileManager.createDirectory(at: localRuntimeDirectory, withIntermediateDirectories: true)
-        var localRuntimeEnvironment = Self.safeBaseEnvironment()
+        var localRuntimeEnvironment = baseEnvironment
         localRuntimeEnvironment["PORT"] = String(localRuntimePort)
         localRuntimeEnvironment["FRAMEFIELD_LOCAL_RUNTIME_CONFIG_DIR"] = localRuntimeDirectory.path
         localRuntimeEnvironment["FRAMEFIELD_TRUSTED_WEB_ORIGINS"] = Self.origin(for: configuration.webHealthURL)
@@ -207,7 +260,7 @@ private final class InternalWorkbenchCoordinator {
         // Developer Governance has one machine-local authority, independent of
         // the selected Pilot/business data root. A Pilot app must not create a
         // second Review Bus or split ChatGPT/CLI/Extension observations.
-        var reviewBusEnvironment = Self.safeBaseEnvironment()
+        var reviewBusEnvironment = baseEnvironment
         reviewBusEnvironment["FILMOS_REVIEW_BUS_HOST"] = "127.0.0.1"
         reviewBusEnvironment["FILMOS_REVIEW_BUS_PORT"] = String(configuration.reviewBusHealthURL.port ?? 17920)
         reviewBusEnvironment["FILMOS_REVIEW_BUS_LOCAL_DIR"] = reviewBusDirectory.path
@@ -232,7 +285,7 @@ private final class InternalWorkbenchCoordinator {
             environment: reviewBusEnvironment
         ))
 
-        var webEnvironment = Self.safeBaseEnvironment()
+        var webEnvironment = baseEnvironment
         webEnvironment["FILMOS_WEB_ADDR"] = "\(webHost):\(webPort)"
         webEnvironment["FILMOS_WEB_ROOT"] = webRoot.path
         webEnvironment["FILMOS_BACKEND_ORIGIN"] = Self.origin(for: configuration.backendHealthURL)
@@ -254,7 +307,7 @@ private final class InternalWorkbenchCoordinator {
             reviewBusDirectory: reviewBusDirectory,
             reviewBusHealthURL: configuration.reviewBusHealthURL,
             sourceIdentityURL: sourceIdentityURL,
-            baseEnvironment: Self.safeBaseEnvironment(),
+            baseEnvironment: baseEnvironment,
             filmCorePort: filmCorePort,
             chatGPTMCPPort: chatGPTMCPPort
         )
@@ -267,7 +320,9 @@ private final class InternalWorkbenchCoordinator {
         dataDirectoryURL = backendDataDirectory
         backupURL = try Self.backupURL(
             from: configuration.backendHealthURL,
-            applicationVersion: bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+            applicationVersion: runtimeLayout.isSourceRuntime
+                ? configuration.buildID
+                : bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
         )
     }
 
@@ -628,6 +683,7 @@ private enum DesktopWorkbenchError: Error, LocalizedError {
     case missingBundledReviewBus
     case missingBundledWebAssets
     case invalidRuntimeEndpoints
+    case invalidSourceRuntimeDirectory
     case serviceLaunchFailed(String)
     case serviceUnavailable(String)
 
@@ -651,6 +707,8 @@ private enum DesktopWorkbenchError: Error, LocalizedError {
             "应用缺少内置工作台页面，请重新构建 FilmOS Studio.app。"
         case .invalidRuntimeEndpoints:
             "内部工作台端口配置无效，请重新构建 FilmOS Studio.app。"
+        case .invalidSourceRuntimeDirectory:
+            "FilmOS Studio 源码运行目录无效。"
         case let .serviceLaunchFailed(name):
             "\(name)无法启动；应用不会占用或结束其他程序的端口。"
         case let .serviceUnavailable(name):
@@ -1168,8 +1226,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var proposalWindow: NSWindow?
     private var proposalRuntime: Result<ProposalOpenRuntime, Error>?
     private var chatGPTConnectionWindow: ChatGPTConnectionWindow?
+    private var sourceTerminationSignals: [DispatchSourceSignal] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        installSourceTerminationHandlersIfNeeded()
         installMainMenu()
         let workbenchWindow = WorkbenchWindow()
         workbenchWindow.onOpenChatGPTConnection = { [weak self] in self?.openChatGPTConnection() }
@@ -1268,6 +1328,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         workbenchWindow.show()
         startWorkbench()
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private func installSourceTerminationHandlersIfNeeded() {
+        guard ProcessInfo.processInfo.environment["FILMOS_DESKTOP_SOURCE_RUNTIME_ROOT"] != nil else { return }
+        for signalNumber in [SIGINT, SIGTERM] {
+            Darwin.signal(signalNumber, SIG_IGN)
+            let source = DispatchSource.makeSignalSource(signal: signalNumber, queue: .main)
+            source.setEventHandler { NSApp.terminate(nil) }
+            source.resume()
+            sourceTerminationSignals.append(source)
+        }
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {

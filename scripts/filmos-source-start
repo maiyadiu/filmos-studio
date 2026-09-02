@@ -1,0 +1,279 @@
+#!/bin/sh
+set -eu
+
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+source_root=$(CDPATH= cd -- "$script_dir/.." && pwd)
+runtime_root="$source_root/.local/source-host"
+resources="$runtime_root/Resources"
+helpers="$runtime_root/Helpers"
+pid_file="$runtime_root/host.pid"
+host_executable_file="$runtime_root/host-executable"
+start_lock="$runtime_root/start.lock"
+start_lock_owner="$start_lock/owner.pid"
+log_file="$runtime_root/source-host.log"
+web_url="http://127.0.0.1:43100"
+backend_url="http://127.0.0.1:43101/api/health"
+
+usage() {
+    echo "usage: filmos-source-start [start|status|stop|prepare]" >&2
+}
+
+host_pid() {
+    if [ ! -f "$pid_file" ]; then return; fi
+    candidate_pid=$(sed -n '1p' "$pid_file")
+    case "$candidate_pid" in
+        ''|*[!0-9]*) return ;;
+    esac
+    printf '%s\n' "$candidate_pid"
+}
+
+host_process_matches() {
+    candidate_pid=$1
+    [ -f "$host_executable_file" ] || return 1
+    expected_executable=$(sed -n '1p' "$host_executable_file")
+    [ -n "$expected_executable" ] && [ -x "$expected_executable" ] || return 1
+    /usr/sbin/lsof -a -p "$candidate_pid" -d txt -Fn 2>/dev/null | /usr/bin/awk -v expected="n$expected_executable" '
+        $0 == expected { matched = 1 }
+        END { exit matched ? 0 : 1 }
+    '
+}
+
+host_alive() {
+    candidate_pid=$(host_pid)
+    [ -n "$candidate_pid" ] \
+        && kill -0 "$candidate_pid" 2>/dev/null \
+        && host_process_matches "$candidate_pid"
+}
+
+lock_owner_pid() {
+    if [ ! -f "$start_lock_owner" ]; then return; fi
+    candidate_pid=$(sed -n '1p' "$start_lock_owner")
+    case "$candidate_pid" in
+        ''|*[!0-9]*) return ;;
+    esac
+    printf '%s\n' "$candidate_pid"
+}
+
+lock_active() {
+    owner_pid=$(lock_owner_pid)
+    [ -n "$owner_pid" ] && kill -0 "$owner_pid" 2>/dev/null
+}
+
+release_start_lock() {
+    rm -f "$start_lock_owner"
+    rmdir "$start_lock" 2>/dev/null || true
+}
+
+claim_start_lock() {
+    mkdir -p "$runtime_root"
+    if mkdir "$start_lock" 2>/dev/null; then
+        printf '%s\n' "$$" > "$start_lock_owner"
+        chmod 600 "$start_lock_owner"
+        return
+    fi
+    if lock_active; then
+        echo "FilmOS Studio 源码宿主正在启动或运行；已阻止重复启动。" >&2
+        exit 1
+    fi
+    release_start_lock
+    mkdir "$start_lock"
+    printf '%s\n' "$$" > "$start_lock_owner"
+    chmod 600 "$start_lock_owner"
+}
+
+assert_no_installed_app() {
+    if /usr/bin/pgrep -f '/FilmOS Studio\.app/Contents/MacOS/FilmOSStudioDesktop$' >/dev/null 2>&1; then
+        echo "已安装的 FilmOS Studio.app 正在运行。为保护同一套用户数据，源码宿主未启动；请先退出 App。" >&2
+        exit 1
+    fi
+}
+
+require_tool() {
+    name=$1
+    preferred=$2
+    if [ -x "$preferred" ]; then printf '%s\n' "$preferred"; return; fi
+    command -v "$name" 2>/dev/null || {
+        echo "源码启动缺少依赖: $name" >&2
+        exit 1
+    }
+}
+
+prepare_runtime() {
+    node_bin=$(require_tool node /opt/homebrew/bin/node)
+    python_bin=$(require_tool python3 /usr/local/bin/python3)
+    require_tool bun /opt/homebrew/bin/bun >/dev/null
+    go_bin=$(require_tool go /opt/homebrew/bin/go)
+    swift_bin=$(require_tool swift /usr/bin/swift)
+    if [ ! -x "$source_root/web/node_modules/vite/bin/vite.js" ]; then
+        echo "缺少 Web 依赖；请先在 $source_root/web 运行 bun install。" >&2
+        exit 1
+    fi
+    mkdir -p "$resources" "$helpers" "$runtime_root/Compiled"
+    tunnel_source=${FILMOS_SOURCE_TUNNEL_HELPERS:-"$HOME/Applications/FilmOS Studio.app/Contents/Helpers"}
+    if [ -x "$tunnel_source/tunnel-client" ] && [ -x "$tunnel_source/cloudflared" ]; then
+        if [ "$tunnel_source" != "$helpers" ]; then
+            install -m 0755 "$tunnel_source/tunnel-client" "$helpers/tunnel-client"
+            install -m 0755 "$tunnel_source/cloudflared" "$helpers/cloudflared"
+        fi
+    elif [ ! -x "$helpers/tunnel-client" ] || [ ! -x "$helpers/cloudflared" ]; then
+        echo "缺少本机 Secure Tunnel 运行组件；源码启动不会联网下载。" >&2
+        exit 1
+    fi
+    (
+        cd "$source_root/backend"
+        "$go_bin" build -trimpath -o "$runtime_root/Compiled/FilmOSBackend" ./cmd/server
+    )
+    "$swift_bin" build --package-path "$source_root/desktop/macos" --product FilmOSStudioDesktop
+    host_bin_directory=$("$swift_bin" build --package-path "$source_root/desktop/macos" --show-bin-path)
+    host_executable="$host_bin_directory/FilmOSStudioDesktop"
+    if [ ! -x "$host_executable" ]; then
+        echo "FilmOS Studio 源码宿主编译产物不可用。" >&2
+        exit 1
+    fi
+    host_executable_temporary="$host_executable_file.tmp-$$"
+    printf '%s\n' "$host_executable" > "$host_executable_temporary"
+    chmod 600 "$host_executable_temporary"
+    mv "$host_executable_temporary" "$host_executable_file"
+    for helper in FilmOSBackend FilmOSWeb FilmOSLocalRuntime FilmOSCanvasAgentMCP FilmOSReviewBus FilmOSChatGPTMCP FilmOSChatGPTGrant FilmOSFilmCore; do
+        install -m 0755 "$script_dir/filmos-source-helper" "$helpers/$helper"
+    done
+    install -m 0644 "$source_root/governance/FILMOS_CONSTITUTION.json" "$resources/FILMOS_CONSTITUTION.json"
+    if [ -L "$resources/Web" ]; then rm "$resources/Web"; fi
+    if [ -e "$resources/Web" ]; then
+        echo "源码运行资源路径被非链接对象占用: $resources/Web" >&2
+        exit 1
+    fi
+    ln -s "$source_root/web" "$resources/Web"
+
+    "$python_bin" "$source_root/scripts/agent_runtime_profile.py" runtime \
+        --profile filmos-candidate \
+        --output "$resources/InternalRuntime.json" \
+        --start-url "http://127.0.0.1:43100/create" \
+        --web-health-url "http://127.0.0.1:43100/" \
+        --backend-health-url "http://127.0.0.1:43101/api/health" \
+        --application-support-directory-name "FilmOS Studio" \
+        --backend-data-directory-name "WorkbenchData"
+    "$node_bin" "$script_dir/source-runtime-metadata.mjs" "$source_root" "$resources"
+    "$node_bin" "$source_root/packages/filmos-review-contract/scripts/generate.mjs" --check
+}
+
+print_status() {
+    if host_alive; then
+        state=running
+    elif lock_active; then
+        state=starting
+    else
+        state=stopped
+    fi
+    candidate_pid=$(host_pid)
+    build_id=unprepared
+    if [ -f "$resources/SourceIdentity.json" ]; then
+        build_id=$(/usr/bin/plutil -extract build_id raw -o - "$resources/SourceIdentity.json" 2>/dev/null || echo invalid)
+    fi
+    web_state=stopped
+    backend_state=stopped
+    /usr/bin/curl -fsS --max-time 1 "$web_url" >/dev/null 2>&1 && web_state=ready
+    /usr/bin/curl -fsS --max-time 1 "$backend_url" >/dev/null 2>&1 && backend_state=ready
+    echo "FILMOS_SOURCE_HOST state=$state pid=${candidate_pid:-none} build_id=$build_id"
+    echo "FILMOS_SOURCE_HOST web=$web_state backend=$backend_state data=canonical"
+    echo "FILMOS_SOURCE_HOST entry=$source_root/源码启动.command"
+}
+
+start_host() {
+    assert_no_installed_app
+    if host_alive; then
+        print_status
+        /usr/bin/osascript -e 'tell application "System Events" to set frontmost of first process whose unix id is '"$(host_pid)"' to true' >/dev/null 2>&1 || true
+        return
+    fi
+    rm -f "$pid_file"
+    claim_start_lock
+    prepare_runtime
+    host_executable=$(sed -n '1p' "$host_executable_file")
+    : > "$log_file"
+    (
+        cd "$source_root"
+        exec /usr/bin/nohup /usr/bin/env \
+            FILMOS_DESKTOP_SOURCE_ROOT="$source_root" \
+            FILMOS_DESKTOP_SOURCE_RUNTIME_ROOT="$runtime_root" \
+            "$host_executable"
+    ) >> "$log_file" 2>&1 </dev/null &
+    launched_pid=$!
+    printf '%s\n' "$launched_pid" > "$pid_file"
+    chmod 600 "$pid_file"
+    printf '%s\n' "$launched_pid" > "$start_lock_owner"
+    chmod 600 "$start_lock_owner"
+    echo "正在从源码启动 FilmOS Studio。"
+    echo "用户数据目录保持为: $HOME/Library/Application Support/FilmOS Studio"
+    attempts=0
+    while [ "$attempts" -lt 120 ]; do
+        if ! host_alive; then break; fi
+        if /usr/bin/curl -fsS --max-time 1 "$web_url" >/dev/null 2>&1 \
+            && /usr/bin/curl -fsS --max-time 1 "$backend_url" >/dev/null 2>&1; then
+            print_status
+            /usr/bin/osascript -e 'tell application "System Events" to set frontmost of first process whose unix id is '"$launched_pid"' to true' >/dev/null 2>&1 || true
+            return
+        fi
+        sleep 0.25
+        attempts=$((attempts + 1))
+    done
+    echo "FilmOS Studio 源码宿主未在时限内就绪。最近日志：" >&2
+    tail -n 40 "$log_file" >&2 || true
+    if host_alive; then
+        kill "$launched_pid"
+        shutdown_attempts=0
+        while kill -0 "$launched_pid" 2>/dev/null && [ "$shutdown_attempts" -lt 150 ]; do
+            sleep 0.1
+            shutdown_attempts=$((shutdown_attempts + 1))
+        done
+        if kill -0 "$launched_pid" 2>/dev/null; then
+            echo "启动失败后宿主仍未停止；已保留 PID 与启动锁，未执行强制结束。" >&2
+            exit 1
+        fi
+    fi
+    rm -f "$pid_file"
+    release_start_lock
+    exit 1
+}
+
+stop_host() {
+    if host_alive; then
+        candidate_pid=$(host_pid)
+        kill "$candidate_pid"
+        attempts=0
+        while kill -0 "$candidate_pid" 2>/dev/null && [ "$attempts" -lt 150 ]; do
+            sleep 0.1
+            attempts=$((attempts + 1))
+        done
+        if kill -0 "$candidate_pid" 2>/dev/null; then
+            echo "FilmOS Studio 源码宿主未在时限内停止；已保留 PID 与启动锁，未执行强制结束。" >&2
+            exit 1
+        fi
+    elif lock_active; then
+        echo "FilmOS Studio 源码宿主仍在启动；未终止未验证的进程。" >&2
+        exit 1
+    fi
+    rm -f "$pid_file"
+    release_start_lock
+    print_status
+}
+
+prepare_only() {
+    assert_no_installed_app
+    if host_alive || lock_active; then
+        echo "FilmOS Studio 源码宿主正在启动或运行；未覆盖运行中的资源。" >&2
+        exit 1
+    fi
+    claim_start_lock
+    prepare_runtime
+    release_start_lock
+    print_status
+}
+
+case "${1:-start}" in
+    start) start_host ;;
+    prepare) prepare_only ;;
+    status) print_status ;;
+    stop) stop_host ;;
+    *) usage; exit 2 ;;
+esac

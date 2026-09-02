@@ -1,0 +1,96 @@
+#!/bin/sh
+set -eu
+
+helper_name=$(basename -- "$0")
+source_root=${FILMOS_DESKTOP_SOURCE_ROOT:-}
+runtime_root=${FILMOS_DESKTOP_SOURCE_RUNTIME_ROOT:-}
+
+case "$source_root:$runtime_root" in
+    /*:/*) ;;
+    *) echo "FILMOS_SOURCE_HELPER_INVALID_ROOT" >&2; exit 2 ;;
+esac
+if [ ! -f "$source_root/web/package.json" ] || [ ! -f "$source_root/backend/go.mod" ]; then
+    echo "FILMOS_SOURCE_HELPER_INVALID_SOURCE" >&2
+    exit 2
+fi
+if [ "$runtime_root" != "$source_root/.local/source-host" ]; then
+    echo "FILMOS_SOURCE_HELPER_INVALID_RUNTIME" >&2
+    exit 2
+fi
+
+tool() {
+    name=$1
+    preferred=$2
+    if [ -x "$preferred" ]; then printf '%s\n' "$preferred"; return; fi
+    command -v "$name" 2>/dev/null || {
+        echo "FILMOS_SOURCE_HELPER_MISSING_TOOL:$name" >&2
+        exit 1
+    }
+}
+
+case "$helper_name" in
+    FilmOSBackend)
+        compiled="$runtime_root/Compiled/FilmOSBackend"
+        if [ -x "$compiled" ]; then exec "$compiled"; fi
+        go_bin=$(tool go /opt/homebrew/bin/go)
+        cd "$source_root/backend"
+        exec "$go_bin" run ./cmd/server
+        ;;
+    FilmOSWeb)
+        node_bin=$(tool node /opt/homebrew/bin/node)
+        case "${FILMOS_WEB_ADDR:-}" in
+            127.0.0.1:[0-9]*) web_port=${FILMOS_WEB_ADDR##*:} ;;
+            *) echo "FILMOS_SOURCE_WEB_INVALID_ADDR" >&2; exit 2 ;;
+        esac
+        identity="$runtime_root/Resources/SourceIdentity.json"
+        export VITE_API_PROXY_TARGET=${FILMOS_BACKEND_ORIGIN:-http://127.0.0.1:43101}
+        export VITE_FILMOS_BUILD_COMMIT=$(/usr/bin/plutil -extract git_commit_sha raw -o - "$identity")
+        export VITE_FILMOS_BUILD_TREE=$(/usr/bin/plutil -extract git_tree_sha raw -o - "$identity")
+        export VITE_FILMOS_BUILD_ID=$(/usr/bin/plutil -extract build_id raw -o - "$identity")
+        export VITE_FILMOS_RELEASE_CHANNEL=development
+        export VITE_FILMOS_EXTERNAL_PAID_SUBMIT_ENABLED=false
+        profile_env="$runtime_root/profile.env"
+        "$source_root/scripts/agent_runtime_profile.py" shell --profile filmos-candidate > "$profile_env"
+        # The generated file contains only fixed, non-secret feature flags.
+        . "$profile_env"
+        cd "$source_root/web"
+        exec "$node_bin" "$source_root/web/node_modules/vite/bin/vite.js" \
+            --host 127.0.0.1 --port "$web_port" --strictPort
+        ;;
+    FilmOSLocalRuntime)
+        bun_bin=$(tool bun /opt/homebrew/bin/bun)
+        cd "$source_root/canvas-agent"
+        exec "$bun_bin" run src/desktop-runtime.ts
+        ;;
+    FilmOSCanvasAgentMCP)
+        bun_bin=$(tool bun /opt/homebrew/bin/bun)
+        cd "$source_root/canvas-agent"
+        exec "$bun_bin" run src/workbench-mcp.ts
+        ;;
+    FilmOSReviewBus)
+        bun_bin=$(tool bun /opt/homebrew/bin/bun)
+        cd "$source_root/services/filmos-review-bus"
+        exec "$bun_bin" run src/server.mjs
+        ;;
+    FilmOSChatGPTMCP)
+        bun_bin=$(tool bun /opt/homebrew/bin/bun)
+        cd "$source_root/services/filmos-chatgpt-app"
+        exec "$bun_bin" run src/server.ts
+        ;;
+    FilmOSChatGPTGrant)
+        bun_bin=$(tool bun /opt/homebrew/bin/bun)
+        cd "$source_root/services/filmos-chatgpt-app"
+        exec "$bun_bin" run src/grant-cli.ts "$@"
+        ;;
+    FilmOSFilmCore)
+        python_bin="$source_root/.local/acceptance-venv/bin/python"
+        if [ ! -x "$python_bin" ]; then python_bin=$(tool python3 /usr/local/bin/python3); fi
+        export PYTHONPATH="$source_root/film-core/src${PYTHONPATH:+:$PYTHONPATH}"
+        cd "$source_root"
+        exec "$python_bin" desktop/macos/runtime/film-core-launcher.py
+        ;;
+    *)
+        echo "FILMOS_SOURCE_HELPER_UNKNOWN:$helper_name" >&2
+        exit 2
+        ;;
+esac

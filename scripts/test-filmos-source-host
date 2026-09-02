@@ -1,0 +1,117 @@
+#!/bin/sh
+set -eu
+
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+source_root=$(CDPATH= cd -- "$script_dir/.." && pwd)
+launcher="$script_dir/filmos-source-start"
+runtime_root="$source_root/.local/source-host"
+canonical_db="$HOME/Library/Application Support/FilmOS Studio/WorkbenchData/open_ai_canvas.db"
+before_scope="$runtime_root/test-project-scope-before.txt"
+after_scope="$runtime_root/test-project-scope-after.txt"
+was_running=false
+test_finished=false
+if [ -x /opt/homebrew/bin/node ]; then
+    node_bin=/opt/homebrew/bin/node
+else
+    node_bin=$(command -v node)
+fi
+
+if "$launcher" status | /usr/bin/grep -q 'state=running'; then
+    was_running=true
+fi
+
+restore_runtime() {
+    if [ "$test_finished" = false ]; then
+        "$launcher" stop >/dev/null 2>&1 || true
+    fi
+    if [ "$was_running" = true ] && ! "$launcher" status | /usr/bin/grep -q 'state=running'; then
+        "$launcher" start >/dev/null
+    fi
+}
+trap restore_runtime EXIT HUP INT TERM
+
+"$launcher" stop >/dev/null
+mkdir -p "$runtime_root"
+
+if [ -f "$canonical_db" ]; then
+    sqlite3 -readonly "$canonical_db" \
+        "SELECT id||'|'||name||'|'||revision FROM projects ORDER BY id;
+         SELECT id||'|'||project_id||'|'||title FROM canvas_projects ORDER BY id;
+         SELECT 'project_units|'||count(*) FROM project_units;" > "$before_scope"
+fi
+
+"$launcher" prepare >/dev/null
+
+if find "$runtime_root" -type d -name '*.app' -print | /usr/bin/grep -q .; then
+    echo "SOURCE_HOST_CREATED_APP_BUNDLE" >&2
+    exit 1
+fi
+
+/usr/bin/plutil -extract CFBundleIdentifier raw -o - "$source_root/desktop/macos/App/SourceInfo.plist" \
+    | /usr/bin/grep -qx 'com.filmos.studio.localbeta'
+
+"$node_bin" - "$source_root" "$runtime_root" <<'NODE'
+const { execFileSync } = require("node:child_process");
+const { readFileSync } = require("node:fs");
+const { resolve } = require("node:path");
+const [sourceRoot, runtimeRoot] = process.argv.slice(2);
+const resources = resolve(runtimeRoot, "Resources");
+const identity = JSON.parse(readFileSync(resolve(resources, "SourceIdentity.json"), "utf8"));
+const runtime = JSON.parse(readFileSync(resolve(resources, "InternalRuntime.json"), "utf8"));
+const expected = JSON.parse(execFileSync(resolve(sourceRoot, "desktop/macos/scripts/source-fingerprint"), ["--json"], {
+  cwd: sourceRoot,
+  encoding: "utf8",
+}));
+for (const key of ["git_commit_sha", "git_tree_sha", "source_fingerprint_sha256", "source_clean"]) {
+  if (identity[key] !== expected[key]) throw new Error(`SOURCE_IDENTITY_MISMATCH:${key}`);
+}
+if (identity.release_channel !== "development" || identity.external_paid_submit_enabled !== false) {
+  throw new Error("SOURCE_IDENTITY_POLICY_MISMATCH");
+}
+if (runtime.application_support_directory_name !== "FilmOS Studio"
+    || runtime.backend_data_directory_name !== "WorkbenchData"
+    || runtime.release_channel !== "development"
+    || runtime.external_paid_submit_enabled !== false) {
+  throw new Error("SOURCE_RUNTIME_POLICY_MISMATCH");
+}
+NODE
+
+"$launcher" start >/dev/null
+"$launcher" status | /usr/bin/grep -q 'state=running'
+/usr/bin/curl -fsS --max-time 5 http://127.0.0.1:43100/ >/dev/null
+/usr/bin/curl -fsS --max-time 5 http://127.0.0.1:43101/api/health >/dev/null
+/usr/bin/curl -fsS --max-time 5 http://127.0.0.1:17650/health >/dev/null
+/usr/bin/curl -fsS --max-time 5 http://127.0.0.1:17920/healthz >/dev/null
+/usr/bin/curl -fsS --max-time 5 http://127.0.0.1:17371/health \
+    | /usr/bin/grep -q '"dreamina_module_loaded":true'
+
+for port_number in 43100 43101 17371 17650 17920; do
+    /usr/sbin/lsof -nP -iTCP:"$port_number" -sTCP:LISTEN | /usr/bin/grep -q LISTEN
+done
+
+if [ -f "$canonical_db" ]; then
+    /usr/bin/curl -fsS --max-time 5 http://127.0.0.1:43101/api/projects >/dev/null
+fi
+
+"$launcher" stop >/dev/null
+for port_number in 43100 43101 17371 17650 17920; do
+    if /usr/sbin/lsof -nP -iTCP:"$port_number" -sTCP:LISTEN >/dev/null 2>&1; then
+        echo "SOURCE_HOST_PORT_NOT_RELEASED:$port_number" >&2
+        exit 1
+    fi
+done
+
+if [ -f "$canonical_db" ]; then
+    sqlite3 -readonly "$canonical_db" \
+        "SELECT id||'|'||name||'|'||revision FROM projects ORDER BY id;
+         SELECT id||'|'||project_id||'|'||title FROM canvas_projects ORDER BY id;
+         SELECT 'project_units|'||count(*) FROM project_units;" > "$after_scope"
+    /usr/bin/diff -u "$before_scope" "$after_scope"
+fi
+
+test_finished=true
+if [ "$was_running" = true ]; then
+    "$launcher" start >/dev/null
+fi
+trap - EXIT HUP INT TERM
+echo "FILMOS_SOURCE_HOST_TEST: PASS"
