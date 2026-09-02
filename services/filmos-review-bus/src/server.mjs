@@ -186,7 +186,18 @@ export function createReviewBusHttp({ service, store, busToken, bridgeToken, con
       if (req.method === "GET" && url.pathname === "/v1/review/pending") {
         const projectId = requireProject(url);
         const issues = service.pending(projectId);
-        if (readConsumer(req) === "chatgpt-mcp") for (const issue of issues) store.recordReadReceipt({ issueId: issue.issue_id, projectId, consumer: "chatgpt-mcp", toolName: "issue_list_pending", projectionContentHash: issue.content_hash, now: now() });
+        if (readConsumer(req) === "chatgpt-mcp") for (const issue of issues) {
+          const current = service.readRedacted(issue.issue_id, projectId);
+          store.recordReadReceipt({
+            issueId: current.issue_id,
+            projectId,
+            consumer: "chatgpt-mcp",
+            toolName: "issue_list_pending",
+            projectionContentHash: current.content_hash,
+            evidenceManifestHash: current.evidence?.manifest?.contentHash ?? current.evidence?.manifest?.content_hash ?? null,
+            now: now(),
+          });
+        }
         return send(res, 200, { issues });
       }
       if (req.method === "GET" && url.pathname === "/v1/review/internal/pending") return send(res, 200, { issues: service.pendingAll() });
