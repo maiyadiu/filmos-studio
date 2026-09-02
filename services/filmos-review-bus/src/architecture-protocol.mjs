@@ -1,26 +1,10 @@
 import { sha256, problem } from "./canonical.mjs";
+import { REVIEW_ARCHITECTURE_STATES } from "./generated-review-contract.mjs";
 
 export const ARCHITECTURE_PROTOCOL_VERSION = "filmos.architecture-protocol.v2";
 export const ARCHITECTURE_STATE_MAPPING_VERSION = "filmos.architecture-state-map.v2";
 
-export const ARCHITECTURE_V2_STATES = Object.freeze([
-  "REQUIREMENT_OBSERVED",
-  "REQUIREMENT_DELTA_FROZEN",
-  "ARCHITECTURE_EVIDENCE_FROZEN",
-  "ARCHITECTURE_ASSESSMENTS_PENDING",
-  "OPTION_COMPARISON",
-  "OWNER_DECISION_REQUIRED",
-  "ARCHITECTURE_OPTION_ACCEPTED",
-  "CONSENSUS_PROPOSED",
-  "CONSENSUS_REACHED",
-  "TASK_PACKAGE_FROZEN",
-  "CODEX_IMPLEMENTING",
-  "CANDIDATE_UNDER_REVIEW",
-  "DUAL_APPROVED",
-  "PILOT_MIGRATION",
-  "PILOT_OBSERVATION",
-  "ARCHITECTURE_ADOPTED",
-]);
+export const ARCHITECTURE_V2_STATES = REVIEW_ARCHITECTURE_STATES;
 
 const actionTable = Object.freeze({
   "protocol.v2.genesis": rule([null], ["REQUIREMENT_OBSERVED"], ["user", "system"]),

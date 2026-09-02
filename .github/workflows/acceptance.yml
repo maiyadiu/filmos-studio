@@ -27,6 +27,7 @@ on:
       - packages/filmos-agent-contracts/**
       - packages/filmos-agent-tool-contracts/**
       - packages/filmos-generation-contracts/**
+      - packages/filmos-review-contract/**
       - scripts/**
       - services/filmos-chatgpt-app/**
       - services/filmos-review-bus/**

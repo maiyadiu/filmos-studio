@@ -334,7 +334,7 @@ private final class InternalWorkbenchCoordinator {
     }
 
     func stageReviewAttachment(submissionID: String, data: Data) async throws -> Data {
-        guard submissionID.range(of: "^FILMOS-SUBMISSION-[a-f0-9-]{36}$", options: .regularExpression) != nil,
+        guard submissionID.range(of: ReviewProtocolContract.submissionIDPattern, options: .regularExpression) != nil,
               ReviewBusRuntimeContract.isValidStagedAttachment(data)
         else { throw ReviewBusBridgeError.invalidRequest }
         let token = try String(contentsOf: reviewBusTokenURL, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -354,7 +354,7 @@ private final class InternalWorkbenchCoordinator {
     }
 
     func finalizeReviewSubmission(submissionID: String, data: Data) async throws -> Data {
-        guard submissionID.range(of: "^FILMOS-SUBMISSION-[a-f0-9-]{36}$", options: .regularExpression) != nil,
+        guard submissionID.range(of: ReviewProtocolContract.submissionIDPattern, options: .regularExpression) != nil,
               ReviewBusRuntimeContract.isValidSubmissionFinalize(data) else { throw ReviewBusBridgeError.invalidRequest }
         let token = try String(contentsOf: reviewBusTokenURL, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
         guard token.count >= 24 else { throw ReviewBusBridgeError.pairingUnavailable }
@@ -386,7 +386,7 @@ private final class InternalWorkbenchCoordinator {
             path = "review/admin/issues"; method = "GET"
         case "get_issue":
             guard payload.count == 1, let issueID = payload["issue_id"],
-                  issueID.range(of: "^FILMOS-(?:ISSUE|ARCH)-[A-Za-z0-9-]{1,120}$", options: .regularExpression) != nil else { throw ReviewBusBridgeError.invalidRequest }
+                  issueID.range(of: ReviewProtocolContract.issueIDPattern, options: .regularExpression) != nil else { throw ReviewBusBridgeError.invalidRequest }
             path = "review/admin/issues/\(issueID)"; method = "GET"
         case "create_pairing_code":
             guard payload.isEmpty else { throw ReviewBusBridgeError.invalidRequest }
@@ -403,11 +403,11 @@ private final class InternalWorkbenchCoordinator {
             path = "review/pending"; method = "GET"; queryItems = [URLQueryItem(name: "project_id", value: projectID)]
         case "get_issue_evidence":
             guard payload.count == 2, let projectID = payload["project_id"], !projectID.isEmpty,
-                  let issueID = payload["issue_id"], issueID.range(of: "^FILMOS-(?:ISSUE|ARCH)-[A-Za-z0-9-]{1,120}$", options: .regularExpression) != nil else { throw ReviewBusBridgeError.invalidRequest }
+                  let issueID = payload["issue_id"], issueID.range(of: ReviewProtocolContract.issueIDPattern, options: .regularExpression) != nil else { throw ReviewBusBridgeError.invalidRequest }
             path = "review/issues/\(issueID)/evidence"; method = "GET"; queryItems = [URLQueryItem(name: "project_id", value: projectID)]
         case "get_intake_confirmation":
             guard payload.count == 2, let projectID = payload["project_id"], !projectID.isEmpty,
-                  let issueID = payload["issue_id"], issueID.range(of: "^FILMOS-(?:ISSUE|ARCH)-[A-Za-z0-9-]{1,120}$", options: .regularExpression) != nil else { throw ReviewBusBridgeError.invalidRequest }
+                  let issueID = payload["issue_id"], issueID.range(of: ReviewProtocolContract.issueIDPattern, options: .regularExpression) != nil else { throw ReviewBusBridgeError.invalidRequest }
             path = "review/internal/issues/\(issueID)/intake-confirmation"; method = "GET"; queryItems = [URLQueryItem(name: "project_id", value: projectID)]
         default: throw ReviewBusBridgeError.invalidRequest
         }
@@ -668,7 +668,7 @@ private struct ReviewVerticalCanaryConfiguration {
     static func load(environment: [String: String] = ProcessInfo.processInfo.environment) -> Self? {
         guard let phase = environment["FILMOS_DESKTOP_VERTICAL_CANARY_PHASE"], ["seed", "recover"].contains(phase),
               let projectID = environment["FILMOS_DESKTOP_VERTICAL_CANARY_PROJECT_ID"],
-              projectID.range(of: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$", options: .regularExpression) != nil,
+              projectID.range(of: ReviewProtocolContract.projectIDPattern, options: .regularExpression) != nil,
               let submissionUUID = environment["FILMOS_DESKTOP_VERTICAL_CANARY_SUBMISSION_UUID"],
               submissionUUID.range(of: "^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$", options: .regularExpression) != nil,
               let capturedAt = environment["FILMOS_DESKTOP_VERTICAL_CANARY_CAPTURED_AT"],
@@ -677,7 +677,7 @@ private struct ReviewVerticalCanaryConfiguration {
         return Self(phase: phase, projectID: projectID, submissionUUID: submissionUUID, capturedAt: capturedAt)
     }
 
-    var submissionID: String { "FILMOS-SUBMISSION-\(submissionUUID)" }
+    var submissionID: String { "\(ReviewProtocolContract.submissionPrefix)-\(submissionUUID)" }
 
     var injectionScript: String? {
         let payload: [String: String] = [
@@ -890,7 +890,7 @@ private final class WorkbenchWindow: NSObject, @preconcurrency WKNavigationDeleg
            Set(body.keys).isSubset(of: ["action", "projectId", "canvasId", "contextReceiptId", "context"]),
            let projectID = body["projectId"] as? String {
             let normalized = projectID.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard normalized.isEmpty || normalized.range(of: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$", options: .regularExpression) != nil else { return }
+            guard normalized.isEmpty || normalized.range(of: ReviewProtocolContract.projectIDPattern, options: .regularExpression) != nil else { return }
             let canvasID = (body["canvasId"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
             let receiptID = (body["contextReceiptId"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
             let contextData: Data?

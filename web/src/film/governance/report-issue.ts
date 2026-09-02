@@ -1,5 +1,14 @@
 import localforage from "localforage";
 import { isDesktopRpcAvailable, requestDesktopRpc } from "@/film/adapters/yingce/desktop-rpc-client";
+import {
+    REVIEW_ERROR_CODE_PATTERN,
+    REVIEW_ISSUE_ID_PATTERN,
+    REVIEW_PROJECT_ID_PATTERN,
+    REVIEW_RECEIPT_KEYS,
+    REVIEW_RECEIPT_SOURCE_BINDING_KEYS,
+    REVIEW_SUBMISSION_ID_PATTERN,
+    REVIEW_SUBMISSION_PREFIX,
+} from "@/film/contracts/generated-review-contract";
 
 import { currentBuildIdentity, type BuildIdentity } from "@/film/governance/build-identity";
 import { inferIssueRoutingRisk } from "@/film/governance/issue-lane";
@@ -363,12 +372,12 @@ export function createLocalIssueDraft(
     } = {},
 ): LocalIssueDraft {
     const browserWindow = typeof window === "undefined" ? undefined : window;
-    const uuid = dependencies.submissionId?.replace(/^FILMOS-SUBMISSION-/, "") || crypto.randomUUID();
+    const uuid = dependencies.submissionId?.slice(REVIEW_SUBMISSION_PREFIX.length + 1) || crypto.randomUUID();
     const localDraftId = dependencies.localDraftId || `local-draft-${uuid}`;
-    const submissionId = dependencies.submissionId || `FILMOS-SUBMISSION-${uuid}`;
+    const submissionId = dependencies.submissionId || `${REVIEW_SUBMISSION_PREFIX}-${uuid}`;
     const observedAt = dependencies.now || new Date().toISOString();
     if (!/^local-draft-[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(localDraftId)) throw new Error("本机草稿ID无效");
-    if (!/^FILMOS-SUBMISSION-[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(submissionId)) throw new Error("投递ID无效");
+    if (!REVIEW_SUBMISSION_ID_PATTERN.test(submissionId)) throw new Error("投递ID无效");
     if (!Number.isFinite(Date.parse(observedAt))) throw new Error("观测时间无效");
     const attachments = input.attachments ?? [];
     if (attachments.length > MAX_ISSUE_ATTACHMENTS || attachments.some((item) => item.size > MAX_ISSUE_ATTACHMENT_BYTES)) {
@@ -477,7 +486,7 @@ async function reviewVerticalCanaryStatus(config: ReviewVerticalCanaryConfig): P
         schema_version: "filmos.review-vertical-canary-status.v1",
         phase: config.phase,
         local_draft_id: localDraftId,
-        submission_id: `FILMOS-SUBMISSION-${config.submissionUuid}`,
+        submission_id: `${REVIEW_SUBMISSION_PREFIX}-${config.submissionUuid}`,
         canonical_issue_id: current?.canonicalIssueId ?? null,
         project_id: config.projectId,
         delivery: current?.delivery ?? "MISSING",
@@ -495,7 +504,7 @@ function installReviewVerticalCanary() {
     if (!config
         || config.schemaVersion !== "filmos.review-vertical-canary.v1"
         || !["seed", "recover"].includes(config.phase)
-        || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(config.projectId)
+        || !REVIEW_PROJECT_ID_PATTERN.test(config.projectId)
         || !/^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(config.submissionUuid)
         || !Number.isFinite(Date.parse(config.capturedAt))) return;
 
@@ -521,7 +530,7 @@ function installReviewVerticalCanary() {
                 pathname: `/projects/${encodeURIComponent(config.projectId)}`,
                 surface: "project",
                 localDraftId,
-                submissionId: `FILMOS-SUBMISSION-${config.submissionUuid}`,
+                submissionId: `${REVIEW_SUBMISSION_PREFIX}-${config.submissionUuid}`,
                 now: config.capturedAt,
             });
             draft = {
@@ -638,7 +647,7 @@ export function stageALegacyDraftMigration(
     return {
         format: ISSUE_DRAFT_FORMAT,
         localDraftId: `local-draft-${STAGE_A_BOOTSTRAP_UUID}`,
-        submissionId: `FILMOS-SUBMISSION-${STAGE_A_BOOTSTRAP_UUID}`,
+        submissionId: `${REVIEW_SUBMISSION_PREFIX}-${STAGE_A_BOOTSTRAP_UUID}`,
         legacyLocalId: legacyId,
         state: existing.state,
         occurred: existing.occurred,
@@ -656,7 +665,7 @@ export function stageALegacyDraftMigration(
 
 export function stageAStoppedReadbackRecovery(draft: LocalIssueDraft) {
     const expectedLocalDraftId = `local-draft-${STAGE_A_BOOTSTRAP_UUID}`;
-    const expectedSubmissionId = `FILMOS-SUBMISSION-${STAGE_A_BOOTSTRAP_UUID}`;
+    const expectedSubmissionId = `${REVIEW_SUBMISSION_PREFIX}-${STAGE_A_BOOTSTRAP_UUID}`;
     if (draft.localDraftId !== expectedLocalDraftId
         || draft.submissionId !== expectedSubmissionId
         || draft.delivery !== "STOPPED"
@@ -764,12 +773,18 @@ function requireHash(value: unknown, code: string) {
 
 function validateSubmissionReceipt(value: unknown, submissionId: string, projectId: string, captureHash: string): SubmissionReceipt {
     const receipt = expectObject(value);
+    const keys = Object.keys(receipt);
+    const sourceKeys = REVIEW_RECEIPT_SOURCE_BINDING_KEYS.filter((key) => keys.includes(key));
+    const allowedKeys = new Set([...REVIEW_RECEIPT_KEYS, ...sourceKeys]);
     if (receipt.schema_version !== "filmos.review-submission.receipt.v1"
+        || keys.some((key) => !allowedKeys.has(key))
+        || REVIEW_RECEIPT_KEYS.some((key) => !keys.includes(key))
+        || sourceKeys.length !== 1
         || receipt.submission_id !== submissionId
         || receipt.project_id !== projectId
         || receipt.capture_hash !== captureHash
         || typeof receipt.formal_issue_id !== "string"
-        || !/^FILMOS-(?:ISSUE|ARCH)-[A-Za-z0-9-]{1,120}$/.test(receipt.formal_issue_id)) throw new Error("REVIEW_BUS_INVALID_RECEIPT");
+        || !REVIEW_ISSUE_ID_PATTERN.test(receipt.formal_issue_id)) throw new Error("REVIEW_BUS_INVALID_RECEIPT");
     requireHash(receipt.receipt_hash, "REVIEW_BUS_INVALID_RECEIPT");
     requireHash(receipt.projection_content_hash, "REVIEW_BUS_INVALID_RECEIPT");
     requireHash(receipt.evidence_manifest_hash, "REVIEW_BUS_INVALID_RECEIPT");
@@ -797,7 +812,7 @@ function assertConfirmationMatches(draft: LocalIssueDraft, confirmation: Record<
 
 function safeErrorCode(error: unknown) {
     const message = error instanceof Error ? error.message : "REVIEW_BUS_DELIVERY_FAILED";
-    return /^[A-Z0-9_]{1,96}$/.test(message) ? message : "REVIEW_BUS_DELIVERY_FAILED";
+    return REVIEW_ERROR_CODE_PATTERN.test(message) ? message : "REVIEW_BUS_DELIVERY_FAILED";
 }
 
 function isLocalIssueDraft(value: LocalIssueDraft | LegacyIssueDraft | { format?: string }): value is LocalIssueDraft {

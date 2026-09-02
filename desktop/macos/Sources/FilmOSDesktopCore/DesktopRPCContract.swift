@@ -25,48 +25,44 @@ public enum DesktopRPCTransportError: Error, Equatable {
 }
 
 public enum DesktopRPCContract {
-    public static let maximumChatGPTHostPayloadBytes = 256 * 1024
-    public static let maximumReviewIssuePayloadBytes = 512 * 1024
-    public static let maximumReviewAttachmentPayloadBytes = 36 * 1024 * 1024
-
     public static func parseRequest(_ body: [String: Any]) -> DesktopRPCRequest? {
-        guard let action = body["action"] as? String else { return nil }
+        guard let action = body["action"] as? String,
+              let contract = ReviewProtocolContract.desktopActions[action],
+              exactKeys(body, contract.requiredKeys)
+        else { return nil }
         switch action {
         case "chatgptHostRequest":
-            guard exactKeys(body, ["action", "requestId", "operation", "payload"]),
-                  let requestID = validRequestID(body["requestId"]),
+            guard let requestID = validRequestID(body["requestId"]),
                   let operation = body["operation"] as? String,
-                  ["publish_context", "publish_handoff"].contains(operation),
-                  let payload = encodedObject(body["payload"], maximumBytes: maximumChatGPTHostPayloadBytes)
+                  contract.operations.contains(operation),
+                  let payload = encodedObject(body["payload"], maximumBytes: contract.maximumPayloadBytes)
             else { return nil }
             return .chatGPTHost(requestID: requestID, operation: operation, payload: payload)
         case "reviewIssueRequest":
-            guard exactKeys(body, ["action", "requestId", "payload"]),
-                  let requestID = validRequestID(body["requestId"]),
-                  let payload = encodedObject(body["payload"], maximumBytes: maximumReviewIssuePayloadBytes)
+            guard let requestID = validRequestID(body["requestId"]),
+                  let payload = encodedObject(body["payload"], maximumBytes: contract.maximumPayloadBytes)
             else { return nil }
             return .reviewIssue(requestID: requestID, payload: payload)
         case "reviewIssueAttachmentRequest":
-            guard exactKeys(body, ["action", "requestId", "submissionId", "payload"]),
-                  let requestID = validRequestID(body["requestId"]),
+            guard let requestID = validRequestID(body["requestId"]),
                   let submissionID = validSubmissionID(body["submissionId"]),
-                  let payload = encodedObject(body["payload"], maximumBytes: maximumReviewAttachmentPayloadBytes)
+                  let payload = encodedObject(body["payload"], maximumBytes: contract.maximumPayloadBytes)
             else { return nil }
             return .reviewIssueAttachment(requestID: requestID, submissionID: submissionID, payload: payload)
         case "reviewIssueFinalizeRequest":
-            guard exactKeys(body, ["action", "requestId", "submissionId", "payload"]),
-                  let requestID = validRequestID(body["requestId"]),
+            guard let requestID = validRequestID(body["requestId"]),
                   let submissionID = validSubmissionID(body["submissionId"]),
-                  let payload = encodedObject(body["payload"], maximumBytes: maximumReviewIssuePayloadBytes)
+                  let payload = encodedObject(body["payload"], maximumBytes: contract.maximumPayloadBytes)
             else { return nil }
             return .reviewIssueFinalize(requestID: requestID, submissionID: submissionID, payload: payload)
         case "reviewCenterRequest":
-            guard exactKeys(body, ["action", "requestId", "operation", "payload"]),
-                  let requestID = validRequestID(body["requestId"]),
+            guard let requestID = validRequestID(body["requestId"]),
                   let operation = body["operation"] as? String,
                   !operation.isEmpty,
                   operation.count <= 128,
-                  let payload = body["payload"] as? [String: String]
+                  let payload = body["payload"] as? [String: String],
+                  let bytes = try? JSONSerialization.data(withJSONObject: payload),
+                  bytes.count <= contract.maximumPayloadBytes
             else { return nil }
             return .reviewCenter(requestID: requestID, operation: operation, payload: payload)
         default:
@@ -106,13 +102,13 @@ public enum DesktopRPCContract {
 
     private static func validRequestID(_ value: Any?) -> String? {
         guard let value = value as? String,
-              value.range(of: "^[A-Fa-f0-9-]{36}$", options: .regularExpression) != nil else { return nil }
+              value.range(of: ReviewProtocolContract.desktopRequestIDPattern, options: .regularExpression) != nil else { return nil }
         return value
     }
 
     private static func validSubmissionID(_ value: Any?) -> String? {
         guard let value = value as? String,
-              value.range(of: "^FILMOS-SUBMISSION-[a-f0-9-]{36}$", options: .regularExpression) != nil else { return nil }
+              value.range(of: ReviewProtocolContract.submissionIDPattern, options: .regularExpression) != nil else { return nil }
         return value
     }
 
@@ -125,6 +121,6 @@ public enum DesktopRPCContract {
     }
 
     private static func isSafeErrorCode(_ value: String) -> Bool {
-        value.range(of: "^[A-Z0-9_]{1,96}$", options: .regularExpression) != nil
+        value.range(of: ReviewProtocolContract.errorCodePattern, options: .regularExpression) != nil
     }
 }

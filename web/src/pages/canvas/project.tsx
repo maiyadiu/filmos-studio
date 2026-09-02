@@ -24,7 +24,8 @@ import { useThemeStore } from "@/stores/use-theme-store";
 import { useUserStore } from "@/stores/use-user-store";
 import { App, Modal } from "antd";
 import { getNodeSpec } from "@/constant/canvas";
-import { CanvasConfigComposer } from "@/components/canvas/canvas-config-composer";
+import { YingceGenerationComposer } from "@/film/adapters/yingce/contributions/generation-composer";
+import { YingceAgentPanel } from "@/film/adapters/yingce/contributions/agent-panel";
 import { CanvasConfigNodePanel } from "@/components/canvas/canvas-config-node-panel";
 import { AssistantPanelColumn, getPanelWidthBounds } from "./canvas-assistant-panel-column";
 import { CanvasActiveTaskPanel } from "@/components/canvas/canvas-active-task-panel";
@@ -133,7 +134,6 @@ import { reconcilePortraitClearanceInputBindings } from "@/lib/portrait-clearanc
 
 const CanvasDirectorWorkbench = lazy(() => import("@/components/canvas/director/canvas-director-workbench").then((module) => ({ default: module.CanvasDirectorWorkbench })));
 const CanvasDrawingEditorModal = lazy(() => import("@/components/canvas/canvas-drawing-editor-modal").then((module) => ({ default: module.CanvasDrawingEditorModal })));
-const CanvasAssistantPanel = lazy(() => import("@/components/canvas/canvas-assistant-panel").then((module) => ({ default: module.CanvasAssistantPanel })));
 const CanvasCharacterReferenceModal = lazy(() => import("@/components/canvas/canvas-character-reference-modal").then((module) => ({ default: module.CanvasCharacterReferenceModal })));
 const CanvasEmotionWorkspace = lazy(() => import("@/components/canvas/canvas-emotion-workspace").then((module) => ({ default: module.CanvasEmotionWorkspace })));
 const CanvasLocalAgentPanel = lazy(() => import("@/components/canvas/canvas-local-agent-panel").then((module) => ({ default: module.CanvasLocalAgentPanel })));
@@ -1697,7 +1697,7 @@ function InfiniteCanvasPage() {
         (panelNode: CanvasNodeData) => {
             if (panelNode.type === CanvasNodeType.Script || panelNode.type === CanvasNodeType.Drawing) return null;
             return panelNode.type === CanvasNodeType.Config ? (
-                <CanvasConfigComposer
+                <YingceGenerationComposer
                     projectId={projectId}
                     domainProjectId={currentProject?.projectId}
                     projectName={linkedProjectQuery.data?.project.name || currentProject?.title || "未命名画布"}
@@ -2204,7 +2204,7 @@ function InfiniteCanvasPage() {
                             <AssistantPanelColumn width={assistantWidth} closing={assistantClosing} topInset={focusMode ? "0px" : "var(--canvas-topbar-offset)"} onWidthChange={setAssistantWidth}>
                                 {(resizing) => (
                                     <Suspense fallback={<WorkspaceState icon="loading" title="正在加载 AI 助手" description="正在准备本地画布上下文。" />}>
-                                        <CanvasAssistantPanel
+                                        <YingceAgentPanel
                                             nodes={nodes}
                                             selectedNodeIds={selectedNodeIds}
                                             snapshot={agentSnapshot}

@@ -7,7 +7,7 @@ import { RouterProvider } from "react-router";
 import "@/lib/plugins/builtin";
 
 import { AppProviders } from "@/components/layout/app-providers";
-import { ReportIssuePortal } from "@/components/governance/ReportIssuePortal";
+import { YingceGlobalIssuePortal } from "@/film/adapters/yingce/contributions/global-issue-portal";
 import { installDesktopBackupBridge } from "@/lib/desktop-backup-bridge";
 import { router } from "@/router";
 
@@ -23,7 +23,7 @@ async function startApplication() {
         <React.StrictMode>
             <AppProviders>
                 <RouterProvider router={router} />
-                <ReportIssuePortal />
+                <YingceGlobalIssuePortal />
             </AppProviders>
         </React.StrictMode>,
     );

@@ -31,6 +31,14 @@ import {
 } from "./codex-coordination.mjs";
 import { ARCHITECTURE_STATES, CONSTITUTION_HASH, CONSTITUTION_VERSION, LATE_FINDING_TAXONOMY, MAIN_STATES, MAX_AUTOMATIC_ROUNDS, TASK_PACKAGE_HASH, assertFastScope, classifyLane } from "./contracts.mjs";
 import { evidenceManifest, redactEvidence } from "./redaction.mjs";
+import {
+  REVIEW_ARCHITECTURE_ISSUE_PREFIX,
+  REVIEW_ISSUE_ID_PATTERN,
+  REVIEW_ISSUE_PREFIX,
+  REVIEW_LANES,
+  REVIEW_SUBMISSION_ID_PATTERN,
+  REVIEW_SUBMISSION_PREFIX,
+} from "./generated-review-contract.mjs";
 
 const pendingStates = new Set([...MAIN_STATES, ...ARCHITECTURE_STATES].filter((state) => !["PILOT_DEPLOYED", "OBSERVING_IN_USE", "ARCHITECTURE_ADOPTED"].includes(state)));
 const MAX_MEDIA_ATTACHMENT_BYTES = 25 * 1024 * 1024;
@@ -46,15 +54,15 @@ export class ReviewBusService {
 
   createIssue(report, actor = "user", now = new Date(), { submissionId = null, baseCommit = null, architectureProtocolVersion = ARCHITECTURE_PROTOCOL_VERSION } = {}) {
     requireFields(report, ["project_id", "what_happened", "expected_result", "location", "blocks_work"]);
-    if (submissionId !== null && !/^FILMOS-SUBMISSION-[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(submissionId)) throw problem("INVALID_SUBMISSION_ID");
+    if (submissionId !== null && !REVIEW_SUBMISSION_ID_PATTERN.test(submissionId)) throw problem("INVALID_SUBMISSION_ID");
     const lane = report.lane ?? classifyLane(report.risk ?? {});
-    if (!["fast", "core", "architecture"].includes(lane)) throw problem("INVALID_LANE");
-    const submissionSuffix = submissionId?.replace(/^FILMOS-SUBMISSION-/, "") ?? null;
+    if (!REVIEW_LANES.includes(lane)) throw problem("INVALID_LANE");
+    const submissionSuffix = submissionId?.slice(REVIEW_SUBMISSION_PREFIX.length + 1) ?? null;
+    const issuePrefix = lane === "architecture" ? REVIEW_ARCHITECTURE_ISSUE_PREFIX : REVIEW_ISSUE_PREFIX;
     const issueId = submissionSuffix
-      ? `${lane === "architecture" ? "FILMOS-ARCH" : "FILMOS-ISSUE"}-${submissionSuffix}`
-      : (report.issue_id ?? `${lane === "architecture" ? "FILMOS-ARCH" : "FILMOS-ISSUE"}-${randomUUID()}`);
-    const expectedPattern = lane === "architecture" ? /^FILMOS-ARCH-[A-Za-z0-9-]{1,120}$/ : /^FILMOS-ISSUE-[A-Za-z0-9-]{1,120}$/;
-    if (!expectedPattern.test(issueId)) throw problem("INVALID_ISSUE_ID");
+      ? `${issuePrefix}-${submissionSuffix}`
+      : (report.issue_id ?? `${issuePrefix}-${randomUUID()}`);
+    if (!REVIEW_ISSUE_ID_PATTERN.test(issueId) || !issueId.startsWith(`${issuePrefix}-`)) throw problem("INVALID_ISSUE_ID");
     if (this.store.get(issueId)) throw problem("ISSUE_ALREADY_EXISTS");
     const resolvedBaseCommit = baseCommit ?? this.baseCommit;
     if (resolvedBaseCommit === null) throw problem("INSTALLED_SOURCE_IDENTITY_UNAVAILABLE", "INSTALLED_SOURCE_IDENTITY_UNAVAILABLE", 503);

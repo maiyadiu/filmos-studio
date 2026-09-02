@@ -8,6 +8,7 @@ import { audioFormatOptions, audioVoiceOptions, normalizeAudioSpeedValue } from 
 import { refreshSystemChannels } from "@/lib/user-session";
 import { defaultConfig, useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import { useUserStore } from "@/stores/use-user-store";
+import { defineYingceSettingsContribution, resolveYingceSettingsContribution } from "@/film/adapters/yingce/contributions/settings";
 import { ChannelSettingsPane, channelValidationError, focusInvalidChannelField, isChannelReady } from "./channel-settings-pane";
 export { UserLocalChannelFields, UserLocalChannelSwitch, userLocalChannelChangePatch, userLocalChannelFormOwner } from "./channel-settings-pane";
 import { PromptPreferencesPane } from "./prompt-preferences-pane";
@@ -107,7 +108,7 @@ export default function SettingsPage() {
         navigate(-1);
     };
 
-    const panes: Record<ConfigSectionKey, ReactNode> = {
+    const panes = resolveYingceSettingsContribution(defineYingceSettingsContribution<Record<ConfigSectionKey, ReactNode>>("yingce.settings", {
         brains: <SettingsPane><BrainSettingsPane /></SettingsPane>,
         engines: <SettingsPane><GenerationEngineSettingsPane /></SettingsPane>,
         routes: <SettingsPane><ModelRouteSettingsPane /></SettingsPane>,
@@ -187,7 +188,7 @@ export default function SettingsPage() {
                 </div>
             </SettingsPane>
         ),
-    };
+    }));
 
     return (
         <main className="settings-page app-workspace-page flex h-full min-h-0 flex-col text-foreground">

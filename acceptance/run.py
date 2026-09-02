@@ -78,6 +78,20 @@ CURRENT_CHECKS = (
 
 RC_LOCAL_CHECKS = CURRENT_CHECKS + (
     Check(
+        "canonical-review-contract",
+        "Canonical Review Contract and generated runtime bindings",
+        ("node", "--test", "test/contract.test.mjs"),
+        ROOT / "packages" / "filmos-review-contract",
+        ("01-desktop", "03-project-ui", "08-agent", "13-qa", "14-chatgpt-app"),
+    ),
+    Check(
+        "host-boundary-contract",
+        "Typed Host contribution slots and executable FilmOS import boundary",
+        ("bun", "test", "test/film-host-boundary.test.ts", "test/desktop-rpc-client.test.ts"),
+        ROOT / "web",
+        ("01-desktop", "03-project-ui", "08-agent", "13-qa", "14-chatgpt-app"),
+    ),
+    Check(
         "architecture-drift-gate",
         "FilmOS Constitution hash and architecture drift regression gates",
         ("node", "--test", "governance/test/architecture-drift-gate.test.mjs"),

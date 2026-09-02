@@ -1,6 +1,14 @@
 import { createHash } from "node:crypto";
 
 import { exactObject, problem, sha256 } from "./canonical.mjs";
+import {
+  REVIEW_LANES,
+  REVIEW_PROJECT_ID_PATTERN,
+  REVIEW_SUBMISSION_ID_PATTERN,
+  REVIEW_SUBMISSION_KEYS,
+  REVIEW_SUBMISSION_PREFIX,
+  REVIEW_SUBMISSION_RISK_KEYS,
+} from "./generated-review-contract.mjs";
 
 export const SUBMISSION_SCHEMA = "filmos.review-submission.capture.v1";
 export const RECEIPT_SCHEMA = "filmos.review-submission.receipt.v1";
@@ -8,23 +16,15 @@ export const ATTACHMENT_RECEIPT_SCHEMA = "filmos.review-submission.attachment-re
 export const INSTALLED_SUBMISSION_SOURCE_SCHEMA = "filmos.installed-source-identity.v1";
 
 export const STAGE_A_BOOTSTRAP = Object.freeze({
-  submission_id: "FILMOS-SUBMISSION-b3274782-30a0-44a1-a05e-01730678da8b",
+  submission_id: `${REVIEW_SUBMISSION_PREFIX}-b3274782-30a0-44a1-a05e-01730678da8b`,
   base_commit: "8951d975a9803e5750eb6399948587f651ce4ce4",
   base_tree: "52f2a6853ff89a9aa231b6d5b00f6f0712a20b97",
   build_id: "candidate-8951d975-52f2a685",
   migration_version: "filmos.review-intake-stage-a.v1",
 });
 
-const submissionKeys = [
-  "submission_id", "project_id", "what_happened", "expected_result", "location",
-  "blocks_work", "captured_at", "risk", "suggested_lane", "allowed_change_scope",
-  "app_build_id", "app_tree", "route", "context_snapshot", "attachment_manifest",
-];
 const attachmentManifestKeys = ["attachment_id", "media_type", "original_name", "size_bytes", "sha256", "captured_at"];
-const riskKeys = new Set([
-  "architecture_gap", "requires_schema_change", "requires_authority_change",
-  "data_loss", "security", "cost", "provider_submit", "migration", "core_state",
-]);
+const riskKeys = new Set(REVIEW_SUBMISSION_RISK_KEYS);
 
 export function normalizeStageASubmission(input, bootstrap = STAGE_A_BOOTSTRAP) {
   requireSubmissionId(input.submission_id);
@@ -50,8 +50,8 @@ export function normalizeInstalledSubmission(input, installedSourceIdentity) {
 }
 
 function normalizeSubmission(input, sourceIdentity) {
-  exactObject(input, submissionKeys);
-  requireBoundedString(input.project_id, "INVALID_PROJECT_ID", 128, /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/);
+  exactObject(input, REVIEW_SUBMISSION_KEYS);
+  requireBoundedString(input.project_id, "INVALID_PROJECT_ID", 128, REVIEW_PROJECT_ID_PATTERN);
   requireBoundedString(input.what_happened, "INVALID_WHAT_HAPPENED", 4_000);
   requireBoundedString(input.expected_result, "INVALID_EXPECTED_RESULT", 4_000);
   requireBoundedString(input.location, "INVALID_LOCATION", 2_048);
@@ -60,7 +60,7 @@ function normalizeSubmission(input, sourceIdentity) {
   if (!input.risk || typeof input.risk !== "object" || Array.isArray(input.risk)
     || Object.keys(input.risk).some((key) => !riskKeys.has(key))
     || Object.values(input.risk).some((value) => typeof value !== "boolean")) throw problem("INVALID_RISK");
-  if (input.suggested_lane !== null && !["fast", "core", "architecture"].includes(input.suggested_lane)) throw problem("INVALID_SUGGESTED_LANE");
+  if (input.suggested_lane !== null && !REVIEW_LANES.includes(input.suggested_lane)) throw problem("INVALID_SUGGESTED_LANE");
   if (!Array.isArray(input.allowed_change_scope) || input.allowed_change_scope.some((value) => typeof value !== "string" || !value.trim() || value.length > 512)) throw problem("INVALID_ALLOWED_CHANGE_SCOPE");
   if (input.app_build_id !== null) requireBoundedString(input.app_build_id, "INVALID_APP_BUILD_ID", 160, /^[A-Za-z0-9._-]{1,160}$/);
   if (input.app_tree !== null && !/^[a-f0-9]{40,64}$/.test(input.app_tree)) throw problem("INVALID_APP_TREE");
@@ -126,11 +126,11 @@ export function normalizeStagedAttachment(input) {
 
 export function submissionSuffix(submissionId) {
   requireSubmissionId(submissionId);
-  return submissionId.slice("FILMOS-SUBMISSION-".length);
+  return submissionId.slice(REVIEW_SUBMISSION_PREFIX.length + 1);
 }
 
 export function requireSubmissionId(value) {
-  if (!/^FILMOS-SUBMISSION-[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(String(value ?? ""))) throw problem("INVALID_SUBMISSION_ID");
+  if (!REVIEW_SUBMISSION_ID_PATTERN.test(String(value ?? ""))) throw problem("INVALID_SUBMISSION_ID");
 }
 
 export function requireAttachmentId(value) {

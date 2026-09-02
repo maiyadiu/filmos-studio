@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 
 import { exactObject, problem, safeEqual, sha256 } from "./canonical.mjs";
 import { CONSTITUTION_HASH, CONSTITUTION_VERSION } from "./contracts.mjs";
+import { REVIEW_ERROR_CODE_PATTERN } from "./generated-review-contract.mjs";
 import { GitHubEvidenceVerifier } from "./github-evidence-verifier.mjs";
 import { normalizeInstalledSubmission, normalizeStageASubmission, normalizeStagedAttachment, STAGE_A_BOOTSTRAP, SUBMISSION_SCHEMA } from "./intake-contract.mjs";
 import { loadInstalledSourceIdentity } from "./installed-source-identity.mjs";
@@ -449,7 +450,7 @@ function attachmentEvidenceItems(attachments) {
 }
 function assertAllowedKeys(value, allowed) { if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).some((key) => !allowed.includes(key))) throw problem("INVALID_BODY"); }
 
-function safeProblemCode(value) { return /^[A-Z0-9_]{1,96}$/.test(String(value ?? "")) ? String(value) : "REVIEW_BUS_ERROR"; }
+function safeProblemCode(value) { return REVIEW_ERROR_CODE_PATTERN.test(String(value ?? "")) ? String(value) : "REVIEW_BUS_ERROR"; }
 function retryableProblem(code, status) {
   if (status === 503 && ["INTAKE_TEMPORARILY_UNAVAILABLE", "MCP_READBACK_UNAVAILABLE", "INSTALLED_SOURCE_IDENTITY_UNAVAILABLE"].includes(code)) return true;
   return false;

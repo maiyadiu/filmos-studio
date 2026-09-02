@@ -7,6 +7,7 @@ import { auditRecord, type AuditSink } from "./audit.js";
 import { chatGPTNoauthMeta } from "./chatgpt-auth.js";
 import type { ProjectGrant } from "./grants.js";
 import type { ReviewReadSource } from "./review-source.js";
+import { REVIEW_ISSUE_ID_PATTERN } from "./generated-review-contract.js";
 
 export const REVIEW_READ_TOOLS = [
   ["issue_list_pending", "List pending FilmOS issues", "List pending Developer Governance issues inside the current Project Grant."],
@@ -37,7 +38,7 @@ export function registerReviewReadTools(server: McpServer, source: ReviewReadSou
     server.registerTool(name, {
       title,
       description,
-      inputSchema: takesIssue ? z.object({ issue_id: z.string().min(1).max(160) }) : z.object({}),
+      inputSchema: takesIssue ? z.object({ issue_id: z.string().regex(REVIEW_ISSUE_ID_PATTERN) }) : z.object({}),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
       _meta: chatGPTNoauthMeta(),
     }, async (input, extra) => {

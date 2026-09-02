@@ -1,3 +1,5 @@
+import { REVIEW_ISSUE_ID_PATTERN } from "./generated-review-contract.mjs";
+
 const baseUrl = "http://127.0.0.1:17920";
 const purposes = new Set(["CHATGPT_ASSESSMENT", "CHATGPT_CONSENSUS_DECISION", "CHATGPT_REVIEW_DECISION", "CHATGPT_VERDICT", "FINDING_DECISION"]);
 
@@ -13,7 +15,7 @@ export function validateEnvelope(value) {
   const expected = ["purpose", "issue_id", "candidate_id", "candidate_commit", "decision"];
   if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).sort().join("\n") !== expected.sort().join("\n")) throw new Error("INVALID_DECISION_ENVELOPE");
   if (!purposes.has(value.purpose)) throw new Error("INVALID_DECISION_PURPOSE");
-  if (!/^FILMOS-(?:ISSUE|ARCH)-[A-Za-z0-9-]{1,120}$/.test(value.issue_id)) throw new Error("INVALID_ISSUE_ID");
+  if (!REVIEW_ISSUE_ID_PATTERN.test(value.issue_id)) throw new Error("INVALID_ISSUE_ID");
   if (value.candidate_id !== null && (typeof value.candidate_id !== "string" || !value.candidate_id)) throw new Error("INVALID_CANDIDATE_ID");
   if (value.candidate_commit !== null && !/^[0-9a-f]{40,64}$/.test(value.candidate_commit)) throw new Error("INVALID_CANDIDATE_COMMIT");
   return structuredClone(value);

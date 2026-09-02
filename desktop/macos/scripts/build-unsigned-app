@@ -16,6 +16,7 @@ icon_source="$package_dir/App/FilmOS图标.png"
 source_fingerprint_script="$script_dir/source-fingerprint"
 bun_executable=$(command -v bun || true)
 go_executable=$(command -v go || true)
+node_executable=$(command -v node || true)
 acceptance_python="$workspace_root/.local/acceptance-venv/bin/python"
 python_override=${FILMOS_DESKTOP_PYTHON_EXECUTABLE:-}
 if [ -n "$python_override" ]; then
@@ -74,6 +75,10 @@ if [ -z "$go_executable" ] || [ ! -x "$go_executable" ]; then
     echo "go is required to bundle the internal backend" >&2
     exit 1
 fi
+if [ -z "$node_executable" ] || [ ! -x "$node_executable" ]; then
+    echo "node is required to verify the canonical Review Contract" >&2
+    exit 1
+fi
 if [ -z "$python_executable" ] || [ ! -x "$python_executable" ] || ! "$python_executable" -c 'import PyInstaller, fastapi, pydantic, uvicorn' >/dev/null 2>&1; then
     echo "Film Core bundling requires one Python with PyInstaller, FastAPI, Pydantic, and Uvicorn" >&2
     exit 1
@@ -90,6 +95,8 @@ if [ ! -x "$source_fingerprint_script" ]; then
     echo "desktop source fingerprint tool is missing: $source_fingerprint_script" >&2
     exit 1
 fi
+
+"$node_executable" "$workspace_root/packages/filmos-review-contract/scripts/generate.mjs" --check
 
 source_identity_before=$("$source_fingerprint_script" --json)
 source_commit=$(printf '%s' "$source_identity_before" | /usr/bin/plutil -extract git_commit_sha raw -o - -)

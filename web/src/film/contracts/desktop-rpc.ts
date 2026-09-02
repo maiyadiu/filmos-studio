@@ -1,12 +1,11 @@
-export const DESKTOP_RPC_REQUEST_ACTIONS = [
-    "chatgptHostRequest",
-    "reviewIssueRequest",
-    "reviewIssueAttachmentRequest",
-    "reviewIssueFinalizeRequest",
-    "reviewCenterRequest",
-] as const;
+import {
+    REVIEW_DESKTOP_ACTIONS,
+    REVIEW_ERROR_CODE_PATTERN,
+    REVIEW_RETRYABLE_SIGNAL_PATTERN,
+} from "./generated-review-contract";
 
-export type DesktopRpcRequestAction = (typeof DESKTOP_RPC_REQUEST_ACTIONS)[number];
+export const DESKTOP_RPC_REQUEST_ACTIONS = Object.freeze(Object.keys(REVIEW_DESKTOP_ACTIONS) as DesktopRpcRequestAction[]);
+export type DesktopRpcRequestAction = keyof typeof REVIEW_DESKTOP_ACTIONS;
 export type DesktopRpcRetryClass = "retryable" | "non_retryable";
 
 export type DesktopRpcErrorEnvelope = {
@@ -22,20 +21,14 @@ export type DesktopRpcRequest =
     | { action: "reviewCenterRequest"; operation: string; payload: Record<string, string> };
 
 export type DesktopRpcRequestOptions = {
-    timeoutMs: number;
+    timeoutMs?: number;
     timeoutCode: string;
     unavailableCode: string;
 };
 
-export const DESKTOP_RPC_MAX_PAYLOAD_BYTES: Record<DesktopRpcRequestAction, number> = {
-    chatgptHostRequest: 256 * 1024,
-    reviewIssueRequest: 512 * 1024,
-    reviewIssueAttachmentRequest: 36 * 1024 * 1024,
-    reviewIssueFinalizeRequest: 512 * 1024,
-    reviewCenterRequest: 512 * 1024,
-};
-
-const ERROR_CODE_PATTERN = /^[A-Z0-9_]{1,96}$/;
+export const DESKTOP_RPC_MAX_PAYLOAD_BYTES = Object.freeze(Object.fromEntries(
+    Object.entries(REVIEW_DESKTOP_ACTIONS).map(([action, value]) => [action, value.maximum_payload_bytes]),
+) as Record<DesktopRpcRequestAction, number>);
 
 export class DesktopRpcError extends Error {
     readonly code: string;
@@ -55,14 +48,18 @@ export function normalizeDesktopRpcError(value: unknown, fallback = "DESKTOP_RPC
         : value && typeof value === "object" && !Array.isArray(value) && typeof (value as { code?: unknown }).code === "string"
             ? (value as { code: string }).code
             : fallback;
-    const code = ERROR_CODE_PATTERN.test(rawCode) ? rawCode : fallback;
+    const code = REVIEW_ERROR_CODE_PATTERN.test(rawCode) ? rawCode : fallback;
     return { code, retryClass: desktopRpcRetryClass(code) };
 }
 
 export function desktopRpcRetryClass(code: string): DesktopRpcRetryClass {
-    return /(?:TIMEOUT|UNAVAILABLE|NOT_READY|CONNECTION|NETWORK|TEMPORARY|RETRY)/.test(code)
+    return REVIEW_RETRYABLE_SIGNAL_PATTERN.test(code)
         ? "retryable"
         : "non_retryable";
+}
+
+export function desktopRpcTimeoutMs(action: DesktopRpcRequestAction) {
+    return REVIEW_DESKTOP_ACTIONS[action].timeout_ms;
 }
 
 export function desktopRpcPayloadSize(request: DesktopRpcRequest) {

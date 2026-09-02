@@ -1,0 +1,54 @@
+{
+  "schema_version": "filmos.canonical-review-contract.v1",
+  "lanes": ["fast", "core", "architecture"],
+  "retry_classes": ["retryable", "non_retryable"],
+  "ids": {
+    "submission_prefix": "FILMOS-SUBMISSION",
+    "submission_pattern": "^FILMOS-SUBMISSION-[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+    "issue_pattern": "^FILMOS-ISSUE-[A-Za-z0-9-]{1,120}$",
+    "architecture_issue_pattern": "^FILMOS-ARCH-[A-Za-z0-9-]{1,120}$",
+    "any_issue_pattern": "^FILMOS-(?:ISSUE|ARCH)-[A-Za-z0-9-]{1,120}$",
+    "issue_prefix": "FILMOS-ISSUE",
+    "architecture_issue_prefix": "FILMOS-ARCH"
+  },
+  "submission": {
+    "schema": "filmos.review-submission.capture.v1",
+    "maximum_bytes": 524288,
+    "required_keys": ["submission_id", "project_id", "what_happened", "expected_result", "location", "blocks_work", "captured_at", "risk", "suggested_lane", "allowed_change_scope", "app_build_id", "app_tree", "route", "context_snapshot", "attachment_manifest"],
+    "risk_keys": ["architecture_gap", "requires_schema_change", "requires_authority_change", "data_loss", "security", "cost", "provider_submit", "migration", "core_state"]
+  },
+  "formal_issue_receipt": {
+    "schema": "filmos.review-submission.receipt.v1",
+    "required_keys": ["schema_version", "submission_id", "formal_issue_id", "project_id", "lane", "state", "capture_schema", "capture_hash", "projection_content_hash", "evidence_manifest_hash", "entity_version", "accepted_at", "receipt_hash"],
+    "source_binding_keys": ["source_identity_hash", "bootstrap_receipt_hash"]
+  },
+  "states": {
+    "main": ["OBSERVED_IN_USE", "EVIDENCE_FROZEN", "CODEX_ASSESSING", "CHATGPT_ASSESSING", "CONSENSUS_REVIEW", "CONSENSUS_PROPOSED", "CONSENSUS_REACHED", "TASK_PACKAGE_FROZEN", "CODEX_IMPLEMENTING", "CODEX_FIXING", "CODEX_LOCAL_ACCEPTED", "WAITING_FOR_CHATGPT_REVIEW", "CHANGES_REQUIRED", "CANDIDATE_SUPERSEDED", "EXTERNAL_APPROVED", "CHATGPT_EXTERNAL_REVIEW", "MACHINE_PASS", "DUAL_APPROVED", "PILOT_DEPLOYED", "OBSERVING_IN_USE", "EVIDENCE_REQUIRED", "OWNER_DECISION_REQUIRED"],
+    "architecture": ["REQUIREMENT_OBSERVED", "REQUIREMENT_DELTA_FROZEN", "ARCHITECTURE_EVIDENCE_FROZEN", "ARCHITECTURE_ASSESSMENTS_PENDING", "OPTION_COMPARISON", "OWNER_DECISION_REQUIRED", "ARCHITECTURE_OPTION_ACCEPTED", "CONSENSUS_PROPOSED", "CONSENSUS_REACHED", "TASK_PACKAGE_FROZEN", "CODEX_IMPLEMENTING", "CANDIDATE_UNDER_REVIEW", "DUAL_APPROVED", "PILOT_MIGRATION", "PILOT_OBSERVATION", "ARCHITECTURE_ADOPTED"]
+  },
+  "error_envelope": {
+    "required_keys": ["status", "code", "message", "retryable"],
+    "code_pattern": "^[A-Z0-9_]{1,96}$",
+    "retryable_signal_pattern": "(?:TIMEOUT|UNAVAILABLE|NOT_READY|CONNECTION|NETWORK|TEMPORARY|RETRY)"
+  },
+  "project_scope": {
+    "field": "project_id",
+    "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+    "fail_closed_codes": ["PROJECT_SCOPE_REQUIRED", "SUBMISSION_PROJECT_SCOPE_CONFLICT", "PROJECT_CONTEXT_UNAVAILABLE"]
+  },
+  "architecture_hash_binding": {
+    "required_keys": ["architecture_protocol_version", "architecture_state_mapping_version", "architecture_transition_contract_hash"],
+    "hash_pattern": "^[a-f0-9]{64}$"
+  },
+  "desktop_rpc": {
+    "request_id_pattern": "^[A-Fa-f0-9-]{36}$",
+    "callbacks": ["filmOSResolveChatGPTHostRequest", "filmOSResolveReviewIssue"],
+    "actions": {
+      "chatgptHostRequest": {"required_keys": ["action", "requestId", "operation", "payload"], "operations": ["publish_context", "publish_handoff"], "maximum_payload_bytes": 262144, "timeout_ms": 15000},
+      "reviewIssueRequest": {"required_keys": ["action", "requestId", "payload"], "operations": [], "maximum_payload_bytes": 524288, "timeout_ms": 20000},
+      "reviewIssueAttachmentRequest": {"required_keys": ["action", "requestId", "submissionId", "payload"], "operations": [], "maximum_payload_bytes": 37748736, "timeout_ms": 60000},
+      "reviewIssueFinalizeRequest": {"required_keys": ["action", "requestId", "submissionId", "payload"], "operations": [], "maximum_payload_bytes": 524288, "timeout_ms": 20000},
+      "reviewCenterRequest": {"required_keys": ["action", "requestId", "operation", "payload"], "operations": [], "maximum_payload_bytes": 524288, "timeout_ms": 15000}
+    }
+  }
+}

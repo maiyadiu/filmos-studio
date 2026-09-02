@@ -7,7 +7,7 @@ import { subscribeGenerationTasks, type GenerationTask } from "@/services/api/ta
 import { persistCanvasAgentGenerationContinuationEffect } from "@/services/canvas-generation-consumer";
 import { consumeGenerationTaskAgent } from "@/services/project-asset-sync";
 import type { CanvasConnection, CanvasNodeData, ContextMenuState, ViewportTransform } from "@/types/canvas";
-import { applyWorkbenchContext, buildWorkbenchContext, publishWorkbenchContext } from "@/film/agent/workbench-context";
+import { applyYingceWorkbenchContext, buildYingceWorkbenchContext, publishYingceWorkbenchContext } from "@/film/adapters/yingce/contributions/workbench-context-publisher";
 
 export type CanvasAgentGenerationContext = { conversationId?: string; messageId?: string; source?: "online" | "local" };
 type CanvasAgentRetryContext = GenerationRetryContext;
@@ -243,13 +243,13 @@ export function useCanvasAgentOperations({
     const undoStackRef = useRef<CanvasAgentUndoBatch[]>([]);
     const [undoOpsCount, setUndoOpsCount] = useState(0);
     const [lastAgentChange, setLastAgentChange] = useState<CanvasAgentChange | null>(null);
-    const workbenchContext = useMemo(() => buildWorkbenchContext({ projectId, domainProjectId, title: projectTitle, nodes, selectedNodeIds, viewport, viewportSize, canvasRevision, filmExpectedVersion, filmContentHash, activePanel: "canvas" }), [canvasRevision, domainProjectId, filmContentHash, filmExpectedVersion, nodes, projectId, projectTitle, selectedNodeIds, viewport, viewportSize]);
+    const workbenchContext = useMemo(() => buildYingceWorkbenchContext({ projectId, domainProjectId, title: projectTitle, nodes, selectedNodeIds, viewport, viewportSize, canvasRevision, filmExpectedVersion, filmContentHash, activePanel: "canvas" }), [canvasRevision, domainProjectId, filmContentHash, filmExpectedVersion, nodes, projectId, projectTitle, selectedNodeIds, viewport, viewportSize]);
     const snapshot = useMemo<CanvasAgentSnapshot>(
-        () => applyWorkbenchContext({ projectId, domainProjectId, title: projectTitle, nodes, connections, selectedNodeIds: Array.from(selectedNodeIds), viewport }, workbenchContext),
+        () => applyYingceWorkbenchContext({ projectId, domainProjectId, title: projectTitle, nodes, connections, selectedNodeIds: Array.from(selectedNodeIds), viewport }, workbenchContext),
         [connections, domainProjectId, nodes, projectId, projectTitle, selectedNodeIds, viewport, workbenchContext],
     );
 
-    useEffect(() => publishWorkbenchContext(workbenchContext), [workbenchContext]);
+    useEffect(() => publishYingceWorkbenchContext(workbenchContext), [workbenchContext]);
 
     useEffect(() => {
         undoStackRef.current = [];

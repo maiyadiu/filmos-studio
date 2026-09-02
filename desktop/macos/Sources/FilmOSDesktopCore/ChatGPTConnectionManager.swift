@@ -854,7 +854,7 @@ public final class ChatGPTConnectionManager {
 
     private static func validatedProjectSession(projectID: String, canvasID: String? = nil, contextReceiptID: String? = nil) throws -> ChatGPTProjectHostSession {
         let projectID = projectID.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard projectID.range(of: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$", options: .regularExpression) != nil else {
+        guard projectID.range(of: ReviewProtocolContract.projectIDPattern, options: .regularExpression) != nil else {
             throw ChatGPTConnectionError.projectRequired
         }
         return ChatGPTProjectHostSession(projectID: projectID, canvasID: canvasID, contextReceiptID: contextReceiptID)

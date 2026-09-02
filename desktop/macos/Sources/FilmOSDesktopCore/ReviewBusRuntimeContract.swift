@@ -4,15 +4,6 @@ public enum ReviewBusRuntimeContract {
     public static let loopbackBaseURL = "http://127.0.0.1:17920"
     public static let expectedReviewReadToolCount = 12
     public static let maximumIssueSubmissionBytes = 512 * 1024
-    private static let submissionKeys = Set([
-        "submission_id", "project_id", "what_happened", "expected_result", "location",
-        "blocks_work", "captured_at", "risk", "suggested_lane", "allowed_change_scope",
-        "app_build_id", "app_tree", "route", "context_snapshot", "attachment_manifest",
-    ])
-    private static let issueRiskKeys = Set([
-        "architecture_gap", "requires_schema_change", "requires_authority_change",
-        "data_loss", "security", "cost", "provider_submit", "migration", "core_state",
-    ])
     public static func canonicalDirectory(applicationRuntimeRoot: URL) -> URL {
         applicationRuntimeRoot
             .deletingLastPathComponent()
@@ -61,11 +52,11 @@ public enum ReviewBusRuntimeContract {
     public static func isValidSubmission(_ data: Data) -> Bool {
         guard data.count <= maximumIssueSubmissionBytes,
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              Set(object.keys) == submissionKeys,
+              Set(object.keys) == ReviewProtocolContract.submissionKeys,
               let submissionID = object["submission_id"] as? String,
-              submissionID.range(of: "^FILMOS-SUBMISSION-[a-f0-9-]{36}$", options: .regularExpression) != nil,
+              submissionID.range(of: ReviewProtocolContract.submissionIDPattern, options: .regularExpression) != nil,
               let projectID = object["project_id"] as? String,
-              projectID.range(of: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$", options: .regularExpression) != nil,
+              projectID.range(of: ReviewProtocolContract.projectIDPattern, options: .regularExpression) != nil,
               let whatHappened = object["what_happened"] as? String, !whatHappened.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, whatHappened.count <= 4_000,
               let expectedResult = object["expected_result"] as? String, !expectedResult.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, expectedResult.count <= 4_000,
               let location = object["location"] as? String, !location.isEmpty, location.count <= 2_048,
@@ -78,12 +69,12 @@ public enum ReviewBusRuntimeContract {
               isNullOrBoundedString(object["app_tree"], maximum: 64, pattern: "^[a-f0-9]{40,64}$"),
               isNullOrBoundedString(object["route"], maximum: 2_048),
               object["context_snapshot"] is [String: Any] || object["context_snapshot"] is NSNull,
-              object["suggested_lane"] is NSNull || ["fast", "core", "architecture"].contains(object["suggested_lane"] as? String)
+              object["suggested_lane"] is NSNull || ReviewProtocolContract.lanes.contains(object["suggested_lane"] as? String ?? "")
         else { return false }
 
         guard let rawRisk = object["risk"] else { return true }
         guard let risk = rawRisk as? [String: Any],
-              Set(risk.keys).isSubset(of: issueRiskKeys)
+              Set(risk.keys).isSubset(of: ReviewProtocolContract.submissionRiskKeys)
         else { return false }
         return risk.values.allSatisfy { $0 is Bool }
     }

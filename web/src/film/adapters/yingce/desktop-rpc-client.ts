@@ -1,6 +1,7 @@
 import {
     DesktopRpcError,
     assertDesktopRpcPayloadSize,
+    desktopRpcTimeoutMs,
     normalizeDesktopRpcError,
     type DesktopRpcRequest,
     type DesktopRpcRequestOptions,
@@ -31,15 +32,14 @@ export class DesktopRpcClient {
             const timer = this.dependencies.setTimer(() => {
                 this.pending.delete(requestId);
                 reject(new DesktopRpcError(normalizeDesktopRpcError(options.timeoutCode)));
-            }, options.timeoutMs);
+            }, options.timeoutMs ?? desktopRpcTimeoutMs(request.action));
             this.pending.set(requestId, { resolve, reject, timer });
             try {
                 this.dependencies.postMessage({ ...request, requestId });
             } catch (error) {
                 this.pending.delete(requestId);
                 this.dependencies.clearTimer(timer);
-                const fallback = normalizeDesktopRpcError(error, options.unavailableCode);
-                reject(new DesktopRpcError(fallback.code === "DESKTOP_RPC_FAILED" ? normalizeDesktopRpcError(options.unavailableCode) : fallback));
+                reject(new DesktopRpcError(normalizeDesktopRpcError(error, options.unavailableCode)));
             }
         });
     }

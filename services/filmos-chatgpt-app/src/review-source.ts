@@ -55,6 +55,7 @@ function assertReviewProjectScope(payload: Record<string, unknown>, toolName: st
 
 function issuePath(input: Record<string, unknown>, view: string): string {
   const issueId = String(input.issue_id ?? "");
-  if (!/^FILMOS-(?:ISSUE|ARCH)-[A-Za-z0-9-]{1,120}$/.test(issueId)) throw new Error("INVALID_ISSUE_ID");
+  if (!REVIEW_ISSUE_ID_PATTERN.test(issueId)) throw new Error("INVALID_ISSUE_ID");
   return `/v1/review/issues/${encodeURIComponent(issueId)}/${view}`;
 }
+import { REVIEW_ISSUE_ID_PATTERN } from "./generated-review-contract.js";

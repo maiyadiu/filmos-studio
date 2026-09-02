@@ -1,0 +1,11 @@
+{
+  "name": "@filmos/review-contract",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/generate.mjs --check",
+    "generate": "node scripts/generate.mjs",
+    "test": "node --test test/*.test.mjs"
+  }
+}
