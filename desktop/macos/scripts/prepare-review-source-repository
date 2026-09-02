@@ -34,11 +34,11 @@ source_tree=$(git -C "$source_root" rev-parse 'HEAD^{tree}')
 fetch_url=$(git -C "$source_root" remote get-url origin)
 push_url=$(git -C "$source_root" remote get-url --push origin)
 case "$fetch_url" in
-    https://github.com/maiyadiu/filmos-studio.git|git@github.com:maiyadiu/filmos-studio.git) ;;
+    https://github.com/maiyadiu/filmos-studio|https://github.com/maiyadiu/filmos-studio.git|git@github.com:maiyadiu/filmos-studio|git@github.com:maiyadiu/filmos-studio.git) ;;
     *) echo "review source origin fetch URL is not maiyadiu/filmos-studio" >&2; exit 2 ;;
 esac
 case "$push_url" in
-    https://github.com/maiyadiu/filmos-studio.git|git@github.com:maiyadiu/filmos-studio.git) ;;
+    https://github.com/maiyadiu/filmos-studio|https://github.com/maiyadiu/filmos-studio.git|git@github.com:maiyadiu/filmos-studio|git@github.com:maiyadiu/filmos-studio.git) ;;
     *) echo "review source origin push URL is not maiyadiu/filmos-studio" >&2; exit 2 ;;
 esac
 

@@ -47,11 +47,15 @@ printf 'second\n' >>"$source_root/README.md"
 git -C "$source_root" add README.md
 git -C "$source_root" commit -qm "test: second"
 second_commit=$(git -C "$source_root" rev-parse HEAD)
+git -C "$source_root" remote set-url origin https://github.com/maiyadiu/filmos-studio
+git -C "$source_root" remote set-url --push origin git@github.com:maiyadiu/filmos-studio
 FILMOS_REVIEW_SOURCE_ROOT="$source_root" \
 FILMOS_REVIEW_DEVELOPER_ROOT="$developer_root" \
 FILMOS_REVIEW_BUS_LOCAL_DIR="$review_bus_dir" \
     "$macos_root/scripts/prepare-review-source-repository" >/dev/null
 test "$(git -C "$target" rev-parse HEAD)" = "$second_commit"
+test "$(git -C "$target" remote get-url origin)" = "https://github.com/maiyadiu/filmos-studio"
+test "$(git -C "$target" remote get-url --push origin)" = "git@github.com:maiyadiu/filmos-studio"
 
 printf 'dirty\n' >"$target/dirty.txt"
 if FILMOS_REVIEW_SOURCE_ROOT="$source_root" \
