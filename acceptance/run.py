@@ -92,6 +92,13 @@ RC_LOCAL_CHECKS = CURRENT_CHECKS + (
         ("01-desktop", "03-project-ui", "08-agent", "13-qa", "14-chatgpt-app"),
     ),
     Check(
+        "repository-hygiene",
+        "Recoverable tracked artifact cleanup, generated output and canonical lock contract",
+        (sys.executable, "acceptance/checks/repository_hygiene.py"),
+        ROOT,
+        ("00-upstream", "01-desktop", "13-qa", "14-chatgpt-app"),
+    ),
+    Check(
         "architecture-drift-gate",
         "FilmOS Constitution hash and architecture drift regression gates",
         ("node", "--test", "governance/test/architecture-drift-gate.test.mjs"),
@@ -394,6 +401,7 @@ REAL_AGENT_CHECKS = (
 
 
 CHECK_ARTIFACT_NAMES = {
+    "repository-hygiene": "repository-hygiene-receipt.json",
     "desktop-review-vertical-canary": "desktop-review-vertical-canary-receipt.json",
     "use-driven-dual-expert": "use-driven-dual-expert-receipt.json",
     "dual-expert-operational": "dual-expert-operational-receipt.json",

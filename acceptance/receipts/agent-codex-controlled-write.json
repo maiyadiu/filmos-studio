@@ -1,0 +1,51 @@
+{
+  "archive": {
+    "manifest": "governance/清理恢复清单.json",
+    "source_commit": "239f6672cf08665c6fba16627281fd2109fdc31c"
+  },
+  "billing_mode": "chatgpt_managed_subscription",
+  "credentials_emitted": false,
+  "gate_id": "AGENT-CODEX-SUBSCRIPTION-CONTROLLED-WRITE-001",
+  "openai_model_api_call_count": 0,
+  "paid_generation_count": 0,
+  "private_paths_emitted": false,
+  "profile_id": "codex.subscription",
+  "project_name": "FilmOS_Acceptance_Project",
+  "provider_task_count": 0,
+  "raw_trace": {
+    "archived_path": "acceptance/evidence/runs/agent-codex-subscription-controlled-write-001/audit-trace.jsonl",
+    "record_count": 20,
+    "sha256": "1229d784798b57332af6385e29a30bec0e8557a81582f837253bbd2f35cef7db"
+  },
+  "replay_protection": {
+    "production_confirmation_replay_test": "acceptance/checks/agent_native_multibrain.py",
+    "successful_execution_count_for_approved_request": 1
+  },
+  "round1": {
+    "context_unchanged": true,
+    "decision": "rejected",
+    "node_count_after": 0
+  },
+  "round2": {
+    "applied_by": "human",
+    "node_count_after": 1,
+    "request_success_count": 1
+  },
+  "round3": {
+    "generation_tool_count": 0,
+    "node_count_after_restart": 1,
+    "runtime_restarted": true,
+    "session_id_same_as_round2": true,
+    "workbench_context_read_count": 1,
+    "write_tool_count": 0
+  },
+  "schema_version": "1.1.0",
+  "screenshots": {
+    "round1-confirmation-before-reject.png": "ccf19d702bcc57b2bc6574720487ca62dba6bbe191cfd27db19b527f89d71020",
+    "round2-approved-one-node.png": "4bc1f3e9e7c63aaf7a29e166f37eaf0f8dc4ebbb31ffd9b274911c0161e6dbb2",
+    "round2-confirmation-before-approve.png": "7a1fdbd2d078d80439adf4d77b2550230e9f8365fb3bfb9e172d27fc9c46473a",
+    "round3-readonly-context-result.png": "5406f444c13108e1c770f55f2374e1e0d925d5319ce713ff9d5d893c3bc5feb9",
+    "round3-restart-recovered-node.png": "094283c71fa79312a21a57b8c63b1cd5d0709b3e4b914d4eac3cbc2ce855e3f0"
+  },
+  "status": "PASSED"
+}

@@ -1,4 +1,4 @@
-import { WIDGET_RUNTIME_JS } from "./generated-widget-runtime.js";
+import { WIDGET_RUNTIME_JS } from "../generated/widget-runtime.js";
 
 export const WIDGETS: Record<string, { title: string; description: string; html: string }> = Object.fromEntries(
   [

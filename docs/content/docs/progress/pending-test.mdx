@@ -180,3 +180,13 @@ description: 影策已实现功能的手工验证清单与未确认边界
 - [x] Review Bus 51 项测试、Coordinator 12 项专项测试、Desktop 61 项 Swift 测试及 Developer Repository 脚本测试通过。
 - [x] Stage B 本地 Canary 完成 Installed SourceIdentity、Owner Gate、v2 Evidence、Assessment 起点及历史 Anchor 链验证，外部请求与付费操作均为 0。
 - [ ] 待 Stage B 固定 Commit 后执行 Formal CI、Artifact 校验、Installed App 可回滚替换与实机 Canary。
+
+## 治理稳定 V1.1｜Host Boundary 与仓库清理
+
+- [x] Web 与 macOS Desktop 已统一使用有界 RPC 生命周期，保留原 action 名、超时、尺寸限制和安全错误码。
+- [x] 五个 Host 贡献槽及 Review Contract 由单一合同生成，并通过导入边界测试阻止 Film Domain 反向依赖宿主私有实现。
+- [x] 清理前打包 Canary 已证明 Review Bus 单一 Submission、Receipt、Projection 和事件链；真实用户数据计数及元数据哈希前后一致。
+- [x] 历史运行日志、Playwright 截图、提交式 Widget bundle 和重复 pnpm 锁文件已从当前树移出；308 个原对象均由 `governance/清理恢复清单.json` 绑定来源 Commit、SHA-256 和恢复命令。
+- [x] Widget runtime 改为构建时生成到忽略目录；ChatGPT 36 项、Review Bus 51 项、Chrome Bridge 8 项、Web Host Boundary 7 项及 Swift build 已通过。
+- [ ] 待独立清理 Commit 后在干净 clone 重放固定工具链、同一 Vertical Canary、Formal CI 与 Artifact 校验。
+- [ ] 全部验收通过后执行 Installed App 可回滚替换，并再次确认真实项目数据计数与元数据哈希不变。

@@ -120,14 +120,10 @@ RAW_SOURCES = (
     "services/filmos-chatgpt-app/evidence/real-golden-receipt.json",
     "services/filmos-chatgpt-app/evidence/external-account-blocked.json",
     "acceptance/EXTERNAL_AUDIT_P0_RESOLUTION.json",
-    "acceptance/evidence/runs/agent-codex-subscription-controlled-write-001/CODEX_CONTROLLED_WRITE_GATE.json",
-    "acceptance/evidence/runs/agent-codex-subscription-controlled-write-001/audit-trace.jsonl",
+    "acceptance/receipts/agent-codex-controlled-write.json",
     "packages/filmos-agent-tool-contracts/generated/canonical-tools.json",
-    "acceptance/evidence/runs/20260829T153743Z-bbedc297c1b2-rc-real-agent/codex-subscription-real-receipt.json",
     "implementation/agent-native-multibrain/evidence/WP-09.json",
     "implementation/agent-native-multibrain/evidence/UI-01.json",
-    "output/playwright/agent-native-multibrain.png",
-    "output/playwright/chatgpt-host-boundary.png",
     "governance/FILMOS_CONSTITUTION.json",
     "implementation/use-driven-dual-expert-v1-1/PILOT_BASE_0_MANIFEST.json",
     "implementation/use-driven-dual-expert-v1-1/CURRENT_CAPABILITY_MATRIX.json",
@@ -165,7 +161,7 @@ def verified_receipt(path: Path) -> dict[str, Any]:
 
 
 def evidence_rows(
-    receipt: dict[str, Any], check_ids: Iterable[str]
+    receipt_path: Path, receipt: dict[str, Any], check_ids: Iterable[str]
 ) -> list[dict[str, Any]]:
     by_id = {result["check_id"]: result for result in receipt["results"]}
     rows = []
@@ -181,11 +177,16 @@ def evidence_rows(
             )
             continue
         result = by_id[check_id]
+        log_path = receipt_path.parent / result["log"]
+        try:
+            log_reference = log_path.relative_to(ROOT).as_posix()
+        except ValueError:
+            log_reference = f"external-artifact://{receipt['run_id']}/{result['log']}"
         rows.append(
             {
                 "check_id": check_id,
                 "status": result["status"],
-                "log": f"acceptance/evidence/runs/{receipt['run_id']}/{result['log']}",
+                "log": log_reference,
                 "log_sha256": result["log_sha256"],
             }
         )
@@ -356,7 +357,7 @@ def main() -> int:
         else "CLEAN_LOCAL_EVIDENCE_NOT_FROZEN"
     )
     for filename, (title, check_ids) in REPORT_SPECS.items():
-        rows = evidence_rows(receipt, check_ids)
+        rows = evidence_rows(receipt_path, receipt, check_ids)
         body = (
             f"# {title}\n\n"
             f"- Evidence status: `{evidence_status}`\n"

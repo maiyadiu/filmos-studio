@@ -1,1 +1,0 @@
-{"dependencies": ["fastapi", "httpx", "jsonschema", "pydantic", "pytest", "uvicorn"], "film_core_python": "ACCEPTANCE_OWNED_READY", "shared_with_chatgpt_golden": true, "status": "PASSED"}

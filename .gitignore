@@ -1,6 +1,6 @@
 .next/
 out/
-node_modules/
+node_modules
 docs/*
 !docs/design/
 !docs/film-adr/
@@ -14,7 +14,7 @@ data/
 coverage/
 dist/
 *.log
-!acceptance/evidence/runs/**/*.log
+/acceptance/evidence/runs/
 *.tsbuildinfo
 __pycache__/
 *.pyc
@@ -41,7 +41,8 @@ assets/prototypes/.*.drawio.bkp
 .claude/settings.local.json
 .cursor/
 .playwright-mcp/
-/output/playwright/**/.playwright-cli/
+/output/playwright/
+/services/filmos-chatgpt-app/generated/widget-runtime.ts
 .serena/
 .spec-workflow/
 .vscode/

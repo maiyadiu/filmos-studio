@@ -1,22 +1,22 @@
 # Performance Report
 
-- Evidence status: `DEVELOPMENT_EVIDENCE_DIRTY`
-- Receipt: `.local/acceptance-artifacts/runs/20260831T064657Z-6ea93bfa0838-rc-local/receipt.json`
-- Receipt SHA-256: `99ca3581eb9e142ad23bef5a964e903688ebb18c5dd95e5f70f0bcbdfa6fd066`
-- Started from Commit: `6ea93bfa08381264a1379fe938ade3a7513c7bba`
-- Source snapshot SHA-256: `4cb0029a8826ddbb70698198808de5f094dea9adce3deb2001a35d72f16849e6`
+- Evidence status: `CLEAN_LOCAL_EVIDENCE_NOT_FROZEN`
+- Receipt: `.local/acceptance-artifacts/runs/20260830T165124Z-a45effee4fe2-rc-local/receipt.json`
+- Receipt SHA-256: `5981dc29ba5859699790a97890d1de40fdeb58572b44b239a0b5585789f15cb1`
+- Started from Commit: `a45effee4fe282db80f444cb18500533e270178f`
+- Source snapshot SHA-256: `4c45dfa7bf9e23947df9dd5136b0dcc038ec43bdea07e83e4720dc4c1f26b30b`
 
 ## Machine evidence
 
 | Check | Status | Raw log | SHA-256 |
 | --- | --- | --- | --- |
-| `web-production-build` | `PASSED` | `acceptance/evidence/runs/20260831T064657Z-6ea93bfa0838-rc-local/web-production-build.log` | `2ad7a4ef9ac359073026b2046def8dad6a1ec4bbe17acbd456a1b6f6c5ac7a18` |
-| `performance-local` | `PASSED` | `acceptance/evidence/runs/20260831T064657Z-6ea93bfa0838-rc-local/performance-local.log` | `d8ce6792bd9520bf026d257b9e34e00b08fddb65d4c6fde58a14d3fe8fa2926e` |
+| `web-production-build` | `PASSED` | `.local/acceptance-artifacts/runs/20260830T165124Z-a45effee4fe2-rc-local/web-production-build.log` | `1773b85b4ac3b5104a1a93c888ed37a161711f94eca93ab99a59d4c633282709` |
+| `performance-local` | `PASSED` | `.local/acceptance-artifacts/runs/20260830T165124Z-a45effee4fe2-rc-local/performance-local.log` | `656fff37bc89914bfb9b29a477c3cd0a2b21d88fd528d3e9cdb8d33fd96b5263` |
 
 ## Scope and boundary
 
 Performance is measured against the checked-in 80-unit/80-shot and 60-sample budgets. Network actions, uploads, external Provider calls and Agent Apply remain zero. Bundle warning and blocking thresholds are reported separately.
 
-Measured p95: app init `27.999 ms`, project context `4.003 ms`, entity read `0.902 ms`, command preview `1.0 ms`, Remote preview `3.654 ms`, Agent read/preview/deny `0.239 ms`. Largest JavaScript is `1821047` bytes; warning chunks `10`, blocking `false`.
+Measured p95: app init `19.53 ms`, project context `8.816 ms`, entity read `0.774 ms`, command preview `0.885 ms`, Remote preview `3.662 ms`, Agent read/preview/deny `0.318 ms`. Largest JavaScript is `1821047` bytes; warning chunks `10`, blocking `false`.
 
 This report is an evidence view, not an independent pass declaration. The raw receipt and logs above are authoritative.

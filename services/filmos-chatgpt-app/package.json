@@ -3,17 +3,17 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "main": "./dist/server.js",
+  "main": "./dist/src/server.js",
   "scripts": {
     "build:contracts": "npm --prefix ../../packages/filmos-tool-contracts run build",
     "build:widget": "node scripts/build-widget.mjs",
     "build": "npm run build:contracts && npm run build:widget && tsc -p tsconfig.json",
-    "check": "npm run build:contracts && tsc -p tsconfig.json --noEmit",
+    "check": "npm run build:contracts && npm run build:widget && tsc -p tsconfig.json --noEmit",
     "test": "npm run build:contracts && npm run build:widget && tsx --test --test-concurrency=1 test/*.test.ts",
     "test:golden-real": "npm run build:contracts && npm run build:widget && tsx --test --test-concurrency=1 test/real-film-core-golden.integration.ts",
-    "start": "node dist/server.js",
-    "doctor": "node dist/doctor.js",
-    "grant": "node dist/grant-cli.js"
+    "start": "node dist/src/server.js",
+    "doctor": "node dist/src/doctor.js",
+    "grant": "node dist/src/grant-cli.js"
   },
   "dependencies": {
     "@filmos/tool-contracts": "file:../../packages/filmos-tool-contracts",

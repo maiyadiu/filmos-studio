@@ -1,17 +1,17 @@
 # Upstream Compatibility Report
 
-- Evidence status: `DEVELOPMENT_EVIDENCE_DIRTY`
-- Receipt: `.local/acceptance-artifacts/runs/20260831T064657Z-6ea93bfa0838-rc-local/receipt.json`
-- Receipt SHA-256: `99ca3581eb9e142ad23bef5a964e903688ebb18c5dd95e5f70f0bcbdfa6fd066`
-- Started from Commit: `6ea93bfa08381264a1379fe938ade3a7513c7bba`
-- Source snapshot SHA-256: `4cb0029a8826ddbb70698198808de5f094dea9adce3deb2001a35d72f16849e6`
+- Evidence status: `CLEAN_LOCAL_EVIDENCE_NOT_FROZEN`
+- Receipt: `.local/acceptance-artifacts/runs/20260830T165124Z-a45effee4fe2-rc-local/receipt.json`
+- Receipt SHA-256: `5981dc29ba5859699790a97890d1de40fdeb58572b44b239a0b5585789f15cb1`
+- Started from Commit: `a45effee4fe282db80f444cb18500533e270178f`
+- Source snapshot SHA-256: `4c45dfa7bf9e23947df9dd5136b0dcc038ec43bdea07e83e4720dc4c1f26b30b`
 
 ## Machine evidence
 
 | Check | Status | Raw log | SHA-256 |
 | --- | --- | --- | --- |
-| `upstream-compatibility` | `PASSED` | `acceptance/evidence/runs/20260831T064657Z-6ea93bfa0838-rc-local/upstream-compatibility.log` | `4bc16c109a13cf141f74ebc9a58cc364959a3d9e9b74071dddbe602f37ef6107` |
-| `rc-recovery` | `PASSED` | `acceptance/evidence/runs/20260831T064657Z-6ea93bfa0838-rc-local/rc-recovery.log` | `906b70a63c741f49df212094efbbefe5a32c7f1d61a6375965a5252eb0be4ee2` |
+| `upstream-compatibility` | `PASSED` | `.local/acceptance-artifacts/runs/20260830T165124Z-a45effee4fe2-rc-local/upstream-compatibility.log` | `aa8c50a0ec59c1cfe7726b1c84ccf449342dc965f30a0ac517bf009444cf128d` |
+| `rc-recovery` | `PASSED` | `.local/acceptance-artifacts/runs/20260830T165124Z-a45effee4fe2-rc-local/rc-recovery.log` | `4d10195df20c559b23c2725dfd976a3fa4e5199a4ea499ae6a36de02b37c60ec` |
 
 ## Scope and boundary
 

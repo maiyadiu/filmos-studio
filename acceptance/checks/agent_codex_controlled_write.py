@@ -10,9 +10,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 GATE_ID = "AGENT-CODEX-SUBSCRIPTION-CONTROLLED-WRITE-001"
-EVIDENCE_DIR = ROOT / "acceptance/evidence/runs/agent-codex-subscription-controlled-write-001"
-TRACE_PATH = EVIDENCE_DIR / "audit-trace.jsonl"
-RECEIPT_PATH = EVIDENCE_DIR / "CODEX_CONTROLLED_WRITE_GATE.json"
+RECEIPT_PATH = ROOT / "acceptance/receipts/agent-codex-controlled-write.json"
+MANIFEST_PATH = ROOT / "governance/清理恢复清单.json"
+DEFAULT_CAPTURE_DIR = ROOT / ".local/acceptance-artifacts/controlled-write"
 SCREENSHOTS = (
     "round1-confirmation-before-reject.png",
     "round2-confirmation-before-approve.png",
@@ -85,7 +85,10 @@ def sanitized(record: dict) -> dict:
     }
 
 
-def capture(local_runtime: Path, node_id: str, node_title: str, restart_at: str) -> dict:
+def capture(local_runtime: Path, node_id: str, node_title: str, restart_at: str, evidence_dir: Path) -> dict:
+    evidence_dir.mkdir(parents=True, exist_ok=True)
+    trace_path = evidence_dir / "audit-trace.jsonl"
+    receipt_path = evidence_dir / "CODEX_CONTROLLED_WRITE_GATE.json"
     audit = load_jsonl(local_runtime / "agent-audit.v1.jsonl")
     session_store = json.loads((local_runtime / "brain-sessions.v1.json").read_text(encoding="utf-8"))
     sessions = {item["id"]: item for item in session_store["sessions"]}
@@ -117,9 +120,9 @@ def capture(local_runtime: Path, node_id: str, node_title: str, restart_at: str)
     provider_thread = str(session.get("providerThreadId", ""))
     require(provider_thread, "ROUND2_PROVIDER_THREAD_MISSING")
     trace = [sanitized(item) for item in relevant]
-    TRACE_PATH.write_bytes(b"".join(canonical(item) for item in trace))
+    trace_path.write_bytes(b"".join(canonical(item) for item in trace))
     screenshot_evidence = {
-        name: {"sha256": sha256_file(EVIDENCE_DIR / name), "bytes": (EVIDENCE_DIR / name).stat().st_size}
+        name: {"sha256": sha256_file(evidence_dir / name), "bytes": (evidence_dir / name).stat().st_size}
         for name in SCREENSHOTS
     }
     receipt = {
@@ -168,18 +171,20 @@ def capture(local_runtime: Path, node_id: str, node_title: str, restart_at: str)
             "successful_execution_count_for_approved_request": 1,
             "production_confirmation_replay_test": "acceptance/checks/agent_native_multibrain.py",
         },
-        "raw_trace": {"path": TRACE_PATH.relative_to(ROOT).as_posix(), "sha256": sha256_file(TRACE_PATH), "record_count": len(trace)},
+        "raw_trace": {"path": trace_path.relative_to(ROOT).as_posix(), "sha256": sha256_file(trace_path), "record_count": len(trace)},
         "screenshots": screenshot_evidence,
         "private_paths_emitted": False,
         "credentials_emitted": False,
         "operator_note": "Round 3 initially compared against an incorrectly shortened expected node ID; the receipt binds the full DOM ID captured after restart.",
     }
-    RECEIPT_PATH.write_bytes(json.dumps(receipt, ensure_ascii=False, sort_keys=True, indent=2).encode() + b"\n")
+    receipt_path.write_bytes(json.dumps(receipt, ensure_ascii=False, sort_keys=True, indent=2).encode() + b"\n")
     return receipt
 
 
 def validate() -> dict:
     receipt = json.loads(RECEIPT_PATH.read_text(encoding="utf-8"))
+    manifest = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+    archived = {item["original_path"]: item for item in manifest["inventory"]["entries"]}
     require(receipt.get("gate_id") == GATE_ID and receipt.get("status") == "PASSED", "CONTROLLED_WRITE_GATE_NOT_PASSED")
     require(receipt.get("billing_mode") == "chatgpt_managed_subscription", "CONTROLLED_WRITE_BILLING_MODE_INVALID")
     require(receipt.get("openai_model_api_call_count") == 0, "CONTROLLED_WRITE_USED_MODEL_API")
@@ -189,20 +194,25 @@ def validate() -> dict:
     require(receipt["round3"]["runtime_restarted"] is True and receipt["round3"]["session_id_same_as_round2"] is True, "ROUND3_RESTART_INVALID")
     require(receipt["round3"]["node_count_after_restart"] == 1 and receipt["round3"]["workbench_context_read_count"] == 1, "ROUND3_RECOVERY_INVALID")
     require(receipt["round3"]["write_tool_count"] == 0 and receipt["round3"]["generation_tool_count"] == 0, "ROUND3_NOT_READ_ONLY")
-    require(sha256_file(ROOT / receipt["raw_trace"]["path"]) == receipt["raw_trace"]["sha256"], "CONTROLLED_WRITE_TRACE_HASH_MISMATCH")
-    for name, evidence in receipt["screenshots"].items():
-        require(name in SCREENSHOTS and sha256_file(EVIDENCE_DIR / name) == evidence["sha256"], f"CONTROLLED_WRITE_SCREENSHOT_HASH_MISMATCH:{name}")
+    require(manifest["source_commit"] == receipt["archive"]["source_commit"], "CONTROLLED_WRITE_ARCHIVE_COMMIT_MISMATCH")
+    trace = receipt["raw_trace"]
+    require(archived.get(trace["archived_path"], {}).get("sha256") == trace["sha256"], "CONTROLLED_WRITE_TRACE_HASH_MISMATCH")
+    evidence_root = "acceptance/evidence/runs/agent-codex-subscription-controlled-write-001"
+    for name, claimed in receipt["screenshots"].items():
+        path = f"{evidence_root}/{name}"
+        require(name in SCREENSHOTS and archived.get(path, {}).get("sha256") == claimed, f"CONTROLLED_WRITE_SCREENSHOT_HASH_MISMATCH:{name}")
     return receipt
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--capture-local", type=Path)
+    parser.add_argument("--capture-output-dir", type=Path, default=DEFAULT_CAPTURE_DIR)
     parser.add_argument("--node-id", default="text-1788043717147-0")
     parser.add_argument("--node-title", default="APPROVE_ME")
     parser.add_argument("--restart-at", default="2026-08-29T22:57:24Z")
     args = parser.parse_args()
-    receipt = capture(args.capture_local, args.node_id, args.node_title, args.restart_at) if args.capture_local else validate()
+    receipt = capture(args.capture_local, args.node_id, args.node_title, args.restart_at, args.capture_output_dir.resolve()) if args.capture_local else validate()
     print(json.dumps(receipt, ensure_ascii=False, sort_keys=True))
     return 0
 

@@ -1,5 +1,5 @@
 {
-  "evidence_status": "DEVELOPMENT_EVIDENCE_DIRTY",
+  "evidence_status": "CLEAN_LOCAL_EVIDENCE_NOT_FROZEN",
   "raw_sources": [
     {
       "bytes": 28308,
@@ -52,24 +52,14 @@
       "sha256": "24b5ab9a6d610f439f0a8735e884d1ed33aaecf75be3615966558494f6784f08"
     },
     {
-      "bytes": 3011,
-      "path": "acceptance/evidence/runs/agent-codex-subscription-controlled-write-001/CODEX_CONTROLLED_WRITE_GATE.json",
-      "sha256": "dc7ca74b78164cd1c79fe5c5a3edc413e4c2c505c04d70be923265bf57b947fb"
-    },
-    {
-      "bytes": 15498,
-      "path": "acceptance/evidence/runs/agent-codex-subscription-controlled-write-001/audit-trace.jsonl",
-      "sha256": "1229d784798b57332af6385e29a30bec0e8557a81582f837253bbd2f35cef7db"
+      "bytes": 1969,
+      "path": "acceptance/receipts/agent-codex-controlled-write.json",
+      "sha256": "95563505db5af1c606fefccfc10223c66b8efc3705dc916af873d4d0df51b40a"
     },
     {
       "bytes": 122629,
       "path": "packages/filmos-agent-tool-contracts/generated/canonical-tools.json",
       "sha256": "478e6db9ef8108ea055b6ff53cdb561fabe4f688de4153e5cd22e7be9524eabd"
-    },
-    {
-      "bytes": 1730,
-      "path": "acceptance/evidence/runs/20260829T153743Z-bbedc297c1b2-rc-real-agent/codex-subscription-real-receipt.json",
-      "sha256": "149a7fb50efe313670962e885d1644d63f4d25ce04556e58ede0750953beeaf2"
     },
     {
       "bytes": 3141,
@@ -80,16 +70,6 @@
       "bytes": 1620,
       "path": "implementation/agent-native-multibrain/evidence/UI-01.json",
       "sha256": "b17c8abc824bcfa563772a8702fae35ec49716bb4fb45ac90fac3cd443720478"
-    },
-    {
-      "bytes": 103828,
-      "path": "output/playwright/agent-native-multibrain.png",
-      "sha256": "940916192b5faf4ce3a979060e925ad6c02c22f7d18779b9b2df71a8b8a62845"
-    },
-    {
-      "bytes": 116663,
-      "path": "output/playwright/chatgpt-host-boundary.png",
-      "sha256": "ecaa6419e92c8245b06d00364c707aa88c9d29b973f8bbc9a0aa7726a2648073"
     },
     {
       "bytes": 1954,
@@ -117,11 +97,11 @@
       "sha256": "39a584b68aaa4bf8a16284ec9973248bff298b32bc9d1b8d97531965b00527ad"
     }
   ],
-  "receipt": ".local/acceptance-artifacts/runs/20260831T064657Z-6ea93bfa0838-rc-local/receipt.json",
-  "receipt_sha256": "99ca3581eb9e142ad23bef5a964e903688ebb18c5dd95e5f70f0bcbdfa6fd066",
+  "receipt": ".local/acceptance-artifacts/runs/20260830T165124Z-a45effee4fe2-rc-local/receipt.json",
+  "receipt_sha256": "5981dc29ba5859699790a97890d1de40fdeb58572b44b239a0b5585789f15cb1",
   "reports": [
     {
-      "bytes": 6621,
+      "bytes": 5907,
       "check_ids": [
         "desktop-release-build",
         "desktop-chatgpt-connection",
@@ -145,10 +125,10 @@
         "remote-acceptance-contract"
       ],
       "path": "acceptance/reports/KNOWN_LIMITATIONS.md",
-      "sha256": "23b294a875ba99a96500ccea5561672924b13ddad7a8a148895e72562980a00e"
+      "sha256": "3b6336504137b6a069be8bf7e04cfef75152f8bfbeaaa8b86d2d8877cb6fe4fa"
     },
     {
-      "bytes": 2502,
+      "bytes": 2263,
       "check_ids": [
         "rc-recovery",
         "upstream-compatibility",
@@ -158,19 +138,19 @@
         "use-driven-dual-expert"
       ],
       "path": "acceptance/reports/MIGRATION_REPORT.md",
-      "sha256": "2d52e010c5c34fa851714e54dffe1f0164e695f9617461029c41135bda5793b1"
+      "sha256": "0f63718fec78952d915ba26093dd3fce115edb94b3edc30939b8ca2e19db3294"
     },
     {
-      "bytes": 1389,
+      "bytes": 1410,
       "check_ids": [
         "upstream-compatibility",
         "rc-recovery"
       ],
       "path": "acceptance/reports/UPSTREAM_COMPATIBILITY_REPORT.md",
-      "sha256": "c42c5572c200029b393e7dfc27d4caa9aaeda51af312461c971569dd395271f7"
+      "sha256": "b314979b4a36b7283a9f9058a9f5fb8078846d5378c41293241762ae025732e3"
     },
     {
-      "bytes": 6135,
+      "bytes": 5444,
       "check_ids": [
         "desktop-local-auth",
         "desktop-backup-restore",
@@ -197,19 +177,19 @@
         "acceptance-privacy"
       ],
       "path": "acceptance/reports/SECURITY_REPORT.md",
-      "sha256": "c1b6ea62af6d34a7462f5d688f29f2ec55e9b7e0c9cf13ddaa09ed907c6d3932"
+      "sha256": "fd30b697eb5276273e9dd9ef9ce8b7c22d6a4ce97a93091df8e023b11da61bcd"
     },
     {
-      "bytes": 1525,
+      "bytes": 1547,
       "check_ids": [
         "web-production-build",
         "performance-local"
       ],
       "path": "acceptance/reports/PERFORMANCE_REPORT.md",
-      "sha256": "8d398b8ef2f6ac57b750f0257ee6233741d9e7b4a8556b882f823e436778e9da"
+      "sha256": "05b56fd8c49b46dc0b76810453282e0af88f568f77fdcfa4c3d2fb7c724056b4"
     },
     {
-      "bytes": 5646,
+      "bytes": 4939,
       "check_ids": [
         "desktop-backup-restore",
         "golden-abc-real-http",
@@ -234,10 +214,10 @@
         "use-driven-dual-expert"
       ],
       "path": "acceptance/reports/GOLDEN_TEST_REPORT.md",
-      "sha256": "b429ba6b3da965a422d818b706c86e3e60c7e7a4541dc0559453ebcf9557f2b3"
+      "sha256": "6062f528dc1a2db8a5c46498218263b22c60137873e285eadcefc1523090c16c"
     }
   ],
   "schema_version": "1.0.0",
-  "source_snapshot_sha256": "4cb0029a8826ddbb70698198808de5f094dea9adce3deb2001a35d72f16849e6",
-  "started_from_commit": "6ea93bfa08381264a1379fe938ade3a7513c7bba"
+  "source_snapshot_sha256": "4c45dfa7bf9e23947df9dd5136b0dcc038ec43bdea07e83e4720dc4c1f26b30b",
+  "started_from_commit": "a45effee4fe282db80f444cb18500533e270178f"
 }
