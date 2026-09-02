@@ -21,6 +21,8 @@ final class DesktopChatGPTRuntime: ChatGPTConnectionOperating {
     private let mcpPIDFileURL: URL
     private let tunnelPIDFileURL: URL
     private let reviewBusHealthURL: URL
+    private let filmCorePort: Int
+    private let chatGPTMCPPort: Int
     private var startedServices: Set<ServiceID> = []
     private var activeTransportProof: String?
     private var grantExpiresAt: Date?
@@ -35,11 +37,15 @@ final class DesktopChatGPTRuntime: ChatGPTConnectionOperating {
         reviewBusDirectory: URL,
         reviewBusHealthURL: URL,
         baseEnvironment: [String: String],
+        filmCorePort: Int = 17650,
+        chatGPTMCPPort: Int = 17840,
         tokenStore: any SecureTokenStoring = KeychainTokenStore()
     ) throws {
         self.supervisor = supervisor
         self.tokenStore = tokenStore
         self.reviewBusHealthURL = reviewBusHealthURL
+        self.filmCorePort = filmCorePort
+        self.chatGPTMCPPort = chatGPTMCPPort
         tunnelClientURL = helpersDirectory.appendingPathComponent("tunnel-client")
         mcpExecutableURL = helpersDirectory.appendingPathComponent("FilmOSChatGPTMCP")
         grantCLIURL = helpersDirectory.appendingPathComponent("FilmOSChatGPTGrant")
@@ -67,7 +73,7 @@ final class DesktopChatGPTRuntime: ChatGPTConnectionOperating {
         var coreEnvironment = baseEnvironment
         coreEnvironment["FILMOS_CORE_DB_PATH"] = coreDataDirectory.appendingPathComponent("film-core.sqlite").path
         coreEnvironment["FILMOS_CORE_HOST"] = "127.0.0.1"
-        coreEnvironment["FILMOS_CORE_PORT"] = "17650"
+        coreEnvironment["FILMOS_CORE_PORT"] = String(filmCorePort)
         coreEnvironment["PWD"] = runtimeDirectory.path
         try supervisor.register(ServiceDefinition(
             id: filmCoreServiceID,
@@ -85,10 +91,10 @@ final class DesktopChatGPTRuntime: ChatGPTConnectionOperating {
         mcpEnvironment["FILMOS_CHATGPT_HOST_PROFILE"] = "chatgpt.subscription.host.pro_readonly"
         mcpEnvironment["FILMOS_CHATGPT_CONNECTION_ID"] = "chatgpt.subscription.host"
         mcpEnvironment["FILMOS_CHATGPT_HOST"] = "127.0.0.1"
-        mcpEnvironment["FILMOS_CHATGPT_PORT"] = "17840"
+        mcpEnvironment["FILMOS_CHATGPT_PORT"] = String(chatGPTMCPPort)
         mcpEnvironment["FILMOS_CHATGPT_LOCAL_DIR"] = mcpDirectory.path
         mcpEnvironment["FILMOS_CHATGPT_PID_FILE"] = mcpPIDFileURL.path
-        mcpEnvironment["FILMOS_CORE_BASE_URL"] = "http://127.0.0.1:17650/film"
+        mcpEnvironment["FILMOS_CORE_BASE_URL"] = "http://127.0.0.1:\(filmCorePort)/film"
         mcpEnvironment.merge(ReviewBusRuntimeContract.chatGPTReadEnvironment(reviewBusDirectory: reviewBusDirectory, healthURL: reviewBusHealthURL)) { _, review in review }
         mcpEnvironment["PWD"] = runtimeDirectory.path
         try supervisor.register(ServiceDefinition(
@@ -109,7 +115,8 @@ final class DesktopChatGPTRuntime: ChatGPTConnectionOperating {
                 mode: "run",
                 authorizationHeaderURL: authorizationHeaderURL,
                 healthURLFile: tunnelHealthURLFile,
-                runtimeDirectory: runtimeDirectory
+                runtimeDirectory: runtimeDirectory,
+                mcpPort: chatGPTMCPPort
             ),
             workingDirectoryURL: runtimeDirectory,
             environment: tunnelEnvironment
@@ -129,7 +136,7 @@ final class DesktopChatGPTRuntime: ChatGPTConnectionOperating {
             try await recoverAbandonedHelper(
                 pidFileURL: mcpPIDFileURL,
                 expectedExecutableURL: mcpExecutableURL,
-                occupiedPort: 17840
+                occupiedPort: chatGPTMCPPort
             )
         }
         try await prepareFilmCoreAuthority()
@@ -149,26 +156,26 @@ final class DesktopChatGPTRuntime: ChatGPTConnectionOperating {
         guard await Self.endpointReady(reviewBusHealthURL.absoluteString) else {
             throw DesktopChatGPTRuntimeError.reviewBusUnavailable
         }
-        let mcpReady = await Self.endpointReady("http://127.0.0.1:17840/health")
+        let mcpReady = await Self.endpointReady("http://127.0.0.1:\(chatGPTMCPPort)/health")
         if mcpReady, activeTransportProof == transportProof, !renewed { return }
         if startedServices.contains(chatGPTMCPServiceID), case .running = supervisor.state(for: chatGPTMCPServiceID) {
             try? supervisor.stop(chatGPTMCPServiceID)
             startedServices.remove(chatGPTMCPServiceID)
         } else if mcpReady {
-            throw DesktopChatGPTRuntimeError.portOwnedByAnotherProcess(17840)
+            throw DesktopChatGPTRuntimeError.portOwnedByAnotherProcess(chatGPTMCPPort)
         }
         let runtime = try ServiceRuntimeEnvironment(
             values: ["FILMOS_SECURE_TUNNEL_PROOF": transportProof],
             secretKeys: ["FILMOS_SECURE_TUNNEL_PROOF"]
         )
         try await ensureService(chatGPTMCPServiceID, runtimeEnvironment: runtime) {
-            await Self.endpointReady("http://127.0.0.1:17840/health")
+            await Self.endpointReady("http://127.0.0.1:\(self.chatGPTMCPPort)/health")
         }
         activeTransportProof = transportProof
     }
 
     func prepareFilmCoreAuthority() async throws {
-        try await ensureService(filmCoreServiceID) { await Self.endpointReady("http://127.0.0.1:17650/health") }
+        try await ensureService(filmCoreServiceID) { await Self.endpointReady("http://127.0.0.1:\(self.filmCorePort)/health") }
     }
 
     func runTunnelDoctor(
@@ -182,7 +189,8 @@ final class DesktopChatGPTRuntime: ChatGPTConnectionOperating {
             mode: "doctor",
             authorizationHeaderURL: authorizationHeaderURL,
             healthURLFile: tunnelHealthURLFile,
-            runtimeDirectory: runtimeDirectory
+            runtimeDirectory: runtimeDirectory,
+            mcpPort: chatGPTMCPPort
         )
         var environment = Self.safeBaseEnvironment()
         environment.merge(Self.tunnelRuntimeEnvironment(
@@ -263,13 +271,13 @@ final class DesktopChatGPTRuntime: ChatGPTConnectionOperating {
     }
 
     func runtimeHealth() async -> ChatGPTRuntimeHealth {
-        let coreReady = await Self.endpointReady("http://127.0.0.1:17650/health")
-        let healthPayload = await Self.jsonPayload("http://127.0.0.1:17840/health")
+        let coreReady = await Self.endpointReady("http://127.0.0.1:\(filmCorePort)/health")
+        let healthPayload = await Self.jsonPayload("http://127.0.0.1:\(chatGPTMCPPort)/health")
         let tunnelReady = await tunnelIsReady()
         let statusPayload: [String: Any]?
         if let token = activeGrantToken, let projectID = activeProjectID {
             statusPayload = await Self.jsonPayload(
-                "http://127.0.0.1:17840/handoff/status?project_id=\(Self.urlQuery(projectID))",
+                "http://127.0.0.1:\(chatGPTMCPPort)/handoff/status?project_id=\(Self.urlQuery(projectID))",
                 authorizationToken: token
             )
         } else {
@@ -335,7 +343,7 @@ final class DesktopChatGPTRuntime: ChatGPTConnectionOperating {
 
     private func publish(path: String, method: String, challengeID: String, key: String, value: [String: Any]) async throws -> Data {
         guard let token = activeGrantToken,
-              let url = URL(string: "http://127.0.0.1:17840\(path)"),
+              let url = URL(string: "http://127.0.0.1:\(chatGPTMCPPort)\(path)"),
               challengeID.range(of: "^live_[A-Za-z0-9_-]{8,96}$", options: .regularExpression) != nil else {
             throw DesktopChatGPTRuntimeError.hostPublishRejected(nil)
         }
@@ -408,7 +416,7 @@ final class DesktopChatGPTRuntime: ChatGPTConnectionOperating {
     }
 
     private func filmCoreProjectContext(projectID: String) async throws -> [String: Any] {
-        guard let url = URL(string: "http://127.0.0.1:17650/film/projects/\(Self.urlPath(projectID))/context") else {
+        guard let url = URL(string: "http://127.0.0.1:\(filmCorePort)/film/projects/\(Self.urlPath(projectID))/context") else {
             throw DesktopChatGPTRuntimeError.filmCoreProjectionUnavailable
         }
         var request = URLRequest(url: url)
@@ -426,7 +434,7 @@ final class DesktopChatGPTRuntime: ChatGPTConnectionOperating {
     }
 
     private func createFilmCoreEntity(entityType: String, host: [String: String], unitKind: String?) async throws {
-        guard let url = URL(string: "http://127.0.0.1:17650/film/commands/apply") else {
+        guard let url = URL(string: "http://127.0.0.1:\(filmCorePort)/film/commands/apply") else {
             throw DesktopChatGPTRuntimeError.filmCoreProjectionUnavailable
         }
         var payload: [String: Any] = [
@@ -563,7 +571,7 @@ final class DesktopChatGPTRuntime: ChatGPTConnectionOperating {
 
     private func disconnectHostSession() async {
         guard let token = activeGrantToken else { return }
-        _ = await Self.jsonPayload("http://127.0.0.1:17840/handoff/disconnect", method: "POST", authorizationToken: token)
+        _ = await Self.jsonPayload("http://127.0.0.1:\(chatGPTMCPPort)/handoff/disconnect", method: "POST", authorizationToken: token)
     }
 
     private func writeAuthorizationHeader(token: String) throws {
@@ -582,7 +590,7 @@ final class DesktopChatGPTRuntime: ChatGPTConnectionOperating {
             try supervisor.start(id, runtimeEnvironment: runtimeEnvironment)
             startedServices.insert(id)
         } catch {
-            if await readiness() { throw DesktopChatGPTRuntimeError.portOwnedByAnotherProcess(id == filmCoreServiceID ? 17650 : 17840) }
+            if await readiness() { throw DesktopChatGPTRuntimeError.portOwnedByAnotherProcess(id == filmCoreServiceID ? filmCorePort : chatGPTMCPPort) }
             throw error
         }
         for _ in 0..<120 {
@@ -661,12 +669,13 @@ final class DesktopChatGPTRuntime: ChatGPTConnectionOperating {
         mode: String,
         authorizationHeaderURL: URL,
         healthURLFile: URL,
-        runtimeDirectory: URL
+        runtimeDirectory: URL,
+        mcpPort: Int
     ) -> [String] {
         var values = [
             mode,
             "--control-plane.api-key", "env:CONTROL_PLANE_API_KEY",
-            "--mcp.server-url", "url=http://127.0.0.1:17840/mcp,channel=main",
+            "--mcp.server-url", "url=http://127.0.0.1:\(mcpPort)/mcp,channel=main",
             "--mcp.extra-headers", "Authorization: file:\(authorizationHeaderURL.path)",
             "--mcp.extra-headers", "X-FilmOS-Transport: secure-mcp-tunnel",
             "--mcp.extra-headers", "X-FilmOS-Transport-Proof: env:FILMOS_SECURE_TUNNEL_PROOF",

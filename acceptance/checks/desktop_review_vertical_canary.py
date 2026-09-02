@@ -6,7 +6,6 @@ import hashlib
 import json
 import os
 import shutil
-import socket
 import sqlite3
 import subprocess
 import tempfile
@@ -21,9 +20,6 @@ from desktop_runtime import bind_acceptance_build_id, free_port, port_open, requ
 
 
 ROOT = Path(__file__).resolve().parents[2]
-LOCAL_RUNTIME_PORT = 17371
-FILM_CORE_PORT = 17650
-CHATGPT_MCP_PORT = 17840
 PROJECT_ID = "33333333-3333-4333-8333-333333333333"
 SUBMISSION_UUID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
 SUBMISSION_ID = f"FILMOS-SUBMISSION-{SUBMISSION_UUID}"
@@ -213,20 +209,22 @@ def assert_exact_database(database: Path, receipt_hash: str) -> dict[str, Any]:
 
 
 def main() -> None:
-    fixed_ports = (LOCAL_RUNTIME_PORT, FILM_CORE_PORT, CHATGPT_MCP_PORT)
-    occupied = [port for port in fixed_ports if port_open(port)]
-    if occupied:
-        raise RuntimeError(f"vertical canary requires dedicated fixed ports: {occupied}")
     if git("status", "--porcelain"):
         raise RuntimeError("vertical canary requires a clean source worktree so Installed SourceIdentity is exact")
 
     web_port = free_port()
     backend_port = free_port()
     review_bus_port = free_port()
-    while len({web_port, backend_port, review_bus_port}) != 3:
+    local_runtime_port = free_port()
+    film_core_port = free_port()
+    chatgpt_mcp_port = free_port()
+    while len({web_port, backend_port, review_bus_port, local_runtime_port, film_core_port, chatgpt_mcp_port}) != 6:
         backend_port = free_port()
         review_bus_port = free_port()
-    lifecycle_ports = (web_port, backend_port, review_bus_port, LOCAL_RUNTIME_PORT, FILM_CORE_PORT, CHATGPT_MCP_PORT)
+        local_runtime_port = free_port()
+        film_core_port = free_port()
+        chatgpt_mcp_port = free_port()
+    lifecycle_ports = (web_port, backend_port, review_bus_port, local_runtime_port, film_core_port, chatgpt_mcp_port)
     real_support = Path.home() / "Library/Application Support/FilmOS Studio"
     protected = (real_support / "review-bus", real_support / "WorkbenchData")
     user_before = metadata_snapshot(protected)
@@ -259,6 +257,10 @@ def main() -> None:
             "FILMOS_DESKTOP_VERTICAL_CANARY_PROJECT_ID": PROJECT_ID,
             "FILMOS_DESKTOP_VERTICAL_CANARY_SUBMISSION_UUID": SUBMISSION_UUID,
             "FILMOS_DESKTOP_VERTICAL_CANARY_CAPTURED_AT": CAPTURED_AT,
+            "FILMOS_DESKTOP_CANARY_LOCAL_RUNTIME_PORT": str(local_runtime_port),
+            "FILMOS_DESKTOP_CANARY_FILM_CORE_PORT": str(film_core_port),
+            "FILMOS_DESKTOP_CANARY_MCP_PORT": str(chatgpt_mcp_port),
+            "VITE_FRAMEFIELD_LOCAL_RUNTIME_ENDPOINT": f"http://127.0.0.1:{local_runtime_port}",
         })
         tunnel_cache = ROOT / ".local/cache/tunnel-client/tunnel-client-v0.0.13-darwin-arm64.zip"
         if tunnel_cache.is_file():
@@ -354,10 +356,10 @@ def main() -> None:
                 "FILMOS_CHATGPT_HOST_PROFILE": "chatgpt.subscription.host.pro_readonly",
                 "FILMOS_CHATGPT_CONNECTION_ID": "vertical-canary",
                 "FILMOS_CHATGPT_HOST": "127.0.0.1",
-                "FILMOS_CHATGPT_PORT": str(CHATGPT_MCP_PORT),
+                "FILMOS_CHATGPT_PORT": str(chatgpt_mcp_port),
                 "FILMOS_CHATGPT_LOCAL_DIR": str(mcp_directory),
                 "FILMOS_CHATGPT_PID_FILE": str(mcp_directory / "canary-mcp.pid"),
-                "FILMOS_CORE_BASE_URL": f"http://127.0.0.1:{FILM_CORE_PORT}/film",
+                "FILMOS_CORE_BASE_URL": f"http://127.0.0.1:{film_core_port}/film",
                 "FILMOS_REVIEW_BUS_READ_ENABLED": "true",
                 "FILMOS_REVIEW_BUS_BASE_URL": review_base,
                 "FILMOS_REVIEW_BUS_AUTH_FILE": str(token_file),
@@ -365,12 +367,12 @@ def main() -> None:
             }
             mcp_log = directory / "packaged-mcp.log"
             mcp_process, mcp_output = start_process((str(bundle / "Contents/Helpers/FilmOSChatGPTMCP"),), mcp_environment, mcp_log)
-            wait_http(f"http://127.0.0.1:{CHATGPT_MCP_PORT}/health", 20)
+            wait_http(f"http://127.0.0.1:{chatgpt_mcp_port}/health", 20)
             client_environment = {**mcp_environment, "FILMOS_CANARY_PROJECT_GRANT": grant["token"]}
             mcp_result = json.loads(run((
                 "node",
                 "services/filmos-chatgpt-app/scripts/packaged-review-canary-client.mjs",
-                f"http://127.0.0.1:{CHATGPT_MCP_PORT}/mcp",
+                f"http://127.0.0.1:{chatgpt_mcp_port}/mcp",
                 PROJECT_ID,
                 ISSUE_ID,
             ), client_environment))

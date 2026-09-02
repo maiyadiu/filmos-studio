@@ -24,7 +24,7 @@ private final class InternalWorkbenchCoordinator {
     private let supervisor: ServiceSupervisor
     let chatGPTConnectionManager: ChatGPTConnectionManager
     private let chatGPTRuntime: DesktopChatGPTRuntime
-    private let localRuntimeHealthURL = URL(string: "http://127.0.0.1:17371/health")!
+    private let localRuntimeHealthURL: URL
     private let reviewBusTokenURL: URL
     private var startedServices: Set<ServiceID> = []
 
@@ -65,6 +65,26 @@ private final class InternalWorkbenchCoordinator {
         let workingDirectory = applicationRuntimeRoot.appendingPathComponent("Runtime", isDirectory: true)
         let reviewBusDirectory: URL
         let processEnvironment = ProcessInfo.processInfo.environment
+        let verticalCanaryEnabled = processEnvironment["FILMOS_DESKTOP_VERTICAL_CANARY_PHASE"] != nil
+        let localRuntimePort: Int
+        let filmCorePort: Int
+        let chatGPTMCPPort: Int
+        if verticalCanaryEnabled {
+            guard let runtimePort = Self.acceptancePort(processEnvironment["FILMOS_DESKTOP_CANARY_LOCAL_RUNTIME_PORT"]),
+                  let corePort = Self.acceptancePort(processEnvironment["FILMOS_DESKTOP_CANARY_FILM_CORE_PORT"]),
+                  let mcpPort = Self.acceptancePort(processEnvironment["FILMOS_DESKTOP_CANARY_MCP_PORT"]),
+                  Set([runtimePort, corePort, mcpPort]).count == 3 else {
+                throw DesktopWorkbenchError.invalidRuntimeEndpoints
+            }
+            localRuntimePort = runtimePort
+            filmCorePort = corePort
+            chatGPTMCPPort = mcpPort
+        } else {
+            localRuntimePort = 17371
+            filmCorePort = 17650
+            chatGPTMCPPort = 17840
+        }
+        localRuntimeHealthURL = URL(string: "http://127.0.0.1:\(localRuntimePort)/health")!
         if processEnvironment["FILMOS_DESKTOP_VERTICAL_CANARY_PHASE"] != nil,
            let rawDirectory = processEnvironment["FILMOS_DESKTOP_ACCEPTANCE_REVIEW_BUS_DIRECTORY"] {
             let candidate = URL(fileURLWithPath: rawDirectory, isDirectory: true).standardizedFileURL
@@ -135,7 +155,7 @@ private final class InternalWorkbenchCoordinator {
         let localRuntimeDirectory = applicationRuntimeRoot.appendingPathComponent("LocalRuntime", isDirectory: true)
         try fileManager.createDirectory(at: localRuntimeDirectory, withIntermediateDirectories: true)
         var localRuntimeEnvironment = Self.safeBaseEnvironment()
-        localRuntimeEnvironment["PORT"] = "17371"
+        localRuntimeEnvironment["PORT"] = String(localRuntimePort)
         localRuntimeEnvironment["FRAMEFIELD_LOCAL_RUNTIME_CONFIG_DIR"] = localRuntimeDirectory.path
         localRuntimeEnvironment["FRAMEFIELD_TRUSTED_WEB_ORIGINS"] = Self.origin(for: configuration.webHealthURL)
         localRuntimeEnvironment["FILMOS_AGENT_RUNTIME_PROFILE"] = configuration.agentRuntimeProfile
@@ -225,7 +245,9 @@ private final class InternalWorkbenchCoordinator {
             applicationRuntimeRoot: applicationRuntimeRoot,
             reviewBusDirectory: reviewBusDirectory,
             reviewBusHealthURL: configuration.reviewBusHealthURL,
-            baseEnvironment: Self.safeBaseEnvironment()
+            baseEnvironment: Self.safeBaseEnvironment(),
+            filmCorePort: filmCorePort,
+            chatGPTMCPPort: chatGPTMCPPort
         )
         self.configuration = configuration
         self.supervisor = supervisor
@@ -238,6 +260,11 @@ private final class InternalWorkbenchCoordinator {
             from: configuration.backendHealthURL,
             applicationVersion: bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
         )
+    }
+
+    private static func acceptancePort(_ raw: String?) -> Int? {
+        guard let raw, let port = Int(raw), (1024...65535).contains(port) else { return nil }
+        return port
     }
 
     func prepare() async throws -> URL {
