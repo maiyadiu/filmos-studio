@@ -307,7 +307,7 @@ export class GenericAgentRuntime {
             } catch {
                 return {};
             }
-        });
+        }, process.env.FILMOS_REVIEW_CODEX_MODEL_TURNS_ENABLED !== "false");
         const controller = new AbortController();
         this.reviewCoordinatorAbort = controller;
         void coordinator.watch(controller.signal).catch((error) => {

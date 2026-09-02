@@ -99,6 +99,13 @@ RC_LOCAL_CHECKS = CURRENT_CHECKS + (
         ("01-desktop", "08-agent", "13-qa", "14-chatgpt-app"),
     ),
     Check(
+        "desktop-review-vertical-canary",
+        "Packaged App lost-receipt restart through Review Bus, Coordinator and MCP Projection",
+        (sys.executable, "acceptance/checks/desktop_review_vertical_canary.py"),
+        ROOT,
+        ("01-desktop", "03-project-ui", "08-agent", "13-qa", "14-chatgpt-app"),
+    ),
+    Check(
         "review-cli-watcher",
         "Codex local issue CLI and Review Watcher contract",
         ("npm", "test"),
@@ -373,6 +380,7 @@ REAL_AGENT_CHECKS = (
 
 
 CHECK_ARTIFACT_NAMES = {
+    "desktop-review-vertical-canary": "desktop-review-vertical-canary-receipt.json",
     "use-driven-dual-expert": "use-driven-dual-expert-receipt.json",
     "dual-expert-operational": "dual-expert-operational-receipt.json",
     "no-openai-model-api-billing": "no-openai-model-api-billing-receipt.json",

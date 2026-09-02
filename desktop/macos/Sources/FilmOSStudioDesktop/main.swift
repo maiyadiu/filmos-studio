@@ -63,9 +63,21 @@ private final class InternalWorkbenchCoordinator {
             isDirectory: true
         )
         let workingDirectory = applicationRuntimeRoot.appendingPathComponent("Runtime", isDirectory: true)
-        let reviewBusDirectory = ReviewBusRuntimeContract.canonicalDirectory(
-            applicationRuntimeRoot: applicationRuntimeRoot
-        )
+        let reviewBusDirectory: URL
+        let processEnvironment = ProcessInfo.processInfo.environment
+        if processEnvironment["FILMOS_DESKTOP_VERTICAL_CANARY_PHASE"] != nil,
+           let rawDirectory = processEnvironment["FILMOS_DESKTOP_ACCEPTANCE_REVIEW_BUS_DIRECTORY"] {
+            let candidate = URL(fileURLWithPath: rawDirectory, isDirectory: true).standardizedFileURL
+            let temporaryRoot = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true).standardizedFileURL.path
+            guard candidate.path.hasPrefix(temporaryRoot + "/"), candidate.path != temporaryRoot else {
+                throw DesktopWorkbenchError.invalidRuntimeEndpoints
+            }
+            reviewBusDirectory = candidate
+        } else {
+            reviewBusDirectory = ReviewBusRuntimeContract.canonicalDirectory(
+                applicationRuntimeRoot: applicationRuntimeRoot
+            )
+        }
 
         guard fileManager.isExecutableFile(atPath: backendExecutable.path) else {
             throw DesktopWorkbenchError.missingBundledBackend
@@ -130,9 +142,15 @@ private final class InternalWorkbenchCoordinator {
         localRuntimeEnvironment["FILMOS_AGENT_FEATURE_FLAGS_HASH"] = configuration.agentFeatureFlagsHash
         localRuntimeEnvironment["FILMOS_AGENT_GATEWAY_ENABLED"] = configuration.agentRuntimeProfile == "filmos-candidate" ? "true" : "false"
         localRuntimeEnvironment["FILMOS_REVIEW_CODEX_COORDINATOR_ENABLED"] = configuration.agentRuntimeProfile == "filmos-candidate" ? "true" : "false"
+        if processEnvironment["FILMOS_DESKTOP_VERTICAL_CANARY_PHASE"] != nil {
+            localRuntimeEnvironment["FILMOS_REVIEW_CODEX_MODEL_TURNS_ENABLED"] = "false"
+        }
         localRuntimeEnvironment["FILMOS_REVIEW_BUS_BASE_URL"] = Self.origin(for: configuration.reviewBusHealthURL)
         localRuntimeEnvironment["FILMOS_REVIEW_BUS_AUTH_FILE"] = reviewBusDirectory.appendingPathComponent("review-bus.token").path
-        let developerRepository = ReviewBusRuntimeContract.developerRepositoryDirectory(applicationRuntimeRoot: applicationRuntimeRoot)
+        let developerRepository = reviewBusDirectory
+            .deletingLastPathComponent()
+            .appendingPathComponent("DeveloperRepository", isDirectory: true)
+            .appendingPathComponent("filmos-studio", isDirectory: true)
         let reviewWorktreeDirectory = ReviewBusRuntimeContract.reviewWorktreeDirectory(applicationRuntimeRoot: applicationRuntimeRoot)
         if fileManager.fileExists(atPath: developerRepository.path) {
             try fileManager.createDirectory(at: reviewWorktreeDirectory, withIntermediateDirectories: true)
@@ -610,6 +628,48 @@ private enum ReviewBusBridgeError: Error {
     }
 }
 
+private struct ReviewVerticalCanaryConfiguration {
+    let phase: String
+    let projectID: String
+    let submissionUUID: String
+    let capturedAt: String
+
+    static func load(environment: [String: String] = ProcessInfo.processInfo.environment) -> Self? {
+        guard let phase = environment["FILMOS_DESKTOP_VERTICAL_CANARY_PHASE"], ["seed", "recover"].contains(phase),
+              let projectID = environment["FILMOS_DESKTOP_VERTICAL_CANARY_PROJECT_ID"],
+              projectID.range(of: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$", options: .regularExpression) != nil,
+              let submissionUUID = environment["FILMOS_DESKTOP_VERTICAL_CANARY_SUBMISSION_UUID"],
+              submissionUUID.range(of: "^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$", options: .regularExpression) != nil,
+              let capturedAt = environment["FILMOS_DESKTOP_VERTICAL_CANARY_CAPTURED_AT"],
+              ISO8601DateFormatter().date(from: capturedAt) != nil
+        else { return nil }
+        return Self(phase: phase, projectID: projectID, submissionUUID: submissionUUID, capturedAt: capturedAt)
+    }
+
+    var submissionID: String { "FILMOS-SUBMISSION-\(submissionUUID)" }
+
+    var injectionScript: String? {
+        let payload: [String: String] = [
+            "schemaVersion": "filmos.review-vertical-canary.v1",
+            "phase": phase,
+            "projectId": projectID,
+            "submissionUuid": submissionUUID,
+            "capturedAt": capturedAt,
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: payload),
+              let json = String(data: data, encoding: .utf8) else { return nil }
+        return "window.filmOSReviewVerticalCanary=\(json);"
+    }
+
+    func startURL(from baseURL: URL) -> URL {
+        guard var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else { return baseURL }
+        components.path = "/projects/\(projectID)"
+        components.query = nil
+        components.fragment = nil
+        return components.url ?? baseURL
+    }
+}
+
 @MainActor
 private final class WorkbenchWindow: NSObject, @preconcurrency WKNavigationDelegate, @preconcurrency WKUIDelegate, @preconcurrency WKScriptMessageHandler {
     let window: NSWindow
@@ -628,11 +688,22 @@ private final class WorkbenchWindow: NSObject, @preconcurrency WKNavigationDeleg
     private let retryButton = NSButton(title: "重试", target: nil, action: nil)
     private var retryHandler: (() -> Void)?
     private var latestChatGPTHostStatusScript: String?
+    private let verticalCanary: ReviewVerticalCanaryConfiguration?
+    private var droppedVerticalCanaryFinalizeReceipt = false
 
     override init() {
         let webConfiguration = WKWebViewConfiguration()
         webConfiguration.websiteDataStore = .default()
         webConfiguration.preferences.isElementFullscreenEnabled = true
+        let verticalCanary = ReviewVerticalCanaryConfiguration.load()
+        if let source = verticalCanary?.injectionScript {
+            webConfiguration.userContentController.addUserScript(WKUserScript(
+                source: source,
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: true
+            ))
+        }
+        self.verticalCanary = verticalCanary
         webView = WKWebView(frame: .zero, configuration: webConfiguration)
 
         let content = NSView()
@@ -728,7 +799,35 @@ private final class WorkbenchWindow: NSObject, @preconcurrency WKNavigationDeleg
 
     func load(_ url: URL) {
         showLoading("正在打开创作工作台…")
-        webView.load(URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData))
+        let target = verticalCanary?.startURL(from: url) ?? url
+        webView.load(URLRequest(url: target, cachePolicy: .reloadIgnoringLocalCacheData))
+    }
+
+    func shouldDropVerticalCanaryFinalizeReceipt(submissionID: String) -> Bool {
+        guard verticalCanary?.phase == "seed",
+              verticalCanary?.submissionID == submissionID,
+              !droppedVerticalCanaryFinalizeReceipt else { return false }
+        droppedVerticalCanaryFinalizeReceipt = true
+        return true
+    }
+
+    func emitVerticalCanaryEvent(_ event: String, resultData: Data? = nil, status: Any? = nil) {
+        guard let verticalCanary else { return }
+        var payload: [String: Any] = [
+            "schema_version": "filmos.desktop-review-vertical-canary-event.v1",
+            "event": event,
+            "phase": verticalCanary.phase,
+            "project_id": verticalCanary.projectID,
+            "submission_id": verticalCanary.submissionID,
+        ]
+        if let resultData,
+           let result = try? JSONSerialization.jsonObject(with: resultData) as? [String: Any] {
+            payload["result"] = result
+        }
+        if let status, JSONSerialization.isValidJSONObject(status) { payload["status"] = status }
+        guard let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]),
+              let json = String(data: data, encoding: .utf8) else { return }
+        FileHandle.standardError.write(Data("FILMOS_REVIEW_VERTICAL_CANARY \(json)\n".utf8))
     }
 
     func reload() {
@@ -937,6 +1036,65 @@ private final class WorkbenchWindow: NSObject, @preconcurrency WKNavigationDeleg
                 FileHandle.standardError.write(Data("FilmOS review replay: status=FAILED domain=\(failure.domain) code=\(failure.code)\n".utf8))
             }
         }
+        runVerticalCanaryIfConfigured()
+    }
+
+    private func runVerticalCanaryIfConfigured() {
+        guard let verticalCanary else { return }
+        Task { [weak self] in
+            guard let self else { return }
+            try? await Task.sleep(for: .milliseconds(750))
+            if verticalCanary.phase == "seed" {
+                do {
+                    let result = try await self.webView.callAsyncJavaScript(
+                        """
+                        if (typeof window.filmOSRunReviewVerticalCanary !== "function") {
+                            throw new Error("VERTICAL_CANARY_WEB_HOOK_UNAVAILABLE");
+                        }
+                        return await window.filmOSRunReviewVerticalCanary();
+                        """,
+                        arguments: [:],
+                        in: nil,
+                        contentWorld: .page
+                    )
+                    self.emitVerticalCanaryEvent("SEED_COMPLETED_WITHOUT_LOST_RECEIPT", status: result)
+                } catch {
+                    self.emitVerticalCanaryEvent("SEED_WEB_ERROR", status: ["code": (error as NSError).code])
+                }
+                return
+            }
+            var emittedPending = false
+            for _ in 0..<90 {
+                do {
+                    let result = try await self.webView.callAsyncJavaScript(
+                        """
+                        if (typeof window.filmOSReplayReviewIssues !== "function" || typeof window.filmOSReadReviewVerticalCanary !== "function") {
+                            throw new Error("VERTICAL_CANARY_WEB_HOOK_UNAVAILABLE");
+                        }
+                        await window.filmOSReplayReviewIssues();
+                        return await window.filmOSReadReviewVerticalCanary();
+                        """,
+                        arguments: [:],
+                        in: nil,
+                        contentWorld: .page
+                    )
+                    if let status = result as? [String: Any],
+                       status["delivery"] as? String == "CONFIRMED",
+                       (status["pending_count"] as? NSNumber)?.intValue == 0 {
+                        self.emitVerticalCanaryEvent("RECOVERY_CONFIRMED", status: status)
+                        return
+                    }
+                    if !emittedPending, let status = result as? [String: Any] {
+                        self.emitVerticalCanaryEvent("RECOVERY_PENDING", status: status)
+                        emittedPending = true
+                    }
+                } catch {
+                    self.emitVerticalCanaryEvent("RECOVERY_WEB_ERROR", status: ["code": (error as NSError).code])
+                }
+                try? await Task.sleep(for: .seconds(1))
+            }
+            self.emitVerticalCanaryEvent("RECOVERY_TIMEOUT")
+        }
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
@@ -1068,6 +1226,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Task {
                 do {
                     let result = try await coordinator.finalizeReviewSubmission(submissionID: submissionID, data: payload)
+                    if workbenchWindow?.shouldDropVerticalCanaryFinalizeReceipt(submissionID: submissionID) == true {
+                        workbenchWindow?.emitVerticalCanaryEvent("FINALIZE_COMMITTED_RECEIPT_DROPPED", resultData: result)
+                        return
+                    }
                     workbenchWindow?.resolveReviewIssueRequest(requestID: requestID, data: result, error: nil)
                 } catch {
                     let code = (error as? ReviewBusBridgeError)?.code ?? "REVIEW_BUS_FINALIZE_FAILED"

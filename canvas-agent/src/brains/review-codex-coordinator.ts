@@ -72,6 +72,7 @@ export class ReviewCodexCoordinator {
         private readonly sessions: SessionDriver,
         private readonly worktrees: ReviewWorktreePort,
         private readonly projectContext: () => ProjectContext,
+        private readonly modelTurnsEnabled = true,
         private readonly now: () => Date = () => new Date(),
     ) {}
 
@@ -139,6 +140,16 @@ export class ReviewCodexCoordinator {
                 const result = parseAttemptResult(recovered, existingAttempt);
                 await this.persistResult(issue, existingAttempt, workflow.action, result, signal);
                 await this.applyWorkflow(issue, full, workflow.action, result, signal);
+                return;
+            }
+            if (!this.modelTurnsEnabled) {
+                await this.coordination(issue, {
+                    status: "WAITING_EXTERNAL",
+                    session_id: null,
+                    attempt_id: null,
+                    last_action: `MODEL_TURN_DISABLED:${workflow.action}`,
+                    last_error_code: null,
+                }, signal);
                 return;
             }
             const baseCommit = String(full.base_commit || "");

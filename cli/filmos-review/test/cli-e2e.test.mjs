@@ -16,7 +16,7 @@ test("filmos CLI fails closed for legacy intake and still reads existing IssueSe
   const temp = mkdtempSync(resolve(tmpdir(), "filmos-review-cli-"));
   const token = "bus-token-1234567890-abcdefghijkl";
   const store = new ReviewBusStore(":memory:");
-  const service = new ReviewBusService(store);
+  const service = new ReviewBusService(store, { baseCommit: "a".repeat(40) });
   const constitution = JSON.parse(readFileSync(resolve(import.meta.dirname, "../../../governance/FILMOS_CONSTITUTION.json"), "utf8"));
   const server = createReviewBusHttp({ service, store, busToken: token, bridgeToken: "bridge-token-1234567890-abcdefghijkl", constitution });
   server.listen(0, "127.0.0.1"); await new Promise((resolve) => server.once("listening", resolve));

@@ -160,6 +160,30 @@ export type IssueDraftInput = {
     attachments?: IssueAttachment[];
 };
 
+type ReviewVerticalCanaryConfig = {
+    schemaVersion: "filmos.review-vertical-canary.v1";
+    phase: "seed" | "recover";
+    projectId: string;
+    submissionUuid: string;
+    capturedAt: string;
+};
+
+type ReviewVerticalCanaryStatus = {
+    schema_version: "filmos.review-vertical-canary-status.v1";
+    phase: "seed" | "recover";
+    local_draft_id: string;
+    submission_id: string;
+    canonical_issue_id: string | null;
+    project_id: string;
+    delivery: LocalIssueDraft["delivery"] | "MISSING";
+    pending_count: number;
+    retry_count: number;
+    attachment_count: number;
+    receipt_hash: string | null;
+    capture_hash: string | null;
+    last_error_code: string | null;
+};
+
 export function issueDraftReplayMode(draft: LocalIssueDraft): "SUBMIT_OR_RESUME" | "READBACK_ONLY" | "NONE" {
     if (draft.delivery === "ACCEPTED_AWAITING_READBACK") return "READBACK_ONLY";
     if (draft.delivery === "CONFIRMED" || draft.delivery === "STOPPED") return "NONE";
@@ -174,6 +198,9 @@ declare global {
         filmOSReviewCenterRequest?: (operation: string, payload?: Record<string, string>) => Promise<unknown>;
         filmOSReplayReviewIssues?: () => Promise<{ delivered: number; pending: number }>;
         filmOSResolveReviewIssue?: (requestId: string, result: unknown, error: string | null) => void;
+        filmOSReviewVerticalCanary?: ReviewVerticalCanaryConfig;
+        filmOSRunReviewVerticalCanary?: () => Promise<ReviewVerticalCanaryStatus>;
+        filmOSReadReviewVerticalCanary?: () => Promise<ReviewVerticalCanaryStatus>;
         webkit?: { messageHandlers?: { filmosDesktop?: { postMessage: (message: unknown) => void } } };
     }
 }
@@ -454,6 +481,77 @@ export async function countPendingIssueDrafts() {
         if (isLocalIssueDraft(draft) && !["CONFIRMED", "STOPPED"].includes(draft.delivery)) count += 1;
     });
     return count;
+}
+
+async function reviewVerticalCanaryStatus(config: ReviewVerticalCanaryConfig): Promise<ReviewVerticalCanaryStatus> {
+    const localDraftId = `local-draft-${config.submissionUuid}`;
+    const draft = await issueDraftStore.getItem<LocalIssueDraft>(localDraftId);
+    const current = draft && isLocalIssueDraft(draft) ? draft : undefined;
+    return {
+        schema_version: "filmos.review-vertical-canary-status.v1",
+        phase: config.phase,
+        local_draft_id: localDraftId,
+        submission_id: `FILMOS-SUBMISSION-${config.submissionUuid}`,
+        canonical_issue_id: current?.canonicalIssueId ?? null,
+        project_id: config.projectId,
+        delivery: current?.delivery ?? "MISSING",
+        pending_count: await countPendingIssueDrafts(),
+        retry_count: current?.retryCount ?? 0,
+        attachment_count: current?.attachments.length ?? 0,
+        receipt_hash: current?.receipt?.receipt_hash ?? null,
+        capture_hash: current?.captureHash ?? null,
+        last_error_code: current?.lastErrorCode ?? null,
+    };
+}
+
+function installReviewVerticalCanary() {
+    const config = window.filmOSReviewVerticalCanary;
+    if (!config
+        || config.schemaVersion !== "filmos.review-vertical-canary.v1"
+        || !["seed", "recover"].includes(config.phase)
+        || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(config.projectId)
+        || !/^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(config.submissionUuid)
+        || !Number.isFinite(Date.parse(config.capturedAt))) return;
+
+    window.filmOSReadReviewVerticalCanary = () => reviewVerticalCanaryStatus(config);
+    window.filmOSRunReviewVerticalCanary = async () => {
+        const localDraftId = `local-draft-${config.submissionUuid}`;
+        let draft = await issueDraftStore.getItem<LocalIssueDraft>(localDraftId);
+        if (!draft || !isLocalIssueDraft(draft)) {
+            const base64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+            const bytes = Uint8Array.from(atob(base64), (character) => character.charCodeAt(0));
+            const created = createLocalIssueDraft({
+                occurred: "打包 App 架构纵向 Canary：验证本地草稿、WKWebView、Swift、Review Bus、SQLite、Coordinator 与 MCP 投影的同一条真实链路。",
+                expected: "首次成功但回执丢失后，App 重启必须恢复同一 Architecture Issue，保持项目隔离、唯一事件与 Evidence，并进入可独立 Assessment 状态。",
+                blocking: false,
+                attachments: [{
+                    id: "vertical-canary-pixel",
+                    name: "vertical-canary.png",
+                    mediaType: "image/png",
+                    size: bytes.byteLength,
+                    content: new Blob([bytes], { type: "image/png" }),
+                }],
+            }, {
+                pathname: `/projects/${encodeURIComponent(config.projectId)}`,
+                surface: "project",
+                localDraftId,
+                submissionId: `FILMOS-SUBMISSION-${config.submissionUuid}`,
+                now: config.capturedAt,
+            });
+            draft = {
+                ...created,
+                context: { ...created.context, projectId: config.projectId },
+                contextSnapshot: {
+                    ...created.contextSnapshot,
+                    projectId: config.projectId,
+                    domainProjectId: config.projectId,
+                },
+            };
+            await persistDraft(draft);
+        }
+        if (config.phase === "seed") await saveIssueDraft(draft);
+        return reviewVerticalCanaryStatus(config);
+    };
 }
 
 export async function reviewCenterRequest<T>(operation: string, payload: Record<string, string> = {}) {
@@ -742,9 +840,10 @@ function blobBase64(blob: Blob) {
 }
 
 if (typeof window !== "undefined") {
+    installReviewVerticalCanary();
     const requestReplay = () => { void requestIssueDraftReplay().catch(() => undefined); };
     window.filmOSReplayReviewIssues = requestIssueDraftReplay;
-    window.setTimeout(requestReplay, 1_000);
+    if (window.filmOSReviewVerticalCanary?.phase !== "seed") window.setTimeout(requestReplay, 1_000);
     window.addEventListener("online", requestReplay);
     window.addEventListener("filmos:workbench-context", requestReplay);
     window.setInterval(requestReplay, 30_000);

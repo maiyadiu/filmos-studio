@@ -322,3 +322,35 @@ test("Architecture coordinator advances deterministic states without a model tur
         "FILMOS-ARCH-task:architecture/implementation/start",
     ]);
 });
+
+test("model-turn-disabled coordinator stops at assessment-ready without opening a subscription session", async () => {
+    const posts: Array<{ action: string; body: Record<string, unknown> }> = [];
+    const issue = {
+        issue_id: "FILMOS-ARCH-canary",
+        project_id: "project-canary",
+        lane: "architecture",
+        state: "ARCHITECTURE_ASSESSMENTS_PENDING",
+        coordination_key: "3".repeat(64),
+    };
+    const bus: ReviewBusCoordinatorPort = {
+        async pendingAll() { return [issue]; },
+        async pending() { return [issue]; },
+        async fullContext() { return { ...issue, assessment_receipts: {} }; },
+        async coordinationResult() { throw new Error("MUST_NOT_READ_RESULT"); },
+        async post(_issueId, action, body) { posts.push({ action, body }); return {}; },
+    };
+    const coordinator = new ReviewCodexCoordinator(
+        bus,
+        { async ensure() { throw new Error("MUST_NOT_CREATE_SESSION"); }, async run() { throw new Error("MUST_NOT_RUN"); } },
+        { async prepare() { throw new Error("MUST_NOT_PREPARE"); } },
+        () => ({}),
+        false,
+    );
+
+    await coordinator.tick();
+
+    assert.equal(posts.length, 1);
+    assert.equal(posts[0].action, "codex-coordination");
+    assert.equal(posts[0].body.status, "WAITING_EXTERNAL");
+    assert.equal(posts[0].body.last_action, "MODEL_TURN_DISABLED:LOCAL_ASSESSMENT");
+});
