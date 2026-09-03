@@ -38,6 +38,11 @@ case "$helper_name" in
         ;;
     FilmOSWeb)
         node_bin=$(tool node /opt/homebrew/bin/node)
+        python_bin="$source_root/.local/acceptance-venv/bin/python"
+        if [ ! -x "$python_bin" ]; then
+            echo "FILMOS_SOURCE_FILM_CORE_PYTHON_UNAVAILABLE" >&2
+            exit 1
+        fi
         case "${FILMOS_WEB_ADDR:-}" in
             127.0.0.1:[0-9]*) web_port=${FILMOS_WEB_ADDR##*:} ;;
             *) echo "FILMOS_SOURCE_WEB_INVALID_ADDR" >&2; exit 2 ;;
@@ -50,7 +55,7 @@ case "$helper_name" in
         export VITE_FILMOS_RELEASE_CHANNEL=development
         export VITE_FILMOS_EXTERNAL_PAID_SUBMIT_ENABLED=false
         profile_env="$runtime_root/profile.env"
-        "$source_root/scripts/agent_runtime_profile.py" shell --profile filmos-candidate > "$profile_env"
+        "$python_bin" "$source_root/scripts/agent_runtime_profile.py" shell --profile filmos-candidate > "$profile_env"
         # The generated file contains only fixed, non-secret feature flags.
         . "$profile_env"
         cd "$source_root/web"
@@ -84,7 +89,10 @@ case "$helper_name" in
         ;;
     FilmOSFilmCore)
         python_bin="$source_root/.local/acceptance-venv/bin/python"
-        if [ ! -x "$python_bin" ]; then python_bin=$(tool python3 /usr/local/bin/python3); fi
+        if [ ! -x "$python_bin" ]; then
+            echo "FILMOS_SOURCE_FILM_CORE_PYTHON_UNAVAILABLE" >&2
+            exit 1
+        fi
         export PYTHONPATH="$source_root/film-core/src${PYTHONPATH:+:$PYTHONPATH}"
         cd "$source_root"
         exec "$python_bin" desktop/macos/runtime/film-core-launcher.py

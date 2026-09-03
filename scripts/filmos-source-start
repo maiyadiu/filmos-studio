@@ -14,6 +14,8 @@ log_file="$runtime_root/source-host.log"
 web_url="http://127.0.0.1:43100"
 backend_url="http://127.0.0.1:43101/api/health"
 source_ports="43100 43101 17371 17650 17920"
+lifecycle_test_mode=${FILMOS_SOURCE_LIFECYCLE_TEST_MODE:-0}
+use_prepared_runtime=${FILMOS_SOURCE_USE_PREPARED_RUNTIME:-0}
 
 usage() {
     echo "usage: filmos-source-start [start|status|stop|prepare]" >&2
@@ -77,6 +79,12 @@ source_ports_free() {
     return 0
 }
 
+source_listener_pids() {
+    for port_number in $source_ports; do
+        /usr/sbin/lsof -nP -t -iTCP:"$port_number" -sTCP:LISTEN 2>/dev/null || true
+    done | /usr/bin/awk '!seen[$0]++'
+}
+
 terminate_verified_source_pids() {
     service_pids=$1
     verified_pids=""
@@ -130,6 +138,13 @@ release_start_lock() {
     rmdir "$start_lock" 2>/dev/null || true
 }
 
+release_owned_start_lock() {
+    owner_pid=$(lock_owner_pid)
+    if [ -n "$owner_pid" ] && [ "$owner_pid" = "$$" ]; then
+        release_start_lock
+    fi
+}
+
 claim_start_lock() {
     mkdir -p "$runtime_root"
     if mkdir "$start_lock" 2>/dev/null; then
@@ -146,6 +161,8 @@ claim_start_lock() {
     printf '%s\n' "$$" > "$start_lock_owner"
     chmod 600 "$start_lock_owner"
 }
+
+trap release_owned_start_lock EXIT HUP INT TERM
 
 assert_no_installed_app() {
     if /usr/bin/pgrep -f '/FilmOS Studio\.app/Contents/MacOS/FilmOSStudioDesktop$' >/dev/null 2>&1; then
@@ -166,7 +183,11 @@ require_tool() {
 
 prepare_runtime() {
     node_bin=$(require_tool node /opt/homebrew/bin/node)
-    python_bin=$(require_tool python3 /usr/local/bin/python3)
+    python_bin="$source_root/.local/acceptance-venv/bin/python"
+    if [ ! -x "$python_bin" ]; then
+        echo "FILMOS_SOURCE_FILM_CORE_PYTHON_UNAVAILABLE" >&2
+        exit 1
+    fi
     require_tool bun /opt/homebrew/bin/bun >/dev/null
     go_bin=$(require_tool go /opt/homebrew/bin/go)
     xcode_developer_dir=${FILMOS_XCODE_DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}
@@ -233,6 +254,35 @@ prepare_runtime() {
     "$node_bin" "$source_root/packages/filmos-review-contract/scripts/generate.mjs" --check
 }
 
+prepared_runtime_ready() {
+    [ -x "$runtime_root/Compiled/FilmOSBackend" ] || return 1
+    [ -f "$host_executable_file" ] || return 1
+    prepared_host=$(sed -n '1p' "$host_executable_file")
+    [ -n "$prepared_host" ] && [ -x "$prepared_host" ] || return 1
+    for helper in FilmOSBackend FilmOSWeb FilmOSLocalRuntime FilmOSCanvasAgentMCP FilmOSReviewBus FilmOSChatGPTMCP FilmOSChatGPTGrant FilmOSFilmCore; do
+        [ -x "$helpers/$helper" ] || return 1
+    done
+    for resource in InternalRuntime.json SourceIdentity.json DeveloperRepository.json FILMOS_CONSTITUTION.json; do
+        [ -r "$resources/$resource" ] || return 1
+    done
+    [ -L "$resources/Web" ] || return 1
+}
+
+prepare_or_verify_runtime() {
+    if [ "$use_prepared_runtime" = "1" ]; then
+        if [ "$lifecycle_test_mode" != "1" ]; then
+            echo "FILMOS_SOURCE_PREPARED_RUNTIME_TEST_ONLY" >&2
+            return 1
+        fi
+        if ! prepared_runtime_ready; then
+            echo "FILMOS_SOURCE_PREPARED_RUNTIME_INVALID" >&2
+            return 1
+        fi
+        return 0
+    fi
+    prepare_runtime
+}
+
 print_status() {
     if host_alive; then
         state=running
@@ -266,9 +316,13 @@ start_host() {
         echo "FilmOS Studio 源码端口已被其他进程占用；未启动或结束任何未知进程。" >&2
         exit 1
     fi
-    rm -f "$pid_file"
     claim_start_lock
-    prepare_runtime
+    rm -f "$pid_file"
+    if ! (prepare_or_verify_runtime); then
+        echo "FilmOS Studio 源码运行环境准备失败。" >&2
+        release_start_lock
+        exit 1
+    fi
     host_executable=$(sed -n '1p' "$host_executable_file")
     : > "$log_file"
     (
@@ -287,9 +341,11 @@ start_host() {
     echo "用户数据目录保持为: $HOME/Library/Application Support/FilmOS Studio"
     attempts=0
     while [ "$attempts" -lt 120 ]; do
-        if ! host_alive; then break; fi
+        if ! kill -0 "$launched_pid" 2>/dev/null; then break; fi
+        if /usr/bin/grep -q '^FilmOS startup failed:' "$log_file" 2>/dev/null; then break; fi
         if /usr/bin/curl -fsS --max-time 1 "$web_url" >/dev/null 2>&1 \
-            && /usr/bin/curl -fsS --max-time 1 "$backend_url" >/dev/null 2>&1; then
+            && /usr/bin/curl -fsS --max-time 1 "$backend_url" >/dev/null 2>&1 \
+            && host_process_matches "$launched_pid"; then
             print_status
             /usr/bin/osascript -e 'tell application "System Events" to set frontmost of first process whose unix id is '"$launched_pid"' to true' >/dev/null 2>&1 || true
             return
@@ -299,9 +355,9 @@ start_host() {
     done
     echo "FilmOS Studio 源码宿主未在时限内就绪。最近日志：" >&2
     tail -n 40 "$log_file" >&2 || true
-    descendant_pids=""
-    if host_alive; then
-        descendant_pids=$(collect_descendant_pids "$launched_pid")
+    descendant_pids=$(source_listener_pids)
+    if kill -0 "$launched_pid" 2>/dev/null; then
+        descendant_pids="$(collect_descendant_pids "$launched_pid") $descendant_pids"
         kill "$launched_pid"
         shutdown_attempts=0
         while kill -0 "$launched_pid" 2>/dev/null && [ "$shutdown_attempts" -lt 150 ]; do
@@ -314,8 +370,9 @@ start_host() {
         fi
     fi
     if ! wait_for_source_shutdown "$descendant_pids"; then
-        terminate_verified_source_pids "$descendant_pids" || exit 1
-        if ! wait_for_source_shutdown "$descendant_pids"; then
+        remaining_pids="$descendant_pids $(source_listener_pids)"
+        terminate_verified_source_pids "$remaining_pids" || exit 1
+        if ! wait_for_source_shutdown "$remaining_pids"; then
             echo "启动失败后的源码子服务仍未停止；未执行强制结束。" >&2
             exit 1
         fi
@@ -339,6 +396,7 @@ stop_host() {
             echo "FilmOS Studio 源码宿主未在时限内停止；已保留 PID 与启动锁，未执行强制结束。" >&2
             exit 1
         fi
+        descendant_pids="$descendant_pids $(source_listener_pids)"
         if ! wait_for_source_shutdown "$descendant_pids"; then
             terminate_verified_source_pids "$descendant_pids" || exit 1
             if ! wait_for_source_shutdown "$descendant_pids"; then
@@ -362,7 +420,11 @@ prepare_only() {
         exit 1
     fi
     claim_start_lock
-    prepare_runtime
+    if ! (prepare_runtime); then
+        echo "FilmOS Studio 源码运行环境准备失败。" >&2
+        release_start_lock
+        exit 1
+    fi
     release_start_lock
     print_status
 }
