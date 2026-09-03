@@ -34,8 +34,6 @@ const authorityCreatedAt = "2026-08-31T00:00:00.000Z";
 const authorityExpiresAt = "2099-01-01T00:00:00.000Z";
 const connectionInstanceRef = "filmos_instance_33333333-3333-4333-8333-333333333333";
 
-export type { AcceptanceMockBindings } from "./acceptance-production-contract";
-
 export function isAcceptanceProductionProject(input: { projectId: string; domainProjectId?: string; projectName: string }): boolean {
     return input.projectName === FILMOS_ACCEPTANCE_PROJECT_NAME
         && (input.projectId === FILMOS_ACCEPTANCE_PROJECT_ID || input.domainProjectId === FILMOS_ACCEPTANCE_PROJECT_ID);

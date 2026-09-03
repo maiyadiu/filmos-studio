@@ -55,8 +55,12 @@ describe("generation-routing dependency graph", () => {
 
     test("AcceptanceMockBindings lives in a type-only neutral contract", () => {
         const contract = fs.readFileSync(path.join(routingRoot, "acceptance-production-contract.ts"), "utf8");
+        const runtime = fs.readFileSync(path.join(routingRoot, "acceptance-production-runtime.ts"), "utf8");
+        const composer = fs.readFileSync(path.resolve(routingRoot, "../../components/canvas/canvas-config-composer.tsx"), "utf8");
         expect(contract).toContain("export type AcceptanceMockBindings");
         expect(contract).not.toMatch(/\bexport\s+(?:const|function|class)\b/);
         expect(contract.match(/^import\s+(?!type\b)/gm) ?? []).toEqual([]);
+        expect(runtime).not.toContain('export type { AcceptanceMockBindings }');
+        expect(composer).toContain('import type { AcceptanceMockBindings } from "@/film/generation-routing/acceptance-production-contract"');
     });
 });
