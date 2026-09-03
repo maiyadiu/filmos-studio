@@ -22,6 +22,7 @@ final class DesktopChatGPTRuntime: ChatGPTConnectionOperating {
     private let tunnelPIDFileURL: URL
     private let reviewBusHealthURL: URL
     private let installedSourceIdentity: [String: Any]
+    private let helperProcessEnvironment: [String: String]
     private let filmCorePort: Int
     private let chatGPTMCPPort: Int
     private var startedServices: Set<ServiceID> = []
@@ -48,6 +49,10 @@ final class DesktopChatGPTRuntime: ChatGPTConnectionOperating {
         self.tokenStore = tokenStore
         self.reviewBusHealthURL = reviewBusHealthURL
         installedSourceIdentity = try Self.loadInstalledSourceIdentity(from: sourceIdentityURL)
+        helperProcessEnvironment = Dictionary(uniqueKeysWithValues: [
+            "FILMOS_DESKTOP_SOURCE_ROOT",
+            "FILMOS_DESKTOP_SOURCE_RUNTIME_ROOT",
+        ].compactMap { key in baseEnvironment[key].map { (key, $0) } })
         self.filmCorePort = filmCorePort
         self.chatGPTMCPPort = chatGPTMCPPort
         tunnelClientURL = helpersDirectory.appendingPathComponent("tunnel-client")
@@ -580,6 +585,7 @@ final class DesktopChatGPTRuntime: ChatGPTConnectionOperating {
         let executable = grantCLIURL
         let workingDirectory = runtimeDirectory
         var environment = Self.safeBaseEnvironment()
+        environment.merge(helperProcessEnvironment) { _, helper in helper }
         environment["FILMOS_CHATGPT_LOCAL_DIR"] = mcpDirectory.path
         let output = try await Task.detached(priority: .userInitiated) {
             try Self.runCapturedProcess(
@@ -607,6 +613,7 @@ final class DesktopChatGPTRuntime: ChatGPTConnectionOperating {
         let executable = grantCLIURL
         let workingDirectory = runtimeDirectory
         var environment = Self.safeBaseEnvironment()
+        environment.merge(helperProcessEnvironment) { _, helper in helper }
         environment["FILMOS_CHATGPT_LOCAL_DIR"] = mcpDirectory.path
         _ = try await Task.detached(priority: .userInitiated) {
             try Self.runCapturedProcess(executable: executable, arguments: ["revoke", grantID], environment: environment, workingDirectory: workingDirectory)

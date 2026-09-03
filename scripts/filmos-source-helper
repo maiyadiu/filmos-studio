@@ -7,7 +7,18 @@ runtime_root=${FILMOS_DESKTOP_SOURCE_RUNTIME_ROOT:-}
 
 case "$source_root:$runtime_root" in
     /*:/*) ;;
-    *) echo "FILMOS_SOURCE_HELPER_INVALID_ROOT" >&2; exit 2 ;;
+    *)
+        inferred_runtime_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." 2>/dev/null && pwd) || {
+            echo "FILMOS_SOURCE_HELPER_INVALID_ROOT" >&2
+            exit 2
+        }
+        inferred_source_root=$(CDPATH= cd -- "$inferred_runtime_root/../.." 2>/dev/null && pwd) || {
+            echo "FILMOS_SOURCE_HELPER_INVALID_ROOT" >&2
+            exit 2
+        }
+        source_root=$inferred_source_root
+        runtime_root=$inferred_runtime_root
+        ;;
 esac
 if [ ! -f "$source_root/web/package.json" ] || [ ! -f "$source_root/backend/go.mod" ]; then
     echo "FILMOS_SOURCE_HELPER_INVALID_SOURCE" >&2

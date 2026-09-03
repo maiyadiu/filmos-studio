@@ -10,6 +10,7 @@ before_scope="$runtime_root/test-project-scope-before.txt"
 after_scope="$runtime_root/test-project-scope-after.txt"
 was_running=false
 test_finished=false
+grant_probe_root=
 if [ -x /opt/homebrew/bin/node ]; then
     node_bin=/opt/homebrew/bin/node
 else
@@ -21,6 +22,9 @@ if "$launcher" status | /usr/bin/grep -q 'state=running'; then
 fi
 
 restore_runtime() {
+    case "$grant_probe_root" in
+        "${TMPDIR%/}"/filmos-source-grant.*) [ -d "$grant_probe_root" ] && find "$grant_probe_root" -depth -delete ;;
+    esac
     if [ "$test_finished" = false ]; then
         "$launcher" stop >/dev/null 2>&1 || true
     fi
@@ -41,6 +45,28 @@ if [ -f "$canonical_db" ]; then
 fi
 
 "$launcher" prepare >/dev/null
+
+grant_probe_root=$(mktemp -d "${TMPDIR%/}/filmos-source-grant.XXXXXX")
+FILMOS_CHATGPT_LOCAL_DIR="$grant_probe_root" \
+"$runtime_root/Helpers/FilmOSChatGPTGrant" \
+    issue source-host-project-probe filmos-source-host-test 1 \
+    > "$grant_probe_root/issued.json"
+chmod 600 "$grant_probe_root/issued.json"
+"$node_bin" - "$grant_probe_root/issued.json" "$grant_probe_root/grants.json" <<'NODE'
+const { readFileSync } = require("node:fs");
+const [issuedPath, grantsPath] = process.argv.slice(2);
+const issued = JSON.parse(readFileSync(issuedPath, "utf8"));
+const grants = JSON.parse(readFileSync(grantsPath, "utf8"));
+if (issued.project_id !== "source-host-project-probe"
+    || typeof issued.grant_id !== "string"
+    || typeof issued.token !== "string"
+    || grants.length !== 1
+    || grants[0].project_id !== issued.project_id) {
+  throw new Error("SOURCE_GRANT_HELPER_FAILED");
+}
+NODE
+find "$grant_probe_root" -depth -delete
+grant_probe_root=
 
 if find "$runtime_root" -type d -name '*.app' -print | /usr/bin/grep -q .; then
     echo "SOURCE_HOST_CREATED_APP_BUNDLE" >&2
