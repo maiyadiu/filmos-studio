@@ -306,6 +306,36 @@ struct ChatGPTConnectionManagerTests {
     }
 
     @Test
+    func expiringGrantWaitsForTheFinalTunnelRestartBeforeRepublishingContext() async throws {
+        let operations = FakeConnectionOperations()
+        let manager = ChatGPTConnectionManager(
+            operations: operations,
+            tokenStore: MemoryTokenStore(),
+            preferences: MemoryConnectionPreferences(),
+            backoff: ReconnectBackoff(delays: [0.005]),
+            monitorInterval: 0.05
+        )
+        try await manager.connect(tunnelID: "tunnel_12345678", runtimeKey: "runtime", projectID: "host-project-1")
+        let context = Data("{\"project_id\":\"host-project-1\",\"canvas_id\":\"canvas-1\"}".utf8)
+        try await manager.updateWorkbenchContext(context)
+        let initialPublishes = operations.publishContextCount
+
+        operations.health.grantExpiresAt = Date().addingTimeInterval(120)
+        operations.health.mcpInstanceID = "mcp-instance-after-renewal"
+        operations.renewGrantOnPrepare = true
+        operations.delayedTunnelReadyAfterEachStart = .milliseconds(20)
+        let republished = await waitUntil(timeout: .seconds(3)) {
+            operations.publishContextCount > initialPublishes
+                && operations.publishedContext == context
+                && manager.snapshot.state != .tunnelFailed
+        }
+
+        #expect(republished)
+        #expect(operations.startCount >= 3)
+        manager.disconnect()
+    }
+
+    @Test
     func projectSwitchKeepsGlobalTunnelConfigButRotatesTheActiveHostSession() async throws {
         let operations = FakeConnectionOperations()
         let preferences = MemoryConnectionPreferences()
@@ -514,6 +544,7 @@ private final class FakeConnectionOperations: ChatGPTConnectionOperating {
     var publishedHandoff: Data?
     var publishedChallengeID: String?
     var publishContextCount = 0
+    var delayedTunnelReadyAfterEachStart: Duration?
 
     func prepareLocalServices(projectID: String, transportProof: String) async throws {
         prepareCount += 1
@@ -538,7 +569,17 @@ private final class FakeConnectionOperations: ChatGPTConnectionOperating {
         startCount += 1
         lastRuntimeKey = runtimeKey
         lastTunnelArgumentsContainRuntimeKey = false
-        health.tunnelReady = true
+        if let delayedTunnelReadyAfterEachStart {
+            let generation = startCount
+            health.tunnelReady = false
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: delayedTunnelReadyAfterEachStart)
+                guard let self, self.startCount == generation else { return }
+                self.health.tunnelReady = true
+            }
+        } else {
+            health.tunnelReady = true
+        }
         if makeTunnelReadyOnNextStart {
             health.tunnelReady = true
             makeTunnelReadyOnNextStart = false

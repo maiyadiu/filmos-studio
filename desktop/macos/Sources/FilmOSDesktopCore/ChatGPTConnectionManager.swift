@@ -752,6 +752,10 @@ public final class ChatGPTConnectionManager {
                     continue
                 }
                 attempt += 1
+                // A successful process start is not yet tunnel readiness. Give
+                // the final bounded retry one health-observation interval before
+                // declaring the reconnect budget exhausted.
+                try? await Task.sleep(for: .seconds(self.monitorInterval))
             }
         }
     }
