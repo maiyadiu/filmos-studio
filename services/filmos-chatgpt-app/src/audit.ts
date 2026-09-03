@@ -12,6 +12,7 @@ export type AuditRecord = {
   outcome: "ALLOW" | "DENY" | "ERROR";
   result_size: number;
   output_hash?: string;
+  context_receipt_id?: string;
   code?: string;
   challenge_id?: string;
   request_id?: string;

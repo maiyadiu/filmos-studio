@@ -43,6 +43,11 @@ test("ChatGPT Review MCP registry is strictly read-only and preserves the blind 
       assert.deepEqual(tool._meta?.securitySchemes, [{ type: "noauth" }]);
       assert.deepEqual(tool._meta?.["openai/securitySchemes"], [{ type: "noauth" }]);
     }
+    const evidenceTool = listed.tools.find((item) => item.name === "issue_get_evidence");
+    assert.equal((evidenceTool?.inputSchema.properties?.expected_project_id as { type?: string } | undefined)?.type, "string");
+    assert.equal((evidenceTool?.inputSchema.properties?.expected_project_id as { minLength?: number } | undefined)?.minLength, 1);
+    assert.equal((evidenceTool?.inputSchema.properties?.expected_project_id as { maxLength?: number } | undefined)?.maxLength, 256);
+    assert.equal(evidenceTool?.inputSchema.required?.includes("expected_project_id"), false);
     assert.equal(reviewNames.some((name) => /write|apply|approve|close|submit/.test(name)), false);
     const blind = await client.callTool({ name: "issue_get_codex_assessment_blind", arguments: { issue_id: "FILMOS-ISSUE-test" } }) as any;
     assert.equal(blind.structuredContent.counterpart_assessment, null);
@@ -53,6 +58,17 @@ test("ChatGPT Review MCP registry is strictly read-only and preserves the blind 
     } }) as any;
     assert.equal(denied.isError, true);
     assert.equal(JSON.parse(denied.content[0].text).code, "PROJECT_SCOPE_DENIED");
+    assert.equal(denied.structuredContent.error_code, "PROJECT_SCOPE_DENIED");
+    for (const leakedField of ["read_only", "project_id", "evidence", "submission", "manifest"]) {
+      assert.equal(JSON.stringify(denied).toLowerCase().includes(leakedField), false);
+    }
+    const invalid = await client.callTool({ name: "issue_get_evidence", arguments: {
+      issue_id: "FILMOS-ISSUE-test",
+      expected_project_id: "",
+    } }) as any;
+    assert.equal(invalid.isError, true);
+    assert.equal(invalid.structuredContent, undefined);
+    assert.match(invalid.content[0].text, /Invalid arguments for tool issue_get_evidence/);
     assert.deepEqual(calls, [{ tool: "issue_get_codex_assessment_blind", project: projectA }]);
     assert.ok(audit.records.some((record) => record.action === "issue_get_codex_assessment_blind" && record.project_id === projectA && record.outcome === "ALLOW"));
     assert.ok(audit.records.some((record) => record.action === "issue_get_evidence" && record.project_id === projectA && record.outcome === "DENY" && record.code === "PROJECT_SCOPE_DENIED"));

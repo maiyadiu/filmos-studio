@@ -33,7 +33,7 @@ test("native Agent handoff exposes only the current Project Grant and Secure Tun
   const authorization = `Bearer ${issued.token}`;
   const health = await (await fetch(`${baseUrl}/health`)).json() as any;
   assert.match(health.mcp_instance_id, /^[0-9a-f-]{36}$/);
-  const contextReceiptId = "context-receipt-001";
+  const contextReceiptId = `filmos-live:${"f".repeat(64)}`;
   const context = {
     project_id: projectA,
     content_unit_id: "unit-a",
@@ -68,6 +68,10 @@ test("native Agent handoff exposes only the current Project Grant and Secure Tun
   });
   assert.equal(published.status, 200);
   assert.equal((await published.json() as any).context_receipt_id, contextReceiptId);
+  const publishAudit = audit.records.find((record) => record.action === "handoff.live_context.publish") as any;
+  assert.equal(publishAudit.output_hash, context.canvas_state_hash);
+  assert.equal(publishAudit.context_receipt_id, contextReceiptId);
+  assert.equal(publishAudit.challenge_id, challenge);
 
   const handoff = await fetch(`${baseUrl}/handoff/pending-agent`, {
     method: "POST",
@@ -113,6 +117,9 @@ test("native Agent handoff exposes only the current Project Grant and Secure Tun
     assert.equal(live.structuredContent.source_identity.git_commit_sha, "c".repeat(40));
     assert.equal(live.structuredContent.project_grant_id, issued.grant.grant_id);
     assert.equal(live.structuredContent.challenge_id, challenge);
+    assert.equal(live.structuredContent.context_receipt_id, contextReceiptId);
+    assert.equal(live.structuredContent.canvas_state_hash, context.canvas_state_hash);
+    assert.notEqual(live.structuredContent.context_receipt_id, `workbench:${live.structuredContent.canvas_state_hash}`);
     assert.deepEqual(live.structuredContent.binding, {
       project_id: projectA,
       project_grant_id: issued.grant.grant_id,

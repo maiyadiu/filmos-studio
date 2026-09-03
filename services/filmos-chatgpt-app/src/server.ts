@@ -264,7 +264,17 @@ export function createFilmOSChatGPTApp(options: FilmOSChatGPTAppOptions) {
       assertExactKeys(req.body, ["challenge_id", "context"]);
       const context = hostContext.publishContext(authorization.grant, String(req.body.challenge_id || ""), req.body.context);
       const body = { accepted: true, project_id: authorization.grant.project_id, context_receipt_id: context.context_receipt_id, expires_at: context.expires_at };
-      await options.audit.write(auditRecord({ correlation_id: randomUUID(), action: "handoff.live_context.publish", grant_id: authorization.grant.grant_id, project_id: authorization.grant.project_id, outcome: "ALLOW", output_hash: context.canvas_state_hash, result_size: byteSize(body) }));
+      await options.audit.write(auditRecord({
+        correlation_id: randomUUID(),
+        action: "handoff.live_context.publish",
+        grant_id: authorization.grant.grant_id,
+        project_id: authorization.grant.project_id,
+        outcome: "ALLOW",
+        output_hash: context.canvas_state_hash,
+        context_receipt_id: context.context_receipt_id,
+        challenge_id: String(req.body.challenge_id),
+        result_size: byteSize(body),
+      }));
       return res.json(body);
     } catch (error) {
       const code = error instanceof Error && "code" in error ? String((error as { code: unknown }).code) : "INVALID_LIVE_CONTEXT";

@@ -56,8 +56,13 @@ export function registerReviewReadTools(server: McpServer, source: ReviewReadSou
         await audit.write(auditRecord({ correlation_id: randomUUID(), action: name, grant_id: grant.grant_id, project_id: grant.project_id, outcome: "ALLOW", output_hash: outputHash, result_size: Buffer.byteLength(JSON.stringify(value)) }));
         return { structuredContent: value, content: [{ type: "text" as const, text: `Read-only FilmOS Review Bus result ${outputHash}` }] };
       } catch (error) {
-        await audit.write(auditRecord({ correlation_id: randomUUID(), action: name, grant_id: grant.grant_id, project_id: grant.project_id, outcome: error instanceof SecurityBoundaryError ? "DENY" : "ERROR", result_size: 0, code: (error as { code?: string }).code ?? "REVIEW_BUS_READ_FAILED" }));
-        return { isError: true, content: [{ type: "text" as const, text: JSON.stringify({ code: (error as { code?: string }).code ?? "REVIEW_BUS_READ_FAILED", message: error instanceof Error ? error.message : "Review Bus read failed" }) }] };
+        const code = (error as { code?: string }).code ?? "REVIEW_BUS_READ_FAILED";
+        await audit.write(auditRecord({ correlation_id: randomUUID(), action: name, grant_id: grant.grant_id, project_id: grant.project_id, outcome: error instanceof SecurityBoundaryError ? "DENY" : "ERROR", result_size: 0, code }));
+        return {
+          isError: true,
+          structuredContent: { error_code: code },
+          content: [{ type: "text" as const, text: JSON.stringify({ code, message: error instanceof Error ? error.message : "Review Bus read failed" }) }],
+        };
       }
     });
   }

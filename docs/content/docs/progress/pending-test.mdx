@@ -19,6 +19,8 @@ description: 影策已实现功能的手工验证清单与未确认边界
 - [x] Runtime Key 仅通过 macOS Keychain 保存，不进入参数、偏好设置、日志、诊断或 Acceptance Artifact。
 - [x] Film Core、FilmOS MCP、Project Grant 与官方 Tunnel Client 由同一 `ServiceSupervisor` 管理，支持启动、有界重连和 App 退出清理。
 - [x] Project Grant 续期并轮换 MCP 后，连接监控会等待最后一次 Tunnel 重启的真实就绪状态，再自动重放同项目工作台上下文；确定性 Swift 回归测试已覆盖延迟就绪边界。
+- [x] External Activation 交接生成器分别绑定 `canvas_state_hash` 与当前 `filmos-live:*` Receipt，并要求 Live Context 顶层、binding 与 Blockers 三处 Receipt 精确一致；旧 Grant/Challenge 的交接失败关闭。
+- [x] `issue_get_evidence` 的公开 Schema 固定声明可选 `expected_project_id`；错误项目同时返回文本 `PROJECT_SCOPE_DENIED` 与结构化错误码，SDK 参数格式错误仍走 `INVALID_ARGUMENT`。
 - [x] MCP 继续暴露 20 个只读工具、0 个写工具；`NO-OPENAI-MODEL-API-001` 禁止所有 OpenAI 模型推理 API 路径。
 - [x] Tunnel 连通与 ChatGPT 真正读到 FilmOS 分轴记录；只有带短期 Transport Proof 的真实 MCP 读取才能记录 Challenge、Request ID、Tool、Project Scope 和 Result Hash。
 - [ ] 在已关联 Tunnel 权限的 OpenAI 账号中完成首次 Runtime Key 录入，确认界面到达 `WAITING_FOR_CHATGPT`。
