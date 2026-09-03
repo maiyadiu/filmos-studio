@@ -1,5 +1,5 @@
 import type { ProviderTaskReceipt, ProductionAuthorizationBundle, ProductionCandidate, ProductionGenerationAuthority, ProductionPreviewBundle, ProductionTraceEvent } from "./production-composition";
-import type { AcceptanceMockBindings } from "./acceptance-production-runtime";
+import type { AcceptanceMockBindings } from "./acceptance-production-contract";
 
 const DEFAULT_FILM_CORE_BASE_URL = "http://127.0.0.1:17650/film";
 
