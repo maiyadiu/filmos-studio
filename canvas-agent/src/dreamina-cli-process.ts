@@ -121,6 +121,18 @@ export async function runDreaminaProcess(
             );
         };
         const onAbort = () => stop(new DreaminaCliError("dreamina_cancelled", "Dreamina 操作已取消", 499));
+        const startTimeout = () => {
+            if (settled || stopping || timer) return;
+            timer = setTimeout(
+                () => stop(new DreaminaCliError(
+                    "dreamina_command_timeout",
+                    "Dreamina 操作超时，相关进程已清理",
+                    504,
+                )),
+                request.timeoutMs,
+            );
+            timer.unref();
+        };
         const completeFromOutput = () => {
             if (settled || stopping || !request.completeOnJsonOutput) return;
             const value = acceptedJsonOutput(Buffer.concat(stdout).toString("utf8"), request.completeOnJsonOutput);
@@ -172,6 +184,10 @@ export async function runDreaminaProcess(
                 finish(new DreaminaCliError("dreamina_spawn_failed", "无法启动 Dreamina CLI", 503));
             }
         });
+        child.once("spawn", () => {
+            startTimeout();
+            if (child.pid) request.onSpawn?.(child.pid);
+        });
         child.once("close", (exitCode) => {
             childClosed = true;
             resolveChildClosed();
@@ -184,16 +200,6 @@ export async function runDreaminaProcess(
             }
         });
         request.signal?.addEventListener("abort", onAbort, { once: true });
-        timer = setTimeout(
-            () => stop(new DreaminaCliError(
-                "dreamina_command_timeout",
-                "Dreamina 操作超时，相关进程已清理",
-                504,
-            )),
-            request.timeoutMs,
-        );
-        timer.unref();
-        if (child.pid) request.onSpawn?.(child.pid);
         if (request.signal?.aborted) onAbort();
     });
 }
