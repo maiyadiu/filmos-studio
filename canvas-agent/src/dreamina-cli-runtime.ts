@@ -59,6 +59,20 @@ export type DreaminaRuntimeRunOptions = {
     clientOperationId?: string;
     taskContext?: DreaminaTaskContext;
 };
+export type DreaminaQueryTraceEvent = {
+    session_id: string;
+    query_epoch: number;
+    event: "poll_scheduled" | "status_started" | "status_consumed" | "poll_cancelled" | "cli_exit" | "finalize";
+    submit_id_sha256: string;
+    status_started: 0 | 1;
+    status_consumed: 0 | 1;
+    poll_scheduled: 0 | 1;
+    poll_cancelled: 0 | 1;
+    cli_exit: 0 | 1;
+    finalize: 0 | 1;
+    active_readers: number;
+    max_concurrent_readers: number;
+};
 export type DreaminaPublicGenerationTask = {
     id: string;
     clientOperationId?: string;
@@ -100,6 +114,7 @@ export type DreaminaCliRuntimeOptions = {
     scheduleDurableReload?: (callback: () => void, delayMs: number) => { cancel(): void };
     durableReloadIntervalMs?: number;
     onQueueHeartbeatWait?: (event: "started" | "settled", key: string) => void;
+    onQueryTrace?: (event: DreaminaQueryTraceEvent) => void;
     taskStore?: DreaminaTaskStore;
     taskProjector?: DreaminaTaskProjector;
     artifactStore?: DreaminaProviderArtifactStore;
@@ -133,6 +148,22 @@ type PreparedAsyncTask = {
 
 type EnqueueInFlight = { requestHash: string; promise: Promise<DreaminaPublicGenerationTask> };
 type SubmissionReservation = { reservationId: string; reservationOwnerId: string };
+type StatusQueryEpoch = {
+    sessionId: string;
+    queryEpoch: number;
+    submitIdSha256: string;
+    promise: Promise<DreaminaRuntimeQueryResult>;
+    controller: AbortController;
+    waiters: number;
+    settled: boolean;
+    statusStarted: 0 | 1;
+    statusConsumed: 0 | 1;
+    pollScheduled: 0 | 1;
+    pollCancelled: 0 | 1;
+    cliExit: 0 | 1;
+    finalized: 0 | 1;
+    maxConcurrentReaders: number;
+};
 
 function encodeTaskListCursor(updatedAt: string, id: string) {
     return Buffer.from(JSON.stringify([updatedAt, id]), "utf8").toString("base64url");
@@ -169,6 +200,7 @@ export class DreaminaCliRuntime {
     private readonly inFlight = new Map<string, InFlightSubmission>();
     private readonly asyncTasks = new Map<string, PreparedAsyncTask>();
     private readonly enqueueInFlight = new Map<string, EnqueueInFlight>();
+    private readonly statusQueries = new Map<string, StatusQueryEpoch>();
     private readonly queue: string[] = [];
     private readonly activeTasks = new Set<string>();
     private readonly queueHeartbeats = new Map<string, () => Promise<void>>();
@@ -183,7 +215,11 @@ export class DreaminaCliRuntime {
     private readonly scheduleDurableReload: NonNullable<DreaminaCliRuntimeOptions["scheduleDurableReload"]>;
     private readonly durableReloadIntervalMs: number;
     private readonly onQueueHeartbeatWait?: NonNullable<DreaminaCliRuntimeOptions["onQueueHeartbeatWait"]>;
+    private readonly onQueryTrace?: NonNullable<DreaminaCliRuntimeOptions["onQueryTrace"]>;
     private readonly queryShutdown = new AbortController();
+    private readonly querySessionId = crypto.randomUUID();
+    private nextQueryEpoch = 1;
+    private activeStatusReaders = 0;
     private loadPromise?: Promise<void>;
     private enqueueSerial: Promise<void> = Promise.resolve();
     private recoveryStarted = false;
@@ -246,6 +282,7 @@ export class DreaminaCliRuntime {
         });
         this.durableReloadIntervalMs = boundedInteger(options.durableReloadIntervalMs, 5, 5_000, 250);
         this.onQueueHeartbeatWait = options.onQueueHeartbeatWait;
+        this.onQueryTrace = options.onQueryTrace;
         this.reconciler = options.reconciler ?? new DreaminaTaskReconciler({
             ownerId: this.ownerId,
             stateFile: this.stateFile,
@@ -497,6 +534,7 @@ export class DreaminaCliRuntime {
         await Promise.allSettled([...this.queueHeartbeats.keys()].map((key) => this.stopQueueHeartbeat(key)));
         await this.failOwnedQueuedTasksOnDispose();
         await this.reconciler.dispose();
+        await Promise.allSettled([...this.statusQueries.values()].map((query) => query.promise));
         for (const task of this.asyncTasks.values()) task.controller.abort();
         await Promise.allSettled([...this.asyncTasks.values()].map(async (task) => {
             const pending: Promise<unknown>[] = [];
@@ -1307,7 +1345,95 @@ export class DreaminaCliRuntime {
         }
     }
 
-    private async query(
+    private query(
+        submitId: string,
+        signal?: AbortSignal,
+        downloadDirectory?: string,
+        accountBinding?: string,
+    ): Promise<DreaminaRuntimeQueryResult> {
+        if (downloadDirectory) {
+            return this.executeQuery(submitId, signal, downloadDirectory, accountBinding);
+        }
+        throwIfCancelled(signal);
+        const key = `${accountBinding ?? "legacy-unbound"}\0${submitId}`;
+        const current = this.statusQueries.get(key);
+        if (current) return subscribeToStatusQuery(current, signal);
+
+        const epoch: StatusQueryEpoch = {
+            sessionId: this.querySessionId,
+            queryEpoch: this.nextQueryEpoch++,
+            submitIdSha256: crypto.createHash("sha256").update(submitId).digest("hex"),
+            promise: undefined as unknown as Promise<DreaminaRuntimeQueryResult>,
+            controller: new AbortController(),
+            waiters: 0,
+            settled: false,
+            statusStarted: 0,
+            statusConsumed: 0,
+            pollScheduled: 1,
+            pollCancelled: 0,
+            cliExit: 0,
+            finalized: 0,
+            maxConcurrentReaders: 0,
+        };
+        this.emitQueryTrace(epoch, "poll_scheduled");
+        epoch.promise = Promise.resolve()
+            .then(() => this.executeStatusQueryEpoch(epoch, submitId, accountBinding))
+            .finally(() => {
+                epoch.settled = true;
+                epoch.pollCancelled = 1;
+                this.emitQueryTrace(epoch, "poll_cancelled");
+                if (this.statusQueries.get(key) === epoch) this.statusQueries.delete(key);
+                epoch.finalized = 1;
+                this.emitQueryTrace(epoch, "finalize");
+            });
+        this.statusQueries.set(key, epoch);
+        return subscribeToStatusQuery(epoch, signal);
+    }
+
+    private async executeStatusQueryEpoch(
+        epoch: StatusQueryEpoch,
+        submitId: string,
+        accountBinding?: string,
+    ) {
+        this.activeStatusReaders += 1;
+        epoch.maxConcurrentReaders = Math.max(epoch.maxConcurrentReaders, this.activeStatusReaders);
+        epoch.statusStarted = 1;
+        this.emitQueryTrace(epoch, "status_started");
+        try {
+            const result = await this.executeQuery(submitId, epoch.controller.signal, undefined, accountBinding);
+            epoch.statusConsumed = 1;
+            this.emitQueryTrace(epoch, "status_consumed");
+            return result;
+        } finally {
+            this.activeStatusReaders -= 1;
+            epoch.cliExit = 1;
+            this.emitQueryTrace(epoch, "cli_exit");
+        }
+    }
+
+    private emitQueryTrace(epoch: StatusQueryEpoch, event: DreaminaQueryTraceEvent["event"]) {
+        if (!this.onQueryTrace) return;
+        try {
+            this.onQueryTrace({
+                session_id: epoch.sessionId,
+                query_epoch: epoch.queryEpoch,
+                event,
+                submit_id_sha256: epoch.submitIdSha256,
+                status_started: epoch.statusStarted,
+                status_consumed: epoch.statusConsumed,
+                poll_scheduled: epoch.pollScheduled,
+                poll_cancelled: epoch.pollCancelled,
+                cli_exit: epoch.cliExit,
+                finalize: epoch.finalized,
+                active_readers: this.activeStatusReaders,
+                max_concurrent_readers: epoch.maxConcurrentReaders,
+            });
+        } catch {
+            // Diagnostics must never change the provider state machine.
+        }
+    }
+
+    private async executeQuery(
         submitId: string,
         signal?: AbortSignal,
         downloadDirectory?: string,
@@ -1991,6 +2117,31 @@ function subscribeToSubmission(submission: InFlightSubmission, signal?: AbortSig
         };
         signal?.addEventListener("abort", onAbort, { once: true });
         submission.promise.then(
+            (value) => { if (finish()) resolve(value); },
+            (error) => { if (finish()) reject(error); },
+        );
+        if (signal?.aborted) onAbort();
+    });
+}
+
+function subscribeToStatusQuery(query: StatusQueryEpoch, signal?: AbortSignal) {
+    throwIfCancelled(signal);
+    query.waiters += 1;
+    return new Promise<DreaminaRuntimeQueryResult>((resolve, reject) => {
+        let finished = false;
+        const finish = () => {
+            if (finished) return false;
+            finished = true;
+            signal?.removeEventListener("abort", onAbort);
+            query.waiters -= 1;
+            if (query.waiters === 0 && !query.settled) query.controller.abort();
+            return true;
+        };
+        const onAbort = () => {
+            if (finish()) reject(cancelled());
+        };
+        signal?.addEventListener("abort", onAbort, { once: true });
+        query.promise.then(
             (value) => { if (finish()) resolve(value); },
             (error) => { if (finish()) reject(error); },
         );
