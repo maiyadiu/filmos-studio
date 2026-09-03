@@ -48,8 +48,15 @@ export function registerReviewReadTools(server: McpServer, source: ReviewReadSou
     }, async (input, extra) => {
       try {
         const argumentsObject = input as { issue_id?: string; expected_project_id?: string };
-        if (takesIssue && typeof argumentsObject.expected_project_id === "string" && argumentsObject.expected_project_id !== grant.project_id) {
-          throw new SecurityBoundaryError("PROJECT_SCOPE_DENIED", "Expected project does not match the current Project Grant");
+        if (takesIssue && typeof argumentsObject.expected_project_id === "string") {
+          const normalizedExpectedProjectId = argumentsObject.expected_project_id.trim();
+          if (!normalizedExpectedProjectId) {
+            throw Object.assign(new Error("expected_project_id must not be blank"), { code: "INVALID_ARGUMENT" });
+          }
+          argumentsObject.expected_project_id = normalizedExpectedProjectId;
+          if (normalizedExpectedProjectId !== grant.project_id) {
+            throw new SecurityBoundaryError("PROJECT_SCOPE_DENIED", "Expected project does not match the current Project Grant");
+          }
         }
         const value = await source.read(name, argumentsObject as Record<string, unknown>, grant.project_id, extra.signal);
         const outputHash = sha256(value);
