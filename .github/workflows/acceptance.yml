@@ -47,10 +47,17 @@ permissions:
 jobs:
   rc-local:
     name: Reproducible Local Acceptance
-    runs-on: macos-14
+    runs-on: macos-26
     timeout-minutes: 90
     env:
-      FILMOS_DESKTOP_SWIFT_VERSION: "6.0.3"
+      FILMOS_XCODE_PRODUCT_VERSION: "26.6"
+      FILMOS_XCODE_BUILD: "17F113"
+      FILMOS_DESKTOP_SWIFT_VERSION: "6.3.3"
+      FILMOS_SWIFT_TARGET: "arm64-apple-macosx26.0"
+      FILMOS_MACOS_SDK_VERSION: "26.5"
+      FILMOS_MACOS_SDK_BUILD: "25F70"
+      FILMOS_XCODE_DEVELOPER_DIR: "/Applications/Xcode_26.6.app/Contents/Developer"
+      FILMOS_RUNNER_IMAGE: "macos-26"
     steps:
       - uses: actions/checkout@v4
         with:
@@ -72,21 +79,18 @@ jobs:
             packages/filmos-tool-contracts/package-lock.json
             services/filmos-chatgpt-app/package-lock.json
 
-      # Package.swift and the Desktop test target use the Swift 6 toolchain and
-      # Swift Testing. Pin the same compiler used by the formal unsigned app build.
-      - uses: swift-actions/setup-swift@7ca6abe6b3b0e8b5421b88be48feee39cbf52c6a
-        with:
-          swift-version: ${{ env.FILMOS_DESKTOP_SWIFT_VERSION }}
-
-      - name: Establish formal Desktop Swift and Apple C toolchains
+      - name: Establish formal Xcode, Swift Testing and Apple C toolchains
         shell: bash
         run: |
           set -euo pipefail
-          swift --version
+          test -d "$FILMOS_XCODE_DEVELOPER_DIR"
+          DEVELOPER_DIR="$FILMOS_XCODE_DEVELOPER_DIR" /usr/bin/xcodebuild -version
+          DEVELOPER_DIR="$FILMOS_XCODE_DEVELOPER_DIR" /usr/bin/xcrun swift --version
+          DEVELOPER_DIR="$FILMOS_XCODE_DEVELOPER_DIR" python3 acceptance/swift_toolchain.py
 
-          apple_cc="$(TOOLCHAINS=com.apple.dt.toolchain.XcodeDefault /usr/bin/xcrun --sdk macosx --find clang)"
-          apple_cxx="$(TOOLCHAINS=com.apple.dt.toolchain.XcodeDefault /usr/bin/xcrun --sdk macosx --find clang++)"
-          macos_sdk="$(TOOLCHAINS=com.apple.dt.toolchain.XcodeDefault /usr/bin/xcrun --sdk macosx --show-sdk-path)"
+          apple_cc="$(DEVELOPER_DIR="$FILMOS_XCODE_DEVELOPER_DIR" TOOLCHAINS=com.apple.dt.toolchain.XcodeDefault /usr/bin/xcrun --sdk macosx --find clang)"
+          apple_cxx="$(DEVELOPER_DIR="$FILMOS_XCODE_DEVELOPER_DIR" TOOLCHAINS=com.apple.dt.toolchain.XcodeDefault /usr/bin/xcrun --sdk macosx --find clang++)"
+          macos_sdk="$(DEVELOPER_DIR="$FILMOS_XCODE_DEVELOPER_DIR" TOOLCHAINS=com.apple.dt.toolchain.XcodeDefault /usr/bin/xcrun --sdk macosx --show-sdk-path)"
           test -x "$apple_cc"
           test -x "$apple_cxx"
           test -d "$macos_sdk"

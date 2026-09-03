@@ -66,6 +66,13 @@ CURRENT_CHECKS = (
         ("01-desktop",),
     ),
     Check(
+        "desktop-swift-test",
+        "Pinned Xcode Swift Testing capability and Desktop test suite",
+        (sys.executable, "acceptance/checks/desktop_swift_test.py"),
+        ROOT,
+        ("01-desktop", "13-qa"),
+    ),
+    Check(
         "no-openai-model-api-billing",
         "Subscription-only ChatGPT connection with zero OpenAI model API endpoints",
         (sys.executable, "acceptance/checks/no_openai_model_api_billing.py"),

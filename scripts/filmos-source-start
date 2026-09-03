@@ -169,7 +169,15 @@ prepare_runtime() {
     python_bin=$(require_tool python3 /usr/local/bin/python3)
     require_tool bun /opt/homebrew/bin/bun >/dev/null
     go_bin=$(require_tool go /opt/homebrew/bin/go)
-    swift_bin=$(require_tool swift /usr/bin/swift)
+    xcode_developer_dir=${FILMOS_XCODE_DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}
+    case "$xcode_developer_dir" in
+        /*/Contents/Developer) ;;
+        *) echo "FILMOS_SOURCE_SWIFT_TOOLCHAIN_UNAVAILABLE" >&2; exit 1 ;;
+    esac
+    if [ ! -d "$xcode_developer_dir" ] || [ ! -x /usr/bin/xcrun ]; then
+        echo "FILMOS_SOURCE_SWIFT_TOOLCHAIN_UNAVAILABLE" >&2
+        exit 1
+    fi
     if [ ! -x "$source_root/web/node_modules/vite/bin/vite.js" ]; then
         echo "缺少 Web 依赖；请先在 $source_root/web 运行 bun install。" >&2
         exit 1
@@ -189,8 +197,10 @@ prepare_runtime() {
         cd "$source_root/backend"
         "$go_bin" build -trimpath -o "$runtime_root/Compiled/FilmOSBackend" ./cmd/server
     )
-    "$swift_bin" build --package-path "$source_root/desktop/macos" --product FilmOSStudioDesktop
-    host_bin_directory=$("$swift_bin" build --package-path "$source_root/desktop/macos" --show-bin-path)
+    DEVELOPER_DIR="$xcode_developer_dir" /usr/bin/xcrun swift build \
+        --package-path "$source_root/desktop/macos" --product FilmOSStudioDesktop
+    host_bin_directory=$(DEVELOPER_DIR="$xcode_developer_dir" /usr/bin/xcrun swift build \
+        --package-path "$source_root/desktop/macos" --show-bin-path)
     host_executable="$host_bin_directory/FilmOSStudioDesktop"
     if [ ! -x "$host_executable" ]; then
         echo "FilmOS Studio 源码宿主编译产物不可用。" >&2
