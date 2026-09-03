@@ -31,9 +31,13 @@ def main() -> int:
     require(len(entries) == manifest["inventory"]["entry_count"], "CLEANUP_ENTRY_COUNT_MISMATCH")
     require(sum(item["bytes"] for item in entries) == manifest["inventory"]["total_bytes"], "CLEANUP_BYTE_COUNT_MISMATCH")
     hotspots = manifest["handwritten_runtime_hotspots"]
+    snapshot_commit = hotspots["snapshot_commit"]
+    require(str(git("rev-parse", f"{snapshot_commit}^{{tree}}")) == hotspots["snapshot_tree"], "HOTSPOT_SOURCE_TREE_MISMATCH")
     current_lines = 0
     for item in hotspots["files"]:
-        count = (ROOT / item["path"]).read_bytes().count(b"\n")
+        body = git("show", f"{snapshot_commit}:{item['path']}", binary=True)
+        assert isinstance(body, bytes)
+        count = body.count(b"\n")
         require(count == item["current_lines"], f"HOTSPOT_LINE_COUNT_DRIFT:{item['path']}")
         current_lines += count
     require(current_lines == hotspots["current_lines"] and hotspots["delta"] < 0, "HANDWRITTEN_RUNTIME_DID_NOT_DECREASE")

@@ -4,6 +4,8 @@
     "baseline_lines": 10844,
     "current_lines": 10829,
     "delta": -15,
+    "snapshot_commit": "7b63be155acebeb48e3977e70b801d6f863b4b93",
+    "snapshot_tree": "559c31b5bf20f70415160769d0ef7e2bffdd70ac",
     "files": [
       {
         "baseline_lines": 1624,
