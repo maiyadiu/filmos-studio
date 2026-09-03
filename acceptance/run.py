@@ -7,7 +7,6 @@ import json
 import os
 import platform
 import re
-import shutil
 import subprocess
 import sys
 import time
@@ -77,6 +76,13 @@ CURRENT_CHECKS = (
 
 
 RC_LOCAL_CHECKS = CURRENT_CHECKS + (
+    Check(
+        "acceptance-runner-environment",
+        "Clone-local Film Core Python path and dependency contract",
+        (sys.executable, "-m", "pytest", "-q", "acceptance/tests/test_run_environment.py"),
+        ROOT,
+        ("02-film-core", "13-qa"),
+    ),
     Check(
         "canonical-review-contract",
         "Canonical Review Contract and generated runtime bindings",
@@ -518,48 +524,69 @@ def selected_checks(suite: str) -> Sequence[Check]:
     raise ValueError(suite)
 
 
-def resolve_film_core_python(environment: dict[str, str]) -> str | None:
-    candidates = (
-        environment.get("FILMOS_CORE_PYTHON", ""),
-        environment.get("FILMOS_TEST_PYTHON", ""),
-        str(ROOT / ".local" / "acceptance-venv" / "bin" / "python"),
-        sys.executable,
-    )
-    seen: set[str] = set()
-    for raw_candidate in candidates:
-        candidate = raw_candidate.strip()
-        if not candidate or candidate in seen:
+class FilmCorePythonError(RuntimeError):
+    def __init__(self, code: str, detail: str) -> None:
+        super().__init__(f"{code}: {detail}")
+        self.code = code
+        self.detail = detail
+
+
+def clone_film_core_python(root: Path = ROOT) -> Path:
+    return (root.absolute() / ".local" / "acceptance-venv" / "bin" / "python")
+
+
+def resolve_film_core_python(
+    environment: dict[str, str],
+    *,
+    root: Path = ROOT,
+    probe: bool = True,
+) -> str:
+    expected = clone_film_core_python(root)
+    expected_text = str(expected)
+    configured = {
+        name: environment.get(name, "").strip()
+        for name in ("FILMOS_CORE_PYTHON", "FILMOS_TEST_PYTHON")
+    }
+    for name, raw_value in configured.items():
+        if not raw_value:
             continue
-        seen.add(candidate)
-        executable = candidate if Path(candidate).is_absolute() else shutil.which(candidate)
-        if not executable or (Path(executable).is_absolute() and not Path(executable).is_file()):
-            continue
-        probe = subprocess.run(
+        candidate = Path(raw_value)
+        if not candidate.is_absolute() or os.path.normpath(raw_value) != expected_text:
+            raise FilmCorePythonError(
+                "FILMOS_CORE_PYTHON_INVALID",
+                f"{name} must equal the current clone interpreter",
+            )
+    if not expected.is_file() or not os.access(expected, os.X_OK):
+        raise FilmCorePythonError(
+            "FILMOS_CORE_PYTHON_UNAVAILABLE",
+            "current clone acceptance interpreter is missing or not executable",
+        )
+    if probe:
+        result = subprocess.run(
             (
-                executable,
+                expected_text,
                 "-c",
                 "import fastapi,httpx,jsonschema,pydantic,pytest,uvicorn",
             ),
-            cwd=ROOT,
+            cwd=root,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             check=False,
         )
-        if probe.returncode == 0:
-            return executable
-    return None
+        if result.returncode != 0:
+            raise FilmCorePythonError(
+                "FILMOS_CORE_PYTHON_DEPENDENCIES_INCOMPLETE",
+                "current clone acceptance interpreter failed the dependency probe",
+            )
+    return expected_text
 
 
 def acceptance_environment() -> tuple[dict[str, str], bool]:
     environment = os.environ.copy()
     python = resolve_film_core_python(environment)
-    if python:
-        environment["FILMOS_CORE_PYTHON"] = python
-        environment["FILMOS_TEST_PYTHON"] = python
-    else:
-        environment.pop("FILMOS_CORE_PYTHON", None)
-        environment.pop("FILMOS_TEST_PYTHON", None)
-    return environment, python is not None
+    environment["FILMOS_CORE_PYTHON"] = python
+    environment["FILMOS_TEST_PYTHON"] = python
+    return environment, True
 
 
 def run_check(check: Check, run_dir: Path, environment: dict[str, str]) -> dict[str, object]:
@@ -630,7 +657,15 @@ def main() -> int:
     short_head = git_value("rev-parse", "--short=12", "HEAD") or "no-git"
     initial_worktree_porcelain = git_value("status", "--short")
     initial_source_snapshot = source_snapshot_sha256()
-    environment, film_core_python_ready = acceptance_environment()
+    try:
+        environment, film_core_python_ready = acceptance_environment()
+    except FilmCorePythonError as error:
+        print(json.dumps({
+            "status": "CONFIGURATION_ERROR",
+            "error_code": error.code,
+            "detail": error.detail,
+        }, sort_keys=True), file=sys.stderr)
+        return 2
     run_id = f"{timestamp}-{short_head}-{args.suite}"
     run_dir = args.evidence_root.resolve() / run_id
     run_dir.mkdir(parents=True, exist_ok=False)
