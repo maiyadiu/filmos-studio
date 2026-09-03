@@ -84,8 +84,58 @@ test -f "$runtime"
 test -f "$source_identity"
 test -f "$constitution"
 test -f "$web_root/index.html"
+
+assert_empty_entitlements() {
+    signed_path=$1
+    if ! entitlements=$(/usr/bin/codesign -d --entitlements - "$signed_path" 2>/dev/null); then
+        echo "could not read code-signing entitlements: $signed_path" >&2
+        exit 1
+    fi
+    if [ -n "$entitlements" ]; then
+        echo "unexpected code-signing entitlements: $signed_path" >&2
+        exit 1
+    fi
+}
+
+verify_signed_code() {
+    signed_path=$1
+    test -x "$signed_path"
+    /usr/bin/codesign --verify --strict --verbose=4 "$signed_path"
+    /usr/bin/codesign -d "$signed_path" >/dev/null 2>&1
+    assert_empty_entitlements "$signed_path"
+}
+
+for signed_code in \
+    "$backend" \
+    "$web_server" \
+    "$film_core" \
+    "$chatgpt_mcp" \
+    "$chatgpt_grant" \
+    "$local_runtime" \
+    "$canvas_agent_mcp" \
+    "$review_bus" \
+    "$tunnel_client" \
+    "$cloudflared"
+do
+    verify_signed_code "$signed_code"
+done
+verify_signed_code "$binary"
+
+/usr/bin/codesign --verify --deep --strict --verbose=4 "$bundle"
+bundle_signature=$(/usr/bin/codesign -dvvv -r- "$bundle" 2>&1)
+printf '%s\n' "$bundle_signature" | grep -F -q "Identifier=$expected_bundle_identifier"
+printf '%s\n' "$bundle_signature" | grep -F -q 'Sealed Resources version='
+if printf '%s\n' "$bundle_signature" | grep -F -q 'Info.plist=not bound'; then
+    echo "bundle signature does not bind Info.plist" >&2
+    exit 1
+fi
+test -f "$bundle/Contents/_CodeSignature/CodeResources"
+assert_empty_entitlements "$bundle"
+
 designated_requirement=$(/usr/bin/codesign -d -r- "$binary" 2>&1 | tail -n 1)
 test "$designated_requirement" = "designated => identifier \"$expected_bundle_identifier\""
+bundle_designated_requirement=$(/usr/bin/codesign -d -r- "$bundle" 2>&1 | tail -n 1)
+test "$bundle_designated_requirement" = "$designated_requirement"
 # SourceIdentity is JSON. `plutil -lint` on macOS rejects JSON even though
 # `plutil -extract` can parse it, so the field extractions below are the parser
 # and schema validation for this file.
@@ -127,11 +177,6 @@ test "$start_url" = "${web_health_url}create"
 test "$web_health_url" != "${backend_health_url%/api/health}/"
 if /usr/bin/grep -E -q '(/Users/|/Downloads/|workspace_root|bun_executable|backend_data_directory")' "$runtime"; then
     echo "runtime configuration must not reference source or protected user directories" >&2
-    exit 1
-fi
-
-if [ -e "$bundle/Contents/_CodeSignature/CodeResources" ]; then
-    echo "distribution signature material must not be present in local Beta bundle" >&2
     exit 1
 fi
 
@@ -184,7 +229,7 @@ trap - EXIT HUP INT TERM
 
 bundle_hash=$(
     cd "$bundle"
-    find Contents/Info.plist Contents/MacOS Contents/Helpers Contents/Resources -type f -exec shasum -a 256 {} + \
+    find Contents/Info.plist Contents/MacOS Contents/Helpers Contents/Resources Contents/_CodeSignature/CodeResources -type f -exec shasum -a 256 {} + \
         | sort \
         | shasum -a 256 \
         | awk '{print $1}'

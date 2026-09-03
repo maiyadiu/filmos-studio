@@ -1233,11 +1233,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var proposalWindow: NSWindow?
     private var proposalRuntime: Result<ProposalOpenRuntime, Error>?
     private var chatGPTConnectionWindow: ChatGPTConnectionWindow?
-    private var sourceTerminationSignals: [DispatchSourceSignal] = []
-    private var isTerminatingSourceRuntime = false
+    private var terminationSignals: [DispatchSourceSignal] = []
+    private var hasStoppedOwnedServices = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        installSourceTerminationHandlersIfNeeded()
+        installTerminationHandlers()
         installMainMenu()
         let workbenchWindow = WorkbenchWindow()
         workbenchWindow.onOpenChatGPTConnection = { [weak self] in self?.openChatGPTConnection() }
@@ -1338,22 +1338,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    private func installSourceTerminationHandlersIfNeeded() {
-        guard ProcessInfo.processInfo.environment["FILMOS_DESKTOP_SOURCE_RUNTIME_ROOT"] != nil else { return }
+    private func installTerminationHandlers() {
         for signalNumber in [SIGINT, SIGTERM] {
             Darwin.signal(signalNumber, SIG_IGN)
             let source = DispatchSource.makeSignalSource(signal: signalNumber, queue: .main)
-            source.setEventHandler { [weak self] in self?.terminateSourceRuntime() }
+            source.setEventHandler { [weak self] in self?.terminateApplicationFromSignal() }
             source.resume()
-            sourceTerminationSignals.append(source)
+            terminationSignals.append(source)
         }
     }
 
-    private func terminateSourceRuntime() {
-        guard !isTerminatingSourceRuntime else { return }
-        isTerminatingSourceRuntime = true
+    private func stopOwnedServicesOnce() {
+        guard !hasStoppedOwnedServices else { return }
+        hasStoppedOwnedServices = true
         launchTask?.cancel()
         coordinator?.stopOwnedServices()
+    }
+
+    private func terminateApplicationFromSignal() {
+        stopOwnedServicesOnce()
         NSApp.terminate(nil)
     }
 
@@ -1365,8 +1368,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        launchTask?.cancel()
-        coordinator?.stopOwnedServices()
+        stopOwnedServicesOnce()
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {

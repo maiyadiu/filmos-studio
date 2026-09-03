@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import platform
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -49,9 +50,90 @@ def main() -> None:
     fingerprint_path = PACKAGE / "scripts/source-fingerprint"
     sync_verifier = (PACKAGE / "scripts/verify-installed-app-sync").read_text(encoding="utf-8")
     bundle_verifier = (PACKAGE / "scripts/verify-unsigned-app").read_text(encoding="utf-8")
+    desktop_runtime_check = (ROOT / "acceptance/checks/desktop_runtime.py").read_text(encoding="utf-8")
     for helper in ("FilmOSFilmCore", "FilmOSChatGPTMCP", "FilmOSChatGPTGrant", "tunnel-client", "cloudflared"):
         if helper not in build_script:
             raise RuntimeError(f"desktop bundle is missing ChatGPT helper contract: {helper}")
+    signed_helpers = (
+        "FilmOSBackend", "FilmOSWeb", "FilmOSFilmCore", "FilmOSChatGPTMCP",
+        "FilmOSChatGPTGrant", "FilmOSLocalRuntime", "FilmOSCanvasAgentMCP",
+        "FilmOSReviewBus", "tunnel-client", "cloudflared",
+    )
+    content_complete = build_script.find('source_identity_after=$("$source_fingerprint_script" --json)')
+    nested_signing = build_script.find("FILMOS_NESTED_CODE_SIGNING_BEGIN")
+    outer_signing = build_script.find("FILMOS_OUTER_BUNDLE_SIGNING_LAST_WRITE")
+    read_only_tail = build_script.find("FILMOS_OUTER_BUNDLE_READ_ONLY_AFTER_SIGN")
+    bundle_move = build_script.find('mv "$bundle" "$destination"')
+    if not (0 <= content_complete < nested_signing < outer_signing < read_only_tail < bundle_move):
+        raise RuntimeError("desktop bundle signing order must be content, nested code, outer bundle, read-only verification, move")
+    nested_signing_block = build_script[nested_signing:outer_signing]
+    for helper in signed_helpers:
+        marker = f'"$bundle/Contents/Helpers/{helper}"'
+        if marker not in nested_signing_block:
+            raise RuntimeError(f"desktop bundle explicit signing list is missing: {helper}")
+    if 'main_executable="$bundle/Contents/MacOS/FilmOSStudioDesktop"' not in nested_signing_block:
+        raise RuntimeError("desktop main executable must be signed before the outer bundle")
+    bun_helpers = (
+        "FilmOSChatGPTMCP", "FilmOSChatGPTGrant", "FilmOSLocalRuntime",
+        "FilmOSCanvasAgentMCP", "FilmOSReviewBus",
+    )
+    normalization_start = build_script.find("FILMOS_BUN_MACHO_NORMALIZATION_TARGETS_BEGIN", nested_signing)
+    normalization_end = build_script.find("FILMOS_BUN_MACHO_NORMALIZATION_TARGETS_END", normalization_start)
+    first_nested_codesign = build_script.find("for nested_code in", normalization_end)
+    if not (nested_signing < normalization_start < normalization_end < first_nested_codesign < outer_signing):
+        raise RuntimeError("Bun Mach-O normalization must finish before nested code signing")
+    normalization_block = build_script[normalization_start:normalization_end]
+    normalization_targets = tuple(re.findall(r'"\$bundle/Contents/Helpers/([^\"]+)"', normalization_block))
+    if normalization_targets != bun_helpers:
+        raise RuntimeError(f"Bun Mach-O normalization targets drifted: {normalization_targets}")
+    for marker in (
+        'file -b "$bun_code"', 'Mach-O 64-bit executable arm64',
+        'LC_CODE_SIGNATURE', 'signature_count" -ne 1',
+        '14) /usr/bin/truncate -s "$signature_end"',
+        'normalized_size" -ne "$signature_end"',
+        'BUN_MACHO_SIGNATURE_TAIL helper=',
+    ):
+        if marker not in nested_signing_block:
+            raise RuntimeError(f"Bun Mach-O normalization guard is missing: {marker}")
+    for write_marker in (
+        'install -m 0755', 'install -m 0644', '/usr/libexec/PlistBuddy -c "Set',
+        'Path(sys.argv[1]).write_text', '/usr/bin/ditto "$workspace_root/web/dist"',
+    ):
+        if build_script.rfind(write_marker) > nested_signing:
+            raise RuntimeError(f"desktop bundle content write occurs after nested signing starts: {write_marker}")
+    for marker in (
+        "--preserve-metadata=entitlements,flags,runtime",
+        'codesign --verify --deep --strict --verbose=4 "$bundle"',
+    ):
+        if marker not in build_script:
+            raise RuntimeError(f"desktop bundle build signature contract is missing: {marker}")
+    for marker in (
+        "verify_signed_code", "assert_empty_entitlements",
+        'codesign --verify --deep --strict --verbose=4 "$bundle"',
+        "Contents/_CodeSignature/CodeResources", "Sealed Resources version=",
+        "bundle_designated_requirement",
+    ):
+        if marker not in bundle_verifier:
+            raise RuntimeError(f"desktop bundle verifier signature contract is missing: {marker}")
+    for marker in (
+        "parse_bun_signature_tail_records", "verify_signature_tamper_detection",
+        "verify_bun_helper_lifecycles", "FilmOSChatGPTGrant no-op lifecycle mismatch",
+        "probe_canvas_agent_mcp", '"external_network_requests": 0',
+        '"openai_model_api_calls": 0', "verify_direct_sigterm_shutdown",
+        "wait_for_clean_app_shutdown", "NSRunningApplication.runningApplicationWithProcessIdentifier",
+        '"direct_sigterm_shutdown": True', '"nsrunningapplication_shutdown": True',
+    ):
+        if marker not in desktop_runtime_check:
+            raise RuntimeError(f"desktop runtime signature regression gate is missing: {marker}")
+    for marker in (
+        "installTerminationHandlers", "DispatchSource.makeSignalSource",
+        "terminateApplicationFromSignal", "stopOwnedServicesOnce",
+        "hasStoppedOwnedServices", "applicationWillTerminate",
+    ):
+        if marker not in workbench_source:
+            raise RuntimeError(f"packaged desktop graceful shutdown contract is missing: {marker}")
+    if 'environment["FILMOS_DESKTOP_SOURCE_RUNTIME_ROOT"] != nil else { return }' in workbench_source:
+        raise RuntimeError("packaged desktop signal shutdown must not be source-runtime-only")
     for marker in (
         "FILMOS_DESKTOP_PYTHON_EXECUTABLE",
         "import PyInstaller, fastapi, pydantic, uvicorn",
@@ -186,6 +268,9 @@ def main() -> None:
         "dreamina_dock_cli_binding": True,
         "dreamina_module_health_required": True,
         "bundled_helpers": ["FilmOSFilmCore", "FilmOSChatGPTMCP", "FilmOSChatGPTGrant", "tunnel-client", "cloudflared"],
+        "explicitly_signed_helpers": list(signed_helpers),
+        "normalized_bun_helpers": list(bun_helpers),
+        "bundle_signature_contract": "NESTED_FIRST_OUTER_LAST_DEEP_STRICT",
     }, sort_keys=True))
 
 

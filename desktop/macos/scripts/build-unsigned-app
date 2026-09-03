@@ -268,16 +268,7 @@ payload["review_bus_issue_url"] = f"http://127.0.0.1:{port}/v1/issues"
 path.write_text(json.dumps(payload, ensure_ascii=False, sort_keys=True), encoding="utf-8")
 PY
 
-# Sign a detached staging copy before it enters the app bundle. Signing the
-# executable in-place under Contents/MacOS makes codesign treat the enclosing
-# directory as a bundle and creates Contents/_CodeSignature/CodeResources,
-# which is distribution material and must not exist in a local Beta build.
-install -m 0755 "$binary" "$staging/FilmOSStudioDesktop"
-/usr/bin/codesign --force --sign - \
-    --identifier "$bundle_identifier" \
-    --requirements "=designated => identifier \"$bundle_identifier\"" \
-    "$staging/FilmOSStudioDesktop"
-install -m 0755 "$staging/FilmOSStudioDesktop" "$bundle/Contents/MacOS/FilmOSStudioDesktop"
+install -m 0755 "$binary" "$bundle/Contents/MacOS/FilmOSStudioDesktop"
 install -m 0755 "$staging/FilmOSBackend" "$bundle/Contents/Helpers/FilmOSBackend"
 install -m 0755 "$staging/FilmOSWeb" "$bundle/Contents/Helpers/FilmOSWeb"
 install -m 0755 "$staging/pyinstaller-dist/FilmOSFilmCore" "$bundle/Contents/Helpers/FilmOSFilmCore"
@@ -328,6 +319,110 @@ if [ "$source_identity_before" != "$source_identity_after" ]; then
     echo "FilmOS source changed during app construction; rebuild from a stable source snapshot" >&2
     exit 1
 fi
+
+# FILMOS_NESTED_CODE_SIGNING_BEGIN
+# All bundle content is complete and the source snapshot is stable. Sign every
+# nested executable explicitly before sealing the outer app so codesign never
+# has to infer or repair the nesting order through --deep signing.
+normalize_bun_macho_signature_tail() {
+    bun_code=$1
+    file_type=$(/usr/bin/file -b "$bun_code")
+    if [ "$file_type" != "Mach-O 64-bit executable arm64" ]; then
+        echo "Bun helper must be a thin arm64 Mach-O: $bun_code ($file_type)" >&2
+        exit 1
+    fi
+    signature_values=$(/usr/bin/otool -l "$bun_code" | /usr/bin/awk '
+        $1 == "cmd" && $2 == "LC_CODE_SIGNATURE" { count += 1; in_signature = 1; next }
+        in_signature && $1 == "dataoff" && dataoff == "" { dataoff = $2; next }
+        in_signature && $1 == "datasize" && datasize == "" { datasize = $2 }
+        END { printf "%d %s %s", count, dataoff, datasize }
+    ')
+    set -- $signature_values
+    if [ "$#" -ne 3 ]; then
+        echo "could not read Bun helper code-signature layout: $bun_code" >&2
+        exit 1
+    fi
+    signature_count=$1
+    signature_dataoff=$2
+    signature_datasize=$3
+    case "$signature_count:$signature_dataoff:$signature_datasize" in
+        *[!0-9:]*) echo "invalid Bun helper code-signature layout: $bun_code" >&2; exit 1 ;;
+    esac
+    if [ "$signature_count" -ne 1 ] || [ "$signature_dataoff" -le 0 ] || [ "$signature_datasize" -le 0 ]; then
+        echo "Bun helper must contain exactly one valid LC_CODE_SIGNATURE: $bun_code" >&2
+        exit 1
+    fi
+    signature_end=$((signature_dataoff + signature_datasize))
+    actual_size=$(/usr/bin/stat -f '%z' "$bun_code")
+    if [ "$actual_size" -lt "$signature_end" ]; then
+        echo "Bun helper ends before its code signature: $bun_code" >&2
+        exit 1
+    fi
+    tail_delta=$((actual_size - signature_end))
+    case "$tail_delta" in
+        0) ;;
+        14) /usr/bin/truncate -s "$signature_end" "$bun_code" ;;
+        *) echo "unexpected Bun helper signature tail ($tail_delta bytes): $bun_code" >&2; exit 1 ;;
+    esac
+    normalized_size=$(/usr/bin/stat -f '%z' "$bun_code")
+    if [ "$normalized_size" -ne "$signature_end" ]; then
+        echo "Bun helper signature tail normalization failed: $bun_code" >&2
+        exit 1
+    fi
+    printf 'BUN_MACHO_SIGNATURE_TAIL helper=%s actual_size=%s dataoff=%s datasize=%s tail_delta=%s\n' \
+        "$(/usr/bin/basename "$bun_code")" "$actual_size" "$signature_dataoff" "$signature_datasize" "$tail_delta"
+}
+
+# FILMOS_BUN_MACHO_NORMALIZATION_TARGETS_BEGIN
+for bun_code in \
+    "$bundle/Contents/Helpers/FilmOSChatGPTMCP" \
+    "$bundle/Contents/Helpers/FilmOSChatGPTGrant" \
+    "$bundle/Contents/Helpers/FilmOSLocalRuntime" \
+    "$bundle/Contents/Helpers/FilmOSCanvasAgentMCP" \
+    "$bundle/Contents/Helpers/FilmOSReviewBus"
+do
+    normalize_bun_macho_signature_tail "$bun_code"
+done
+# FILMOS_BUN_MACHO_NORMALIZATION_TARGETS_END
+
+for nested_code in \
+    "$bundle/Contents/Helpers/FilmOSBackend" \
+    "$bundle/Contents/Helpers/FilmOSWeb" \
+    "$bundle/Contents/Helpers/FilmOSFilmCore" \
+    "$bundle/Contents/Helpers/FilmOSChatGPTMCP" \
+    "$bundle/Contents/Helpers/FilmOSChatGPTGrant" \
+    "$bundle/Contents/Helpers/FilmOSLocalRuntime" \
+    "$bundle/Contents/Helpers/FilmOSCanvasAgentMCP" \
+    "$bundle/Contents/Helpers/FilmOSReviewBus" \
+    "$bundle/Contents/Helpers/tunnel-client" \
+    "$bundle/Contents/Helpers/cloudflared"
+do
+    test -x "$nested_code"
+    /usr/bin/codesign --force --sign - \
+        --preserve-metadata=entitlements,flags,runtime \
+        "$nested_code"
+    /usr/bin/codesign --verify --strict --verbose=4 "$nested_code"
+done
+
+main_executable="$bundle/Contents/MacOS/FilmOSStudioDesktop"
+test -x "$main_executable"
+/usr/bin/codesign --force --sign - \
+    --identifier "$bundle_identifier" \
+    --requirements "=designated => identifier \"$bundle_identifier\"" \
+    --preserve-metadata=entitlements,flags,runtime \
+    "$main_executable"
+/usr/bin/codesign --verify --strict --verbose=4 "$main_executable"
+
+# FILMOS_OUTER_BUNDLE_SIGNING_LAST_WRITE
+# This is the final write inside the bundle. Everything below is read-only
+# verification or the atomic move of the already sealed directory.
+/usr/bin/codesign --force --sign - \
+    --identifier "$bundle_identifier" \
+    --requirements "=designated => identifier \"$bundle_identifier\"" \
+    --preserve-metadata=entitlements,flags,runtime \
+    "$bundle"
+# FILMOS_OUTER_BUNDLE_READ_ONLY_AFTER_SIGN
+/usr/bin/codesign --verify --deep --strict --verbose=4 "$bundle"
 mv "$bundle" "$destination"
 
 cleanup_bun_build_artifacts
