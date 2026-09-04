@@ -1,9 +1,15 @@
 from __future__ import annotations
 
+import hashlib
+import importlib.util
 import sqlite3
+from pathlib import Path
 from uuid import UUID, uuid4
 
 import pytest
+from fastapi.testclient import TestClient
+
+from film_production_core.database import SQLiteDatabase
 
 
 def test_health_performs_sqlite_round_trip(client) -> None:
@@ -226,3 +232,214 @@ def test_audit_events_are_append_only_at_database_boundary(
             connection.rollback()
 
     assert client.app.state.film_service.repository.counts() == (1, 1)
+
+
+def test_read_only_database_and_external_launcher_are_exact_and_zero_write(
+    client, project_create_command, states, monkeypatch
+) -> None:
+    project = client.post("/commands/apply", json=project_create_command).json()[
+        "entity"
+    ]
+    unit_command = {
+        "command_type": "entity.create",
+        "target_id": None,
+        "expected_version": 0,
+        "actor_kind": "human",
+        "payload": {
+            "entity_type": "content_unit_extension",
+            "host": {
+                "host_project_id": "host-project-1",
+                "host_unit_id": "host-unit-1",
+            },
+            "states": states,
+            "unit_kind": "episode",
+        },
+    }
+    assert client.post("/commands/apply", json=unit_command).status_code == 200
+    writable_database = client.app.state.film_service.repository.database
+    with writable_database.connect() as connection:
+        connection.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+    database_path = writable_database.path
+    wal_path = Path(f"{database_path}-wal")
+    if not wal_path.exists():
+        wal_path.touch(mode=0o600)
+
+    expected_identity = {
+        "path": str(database_path),
+        **_file_identity(database_path),
+        "wal": _file_identity(wal_path),
+    }
+    before = {
+        "main": _file_identity(database_path),
+        "wal": _file_identity(wal_path),
+    }
+    database = SQLiteDatabase(
+        database_path,
+        read_only=True,
+        expected_identity=expected_identity,
+    )
+    assert database.health() == (7, "wal")
+    with database.connect() as connection:
+        assert connection.execute("SELECT COUNT(*) FROM film_entities").fetchone()[0] == 2
+        with pytest.raises(sqlite3.DatabaseError):
+            connection.execute("UPDATE film_entities SET version = version")
+
+    launcher_path = (
+        Path(__file__).resolve().parents[2]
+        / "desktop/macos/runtime/film-core-launcher.py"
+    )
+    spec = importlib.util.spec_from_file_location("filmos_external_core", launcher_path)
+    assert spec and spec.loader
+    launcher = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(launcher)
+    external_configuration = {
+        "database_path": str(database_path),
+        "database_identity": expected_identity,
+        "project_id": "host-project-1",
+        "project_mapping": {
+            "film_entity_id": project["ref"]["film_entity_id"],
+            "version": project["ref"]["version"],
+            "content_hash": project["ref"]["content_hash"],
+            "project_count": 1,
+            "content_unit_count": 1,
+            "shot_count": 0,
+        },
+    }
+    monkeypatch.setenv("FILMOS_CORE_RUNTIME_MODE", "external-read")
+    monkeypatch.setenv("FILMOS_CORE_DB_PATH", str(database_path))
+    app = launcher.build_app(external_read_test_only=external_configuration)
+    with TestClient(app) as external:
+        health = external.get("/health")
+        assert health.status_code == 200
+        assert health.json()["runtime_mode"] == "external-read"
+        context = external.get("/film/projects/host-project-1/context")
+        assert context.status_code == 200
+        assert context.json()["film_project"] == project
+        denied = external.post(
+            "/film/projects/host-project-1/context",
+            content="{",
+            headers={"content-type": "application/json"},
+        )
+        assert denied.status_code == 404
+        assert denied.json()["code"] == "FILM_CORE_EXTERNAL_READ_ROUTE_DENIED"
+        assert external.get("/openapi.json").status_code == 404
+
+    after = {
+        "main": _file_identity(database_path),
+        "wal": _file_identity(wal_path),
+    }
+    assert after == before
+    with pytest.raises(ValueError, match="FILM_CORE_READ_ONLY_DATABASE_MISMATCH"):
+        SQLiteDatabase(
+            database_path,
+            read_only=True,
+            expected_identity={**expected_identity, "sha256": "0" * 64},
+        )
+    alias = database_path.parent / "film-core-alias.sqlite"
+    alias.symlink_to(database_path)
+    with pytest.raises(ValueError, match="FILM_CORE_READ_ONLY_DATABASE_REQUIRED"):
+        SQLiteDatabase(alias, read_only=True, expected_identity=expected_identity)
+
+    missing = database_path.parent / "missing-film-core.sqlite"
+    with pytest.raises(ValueError, match="FILM_CORE_READ_ONLY_DATABASE_REQUIRED"):
+        SQLiteDatabase(
+            missing,
+            read_only=True,
+            expected_identity={**expected_identity, "path": str(missing)},
+        )
+    monkeypatch.setenv("FILMOS_CORE_DB_PATH", str(missing))
+    with pytest.raises(ValueError, match="FILM_CORE_READ_ONLY_DATABASE_REQUIRED"):
+        launcher.build_app(
+            external_read_test_only={
+                **external_configuration,
+                "database_path": str(missing),
+                "database_identity": {**expected_identity, "path": str(missing)},
+            }
+        )
+
+    replaced = database_path.parent / "replaced-film-core.sqlite"
+    replaced_wal = Path(f"{replaced}-wal")
+    original_bytes = database_path.read_bytes()
+    replaced.write_bytes(original_bytes)
+    replaced_wal.touch(mode=0o600)
+    replaced_identity = {
+        "path": str(replaced),
+        **_file_identity(replaced),
+        "wal": _file_identity(replaced_wal),
+    }
+    replacement_candidate = database_path.parent / "replacement-candidate.sqlite"
+    replacement_candidate.write_bytes(original_bytes)
+    replacement_candidate.replace(replaced)
+    assert _file_identity(replaced)["inode"] != replaced_identity["inode"]
+    with pytest.raises(ValueError, match="FILM_CORE_READ_ONLY_DATABASE_MISMATCH"):
+        SQLiteDatabase(replaced, read_only=True, expected_identity=replaced_identity)
+    replaced_before = {
+        "main": _file_identity(replaced),
+        "wal": _file_identity(replaced_wal),
+    }
+    monkeypatch.setenv("FILMOS_CORE_DB_PATH", str(replaced))
+    with pytest.raises(ValueError, match="FILM_CORE_READ_ONLY_DATABASE_MISMATCH"):
+        launcher.build_app(
+            external_read_test_only={
+                **external_configuration,
+                "database_path": str(replaced),
+                "database_identity": replaced_identity,
+            }
+        )
+    assert {
+        "main": _file_identity(replaced),
+        "wal": _file_identity(replaced_wal),
+    } == replaced_before
+
+    wrong_schema = database_path.parent / "wrong-schema-film-core.sqlite"
+    with sqlite3.connect(wrong_schema) as connection:
+        connection.execute(
+            "CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)"
+        )
+        connection.execute(
+            "INSERT INTO schema_migrations(version, applied_at) VALUES(6, '2026-09-04T00:00:00Z')"
+        )
+    wrong_schema_wal = Path(f"{wrong_schema}-wal")
+    wrong_schema_wal.touch(mode=0o600)
+    wrong_schema_identity = {
+        "path": str(wrong_schema),
+        **_file_identity(wrong_schema),
+        "wal": _file_identity(wrong_schema_wal),
+    }
+    wrong_schema_before = {
+        "main": _file_identity(wrong_schema),
+        "wal": _file_identity(wrong_schema_wal),
+    }
+    with pytest.raises(ValueError, match="FILM_CORE_READ_ONLY_SCHEMA_MISMATCH"):
+        SQLiteDatabase(
+            wrong_schema,
+            read_only=True,
+            expected_identity=wrong_schema_identity,
+        )
+    monkeypatch.setenv("FILMOS_CORE_DB_PATH", str(wrong_schema))
+    with pytest.raises(ValueError, match="FILM_CORE_READ_ONLY_SCHEMA_MISMATCH"):
+        launcher.build_app(
+            external_read_test_only={
+                **external_configuration,
+                "database_path": str(wrong_schema),
+                "database_identity": wrong_schema_identity,
+            }
+        )
+    assert {
+        "main": _file_identity(wrong_schema),
+        "wal": _file_identity(wrong_schema_wal),
+    } == wrong_schema_before
+
+    monkeypatch.setenv("FILMOS_CORE_DB_PATH", str(missing))
+    with pytest.raises(RuntimeError, match="FILM_CORE_READ_ONLY_DATABASE_REQUIRED"):
+        launcher.build_app(external_read_test_only=external_configuration)
+
+
+def _file_identity(path: Path) -> dict[str, int | str]:
+    metadata = path.stat()
+    return {
+        "device": metadata.st_dev,
+        "inode": metadata.st_ino,
+        "size": metadata.st_size,
+        "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+    }

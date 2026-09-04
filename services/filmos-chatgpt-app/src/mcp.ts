@@ -25,6 +25,7 @@ export type FilmOSMcpSessionOptions = {
   readToolsEnabled?: boolean;
   reviewRead?: ReviewReadSource;
   reviewReadToolsEnabled?: boolean;
+  toolAllowlist?: readonly string[];
   widgetsEnabled?: boolean;
   liveGate?: { challengeId: string; tunneled: boolean };
   hostContext?: ChatGPTHostContextStore;
@@ -45,7 +46,7 @@ export type FilmOSMcpManifestEntry = {
   feature_flag: string | null;
 };
 
-export function buildFilmOSMcpManifest(options: Pick<FilmOSMcpSessionOptions, "readToolsEnabled" | "widgetsEnabled" | "proposalHandoffEnabled" | "reviewReadToolsEnabled">): FilmOSMcpManifestEntry[] {
+export function buildFilmOSMcpManifest(options: Pick<FilmOSMcpSessionOptions, "readToolsEnabled" | "widgetsEnabled" | "proposalHandoffEnabled" | "reviewReadToolsEnabled" | "toolAllowlist">): FilmOSMcpManifestEntry[] {
   if (!(options.readToolsEnabled ?? true)) return [];
   const core = filmosToolContract.tools.flatMap((tool) => {
     const featureFlag = "feature_flag" in tool ? tool.feature_flag : undefined;
@@ -60,7 +61,15 @@ export function buildFilmOSMcpManifest(options: Pick<FilmOSMcpSessionOptions, "r
         : "write";
     return [{ name: tool.name, risk, feature_flag: featureFlag ?? null }];
   });
-  return options.reviewReadToolsEnabled ? [...core, ...reviewReadManifest()] : core;
+  const available = options.reviewReadToolsEnabled ? [...core, ...reviewReadManifest()] : core;
+  if (!options.toolAllowlist) return available;
+  if (new Set(options.toolAllowlist).size !== options.toolAllowlist.length) throw new Error("MCP_TOOL_ALLOWLIST_DUPLICATE");
+  const byName = new Map<string, FilmOSMcpManifestEntry>(available.map((entry) => [entry.name, entry]));
+  return options.toolAllowlist.map((name) => {
+    const entry = byName.get(name);
+    if (!entry) throw new Error("MCP_TOOL_ALLOWLIST_UNKNOWN");
+    return entry;
+  });
 }
 
 export function createFilmOSMcpServer(options: FilmOSMcpSessionOptions): McpServer {
@@ -86,10 +95,18 @@ export function createFilmOSMcpServer(options: FilmOSMcpSessionOptions): McpServ
     );
   }
 
-  const manifestNames = new Set(buildFilmOSMcpManifest(options).map((tool) => tool.name));
-  if ((options.readToolsEnabled ?? true) && options.reviewReadToolsEnabled && options.reviewRead) registerReviewReadTools(server, options.reviewRead, options.grant, options.audit);
-  for (const tool of filmosToolContract.tools) {
-    if (!manifestNames.has(tool.name)) continue;
+  const manifest = buildFilmOSMcpManifest(options);
+  const reviewNames = manifest.filter((tool) => tool.feature_flag === "film.review_bus_readonly").map((tool) => tool.name);
+  if ((options.readToolsEnabled ?? true) && options.reviewReadToolsEnabled && options.reviewRead) {
+    registerReviewReadTools(server, options.reviewRead, options.grant, options.audit, reviewNames, {
+      liveGate: options.liveGate,
+      onRead: options.onRead,
+    });
+  }
+  const coreTools = new Map<string, (typeof filmosToolContract.tools)[number]>(filmosToolContract.tools.map((tool) => [tool.name, tool]));
+  for (const manifestEntry of manifest) {
+    const tool = coreTools.get(manifestEntry.name);
+    if (!tool) continue;
     const widget = "widget" in tool ? tool.widget : undefined;
     server.registerTool(
       tool.name,

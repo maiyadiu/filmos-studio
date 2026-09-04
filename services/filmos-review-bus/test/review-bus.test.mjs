@@ -16,7 +16,7 @@ import { loadInstalledSourceIdentity } from "../src/installed-source-identity.mj
 import { buildLiveRoundtripTrace } from "../src/live-roundtrip-trace.mjs";
 import { ReviewBusService, candidateBinding, fileInScope } from "../src/service.mjs";
 import { allowedOrigin, createReviewBusHttp, loadSealSourceIdentity, readExistingSealToken, startFromEnvironment } from "../src/server.mjs";
-import { prepareReviewBusSealBinding, REVIEW_BUS_RUNTIME_MODE_ASSESSMENT_SEAL, ReviewBusStore } from "../src/store.mjs";
+import { prepareReviewBusSealBinding, REVIEW_BUS_RUNTIME_MODE_ASSESSMENT_SEAL, REVIEW_BUS_RUNTIME_MODE_EXTERNAL_READ, ReviewBusStore } from "../src/store.mjs";
 import { redactEvidence } from "../src/redaction.mjs";
 
 const projectId = "11111111-1111-4111-8111-111111111111";
@@ -308,12 +308,12 @@ function sealSourceIdentityFixture() {
   return { directory, repository, resources, fingerprintPath, fingerprint, env };
 }
 
-function assessmentSealFixture(uuid = "69696969-6969-4696-8696-696969696969") {
+function assessmentSealFixture(uuid = "69696969-6969-4696-8696-696969696969", scopedProjectId = projectId) {
   const directory = realpathSync(mkdtempSync(resolve(tmpdir(), "filmos-assessment-seal-")));
   const databasePath = resolve(directory, "review-bus.sqlite");
   const normalStore = new ReviewBusStore(databasePath);
   const normalService = new ReviewBusService(normalStore, { baseCommit: commit, taskPackageContentHash: taskHash });
-  const issue = createPendingArchitectureAssessment(normalService, uuid);
+  const issue = createPendingArchitectureAssessment(normalService, uuid, scopedProjectId);
   bindTestSubmission(normalStore, issue);
   const current = normalService.requireIssue(issue.issue_id);
   const events = normalStore.events(issue.issue_id);
@@ -2727,4 +2727,196 @@ test("six-digit pairing codes are one-time and issue revocable per-client sessio
     assert.equal(denied.status, 401);
     assert.equal(store.listBridgeClients()[0].revoked_at !== null, true);
   } finally { await new Promise((resolvePromise) => server.close(resolvePromise)); store.close(); }
+});
+
+test("external-read real startup binds the frozen Task Package and performs exactly six atomic receipt upserts", async () => {
+  const frozenProjectId = "ca40511be3ae12112101cc1de6059b95";
+  const value = assessmentSealFixture("b3274782-30a0-44a1-a05e-01730678da8b", frozenProjectId);
+  const source = sealSourceIdentityFixture();
+  const busToken = "external-read-bus-token-1234567890-abcdef";
+  let running = null;
+  try {
+    value.normalService.submitAssessment(value.target.issueId, "codex", codexAssessment, new Date("2026-09-04T04:00:00.000Z"));
+    const current = value.normalService.requireIssue(value.target.issueId);
+    const events = value.normalStore.events(value.target.issueId);
+    const pendingIssues = [
+      { issueId: current.issue_id, state: current.state, entityVersion: current.entity_version, contentHash: current.content_hash },
+      { issueId: "FILMOS-ISSUE-final-build-id-binding-v8-20260901", state: "DUAL_APPROVED", entityVersion: 152, contentHash: "5278980ffb26addeedb2edbb4e57b556ff52e26427a15b0cfb41754347f68e14" },
+      { issueId: "FILMOS-ISSUE-final-candidate-intake-v7-20260901", state: "DUAL_APPROVED", entityVersion: 155, contentHash: "febda7810c50c617d707ac2cc2c9d389a4b2ffe13655737ed7ebb6e9245b98c1" },
+      { issueId: "FILMOS-ISSUE-final-project-scope-v5-20260901", state: "EVIDENCE_FROZEN", entityVersion: 144, contentHash: "a3e5bba0f239209e2ed6755685a7797af886300ad4a1f74272de05fe9a93a4a8" },
+      { issueId: "FILMOS-ISSUE-final-project-scope-v6-20260901", state: "TASK_PACKAGE_FROZEN", entityVersion: 1504, contentHash: "e48be830be33c0662a094a99b38903d0db793798ebd99b6ff5ebb13aa43d14b6" },
+    ].sort((left, right) => left.issueId.localeCompare(right.issueId));
+    const insertProjection = value.normalStore.db.prepare(`INSERT INTO review_projections(issue_id,project_id,state,lane,entity_version,document_json,content_hash,updated_at)
+      VALUES(?,?,?,?,?,?,?,?)`);
+    for (const pending of pendingIssues.filter((issue) => issue.issueId !== current.issue_id)) {
+      const document = structuredClone(current);
+      document.issue_id = pending.issueId;
+      document.submission_id = null;
+      document.state = pending.state;
+      document.lane = "core";
+      document.entity_version = pending.entityVersion;
+      document.content_hash = pending.contentHash;
+      document.updated_at = "2026-09-04T04:01:00.000Z";
+      document.build_lineage_task_package_hash = taskHash;
+      document.issue_task_package = pending.state === "TASK_PACKAGE_FROZEN" ? { contentHash: taskHash } : null;
+      document.task_package_content_hash = pending.state === "TASK_PACKAGE_FROZEN" ? taskHash : null;
+      insertProjection.run(
+        pending.issueId,
+        frozenProjectId,
+        pending.state,
+        document.lane,
+        pending.entityVersion,
+        JSON.stringify(document),
+        pending.contentHash,
+        document.updated_at,
+      );
+    }
+    const receiptRows = [
+      ...pendingIssues.map((issue) => ({ issueId: issue.issueId, toolName: "issue_list_pending", projectionContentHash: issue.contentHash })),
+      { issueId: current.issue_id, toolName: "issue_get_evidence", projectionContentHash: current.content_hash },
+    ];
+    const evidenceHash = current.evidence.manifest.contentHash;
+    const insertReceipt = value.normalStore.db.prepare(`INSERT INTO review_read_receipts(issue_id,project_id,consumer,tool_name,projection_content_hash,evidence_manifest_hash,read_at)
+      VALUES(?,?,?,?,?,?,?)`);
+    for (const receipt of receiptRows) insertReceipt.run(
+      receipt.issueId,
+      frozenProjectId,
+      "chatgpt-mcp",
+      receipt.toolName,
+      receipt.projectionContentHash,
+      evidenceHash,
+      "2026-09-04T03:59:00.000Z",
+    );
+    const receiptKeyLines = receiptRows
+      .map((receipt) => `${receipt.issueId}|chatgpt-mcp|${receipt.toolName}`)
+      .sort()
+      .join("\n") + "\n";
+    const pendingLines = pendingIssues.map((issue) => `${issue.issueId}|${issue.state}|${issue.entityVersion}|${issue.contentHash}`).join("\n") + "\n";
+    const projectionsBefore = value.normalStore.db.prepare("SELECT issue_id,state,entity_version,content_hash,document_json FROM review_projections ORDER BY issue_id").all();
+    const eventsBefore = value.normalStore.db.prepare("SELECT sequence,event_id,issue_id,event_hash,payload_json FROM review_events ORDER BY sequence").all();
+    const receiptsBefore = value.normalStore.db.prepare("SELECT * FROM review_read_receipts ORDER BY issue_id,consumer,tool_name").all();
+    const physical = prepareReviewBusSealBinding(value.databasePath, value.target);
+    const policy = {
+      projectId: frozenProjectId,
+      targetIssueId: current.issue_id,
+      targetEntityVersion: current.entity_version,
+      targetProjectionHash: current.content_hash,
+      targetIssueEventCount: events.length,
+      targetLastEventSequence: events.at(-1).sequence,
+      targetLastEventHash: events.at(-1).event_hash,
+      pendingSummarySha256: createHash("sha256").update(pendingLines).digest("hex"),
+      pendingIssues,
+      readReceiptRowCount: 6,
+      readReceiptKeysSha256: createHash("sha256").update(receiptKeyLines).digest("hex"),
+      databaseIdentity: {
+        device: physical.device,
+        inode: physical.inode,
+        size: physical.size,
+        sha256: physical.sha256,
+        wal: { device: physical.walDevice, inode: physical.walInode, size: physical.walSize, sha256: physical.walSha256 },
+        shm: { device: physical.shmDevice, inode: physical.shmInode, size: physical.shmSize, sha256: physical.shmSha256 },
+      },
+    };
+    writeFileSync(resolve(value.directory, "review-bus.token"), `${busToken}\n`, { mode: 0o600 });
+    const env = {
+      FILMOS_REVIEW_BUS_RUNTIME_MODE: REVIEW_BUS_RUNTIME_MODE_EXTERNAL_READ,
+      FILMOS_REVIEW_BUS_LOCAL_DIR: value.directory,
+      FILMOS_REVIEW_BUS_HOST: "127.0.0.1",
+      FILMOS_REVIEW_BUS_PORT: "0",
+      ...source.env,
+    };
+    running = startFromEnvironment(env, {
+      externalReadTestOnly: {
+        enabled: true,
+        canonicalDatabase: value.databasePath,
+        expectedSourceRoot: source.repository,
+        sealTarget: value.target,
+        sealBinding: value.binding,
+        externalReadPolicy: policy,
+        port: 0,
+      },
+    });
+    await new Promise((resolvePromise, reject) => {
+      running.server.once("listening", resolvePromise);
+      running.server.once("error", reject);
+    });
+    assert.equal(running.runtimeMode, REVIEW_BUS_RUNTIME_MODE_EXTERNAL_READ);
+    assert.equal(running.service.taskPackageContentHash, taskHash);
+    assert.equal(running.service.requireIssue("FILMOS-ISSUE-final-project-scope-v6-20260901").task_package_content_hash, taskHash);
+    const baseURL = `http://127.0.0.1:${running.server.address().port}`;
+    const headers = { authorization: `Bearer ${busToken}`, "x-filmos-read-consumer": "chatgpt-mcp" };
+    const health = await (await fetch(`${baseURL}/healthz`)).json();
+    assert.equal(health.read_receipt_operation_count, 0);
+    assert.equal(health.read_receipt_row_count, 6);
+    assert.equal(health.read_receipt_keys_sha256, policy.readReceiptKeysSha256);
+
+    const first = pendingIssues[0];
+    assert.throws(() => running.store.recordReadReceipts([
+      {
+        issueId: first.issueId,
+        projectId: frozenProjectId,
+        consumer: "chatgpt-mcp",
+        toolName: "issue_list_pending",
+        projectionContentHash: first.contentHash,
+        now: new Date("2026-09-04T04:02:00.000Z"),
+      },
+      {
+        issueId: pendingIssues[1].issueId,
+        projectId: frozenProjectId,
+        consumer: "chatgpt-mcp",
+        toolName: "issue_list_pending",
+        projectionContentHash: "0".repeat(64),
+        now: new Date("2026-09-04T04:02:00.000Z"),
+      },
+    ]), (error) => error.code === "EXTERNAL_READ_RUNTIME_WRITE_DENIED");
+    assert.deepEqual(running.store.db.prepare("SELECT * FROM review_read_receipts ORDER BY issue_id,consumer,tool_name").all(), receiptsBefore);
+    assert.equal(running.store.externalReadOperationCount(), 0);
+
+    const pending = await fetch(`${baseURL}/v1/review/pending?project_id=${frozenProjectId}`, { headers });
+    assert.equal(pending.status, 200);
+    assert.deepEqual((await pending.json()).issues.map((issue) => issue.issue_id).sort(), pendingIssues.map((issue) => issue.issueId));
+    assert.equal(running.store.externalReadOperationCount(), 5);
+    const blind = await fetch(`${baseURL}/v1/review/issues/${current.issue_id}/codex-assessment-blind?project_id=${frozenProjectId}`, { headers });
+    assert.equal(blind.status, 200);
+    assert.equal((await blind.json()).counterpart_sealed, true);
+    const evidence = await fetch(`${baseURL}/v1/review/issues/${current.issue_id}/evidence?project_id=${frozenProjectId}`, { headers });
+    assert.equal(evidence.status, 200);
+    const constitutionRead = await fetch(`${baseURL}/v1/review/constitution?project_id=${frozenProjectId}`, { headers });
+    assert.equal(constitutionRead.status, 200);
+    assert.equal(running.store.externalReadOperationCount(), 6);
+    assert.equal(running.store.externalReadReceiptState().rowCount, 6);
+    assert.equal(running.store.db.prepare("SELECT COUNT(*) AS count FROM review_read_receipts").get().count, 6);
+    const receiptsAfter = running.store.db.prepare("SELECT * FROM review_read_receipts ORDER BY issue_id,consumer,tool_name").all();
+    assert.equal(receiptsAfter.length, 6);
+    for (const issue of pendingIssues) {
+      const receipt = receiptsAfter.find((row) => row.issue_id === issue.issueId && row.tool_name === "issue_list_pending");
+      assert.equal(receipt.projection_content_hash, issue.contentHash);
+      assert.notEqual(receipt.read_at, "2026-09-04T03:59:00.000Z");
+    }
+    const evidenceReceipt = receiptsAfter.find((row) => row.issue_id === current.issue_id && row.tool_name === "issue_get_evidence");
+    assert.equal(evidenceReceipt.projection_content_hash, current.content_hash);
+    assert.equal(evidenceReceipt.evidence_manifest_hash, evidenceHash);
+    assert.notEqual(evidenceReceipt.read_at, "2026-09-04T03:59:00.000Z");
+    assert.deepEqual(running.store.db.prepare("SELECT issue_id,state,entity_version,content_hash,document_json FROM review_projections ORDER BY issue_id").all(), projectionsBefore);
+    assert.deepEqual(running.store.db.prepare("SELECT sequence,event_id,issue_id,event_hash,payload_json FROM review_events ORDER BY sequence").all(), eventsBefore);
+
+    const duplicate = await fetch(`${baseURL}/v1/review/pending?project_id=${frozenProjectId}`, { headers });
+    assert.equal(duplicate.status, 409);
+    assert.equal((await duplicate.json()).code, "EXTERNAL_READ_RUNTIME_WRITE_BUDGET_EXCEEDED");
+    const finalHealth = await (await fetch(`${baseURL}/healthz`)).json();
+    assert.equal(finalHealth.read_receipt_operation_count, 6);
+    assert.equal(finalHealth.read_receipt_row_count, 6);
+    const denied = await fetch(`${baseURL}/v1/review/pending`, { method: "POST", headers: { ...headers, "content-type": "application/json" }, body: "{" });
+    assert.equal(denied.status, 404);
+    assert.equal((await denied.json()).code, "EXTERNAL_READ_RUNTIME_ROUTE_DENIED");
+    assert.throws(() => running.store.db.prepare("UPDATE review_projections SET state = state").run(), /not authorized/i);
+  } finally {
+    if (running) {
+      await new Promise((resolvePromise) => running.server.close(resolvePromise));
+      running.store.close();
+    }
+    value.normalStore.close();
+    rmSync(value.directory, { recursive: true, force: true });
+    rmSync(source.directory, { recursive: true, force: true });
+  }
 });

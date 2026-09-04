@@ -3,7 +3,7 @@ import { chmodSync, closeSync, existsSync, lstatSync, mkdirSync, mkdtempSync, op
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import { constants as sqliteConstants, DatabaseSync } from "node:sqlite";
 
 import { canonicalJson, sha256, problem } from "./canonical.mjs";
 import {
@@ -17,6 +17,7 @@ import { ATTACHMENT_RECEIPT_SCHEMA, INSTALLED_SUBMISSION_SOURCE_SCHEMA, RECEIPT_
 
 export const REVIEW_BUS_RUNTIME_MODE_NORMAL = "normal";
 export const REVIEW_BUS_RUNTIME_MODE_ASSESSMENT_SEAL = "assessment-seal";
+export const REVIEW_BUS_RUNTIME_MODE_EXTERNAL_READ = "external-read";
 
 const REQUIRED_SEAL_SCHEMA = Object.freeze([
   ["table", "review_events"],
@@ -49,7 +50,7 @@ const REQUIRED_SEAL_SCHEMA = Object.freeze([
 export class ReviewBusStore {
   constructor(path = ":memory:", options = {}) {
     const runtimeMode = options.runtimeMode ?? REVIEW_BUS_RUNTIME_MODE_NORMAL;
-    if (![REVIEW_BUS_RUNTIME_MODE_NORMAL, REVIEW_BUS_RUNTIME_MODE_ASSESSMENT_SEAL].includes(runtimeMode)) {
+    if (![REVIEW_BUS_RUNTIME_MODE_NORMAL, REVIEW_BUS_RUNTIME_MODE_ASSESSMENT_SEAL, REVIEW_BUS_RUNTIME_MODE_EXTERNAL_READ].includes(runtimeMode)) {
       throw problem("INVALID_REVIEW_BUS_RUNTIME_MODE");
     }
     this.runtimeMode = runtimeMode;
@@ -57,16 +58,23 @@ export class ReviewBusStore {
     this.sealSnapshot = null;
     this.sealDatabaseIdentity = null;
     this.sealDatabaseBinding = null;
+    this.externalReadPolicy = null;
+    this.externalReadOperations = [];
 
-    if (runtimeMode === REVIEW_BUS_RUNTIME_MODE_ASSESSMENT_SEAL) {
+    if ([REVIEW_BUS_RUNTIME_MODE_ASSESSMENT_SEAL, REVIEW_BUS_RUNTIME_MODE_EXTERNAL_READ].includes(runtimeMode)) {
       const target = normalizeSealTarget(options.sealTarget);
       const binding = normalizeSealBinding(options.sealBinding);
+      const externalReadPolicy = runtimeMode === REVIEW_BUS_RUNTIME_MODE_EXTERNAL_READ
+        ? normalizeExternalReadPolicy(options.externalReadPolicy, target, binding)
+        : null;
       const preflightIdentity = readCanonicalSealDatabaseFiles(path, { allowMissingWal: true });
       assertStableSealMainIdentity(preflightIdentity, binding);
+      if (externalReadPolicy) assertExternalReadDatabaseIdentity(preflightIdentity, externalReadPolicy.databaseIdentity);
       const readOnlyDb = new DatabaseSync(preflightIdentity.path, { readOnly: true });
       let preflightSnapshot;
       try {
         preflightSnapshot = inspectOpenSealDatabase(readOnlyDb, preflightIdentity, target, { allowCodexSealed: true });
+        if (externalReadPolicy) assertExternalReadTarget(preflightSnapshot, externalReadPolicy);
       } finally {
         readOnlyDb.close();
       }
@@ -78,16 +86,19 @@ export class ReviewBusStore {
       }
 
       const beforeWritableIdentity = readCanonicalSealDatabaseFiles(path, { allowMissingWal: true });
+      if (externalReadPolicy) assertExternalReadDatabaseIdentity(beforeWritableIdentity, externalReadPolicy.databaseIdentity);
       if (preflightSnapshot.sealState === "PRISTINE_EMPTY") assertSameSealPreopenIdentity(preflightIdentity, beforeWritableIdentity);
       else assertSameSealMainBytes(preflightIdentity, beforeWritableIdentity);
       this.path = beforeWritableIdentity.path;
       this.evidenceRoot = beforeWritableIdentity.evidenceRoot;
       this.db = new DatabaseSync(this.path);
       try {
+        if (externalReadPolicy) installExternalReadAuthorizer(this.db);
         const databaseIdentity = readCanonicalSealDatabaseFiles(path, { allowMissingWal: true });
         assertStableSealMainIdentity(databaseIdentity, binding);
         if (preflightSnapshot.sealState === "PRISTINE_EMPTY") assertPristineSealPhysicalBinding(databaseIdentity, binding);
         const snapshot = inspectOpenSealDatabase(this.db, databaseIdentity, target, { allowCodexSealed: true });
+        if (externalReadPolicy) assertExternalReadTarget(snapshot, externalReadPolicy);
         assertSealSnapshotCompatibility(snapshot, binding);
         assertSealImmutableBindings(snapshot, binding);
         if (snapshot.sealState !== preflightSnapshot.sealState) throw problem("SEAL_RUNTIME_TARGET_MISMATCH");
@@ -96,6 +107,7 @@ export class ReviewBusStore {
         this.sealSnapshot = Object.freeze(snapshot);
         this.sealDatabaseIdentity = Object.freeze(databaseIdentity);
         this.sealDatabaseBinding = Object.freeze({ ...binding });
+        this.externalReadPolicy = externalReadPolicy ? Object.freeze(externalReadPolicy) : null;
         return;
       } catch (error) {
         this.db.close();
@@ -255,12 +267,14 @@ export class ReviewBusStore {
   close() { this.db.close(); }
 
   refreshSealSnapshot() {
-    if (this.runtimeMode !== REVIEW_BUS_RUNTIME_MODE_ASSESSMENT_SEAL || !this.sealTarget || !this.sealDatabaseBinding) {
+    if (![REVIEW_BUS_RUNTIME_MODE_ASSESSMENT_SEAL, REVIEW_BUS_RUNTIME_MODE_EXTERNAL_READ].includes(this.runtimeMode)
+      || !this.sealTarget || !this.sealDatabaseBinding) {
       throw problem("INVALID_REVIEW_BUS_RUNTIME_MODE");
     }
     const databaseIdentity = readCanonicalSealDatabaseFiles(this.path, { allowMissingWal: true });
     assertStableSealMainIdentity(databaseIdentity, this.sealDatabaseBinding);
     const snapshot = inspectOpenSealDatabase(this.db, databaseIdentity, this.sealTarget, { allowCodexSealed: true });
+    if (this.runtimeMode === REVIEW_BUS_RUNTIME_MODE_EXTERNAL_READ) assertExternalReadTarget(snapshot, this.externalReadPolicy);
     assertSealSnapshotCompatibility(snapshot, this.sealDatabaseBinding);
     assertSealImmutableBindings(snapshot, this.sealDatabaseBinding);
     if (snapshot.sealState === "PRISTINE_EMPTY") {
@@ -504,11 +518,95 @@ export class ReviewBusStore {
   }
 
   recordReadReceipt({ issueId, projectId, consumer, toolName, projectionContentHash, evidenceManifestHash = null, now = new Date() }) {
-    this.db.prepare(`INSERT INTO review_read_receipts(issue_id,project_id,consumer,tool_name,projection_content_hash,evidence_manifest_hash,read_at)
-      VALUES(?,?,?,?,?,?,?) ON CONFLICT(issue_id,consumer,tool_name) DO UPDATE SET
-      project_id=excluded.project_id,projection_content_hash=excluded.projection_content_hash,
-      evidence_manifest_hash=excluded.evidence_manifest_hash,read_at=excluded.read_at`)
-      .run(issueId, projectId, consumer, toolName, projectionContentHash, evidenceManifestHash, now.toISOString());
+    this.recordReadReceipts([{ issueId, projectId, consumer, toolName, projectionContentHash, evidenceManifestHash, now }]);
+  }
+
+  recordReadReceipts(operations) {
+    if (!Array.isArray(operations) || operations.length < 1) throw problem("READ_RECEIPT_OPERATION_REQUIRED");
+    const externalOperations = [];
+    const completed = [...this.externalReadOperations];
+    for (const operation of operations) {
+      if (!operation || typeof operation !== "object" || Array.isArray(operation)) throw problem("READ_RECEIPT_OPERATION_REQUIRED");
+      if (this.runtimeMode === REVIEW_BUS_RUNTIME_MODE_EXTERNAL_READ) {
+        const externalOperation = validateExternalReadReceiptOperation(this.externalReadPolicy, completed, operation);
+        externalOperations.push(externalOperation);
+        completed.push(externalOperation);
+      }
+    }
+    if (this.runtimeMode === REVIEW_BUS_RUNTIME_MODE_EXTERNAL_READ) this.externalReadReceiptState();
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const statement = this.db.prepare(`INSERT INTO review_read_receipts(issue_id,project_id,consumer,tool_name,projection_content_hash,evidence_manifest_hash,read_at)
+        VALUES(?,?,?,?,?,?,?) ON CONFLICT(issue_id,consumer,tool_name) DO UPDATE SET
+        project_id=excluded.project_id,projection_content_hash=excluded.projection_content_hash,
+        evidence_manifest_hash=excluded.evidence_manifest_hash,read_at=excluded.read_at`);
+      for (const operation of operations) {
+        const now = operation.now ?? new Date();
+        if (!(now instanceof Date) || !Number.isFinite(now.getTime())) throw problem("READ_RECEIPT_TIME_INVALID");
+        statement.run(
+          operation.issueId,
+          operation.projectId,
+          operation.consumer,
+          operation.toolName,
+          operation.projectionContentHash,
+          operation.evidenceManifestHash ?? null,
+          now.toISOString(),
+        );
+      }
+      if (this.runtimeMode === REVIEW_BUS_RUNTIME_MODE_EXTERNAL_READ) this.externalReadReceiptState();
+      this.db.exec("COMMIT");
+      this.externalReadOperations.push(...externalOperations);
+    } catch (error) {
+      if (this.db.isTransaction) this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  assertExternalPendingIssues(issues) {
+    if (this.runtimeMode !== REVIEW_BUS_RUNTIME_MODE_EXTERNAL_READ || !this.externalReadPolicy) {
+      throw problem("INVALID_REVIEW_BUS_RUNTIME_MODE");
+    }
+    const actual = issues.map((issue) => ({
+      issueId: issue.issue_id,
+      state: issue.state,
+      entityVersion: this.get(issue.issue_id)?.entity_version,
+      contentHash: issue.content_hash,
+      projectId: issue.project_id,
+    })).sort((left, right) => left.issueId.localeCompare(right.issueId));
+    const expected = this.externalReadPolicy.pendingIssues;
+    const lines = actual.map((issue) => `${issue.issueId}|${issue.state}|${issue.entityVersion}|${issue.contentHash}`).join("\n") + "\n";
+    if (actual.length !== expected.length
+      || actual.some((issue, index) => issue.projectId !== this.externalReadPolicy.projectId
+        || issue.issueId !== expected[index].issueId
+        || issue.state !== expected[index].state
+        || issue.entityVersion !== expected[index].entityVersion
+        || issue.contentHash !== expected[index].contentHash)
+      || createHash("sha256").update(lines).digest("hex") !== this.externalReadPolicy.pendingSummarySha256) {
+      throw problem("EXTERNAL_READ_RUNTIME_PENDING_MISMATCH");
+    }
+    return actual;
+  }
+
+  externalReadOperationCount() {
+    if (this.runtimeMode !== REVIEW_BUS_RUNTIME_MODE_EXTERNAL_READ) throw problem("INVALID_REVIEW_BUS_RUNTIME_MODE");
+    return this.externalReadOperations.length;
+  }
+
+  externalReadReceiptState() {
+    if (this.runtimeMode !== REVIEW_BUS_RUNTIME_MODE_EXTERNAL_READ || !this.externalReadPolicy) {
+      throw problem("INVALID_REVIEW_BUS_RUNTIME_MODE");
+    }
+    const rows = this.db.prepare("SELECT issue_id,consumer,tool_name FROM review_read_receipts ORDER BY issue_id,consumer,tool_name").all();
+    const keyLines = rows.map((row) => `${row.issue_id}|${row.consumer}|${row.tool_name}`).join("\n") + (rows.length ? "\n" : "");
+    const state = {
+      rowCount: rows.length,
+      keysSha256: createHash("sha256").update(keyLines).digest("hex"),
+    };
+    if (state.rowCount !== this.externalReadPolicy.readReceiptRowCount
+      || state.keysSha256 !== this.externalReadPolicy.readReceiptKeysSha256) {
+      throw problem("EXTERNAL_READ_RUNTIME_RECEIPT_SET_MISMATCH");
+    }
+    return state;
   }
 
   readReceipts(issueId, consumer) {
@@ -836,6 +934,152 @@ function normalizeSealTarget(value) {
     intakeReceiptHash: value.intakeReceiptHash,
     lastEventHash: value.lastEventHash,
   };
+}
+
+function normalizeExternalReadPolicy(value, target, binding) {
+  if (!value || typeof value !== "object" || Array.isArray(value)
+    || value.projectId !== target.projectId
+    || value.targetIssueId !== target.issueId
+    || !Number.isInteger(value.targetEntityVersion) || value.targetEntityVersion !== target.entityVersion + 1
+    || !Number.isInteger(value.targetIssueEventCount) || value.targetIssueEventCount !== target.issueEventCount + 1
+    || !Number.isInteger(value.targetLastEventSequence) || value.targetLastEventSequence < 1
+    || !/^[a-f0-9]{64}$/.test(String(value.targetProjectionHash ?? ""))
+    || value.targetProjectionHash === target.projectionHash
+    || !/^[a-f0-9]{64}$/.test(String(value.targetLastEventHash ?? ""))
+    || !/^[a-f0-9]{64}$/.test(String(value.pendingSummarySha256 ?? ""))
+    || !Number.isInteger(value.readReceiptRowCount) || value.readReceiptRowCount < 1
+    || !/^[a-f0-9]{64}$/.test(String(value.readReceiptKeysSha256 ?? ""))
+    || !Array.isArray(value.pendingIssues) || value.pendingIssues.length < 1
+    || !value.databaseIdentity || typeof value.databaseIdentity !== "object" || Array.isArray(value.databaseIdentity)) {
+    throw problem("EXTERNAL_READ_RUNTIME_TARGET_REQUIRED");
+  }
+  const pendingIssues = value.pendingIssues.map((issue) => {
+    if (!issue || typeof issue !== "object" || Array.isArray(issue)
+      || !/^FILMOS-(?:ARCH|ISSUE)-[A-Za-z0-9-]+$/.test(String(issue.issueId ?? ""))
+      || typeof issue.state !== "string" || !issue.state
+      || !Number.isInteger(issue.entityVersion) || issue.entityVersion < 1
+      || !/^[a-f0-9]{64}$/.test(String(issue.contentHash ?? ""))) {
+      throw problem("EXTERNAL_READ_RUNTIME_PENDING_MISMATCH");
+    }
+    return Object.freeze({
+      issueId: issue.issueId,
+      state: issue.state,
+      entityVersion: issue.entityVersion,
+      contentHash: issue.contentHash,
+    });
+  }).sort((left, right) => left.issueId.localeCompare(right.issueId));
+  if (new Set(pendingIssues.map((issue) => issue.issueId)).size !== pendingIssues.length
+    || !pendingIssues.some((issue) => issue.issueId === target.issueId
+      && issue.entityVersion === value.targetEntityVersion
+      && issue.contentHash === value.targetProjectionHash)) {
+    throw problem("EXTERNAL_READ_RUNTIME_PENDING_MISMATCH");
+  }
+  const databaseIdentity = normalizeExternalReadDatabaseIdentity(value.databaseIdentity, binding);
+  return {
+    projectId: value.projectId,
+    targetIssueId: value.targetIssueId,
+    targetEntityVersion: value.targetEntityVersion,
+    targetProjectionHash: value.targetProjectionHash,
+    targetIssueEventCount: value.targetIssueEventCount,
+    targetLastEventSequence: value.targetLastEventSequence,
+    targetLastEventHash: value.targetLastEventHash,
+    pendingSummarySha256: value.pendingSummarySha256,
+    readReceiptRowCount: value.readReceiptRowCount,
+    readReceiptKeysSha256: value.readReceiptKeysSha256,
+    pendingIssues: Object.freeze(pendingIssues),
+    databaseIdentity: Object.freeze(databaseIdentity),
+  };
+}
+
+function normalizeExternalReadDatabaseIdentity(value, binding) {
+  const fileFields = ["device", "inode", "size"];
+  const validFile = (file, { allowZero = false } = {}) => file && typeof file === "object" && !Array.isArray(file)
+    && fileFields.every((field) => Number.isInteger(file[field]) && file[field] >= (field === "size" && allowZero ? 0 : 1))
+    && /^[a-f0-9]{64}$/.test(String(file.sha256 ?? ""));
+  if (!validFile(value)
+    || value.device !== binding.device
+    || value.inode !== binding.inode
+    || !validFile(value.wal, { allowZero: true })
+    || !validFile(value.shm, { allowZero: true })) {
+    throw problem("EXTERNAL_READ_RUNTIME_DATABASE_REQUIRED");
+  }
+  return {
+    device: value.device,
+    inode: value.inode,
+    size: value.size,
+    sha256: value.sha256,
+    wal: Object.freeze({ ...value.wal }),
+    shm: Object.freeze({ ...value.shm }),
+  };
+}
+
+function assertExternalReadDatabaseIdentity(identity, expected) {
+  const matches = (actual, value) => Boolean(actual)
+    && actual.device === value.device
+    && actual.inode === value.inode
+    && actual.size === value.size
+    && actual.sha256 === value.sha256;
+  if (!matches(identity, expected) || !matches(identity.wal, expected.wal) || !matches(identity.shm, expected.shm)) {
+    throw problem("EXTERNAL_READ_RUNTIME_DATABASE_REQUIRED");
+  }
+}
+
+function assertExternalReadTarget(snapshot, policy) {
+  if (!policy
+    || snapshot.sealState !== "CODEX_SEALED_SUCCESSOR"
+    || snapshot.entityVersion !== policy.targetEntityVersion
+    || snapshot.projectionContentHash !== policy.targetProjectionHash
+    || snapshot.issueEventCount !== policy.targetIssueEventCount
+    || snapshot.lastEventSequence !== policy.targetLastEventSequence
+    || snapshot.lastEventHash !== policy.targetLastEventHash
+    || snapshot.assessmentEventCount !== 1
+    || snapshot.codexSlot !== "SEALED"
+    || snapshot.chatgptSlot !== "EMPTY") {
+    throw problem("EXTERNAL_READ_RUNTIME_TARGET_MISMATCH");
+  }
+}
+
+function installExternalReadAuthorizer(db) {
+  const readActions = new Set([
+    sqliteConstants.SQLITE_FUNCTION,
+    sqliteConstants.SQLITE_READ,
+    sqliteConstants.SQLITE_RECURSIVE,
+    sqliteConstants.SQLITE_SELECT,
+    sqliteConstants.SQLITE_TRANSACTION,
+  ]);
+  const readPragmas = new Set(["journal_mode", "page_count", "schema_version"]);
+  db.setAuthorizer((action, first, second) => {
+    if (readActions.has(action)) return sqliteConstants.SQLITE_OK;
+    if (action === sqliteConstants.SQLITE_PRAGMA && readPragmas.has(String(first)) && (second === null || second === undefined)) {
+      return sqliteConstants.SQLITE_OK;
+    }
+    if ([sqliteConstants.SQLITE_INSERT, sqliteConstants.SQLITE_UPDATE].includes(action)
+      && first === "review_read_receipts") {
+      return sqliteConstants.SQLITE_OK;
+    }
+    return sqliteConstants.SQLITE_DENY;
+  });
+}
+
+function validateExternalReadReceiptOperation(policy, completed, operation) {
+  if (!policy
+    || operation.projectId !== policy.projectId
+    || operation.consumer !== "chatgpt-mcp"
+    || !["issue_list_pending", "issue_get_evidence"].includes(operation.toolName)) {
+    throw problem("EXTERNAL_READ_RUNTIME_WRITE_DENIED");
+  }
+  const expected = policy.pendingIssues.find((issue) => issue.issueId === operation.issueId);
+  if (!expected
+    || expected.contentHash !== operation.projectionContentHash
+    || (operation.toolName === "issue_get_evidence" && operation.issueId !== policy.targetIssueId)
+    || (operation.toolName === "issue_get_evidence" && !/^[a-f0-9]{64}$/.test(String(operation.evidenceManifestHash ?? "")))) {
+    throw problem("EXTERNAL_READ_RUNTIME_WRITE_DENIED");
+  }
+  const key = `${operation.issueId}:${operation.toolName}`;
+  if (completed.includes(key) || completed.length >= policy.pendingIssues.length + 1) {
+    throw problem("EXTERNAL_READ_RUNTIME_WRITE_BUDGET_EXCEEDED");
+  }
+  return key;
 }
 
 function normalizeSealBinding(value) {
@@ -1222,6 +1466,7 @@ function inspectOpenSealDatabase(db, databaseIdentity, target, { allowCodexSeale
     immutableSubmissionIntakeSha256: sha256(immutableSubmissionIntake),
     issueEventCount: eventRows.length,
     assessmentEventCount,
+    lastEventSequence: Number(lastEvent?.sequence ?? 0),
     lastEventHash: lastEvent?.event_hash ?? null,
     projectionContentHash: projectionRow.content_hash,
     entityVersion: Number(projectionRow.entity_version),

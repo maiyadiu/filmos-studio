@@ -9,24 +9,26 @@ import { fileURLToPath } from "node:url";
 
 import { ARCHITECTURE_PROTOCOL_VERSION } from "./architecture-protocol.mjs";
 import { exactObject, problem, safeEqual, sha256 } from "./canonical.mjs";
-import { CONSTITUTION_HASH, CONSTITUTION_VERSION } from "./contracts.mjs";
+import { CONSTITUTION_HASH, CONSTITUTION_VERSION, TASK_PACKAGE_HASH } from "./contracts.mjs";
 import { REVIEW_ERROR_CODE_PATTERN } from "./generated-review-contract.mjs";
 import { GitHubEvidenceVerifier } from "./github-evidence-verifier.mjs";
 import { normalizeInstalledSubmission, normalizeStageASubmission, normalizeStagedAttachment, STAGE_A_BOOTSTRAP, SUBMISSION_SCHEMA } from "./intake-contract.mjs";
 import { loadInstalledSourceIdentity } from "./installed-source-identity.mjs";
 import { buildLiveRoundtripTrace } from "./live-roundtrip-trace.mjs";
 import { ReviewBusService } from "./service.mjs";
-import { REVIEW_BUS_RUNTIME_MODE_ASSESSMENT_SEAL, REVIEW_BUS_RUNTIME_MODE_NORMAL, ReviewBusStore } from "./store.mjs";
+import { REVIEW_BUS_RUNTIME_MODE_ASSESSMENT_SEAL, REVIEW_BUS_RUNTIME_MODE_EXTERNAL_READ, REVIEW_BUS_RUNTIME_MODE_NORMAL, ReviewBusStore } from "./store.mjs";
 
 const DEFAULT_PORT = 17920;
 const DEFAULT_DIR = resolve(homedir(), "Library/Application Support/FilmOS Studio/review-bus");
 const DEFAULT_DATABASE = resolve(DEFAULT_DIR, "review-bus.sqlite");
 const DEFAULT_SOURCE_ROOT = resolve(import.meta.dirname, "../../..");
 const SEAL_IDENTITY_RESOURCES_RELATIVE = ".local/phase5a4-seal-runtime/Resources";
+const EXTERNAL_READ_IDENTITY_RESOURCES_RELATIVE = ".local/phase7-external-read-runtime/Resources";
+const PHASE_7_CONSTITUTION_FILE_SHA256 = "a8dd0d55d8ff394a0271b5db3f83124c04efaf08401da0bc8c9b060fc732c4d9";
 const challengeRate = new Map();
 const pairingRate = new Map();
 const BRIDGE_PURPOSES = new Set(["CHATGPT_ASSESSMENT", "CHATGPT_CONSENSUS_DECISION", "CHATGPT_REVIEW_DECISION", "CHATGPT_VERDICT", "FINDING_DECISION"]);
-const REVIEW_BUS_RUNTIME_MODES = new Set([REVIEW_BUS_RUNTIME_MODE_NORMAL, REVIEW_BUS_RUNTIME_MODE_ASSESSMENT_SEAL]);
+const REVIEW_BUS_RUNTIME_MODES = new Set([REVIEW_BUS_RUNTIME_MODE_NORMAL, REVIEW_BUS_RUNTIME_MODE_ASSESSMENT_SEAL, REVIEW_BUS_RUNTIME_MODE_EXTERNAL_READ]);
 const SEAL_ERROR_CODES = new Set([
   "INVALID_REVIEW_BUS_RUNTIME_MODE",
   "SEAL_RUNTIME_DATABASE_REQUIRED",
@@ -38,6 +40,14 @@ const SEAL_ERROR_CODES = new Set([
   "SEAL_RUNTIME_TARGET_REQUIRED",
   "SEAL_RUNTIME_TARGET_MISMATCH",
   "SEAL_RUNTIME_ROUTE_DENIED",
+  "EXTERNAL_READ_RUNTIME_DATABASE_REQUIRED",
+  "EXTERNAL_READ_RUNTIME_PENDING_MISMATCH",
+  "EXTERNAL_READ_RUNTIME_RECEIPT_SET_MISMATCH",
+  "EXTERNAL_READ_RUNTIME_ROUTE_DENIED",
+  "EXTERNAL_READ_RUNTIME_TARGET_MISMATCH",
+  "EXTERNAL_READ_RUNTIME_TARGET_REQUIRED",
+  "EXTERNAL_READ_RUNTIME_WRITE_BUDGET_EXCEEDED",
+  "EXTERNAL_READ_RUNTIME_WRITE_DENIED",
 ]);
 const PHASE_5A4_SEAL_TARGET = Object.freeze({
   projectId: "ca40511be3ae12112101cc1de6059b95",
@@ -66,13 +76,47 @@ const PHASE_5A4_SEAL_DATABASE_ORIGIN = Object.freeze({
   submissionCaptureHash: "0fb0fef9788bbeace08a263f93c49c22e7611e0edca5c7039945b3c75a4315fa",
   immutableSubmissionIntakeSha256: "8f7fb589fc5373256ca71df96c878f83394da94004c64169052d59d407901d20",
 });
+const PHASE_7_EXTERNAL_READ_POLICY = Object.freeze({
+  projectId: "ca40511be3ae12112101cc1de6059b95",
+  targetIssueId: "FILMOS-ARCH-b3274782-30a0-44a1-a05e-01730678da8b",
+  targetEntityVersion: 125,
+  targetProjectionHash: "ba7b958f555d723bc0c4a679f3b5d104435015af4f5b53c0833aa1c180f04cae",
+  targetIssueEventCount: 125,
+  targetLastEventSequence: 12988,
+  targetLastEventHash: "8650686aced0251fa8452164ed0cd5e649a17549a7cb2f73f13bdfda27aa47e7",
+  pendingSummarySha256: "d6ac890757b44e57e93f093506a819f6ade90d1ee7f9af91057f8b58f7d29361",
+  readReceiptRowCount: 6,
+  readReceiptKeysSha256: "46a037f9500d7fb637dac87050f5bb611b693ab9ca136e16362e47980d335efc",
+  pendingIssues: Object.freeze([
+    Object.freeze({ issueId: "FILMOS-ARCH-b3274782-30a0-44a1-a05e-01730678da8b", state: "ARCHITECTURE_ASSESSMENTS_PENDING", entityVersion: 125, contentHash: "ba7b958f555d723bc0c4a679f3b5d104435015af4f5b53c0833aa1c180f04cae" }),
+    Object.freeze({ issueId: "FILMOS-ISSUE-final-build-id-binding-v8-20260901", state: "DUAL_APPROVED", entityVersion: 152, contentHash: "5278980ffb26addeedb2edbb4e57b556ff52e26427a15b0cfb41754347f68e14" }),
+    Object.freeze({ issueId: "FILMOS-ISSUE-final-candidate-intake-v7-20260901", state: "DUAL_APPROVED", entityVersion: 155, contentHash: "febda7810c50c617d707ac2cc2c9d389a4b2ffe13655737ed7ebb6e9245b98c1" }),
+    Object.freeze({ issueId: "FILMOS-ISSUE-final-project-scope-v5-20260901", state: "EVIDENCE_FROZEN", entityVersion: 144, contentHash: "a3e5bba0f239209e2ed6755685a7797af886300ad4a1f74272de05fe9a93a4a8" }),
+    Object.freeze({ issueId: "FILMOS-ISSUE-final-project-scope-v6-20260901", state: "TASK_PACKAGE_FROZEN", entityVersion: 1504, contentHash: "e48be830be33c0662a094a99b38903d0db793798ebd99b6ff5ebb13aa43d14b6" }),
+  ]),
+  databaseIdentity: Object.freeze({
+    device: 16777234,
+    inode: 101926348,
+    size: 12910592,
+    sha256: "81f74d8692c03f688fa42683620ccdc70a4f9ad53644482690c9992dde2a65a2",
+    wal: Object.freeze({ device: 16777234, inode: 101926350, size: 2212472, sha256: "e4a3ecf55b99ba5e354178e90d166fbf369a33bd3547109ba30fc7122721830a" }),
+    shm: Object.freeze({ device: 16777234, inode: 101926351, size: 32768, sha256: "f42991894ef415450fc2eff57b432dd8d522aac4a6d609f71e9267de1030bd5d" }),
+  }),
+});
 
-export function createReviewBusHttp({ service, store, busToken, bridgeToken, constitution, githubVerifier = new GitHubEvidenceVerifier(), listenPort = DEFAULT_PORT, now = () => new Date(), runtimeInstanceId = `review-runtime-${randomUUID()}`, intakeBootstrap = STAGE_A_BOOTSTRAP, installedSourceIdentity = null, sourceIdentityErrorCode = "INSTALLED_SOURCE_IDENTITY_UNAVAILABLE", runtimeMode = REVIEW_BUS_RUNTIME_MODE_NORMAL, sealContext = null }) {
+export function createReviewBusHttp({ service, store, busToken, bridgeToken, constitution, githubVerifier = new GitHubEvidenceVerifier(), listenPort = DEFAULT_PORT, now = () => new Date(), runtimeInstanceId = `review-runtime-${randomUUID()}`, intakeBootstrap = STAGE_A_BOOTSTRAP, installedSourceIdentity = null, sourceIdentityErrorCode = "INSTALLED_SOURCE_IDENTITY_UNAVAILABLE", runtimeMode = REVIEW_BUS_RUNTIME_MODE_NORMAL, sealContext = null, externalReadContext = null }) {
   if (!REVIEW_BUS_RUNTIME_MODES.has(runtimeMode)) throw problem("INVALID_REVIEW_BUS_RUNTIME_MODE");
   if (runtimeMode === REVIEW_BUS_RUNTIME_MODE_ASSESSMENT_SEAL && (!sealContext || store.runtimeMode !== REVIEW_BUS_RUNTIME_MODE_ASSESSMENT_SEAL)) {
     throw problem("SEAL_RUNTIME_TARGET_REQUIRED");
   }
-  if (String(busToken).length < 24 || String(bridgeToken).length < 24) throw new Error("Review Bus local tokens must contain at least 24 characters");
+  if (runtimeMode === REVIEW_BUS_RUNTIME_MODE_EXTERNAL_READ
+    && (!externalReadContext || store.runtimeMode !== REVIEW_BUS_RUNTIME_MODE_EXTERNAL_READ)) {
+    throw problem("EXTERNAL_READ_RUNTIME_TARGET_REQUIRED");
+  }
+  if (String(busToken).length < 24
+    || (runtimeMode !== REVIEW_BUS_RUNTIME_MODE_EXTERNAL_READ && String(bridgeToken).length < 24)) {
+    throw new Error("Review Bus local tokens must contain at least 24 characters");
+  }
   if (runtimeMode === REVIEW_BUS_RUNTIME_MODE_NORMAL) {
     for (const initial of store.list()) {
       if (installedSourceIdentity && initial.lane === "architecture" && initial.architecture_protocol_version !== "filmos.architecture-protocol.v2") {
@@ -86,6 +130,42 @@ export function createReviewBusHttp({ service, store, busToken, bridgeToken, con
     try {
       if (!isLoopbackHost(req.headers.host)) return send(res, 400, { code: "LOOPBACK_HOST_REQUIRED" });
       const url = new URL(req.url ?? "/", "http://127.0.0.1");
+      if (runtimeMode === REVIEW_BUS_RUNTIME_MODE_EXTERNAL_READ) {
+        const route = externalReadRoute(req.method, url, externalReadContext.policy);
+        if (!route) throw problem("EXTERNAL_READ_RUNTIME_ROUTE_DENIED", "EXTERNAL_READ_RUNTIME_ROUTE_DENIED", 404);
+        applyCors(req, res);
+        const snapshot = store.refreshSealSnapshot();
+        if (route === "health") {
+          return send(res, 200, externalReadHealth(
+            externalReadContext,
+            server.address()?.port ?? listenPort,
+            snapshot,
+            store.externalReadOperationCount(),
+            store.externalReadReceiptState(),
+          ));
+        }
+        authenticate(req, busToken, null);
+        assertExternalReadProject(url, externalReadContext.policy);
+        if (route === "pending") {
+          const issues = service.pending(externalReadContext.policy.projectId);
+          store.assertExternalPendingIssues(issues);
+          if (readConsumer(req) === "chatgpt-mcp") store.recordReadReceipts(issues.map((issue) => {
+            const current = service.readRedacted(issue.issue_id, externalReadContext.policy.projectId);
+            return {
+              issueId: current.issue_id,
+              projectId: externalReadContext.policy.projectId,
+              consumer: "chatgpt-mcp",
+              toolName: "issue_list_pending",
+              projectionContentHash: current.content_hash,
+              evidenceManifestHash: current.evidence?.manifest?.contentHash ?? current.evidence?.manifest?.content_hash ?? null,
+              now: now(),
+            };
+          }));
+          return send(res, 200, { issues });
+        }
+        if (route === "constitution") return send(res, 200, constitution);
+        return readReviewProjection(service, store, url, req, res, now());
+      }
       if (runtimeMode === REVIEW_BUS_RUNTIME_MODE_ASSESSMENT_SEAL) {
         const allowedPath = `/v1/issues/${sealContext.target.issueId}/assessments/codex`;
         if (!((req.method === "GET" && url.pathname === "/healthz") || (req.method === "POST" && url.pathname === allowedPath))) {
@@ -654,6 +734,67 @@ function sealHealth(context, listenPort, snapshot, binding) {
   };
 }
 
+function externalReadRoute(method, url, policy) {
+  if (method !== "GET") return null;
+  if (url.pathname === "/healthz") return url.search === "" ? "health" : null;
+  const targetPrefix = `/v1/review/issues/${policy.targetIssueId}/`;
+  if (url.pathname === "/v1/review/pending") return "pending";
+  if (url.pathname === "/v1/review/constitution") return "constitution";
+  if (url.pathname === `${targetPrefix}codex-assessment-blind`) return "codex-assessment-blind";
+  if (url.pathname === `${targetPrefix}evidence`) return "evidence";
+  return null;
+}
+
+function assertExternalReadProject(url, policy) {
+  const entries = [...url.searchParams.entries()];
+  if (entries.length !== 1 || entries[0][0] !== "project_id" || entries[0][1] !== policy.projectId) {
+    throw problem("EXTERNAL_READ_RUNTIME_ROUTE_DENIED", "EXTERNAL_READ_RUNTIME_ROUTE_DENIED", 404);
+  }
+}
+
+function externalReadHealth(context, listenPort, snapshot, operationCount, receiptState) {
+  return {
+    ok: true,
+    service: "filmos-review-bus",
+    schema_version: "filmos.review-bus.v1",
+    runtime_mode: REVIEW_BUS_RUNTIME_MODE_EXTERNAL_READ,
+    storage: "canonical-sqlite-wal-bounded-read-receipts",
+    port: listenPort,
+    constitution_version: CONSTITUTION_VERSION,
+    constitution_content_hash: CONSTITUTION_HASH,
+    source_identity: {
+      status: "VERIFIED",
+      source_root: context.sourceIdentity.source_root,
+      branch: context.sourceIdentity.branch,
+      commit: context.sourceIdentity.commit,
+      tree: context.sourceIdentity.tree,
+      source_fingerprint_sha256: context.sourceIdentity.source_fingerprint_sha256,
+      content_hash: context.sourceIdentity.content_hash,
+    },
+    target: {
+      project_id: context.policy.projectId,
+      issue_id: context.policy.targetIssueId,
+      state: "ARCHITECTURE_ASSESSMENTS_PENDING",
+      entity_version: snapshot.entityVersion,
+      projection_content_hash: snapshot.projectionContentHash,
+      issue_event_count: snapshot.issueEventCount,
+      last_event_sequence: snapshot.lastEventSequence,
+      last_event_hash: snapshot.lastEventHash,
+      codex_slot: snapshot.codexSlot,
+      chatgpt_slot: snapshot.chatgptSlot,
+    },
+    pending_issue_count: context.policy.pendingIssues.length,
+    pending_summary_sha256: context.policy.pendingSummarySha256,
+    read_receipt_operation_count: operationCount,
+    read_receipt_operation_limit: context.policy.pendingIssues.length + 1,
+    read_receipt_row_count: receiptState.rowCount,
+    read_receipt_keys_sha256: receiptState.keysSha256,
+    current_seal_state: snapshot.sealState,
+    external_network_requests: 0,
+    openai_model_api_calls: 0,
+  };
+}
+
 function assertSealRequestBinding(url, target) {
   if (url.searchParams.get("project_id") !== target.projectId) {
     throw problem("PROJECT_SCOPE_DENIED", "PROJECT_SCOPE_DENIED", 403);
@@ -719,7 +860,10 @@ export function readExistingSealToken(path, explicit) {
   }
 }
 
-export function loadSealSourceIdentity(env = process.env, { expectedSourceRoot = DEFAULT_SOURCE_ROOT } = {}) {
+export function loadSealSourceIdentity(env = process.env, {
+  expectedSourceRoot = DEFAULT_SOURCE_ROOT,
+  identityResourcesRelative = SEAL_IDENTITY_RESOURCES_RELATIVE,
+} = {}) {
   const required = [
     "FILMOS_REVIEW_SEAL_SOURCE_ROOT",
     "FILMOS_REVIEW_SEAL_SOURCE_COMMIT",
@@ -752,7 +896,7 @@ export function loadSealSourceIdentity(env = process.env, { expectedSourceRoot =
       env.FILMOS_INSTALLED_INTERNAL_RUNTIME_PATH,
       env.FILMOS_REVIEW_DEVELOPER_REPOSITORY_LOCATOR,
     ];
-    const identityResources = resolve(sourceRoot, SEAL_IDENTITY_RESOURCES_RELATIVE);
+    const identityResources = resolve(sourceRoot, identityResourcesRelative);
     const expectedIdentityPaths = [
       resolve(identityResources, "SourceIdentity.json"),
       resolve(identityResources, "InternalRuntime.json"),
@@ -820,11 +964,14 @@ export function loadSealSourceIdentity(env = process.env, { expectedSourceRoot =
   }
 }
 
-export function startFromEnvironment(env = process.env, { assessmentSealTestOnly = null } = {}) {
+export function startFromEnvironment(env = process.env, { assessmentSealTestOnly = null, externalReadTestOnly = null } = {}) {
   const runtimeMode = env.FILMOS_REVIEW_BUS_RUNTIME_MODE ?? REVIEW_BUS_RUNTIME_MODE_NORMAL;
   if (!REVIEW_BUS_RUNTIME_MODES.has(runtimeMode)) throw problem("INVALID_REVIEW_BUS_RUNTIME_MODE");
   if (runtimeMode === REVIEW_BUS_RUNTIME_MODE_ASSESSMENT_SEAL) {
     return startSealRuntime(env, sealRuntimeConfiguration(assessmentSealTestOnly));
+  }
+  if (runtimeMode === REVIEW_BUS_RUNTIME_MODE_EXTERNAL_READ) {
+    return startExternalReadRuntime(env, externalReadRuntimeConfiguration(externalReadTestOnly));
   }
 
   const localDir = resolve(env.FILMOS_REVIEW_BUS_LOCAL_DIR ?? DEFAULT_DIR);
@@ -859,6 +1006,81 @@ export function startFromEnvironment(env = process.env, { assessmentSealTestOnly
   backupTimer.unref();
   server.listen(port, host);
   return { server, store, service, host, port, backupTimer };
+}
+
+function startExternalReadRuntime(env, configuration) {
+  const {
+    canonicalDatabase,
+    expectedSourceRoot,
+    sealTarget,
+    sealBinding,
+    externalReadPolicy,
+    port: requiredPort,
+    identityResourcesRelative,
+  } = configuration;
+  const canonicalLocalDir = dirname(canonicalDatabase);
+  const localDir = resolve(env.FILMOS_REVIEW_BUS_LOCAL_DIR ?? canonicalLocalDir);
+  const port = Number(env.FILMOS_REVIEW_BUS_PORT ?? requiredPort);
+  const host = env.FILMOS_REVIEW_BUS_HOST ?? "127.0.0.1";
+  if (localDir !== canonicalLocalDir
+    || host !== "127.0.0.1"
+    || port !== requiredPort
+    || env.FILMOS_REVIEW_BUS_TOKEN !== undefined
+    || env.FILMOS_REVIEW_CONSTITUTION_PATH !== undefined
+    || env.FILMOS_REVIEW_TASK_PACKAGE_HASH !== undefined) {
+    throw problem("EXTERNAL_READ_RUNTIME_DATABASE_REQUIRED");
+  }
+  const sourceIdentity = loadSealSourceIdentity(env, { expectedSourceRoot, identityResourcesRelative });
+  const busToken = readExistingSealToken(resolve(localDir, "review-bus.token"), undefined);
+  const constitutionPath = resolve(import.meta.dirname, "../../../governance/FILMOS_CONSTITUTION.json");
+  assertRegularIdentityFile(constitutionPath);
+  const constitutionBytes = readFileSync(constitutionPath, "utf8");
+  const constitution = JSON.parse(constitutionBytes);
+  if (sha256(constitutionBytes) !== PHASE_7_CONSTITUTION_FILE_SHA256
+    || constitution.content_hash !== CONSTITUTION_HASH
+    || constitution.constitution_version !== CONSTITUTION_VERSION) {
+    throw problem("EXTERNAL_READ_RUNTIME_TARGET_MISMATCH");
+  }
+  const store = new ReviewBusStore(canonicalDatabase, {
+    runtimeMode: REVIEW_BUS_RUNTIME_MODE_EXTERNAL_READ,
+    sealBinding,
+    sealTarget,
+    externalReadPolicy,
+  });
+  try {
+    const service = new ReviewBusService(store, { taskPackageContentHash: TASK_PACKAGE_HASH });
+    store.assertExternalPendingIssues(service.pending(externalReadPolicy.projectId));
+    store.externalReadReceiptState();
+    const externalReadContext = Object.freeze({
+      sourceIdentity,
+      policy: store.externalReadPolicy,
+    });
+    const server = createReviewBusHttp({
+      service,
+      store,
+      busToken,
+      bridgeToken: null,
+      constitution,
+      listenPort: port,
+      installedSourceIdentity: sourceIdentity,
+      runtimeMode: REVIEW_BUS_RUNTIME_MODE_EXTERNAL_READ,
+      externalReadContext,
+    });
+    server.listen(port, host);
+    return {
+      server,
+      store,
+      service,
+      host,
+      port,
+      backupTimer: null,
+      runtimeMode: REVIEW_BUS_RUNTIME_MODE_EXTERNAL_READ,
+      externalReadContext,
+    };
+  } catch (error) {
+    store.close();
+    throw error;
+  }
 }
 
 function startSealRuntime(env, configuration) {
@@ -944,6 +1166,43 @@ function sealRuntimeConfiguration(testOnly) {
     expectedTarget: Object.freeze({ ...testOnly.expectedTarget }),
     expectedDatabaseOrigin: Object.freeze({ ...testOnly.expectedDatabaseOrigin }),
     port: testOnly.port,
+  });
+}
+
+function externalReadRuntimeConfiguration(testOnly) {
+  if (testOnly === null) {
+    return Object.freeze({
+      canonicalDatabase: DEFAULT_DATABASE,
+      expectedSourceRoot: DEFAULT_SOURCE_ROOT,
+      sealTarget: PHASE_5A4_SEAL_TARGET,
+      sealBinding: Object.freeze({
+        canonicalPath: DEFAULT_DATABASE,
+        ...PHASE_5A4_SEAL_DATABASE_ORIGIN,
+      }),
+      externalReadPolicy: PHASE_7_EXTERNAL_READ_POLICY,
+      port: DEFAULT_PORT,
+      identityResourcesRelative: EXTERNAL_READ_IDENTITY_RESOURCES_RELATIVE,
+    });
+  }
+  if (!process.env.NODE_TEST_CONTEXT
+    || !testOnly || testOnly.enabled !== true
+    || typeof testOnly.canonicalDatabase !== "string"
+    || typeof testOnly.expectedSourceRoot !== "string"
+    || !testOnly.sealTarget
+    || !testOnly.sealBinding
+    || !testOnly.externalReadPolicy
+    || !Number.isInteger(testOnly.port)
+    || testOnly.port < 0) {
+    throw problem("EXTERNAL_READ_RUNTIME_DATABASE_REQUIRED");
+  }
+  return Object.freeze({
+    canonicalDatabase: resolve(testOnly.canonicalDatabase),
+    expectedSourceRoot: resolve(testOnly.expectedSourceRoot),
+    sealTarget: Object.freeze({ ...testOnly.sealTarget }),
+    sealBinding: Object.freeze({ ...testOnly.sealBinding, canonicalPath: resolve(testOnly.canonicalDatabase) }),
+    externalReadPolicy: Object.freeze(testOnly.externalReadPolicy),
+    port: testOnly.port,
+    identityResourcesRelative: testOnly.identityResourcesRelative ?? SEAL_IDENTITY_RESOURCES_RELATIVE,
   });
 }
 

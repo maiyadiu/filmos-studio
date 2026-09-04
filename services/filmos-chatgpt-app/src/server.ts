@@ -1,7 +1,7 @@
 import { randomUUID, timingSafeEqual } from "node:crypto";
-import { readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { lstatSync, readFileSync, realpathSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { resolve } from "node:path";
+import { isAbsolute, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
@@ -19,6 +19,18 @@ import { HttpReviewReadSource, type ReviewReadSource } from "./review-source.js"
 
 type TunnelContext = { tunneled: boolean; challengeId: string | null };
 type Session = { transport: StreamableHTTPServerTransport; grant: ProjectGrant; tunnel: TunnelContext };
+
+export const FILMOS_CHATGPT_RUNTIME_MODE_NORMAL = "normal";
+export const FILMOS_CHATGPT_RUNTIME_MODE_EXTERNAL_READ = "external-read";
+export const EXTERNAL_READ_TOOL_ALLOWLIST = [
+  "issue_list_pending",
+  "issue_get_codex_assessment_blind",
+  "issue_get_evidence",
+  "issue_get_constitution",
+  "filmos_get_project_context",
+  "filmos_get_live_workbench_context",
+  "filmos_get_blockers",
+] as const;
 
 type ExternalObservation = {
   connection_id: string;
@@ -38,6 +50,7 @@ type ExternalObservation = {
 
 export type FilmOSChatGPTAppOptions = {
   enabled: boolean;
+  runtimeMode?: typeof FILMOS_CHATGPT_RUNTIME_MODE_NORMAL | typeof FILMOS_CHATGPT_RUNTIME_MODE_EXTERNAL_READ;
   readToolsEnabled?: boolean;
   widgetsEnabled?: boolean;
   proposalHandoffEnabled: boolean;
@@ -54,10 +67,16 @@ export type FilmOSChatGPTAppOptions = {
   externalObservationTtlMs?: number;
   hostContext?: ChatGPTHostContextStore;
   reviewRead?: ReviewReadSource;
+  toolAllowlist?: readonly string[];
 };
 
 export function createFilmOSChatGPTApp(options: FilmOSChatGPTAppOptions) {
   const app = express();
+  const runtimeMode = options.runtimeMode ?? FILMOS_CHATGPT_RUNTIME_MODE_NORMAL;
+  if (![FILMOS_CHATGPT_RUNTIME_MODE_NORMAL, FILMOS_CHATGPT_RUNTIME_MODE_EXTERNAL_READ].includes(runtimeMode)) {
+    throw new Error("INVALID_FILMOS_CHATGPT_RUNTIME_MODE");
+  }
+  if (runtimeMode === FILMOS_CHATGPT_RUNTIME_MODE_EXTERNAL_READ) assertExternalReadOptions(options);
   const mcpInstanceId = randomUUID();
   const sessions = new Map<string, Session>();
   const observations = new Map<string, { last_read_at: string; last_context_snapshot: { uri: string | null; version: number | null; state_hash: string | null } }>();
@@ -71,10 +90,25 @@ export function createFilmOSChatGPTApp(options: FilmOSChatGPTAppOptions) {
     widgetsEnabled: options.widgetsEnabled,
     proposalHandoffEnabled,
     reviewReadToolsEnabled: Boolean(options.reviewRead),
+    toolAllowlist: options.toolAllowlist,
   });
+  if (runtimeMode === FILMOS_CHATGPT_RUNTIME_MODE_EXTERNAL_READ) {
+    const expected = JSON.stringify(EXTERNAL_READ_TOOL_ALLOWLIST);
+    if (JSON.stringify(manifest.map((tool) => tool.name)) !== expected
+      || manifest.some((tool) => tool.risk !== "read")) {
+      throw new Error("EXTERNAL_READ_MCP_MANIFEST_MISMATCH");
+    }
+  }
   const manifestCounts = countManifestRisks(manifest);
   const observationTtlMs = boundedObservationTtl(options.externalObservationTtlMs);
+  let liveContextPublishCount = 0;
   app.disable("x-powered-by");
+  app.use((req, res, next) => {
+    if (runtimeMode === FILMOS_CHATGPT_RUNTIME_MODE_EXTERNAL_READ && !externalReadHttpRouteAllowed(req)) {
+      return res.status(404).json({ code: "EXTERNAL_READ_RUNTIME_ROUTE_DENIED" });
+    }
+    next();
+  });
   app.use(express.json({ limit: "1mb" }));
   app.use((req, res, next) => {
     res.setHeader("Cache-Control", "no-store");
@@ -91,6 +125,7 @@ export function createFilmOSChatGPTApp(options: FilmOSChatGPTAppOptions) {
     mcp_instance_id: mcpInstanceId,
     feature: "film.chatgpt_app",
     enabled: options.enabled,
+    runtime_mode: runtimeMode,
     profile_id: hostProfileId,
     billing_mode: "subscription_host_no_extra_model_api",
     model_api_adapter_available: false,
@@ -156,6 +191,7 @@ export function createFilmOSChatGPTApp(options: FilmOSChatGPTAppOptions) {
       widgetsEnabled: options.widgetsEnabled,
       reviewRead: options.reviewRead,
       reviewReadToolsEnabled: Boolean(options.reviewRead),
+      toolAllowlist: options.toolAllowlist,
       liveGate: tunnel.challengeId ? { challengeId: tunnel.challengeId, tunneled: tunnel.tunneled } : undefined,
       hostContext,
       onRead: (snapshot) => {
@@ -260,9 +296,13 @@ export function createFilmOSChatGPTApp(options: FilmOSChatGPTAppOptions) {
     if (!options.enabled) return res.status(404).json({ code: "FILM_CHATGPT_APP_DISABLED" });
     const authorization = await authenticate(req, res);
     if (!authorization) return;
+    if (runtimeMode === FILMOS_CHATGPT_RUNTIME_MODE_EXTERNAL_READ && liveContextPublishCount !== 0) {
+      return res.status(409).json({ code: "EXTERNAL_READ_LIVE_CONTEXT_ALREADY_PUBLISHED" });
+    }
     try {
       assertExactKeys(req.body, ["challenge_id", "context"]);
       const context = hostContext.publishContext(authorization.grant, String(req.body.challenge_id || ""), req.body.context);
+      liveContextPublishCount += 1;
       const body = { accepted: true, project_id: authorization.grant.project_id, context_receipt_id: context.context_receipt_id, expires_at: context.expires_at };
       await options.audit.write(auditRecord({
         correlation_id: randomUUID(),
@@ -394,10 +434,15 @@ export function createFilmOSChatGPTApp(options: FilmOSChatGPTAppOptions) {
     if (status === 400 || error instanceof SyntaxError) return res.status(400).json({ code: "INVALID_JSON" });
     return next(error);
   });
-  return { app, sessions, externalObservations };
+  return { app, sessions, externalObservations, getLiveContextPublishCount: () => liveContextPublishCount };
 }
 
 export async function startFromEnvironment(env: NodeJS.ProcessEnv = process.env) {
+  const runtimeModeValue = env.FILMOS_CHATGPT_RUNTIME_MODE ?? FILMOS_CHATGPT_RUNTIME_MODE_NORMAL;
+  if (![FILMOS_CHATGPT_RUNTIME_MODE_NORMAL, FILMOS_CHATGPT_RUNTIME_MODE_EXTERNAL_READ].includes(runtimeModeValue)) {
+    throw new Error("INVALID_FILMOS_CHATGPT_RUNTIME_MODE");
+  }
+  const runtimeMode = runtimeModeValue as typeof FILMOS_CHATGPT_RUNTIME_MODE_NORMAL | typeof FILMOS_CHATGPT_RUNTIME_MODE_EXTERNAL_READ;
   const enabled = env.FILMOS_CHATGPT_APP_ENABLED === "true";
   const readToolsEnabled = env.FILMOS_CHATGPT_READ_TOOLS_ENABLED === "true";
   const widgetsEnabled = env.FILMOS_CHATGPT_WIDGETS_ENABLED === "true";
@@ -410,10 +455,38 @@ export async function startFromEnvironment(env: NodeJS.ProcessEnv = process.env)
   const pidFile = env.FILMOS_CHATGPT_PID_FILE ? resolve(env.FILMOS_CHATGPT_PID_FILE) : null;
   const reviewReadEnabled = env.FILMOS_REVIEW_BUS_READ_ENABLED === "true";
   const reviewTokenFile = resolve(env.FILMOS_REVIEW_BUS_AUTH_FILE ?? resolve(homedir(), "Library/Application Support/FilmOS Studio/review-bus/review-bus.token"));
-  const reviewToken = reviewReadEnabled ? (env.FILMOS_REVIEW_BUS_TOKEN ?? readFileSync(reviewTokenFile, "utf8").trim()) : null;
+  const externalRoot = runtimeMode === FILMOS_CHATGPT_RUNTIME_MODE_EXTERNAL_READ
+    ? requireExternalReadRuntimeRoot(env.FILMOS_EXTERNAL_READ_RUNTIME_ROOT)
+    : null;
+  if (externalRoot) {
+    const canonicalReviewToken = resolve(homedir(), "Library/Application Support/FilmOS Studio/review-bus/review-bus.token");
+    if (host !== "127.0.0.1"
+      || port !== 17840
+      || localDir !== resolve(externalRoot, "MCP")
+      || pidFile !== resolve(externalRoot, "chatgpt-mcp.pid")
+      || reviewTokenFile !== canonicalReviewToken
+      || env.FILMOS_REVIEW_BUS_TOKEN
+      || env.FILMOS_REVIEW_BUS_BASE_URL !== "http://127.0.0.1:17920"
+      || env.FILMOS_CORE_BASE_URL !== "http://127.0.0.1:17650/film"
+      || hostProfileId !== "chatgpt.subscription.host.pro_readonly"
+      || env.FILMOS_CHATGPT_ALLOWED_ORIGINS
+      || env.FILMOS_CHATGPT_PROPOSAL_SIGNING_SECRET !== undefined
+      || env.FILMOS_CHATGPT_IMPORT_PYTHON !== undefined
+      || env.FILMOS_CHATGPT_IMPORT_MODULE_ROOT !== undefined
+      || env.FILMOS_CHATGPT_CONNECTION_ID !== "chatgpt.subscription.host"
+      || env.FILMOS_CHATGPT_OBSERVATION_TTL_MS !== "300000"
+      || !/^proof_[A-Za-z0-9_-]{43}$/.test(env.FILMOS_SECURE_TUNNEL_PROOF ?? "")
+      || !enabled || !readToolsEnabled || widgetsEnabled || proposalHandoffEnabled || !reviewReadEnabled) {
+      throw new Error("EXTERNAL_READ_RUNTIME_CONFIGURATION_MISMATCH");
+    }
+  }
+  const reviewToken = reviewReadEnabled
+    ? (externalRoot ? readExternalReadTokenFile(reviewTokenFile) : (env.FILMOS_REVIEW_BUS_TOKEN ?? readFileSync(reviewTokenFile, "utf8").trim()))
+    : null;
   const grants = await JsonProjectGrantStore.open(resolve(localDir, "grants.json"));
   const instance = createFilmOSChatGPTApp({
     enabled,
+    runtimeMode,
     readToolsEnabled,
     widgetsEnabled,
     proposalHandoffEnabled,
@@ -433,6 +506,7 @@ export async function startFromEnvironment(env: NodeJS.ProcessEnv = process.env)
     hostProfileId,
     externalObservationTtlMs: Number(env.FILMOS_CHATGPT_OBSERVATION_TTL_MS ?? 300_000),
     reviewRead: reviewReadEnabled && reviewToken ? new HttpReviewReadSource(env.FILMOS_REVIEW_BUS_BASE_URL ?? "http://127.0.0.1:17920", reviewToken) : undefined,
+    toolAllowlist: externalRoot ? EXTERNAL_READ_TOOL_ALLOWLIST : undefined,
   });
   const httpServer = instance.app.listen(port, host);
   await new Promise<void>((resolveListening, rejectListening) => {
@@ -462,6 +536,56 @@ function assertExactKeys(value: unknown, expected: string[]) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("INVALID_REQUEST_BODY");
   const actual = Object.keys(value as Record<string, unknown>).sort();
   if (actual.join("\n") !== [...expected].sort().join("\n")) throw new Error("INVALID_REQUEST_BODY");
+}
+
+function requireExternalReadRuntimeRoot(value: string | undefined): string {
+  const expected = resolve(homedir(), "Downloads/other/短剧/FilmOS Studio/.local/phase7-external-read-runtime");
+  if (!value || !isAbsolute(value) || resolve(value) !== value || value !== expected) {
+    throw new Error("EXTERNAL_READ_RUNTIME_ROOT_REQUIRED");
+  }
+  try {
+    const metadata = lstatSync(value);
+    if (!metadata.isDirectory() || metadata.isSymbolicLink() || realpathSync(value) !== value) throw new Error("root drift");
+    return value;
+  } catch {
+    throw new Error("EXTERNAL_READ_RUNTIME_ROOT_REQUIRED");
+  }
+}
+
+function readExternalReadTokenFile(path: string): string {
+  const metadata = lstatSync(path);
+  if (!metadata.isFile() || metadata.isSymbolicLink() || realpathSync(path) !== path) {
+    throw new Error("EXTERNAL_READ_REVIEW_TOKEN_REQUIRED");
+  }
+  const token = readFileSync(path, "utf8").trim();
+  if (token.length < 24) throw new Error("EXTERNAL_READ_REVIEW_TOKEN_REQUIRED");
+  return token;
+}
+
+function assertExternalReadOptions(options: FilmOSChatGPTAppOptions): void {
+  if (options.enabled !== true
+    || options.readToolsEnabled !== true
+    || options.widgetsEnabled !== false
+    || options.proposalHandoffEnabled !== false
+    || !options.reviewRead
+    || !options.secureTunnelProof
+    || JSON.stringify(options.toolAllowlist) !== JSON.stringify(EXTERNAL_READ_TOOL_ALLOWLIST)
+    || options.proposalPreview !== undefined
+    || options.media !== undefined) {
+    throw new Error("EXTERNAL_READ_RUNTIME_CONFIGURATION_MISMATCH");
+  }
+}
+
+function externalReadHttpRouteAllowed(req: Request): boolean {
+  if (req.method === "GET" && req.path === "/health") return req.originalUrl === "/health";
+  if (["POST", "GET", "DELETE"].includes(req.method) && req.path === "/mcp") return req.originalUrl === "/mcp";
+  if (req.method === "PUT" && req.path === "/handoff/live-context") return req.originalUrl === "/handoff/live-context";
+  if (req.method !== "GET") return false;
+  return [
+    "/.well-known/oauth-protected-resource",
+    "/.well-known/oauth-protected-resource/mcp",
+    "/.well-known/oauth-authorization-server",
+  ].includes(req.path) && req.originalUrl === req.path;
 }
 
 function hostProfileAllowsProposal(profileId: string): boolean {

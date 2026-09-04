@@ -8,7 +8,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { MemoryAuditSink } from "../src/audit.js";
 import { MemoryFilmOSReadDataSource } from "../src/data-source.js";
 import { MemoryProjectGrantStore } from "../src/grants.js";
-import { REVIEW_READ_TOOLS } from "../src/review-mcp.js";
+import { REVIEW_READ_TOOLS, reviewReadManifest } from "../src/review-mcp.js";
 import type { ReviewReadSource } from "../src/review-source.js";
 import { createFilmOSChatGPTApp } from "../src/server.js";
 import { projectA, projects } from "./fixture.js";
@@ -40,12 +40,19 @@ test("ChatGPT Review MCP registry is strictly read-only and preserves the blind 
       return { tool, issue_id: input.issue_id ?? null, project_id: project, read_only: true };
     },
   };
-  const instance = createFilmOSChatGPTApp({ enabled: true, proposalHandoffEnabled: false, grants, dataSource: new MemoryFilmOSReadDataSource(projects), audit, reviewRead });
+  const challengeId = "live_review_audit_12345678";
+  const secureTunnelProof = "review-audit-proof";
+  const instance = createFilmOSChatGPTApp({ enabled: true, proposalHandoffEnabled: false, grants, dataSource: new MemoryFilmOSReadDataSource(projects), audit, reviewRead, secureTunnelProof });
   const httpServer = instance.app.listen(0, "127.0.0.1");
   await new Promise<void>((resolve) => httpServer.once("listening", resolve));
   const port = (httpServer.address() as AddressInfo).port;
   const client = new Client({ name: "review-readonly", version: "1.0.0" });
-  const transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`), { requestInit: { headers: { authorization: `Bearer ${issued.token}` } } });
+  const transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`), { requestInit: { headers: {
+    authorization: `Bearer ${issued.token}`,
+    "x-filmos-transport": "secure-mcp-tunnel",
+    "x-filmos-transport-proof": secureTunnelProof,
+    "x-filmos-live-gate-challenge": challengeId,
+  } } });
   try {
     await client.connect(transport);
     const listed = await client.listTools();
@@ -158,6 +165,14 @@ test("ChatGPT Review MCP registry is strictly read-only and preserves the blind 
 
     assert.ok(audit.records.some((record) => record.action === "issue_get_codex_assessment_blind" && record.project_id === projectA && record.outcome === "ALLOW"));
     assert.ok(audit.records.some((record) => record.action === "issue_get_evidence" && record.project_id === projectA && record.outcome === "DENY" && record.code === "PROJECT_SCOPE_DENIED"));
+    const tunnelBoundReview = audit.records.find((record) => record.action === "issue_get_codex_assessment_blind" && record.outcome === "ALLOW");
+    assert.equal(tunnelBoundReview?.challenge_id, challengeId);
+    assert.equal(tunnelBoundReview?.request_id, tunnelBoundReview?.correlation_id);
+    assert.equal(tunnelBoundReview?.tool_name, "issue_get_codex_assessment_blind");
+    assert.equal(tunnelBoundReview?.result_hash, tunnelBoundReview?.output_hash);
+    assert.ok([...instance.externalObservations.values()].some((observations) =>
+      [...observations.values()].some((observation) => observation.tool_name === "issue_get_evidence" && observation.challenge_id === challengeId),
+    ));
     const health = await fetch(`http://127.0.0.1:${port}/health`);
     const body = await health.json() as any;
     assert.equal(body.mcp_write_tool_count, 0);
@@ -170,4 +185,10 @@ test("ChatGPT Review MCP registry is strictly read-only and preserves the blind 
     await client.close().catch(() => undefined);
     await new Promise<void>((resolve) => httpServer.close(() => resolve()));
   }
+});
+
+test("Review MCP manifest preserves an explicit ordered subset and rejects unknown tools", () => {
+  const selected = ["issue_get_constitution", "issue_list_pending"];
+  assert.deepEqual(reviewReadManifest(selected).map((entry) => entry.name), selected);
+  assert.throws(() => reviewReadManifest(["issue_get_constitution", "unknown-review-tool"]), /UNKNOWN_REVIEW_READ_TOOL/);
 });

@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+import hashlib
+import os
 import sqlite3
+import stat
 from pathlib import Path
+from typing import Any
+from urllib.parse import quote
 
 
 SCHEMA_VERSION = 7
@@ -719,12 +724,47 @@ MIGRATIONS = (
 
 
 class SQLiteDatabase:
-    def __init__(self, path: str | Path) -> None:
+    def __init__(
+        self,
+        path: str | Path,
+        *,
+        read_only: bool = False,
+        expected_identity: dict[str, Any] | None = None,
+    ) -> None:
+        self.read_only = read_only
+        self.expected_identity = expected_identity
+        if read_only:
+            self.path = self._canonical_read_only_path(path)
+            if expected_identity is None:
+                raise ValueError("FILM_CORE_READ_ONLY_IDENTITY_REQUIRED")
+            self._validate_read_only_identity(include_shm=True)
+            with self.connect() as connection:
+                row = connection.execute(
+                    "SELECT COALESCE(MAX(version), 0) AS version FROM schema_migrations"
+                ).fetchone()
+            if int(row["version"]) != SCHEMA_VERSION:
+                raise ValueError("FILM_CORE_READ_ONLY_SCHEMA_MISMATCH")
+            return
+
         self.path = Path(path).expanduser().resolve()
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.migrate()
 
     def connect(self) -> sqlite3.Connection:
+        if self.read_only:
+            self._validate_read_only_identity(include_shm=False)
+            connection = sqlite3.connect(
+                f"file:{quote(str(self.path), safe='/')}?mode=ro",
+                timeout=5.0,
+                isolation_level=None,
+                uri=True,
+            )
+            connection.row_factory = sqlite3.Row
+            connection.execute("PRAGMA busy_timeout = 5000")
+            connection.execute("PRAGMA query_only = ON")
+            connection.set_authorizer(_read_only_authorizer)
+            return connection
+
         connection = sqlite3.connect(
             self.path,
             timeout=5.0,
@@ -737,6 +777,8 @@ class SQLiteDatabase:
         return connection
 
     def migrate(self) -> None:
+        if self.read_only:
+            raise ValueError("FILM_CORE_READ_ONLY_WRITE_DENIED")
         with self.connect() as connection:
             connection.executescript(MIGRATION_001)
             connection.execute(
@@ -776,3 +818,95 @@ class SQLiteDatabase:
             ).fetchone()
             journal_row = connection.execute("PRAGMA journal_mode").fetchone()
         return int(row["version"]), str(journal_row[0]).lower()
+
+    @staticmethod
+    def _canonical_read_only_path(path: str | Path) -> Path:
+        expanded = Path(path).expanduser()
+        if not expanded.is_absolute() or Path(os.path.normpath(str(expanded))) != expanded:
+            raise ValueError("FILM_CORE_READ_ONLY_DATABASE_REQUIRED")
+        try:
+            parent_metadata = expanded.parent.lstat()
+            metadata = expanded.lstat()
+            canonical = expanded.resolve(strict=True)
+        except OSError as error:
+            raise ValueError("FILM_CORE_READ_ONLY_DATABASE_REQUIRED") from error
+        if (
+            stat.S_ISLNK(parent_metadata.st_mode)
+            or not stat.S_ISDIR(parent_metadata.st_mode)
+            or stat.S_ISLNK(metadata.st_mode)
+            or not stat.S_ISREG(metadata.st_mode)
+            or canonical != expanded
+            or expanded.parent.resolve(strict=True) != expanded.parent
+        ):
+            raise ValueError("FILM_CORE_READ_ONLY_DATABASE_REQUIRED")
+        return expanded
+
+    def _validate_read_only_identity(self, *, include_shm: bool) -> None:
+        expected = self.expected_identity
+        if not isinstance(expected, dict) or expected.get("path") != str(self.path):
+            raise ValueError("FILM_CORE_READ_ONLY_IDENTITY_REQUIRED")
+        _assert_file_identity(self.path, expected, allow_empty=False)
+        wal = expected.get("wal")
+        if not isinstance(wal, dict):
+            raise ValueError("FILM_CORE_READ_ONLY_IDENTITY_REQUIRED")
+        _assert_file_identity(Path(f"{self.path}-wal"), wal, allow_empty=True)
+        if include_shm and "shm" in expected:
+            shm = expected.get("shm")
+            if not isinstance(shm, dict):
+                raise ValueError("FILM_CORE_READ_ONLY_IDENTITY_REQUIRED")
+            _assert_file_identity(Path(f"{self.path}-shm"), shm, allow_empty=True)
+
+
+def _assert_file_identity(path: Path, expected: dict[str, Any], *, allow_empty: bool) -> None:
+    required = ("device", "inode", "size", "sha256")
+    if any(key not in expected for key in required):
+        raise ValueError("FILM_CORE_READ_ONLY_IDENTITY_REQUIRED")
+    try:
+        before = path.lstat()
+        if stat.S_ISLNK(before.st_mode) or not stat.S_ISREG(before.st_mode):
+            raise ValueError("not a regular file")
+        digest = hashlib.sha256()
+        with path.open("rb") as source:
+            while chunk := source.read(1024 * 1024):
+                digest.update(chunk)
+        after = path.stat()
+    except (OSError, ValueError) as error:
+        raise ValueError("FILM_CORE_READ_ONLY_DATABASE_REQUIRED") from error
+    if (
+        before.st_dev != after.st_dev
+        or before.st_ino != after.st_ino
+        or before.st_size != after.st_size
+        or before.st_mtime_ns != after.st_mtime_ns
+        or after.st_dev != expected["device"]
+        or after.st_ino != expected["inode"]
+        or after.st_size != expected["size"]
+        or (after.st_size == 0 and not allow_empty)
+        or digest.hexdigest() != expected["sha256"]
+        or path.resolve(strict=True) != path
+    ):
+        raise ValueError("FILM_CORE_READ_ONLY_DATABASE_MISMATCH")
+
+
+def _read_only_authorizer(
+    action: int,
+    argument_one: str | None,
+    argument_two: str | None,
+    _database: str | None,
+    _trigger: str | None,
+) -> int:
+    allowed = {
+        sqlite3.SQLITE_FUNCTION,
+        sqlite3.SQLITE_READ,
+        sqlite3.SQLITE_RECURSIVE,
+        sqlite3.SQLITE_SELECT,
+        sqlite3.SQLITE_TRANSACTION,
+    }
+    if action in allowed:
+        return sqlite3.SQLITE_OK
+    if (
+        action == sqlite3.SQLITE_PRAGMA
+        and argument_one in {"journal_mode", "page_count", "schema_version"}
+        and argument_two is None
+    ):
+        return sqlite3.SQLITE_OK
+    return sqlite3.SQLITE_DENY
