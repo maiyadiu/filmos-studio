@@ -1,9 +1,10 @@
 #!/usr/bin/env node
+import { spawnSync } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { homedir } from "node:os";
-import { dirname, resolve } from "node:path";
+import { basename, dirname, isAbsolute, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { ARCHITECTURE_PROTOCOL_VERSION } from "./architecture-protocol.mjs";
@@ -15,28 +16,101 @@ import { normalizeInstalledSubmission, normalizeStageASubmission, normalizeStage
 import { loadInstalledSourceIdentity } from "./installed-source-identity.mjs";
 import { buildLiveRoundtripTrace } from "./live-roundtrip-trace.mjs";
 import { ReviewBusService } from "./service.mjs";
-import { ReviewBusStore } from "./store.mjs";
+import { REVIEW_BUS_RUNTIME_MODE_ASSESSMENT_SEAL, REVIEW_BUS_RUNTIME_MODE_NORMAL, ReviewBusStore } from "./store.mjs";
 
 const DEFAULT_PORT = 17920;
 const DEFAULT_DIR = resolve(homedir(), "Library/Application Support/FilmOS Studio/review-bus");
+const DEFAULT_DATABASE = resolve(DEFAULT_DIR, "review-bus.sqlite");
+const DEFAULT_SOURCE_ROOT = resolve(import.meta.dirname, "../../..");
+const SEAL_IDENTITY_RESOURCES_RELATIVE = ".local/phase5a4-seal-runtime/Resources";
 const challengeRate = new Map();
 const pairingRate = new Map();
 const BRIDGE_PURPOSES = new Set(["CHATGPT_ASSESSMENT", "CHATGPT_CONSENSUS_DECISION", "CHATGPT_REVIEW_DECISION", "CHATGPT_VERDICT", "FINDING_DECISION"]);
+const REVIEW_BUS_RUNTIME_MODES = new Set([REVIEW_BUS_RUNTIME_MODE_NORMAL, REVIEW_BUS_RUNTIME_MODE_ASSESSMENT_SEAL]);
+const SEAL_ERROR_CODES = new Set([
+  "INVALID_REVIEW_BUS_RUNTIME_MODE",
+  "SEAL_RUNTIME_DATABASE_REQUIRED",
+  "SEAL_RUNTIME_EVIDENCE_ROOT_REQUIRED",
+  "SEAL_RUNTIME_SCHEMA_MISMATCH",
+  "SEAL_RUNTIME_TOKEN_REQUIRED",
+  "SEAL_RUNTIME_SOURCE_IDENTITY_REQUIRED",
+  "SEAL_RUNTIME_SOURCE_IDENTITY_MISMATCH",
+  "SEAL_RUNTIME_TARGET_REQUIRED",
+  "SEAL_RUNTIME_TARGET_MISMATCH",
+  "SEAL_RUNTIME_ROUTE_DENIED",
+]);
+const PHASE_5A4_SEAL_TARGET = Object.freeze({
+  projectId: "ca40511be3ae12112101cc1de6059b95",
+  issueId: "FILMOS-ARCH-b3274782-30a0-44a1-a05e-01730678da8b",
+  submissionId: "FILMOS-SUBMISSION-b3274782-30a0-44a1-a05e-01730678da8b",
+  actor: "codex",
+  assessmentRound: 1,
+  entityVersion: 124,
+  issueEventCount: 124,
+  lastEventHash: "82912bd2fb0d6d7dc0d325fb46224ad3b2ed598ff9925cb75f11d33ae4e89c23",
+  projectionHash: "e43bb789f4006ce9eff4c00dcbc9d047fee4ff178d987857f55450b72060ee33",
+  intakeReceiptHash: "dfe3907891533dbf29b6602d7cb6fdc87728cfd03fdd4696f06b447dc6910f35",
+});
+const PHASE_5A4_SEAL_DATABASE_ORIGIN = Object.freeze({
+  device: 16777234,
+  inode: 101926348,
+  size: 12910592,
+  sha256: "81f74d8692c03f688fa42683620ccdc70a4f9ad53644482690c9992dde2a65a2",
+  journalMode: "wal",
+  pageCount: 3155,
+  schemaVersion: 25,
+  walSha256: "4a4209437e690f81be71905414afa1c20a85de713a2695ca2f377b70a5a0b528",
+  logicalSnapshotSha256: "dd81cd18f76f0658959f245706560639acf28b9f6f57ee1e0d2349b0b726a2b1",
+  stateSnapshotSha256: "cc654b0fd22307c6eb00f957e26fcff371e9a80af862c035063509ee6d883b9f",
+  schemaSqlSha256: "276182d7a5655de8cd0a90e9affe2740b0d9d9f057068b817715ae6560825605",
+  submissionCaptureHash: "0fb0fef9788bbeace08a263f93c49c22e7611e0edca5c7039945b3c75a4315fa",
+  immutableSubmissionIntakeSha256: "8f7fb589fc5373256ca71df96c878f83394da94004c64169052d59d407901d20",
+});
 
-export function createReviewBusHttp({ service, store, busToken, bridgeToken, constitution, githubVerifier = new GitHubEvidenceVerifier(), listenPort = DEFAULT_PORT, now = () => new Date(), runtimeInstanceId = `review-runtime-${randomUUID()}`, intakeBootstrap = STAGE_A_BOOTSTRAP, installedSourceIdentity = null, sourceIdentityErrorCode = "INSTALLED_SOURCE_IDENTITY_UNAVAILABLE" }) {
+export function createReviewBusHttp({ service, store, busToken, bridgeToken, constitution, githubVerifier = new GitHubEvidenceVerifier(), listenPort = DEFAULT_PORT, now = () => new Date(), runtimeInstanceId = `review-runtime-${randomUUID()}`, intakeBootstrap = STAGE_A_BOOTSTRAP, installedSourceIdentity = null, sourceIdentityErrorCode = "INSTALLED_SOURCE_IDENTITY_UNAVAILABLE", runtimeMode = REVIEW_BUS_RUNTIME_MODE_NORMAL, sealContext = null }) {
+  if (!REVIEW_BUS_RUNTIME_MODES.has(runtimeMode)) throw problem("INVALID_REVIEW_BUS_RUNTIME_MODE");
+  if (runtimeMode === REVIEW_BUS_RUNTIME_MODE_ASSESSMENT_SEAL && (!sealContext || store.runtimeMode !== REVIEW_BUS_RUNTIME_MODE_ASSESSMENT_SEAL)) {
+    throw problem("SEAL_RUNTIME_TARGET_REQUIRED");
+  }
   if (String(busToken).length < 24 || String(bridgeToken).length < 24) throw new Error("Review Bus local tokens must contain at least 24 characters");
-  for (const initial of store.list()) {
-    if (installedSourceIdentity && initial.lane === "architecture" && initial.architecture_protocol_version !== "filmos.architecture-protocol.v2") {
-      service.anchorLegacyArchitecture(initial.issue_id, installedSourceIdentity.commit, now());
+  if (runtimeMode === REVIEW_BUS_RUNTIME_MODE_NORMAL) {
+    for (const initial of store.list()) {
+      if (installedSourceIdentity && initial.lane === "architecture" && initial.architecture_protocol_version !== "filmos.architecture-protocol.v2") {
+        service.anchorLegacyArchitecture(initial.issue_id, installedSourceIdentity.commit, now());
+      }
+      service.recordRuntimeObservation(initial.issue_id, runtimeInstanceId, now());
     }
-    service.recordRuntimeObservation(initial.issue_id, runtimeInstanceId, now());
   }
   const server = createServer(async (req, res) => {
     setSecurityHeaders(res);
     try {
       if (!isLoopbackHost(req.headers.host)) return send(res, 400, { code: "LOOPBACK_HOST_REQUIRED" });
-      applyCors(req, res);
       const url = new URL(req.url ?? "/", "http://127.0.0.1");
+      if (runtimeMode === REVIEW_BUS_RUNTIME_MODE_ASSESSMENT_SEAL) {
+        const allowedPath = `/v1/issues/${sealContext.target.issueId}/assessments/codex`;
+        if (!((req.method === "GET" && url.pathname === "/healthz") || (req.method === "POST" && url.pathname === allowedPath))) {
+          throw problem("SEAL_RUNTIME_ROUTE_DENIED", "SEAL_RUNTIME_ROUTE_DENIED", 404);
+        }
+        applyCors(req, res);
+        if (req.method === "GET" && url.pathname === "/healthz") {
+          const snapshot = store.refreshSealSnapshot();
+          return send(res, 200, sealHealth(sealContext, server.address()?.port ?? listenPort, snapshot, store.sealDatabaseBinding));
+        }
+        authenticate(req, busToken, null);
+        assertSealRequestBinding(url, sealContext.target);
+        const assessment = await readJson(req, 1_048_576);
+        const value = store.withSealTargetTransaction(() => submitAssessmentResponse({
+          service,
+          store,
+          issueId: sealContext.target.issueId,
+          actor: "codex",
+          assessment,
+          url,
+          now: now(),
+        }));
+        return send(res, 200, value);
+      }
+      applyCors(req, res);
       if (req.method === "OPTIONS") return preflight(req, res);
       if (req.method === "GET" && url.pathname === "/healthz") return send(res, 200, {
         ok: true,
@@ -519,7 +593,10 @@ function attachmentEvidenceItems(attachments) {
 }
 function assertAllowedKeys(value, allowed) { if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).some((key) => !allowed.includes(key))) throw problem("INVALID_BODY"); }
 
-function safeProblemCode(value) { return REVIEW_ERROR_CODE_PATTERN.test(String(value ?? "")) ? String(value) : "REVIEW_BUS_ERROR"; }
+function safeProblemCode(value) {
+  const code = String(value ?? "");
+  return REVIEW_ERROR_CODE_PATTERN.test(code) || SEAL_ERROR_CODES.has(code) ? code : "REVIEW_BUS_ERROR";
+}
 function retryableProblem(code, status) {
   if (status === 503 && ["INTAKE_TEMPORARILY_UNAVAILABLE", "MCP_READBACK_UNAVAILABLE", "INSTALLED_SOURCE_IDENTITY_UNAVAILABLE"].includes(code)) return true;
   return false;
@@ -535,6 +612,56 @@ function send(res, status, body) { res.statusCode = status; res.setHeader("Conte
 function sendBinary(res, status, bytes, mediaType, digest) { res.statusCode = status; res.setHeader("Content-Type", mediaType); res.setHeader("Content-Length", String(bytes.length)); res.setHeader("Digest", `sha-256=${Buffer.from(digest, "hex").toString("base64")}`); res.setHeader("X-FilmOS-SHA256", digest); res.end(bytes); }
 function setSecurityHeaders(res) { res.setHeader("Cache-Control", "no-store"); res.setHeader("X-Content-Type-Options", "nosniff"); res.setHeader("Referrer-Policy", "no-referrer"); }
 function isLoopbackHost(value = "") { const host = value.startsWith("[") ? value.slice(1, value.indexOf("]")) : value.split(":")[0]; return ["127.0.0.1", "localhost", "::1"].includes(host); }
+
+function sealHealth(context, listenPort, snapshot, binding) {
+  return {
+    ok: true,
+    service: "filmos-review-bus",
+    schema_version: "filmos.review-bus.v1",
+    runtime_mode: REVIEW_BUS_RUNTIME_MODE_ASSESSMENT_SEAL,
+    storage: "sqlite-wal",
+    port: listenPort,
+    constitution_version: CONSTITUTION_VERSION,
+    constitution_content_hash: CONSTITUTION_HASH,
+    source_identity: {
+      status: "VERIFIED",
+      source_root: context.sourceIdentity.source_root,
+      branch: context.sourceIdentity.branch,
+      commit: context.sourceIdentity.commit,
+      tree: context.sourceIdentity.tree,
+      source_fingerprint_sha256: context.sourceIdentity.source_fingerprint_sha256,
+      content_hash: context.sourceIdentity.content_hash,
+    },
+    seal_target: {
+      project_id: context.target.projectId,
+      issue_id: context.target.issueId,
+      submission_id: context.target.submissionId,
+      actor: context.target.actor,
+      assessment_round: context.target.assessmentRound,
+      entity_version: context.target.entityVersion,
+      issue_event_count: context.target.issueEventCount,
+      frozen_last_issue_event_hash: context.target.lastEventHash,
+      projection_content_hash: context.target.projectionHash,
+      intake_receipt_hash: context.target.intakeReceiptHash,
+    },
+    frozen_scope_logical_snapshot_sha256: binding.logicalSnapshotSha256,
+    pristine_state_snapshot_sha256: binding.stateSnapshotSha256,
+    current_scope_logical_snapshot_sha256: snapshot.logicalSnapshotSha256,
+    current_state_snapshot_sha256: snapshot.stateSnapshotSha256,
+    current_seal_state: snapshot.sealState,
+    external_network_requests: 0,
+    openai_model_api_calls: 0,
+  };
+}
+
+function assertSealRequestBinding(url, target) {
+  if (url.searchParams.get("project_id") !== target.projectId) {
+    throw problem("PROJECT_SCOPE_DENIED", "PROJECT_SCOPE_DENIED", 403);
+  }
+  if (url.searchParams.get("submission_id") !== target.submissionId) {
+    throw problem("SUBMISSION_BINDING_MISMATCH", "SUBMISSION_BINDING_MISMATCH", 409);
+  }
+}
 
 function preflight(req, res) {
   const origin = req.headers.origin ?? "";
@@ -576,7 +703,130 @@ export function ensureLocalToken(path, explicit) {
   return token;
 }
 
-export function startFromEnvironment(env = process.env) {
+export function readExistingSealToken(path, explicit) {
+  if (explicit !== undefined && explicit !== null) {
+    if (String(explicit).length < 24) throw problem("SEAL_RUNTIME_TOKEN_REQUIRED");
+    return String(explicit);
+  }
+  try {
+    const metadata = lstatSync(path);
+    if (!metadata.isFile() || metadata.isSymbolicLink() || realpathSync(path) !== resolve(path)) throw new Error("token drift");
+    const token = readFileSync(path, "utf8").trim();
+    if (token.length < 24) throw new Error("short token");
+    return token;
+  } catch {
+    throw problem("SEAL_RUNTIME_TOKEN_REQUIRED");
+  }
+}
+
+export function loadSealSourceIdentity(env = process.env, { expectedSourceRoot = DEFAULT_SOURCE_ROOT } = {}) {
+  const required = [
+    "FILMOS_REVIEW_SEAL_SOURCE_ROOT",
+    "FILMOS_REVIEW_SEAL_SOURCE_COMMIT",
+    "FILMOS_REVIEW_SEAL_SOURCE_TREE",
+    "FILMOS_REVIEW_SEAL_SOURCE_FINGERPRINT_SHA256",
+    "FILMOS_INSTALLED_SOURCE_IDENTITY_PATH",
+    "FILMOS_INSTALLED_INTERNAL_RUNTIME_PATH",
+    "FILMOS_REVIEW_DEVELOPER_REPOSITORY_LOCATOR",
+  ];
+  if (required.some((name) => typeof env[name] !== "string" || !env[name])) {
+    throw problem("SEAL_RUNTIME_SOURCE_IDENTITY_REQUIRED", "SEAL_RUNTIME_SOURCE_IDENTITY_REQUIRED", 503);
+  }
+  try {
+    const sourceRootInput = env.FILMOS_REVIEW_SEAL_SOURCE_ROOT;
+    if (!isAbsolute(sourceRootInput) || resolve(sourceRootInput) !== sourceRootInput) throw new Error("source root must be absolute");
+    const sourceRootMetadata = lstatSync(sourceRootInput);
+    if (!sourceRootMetadata.isDirectory() || sourceRootMetadata.isSymbolicLink()) throw new Error("source root must be a regular directory");
+    const sourceRoot = realpathSync(sourceRootInput);
+    const expectedRoot = realpathSync(expectedSourceRoot);
+    if (sourceRoot !== sourceRootInput
+      || sourceRoot === "/"
+      || resolve(expectedSourceRoot) !== expectedSourceRoot
+      || expectedRoot !== expectedSourceRoot
+      || sourceRoot !== expectedRoot) {
+      throw new Error("source root drift");
+    }
+
+    const identityPaths = [
+      env.FILMOS_INSTALLED_SOURCE_IDENTITY_PATH,
+      env.FILMOS_INSTALLED_INTERNAL_RUNTIME_PATH,
+      env.FILMOS_REVIEW_DEVELOPER_REPOSITORY_LOCATOR,
+    ];
+    const identityResources = resolve(sourceRoot, SEAL_IDENTITY_RESOURCES_RELATIVE);
+    const expectedIdentityPaths = [
+      resolve(identityResources, "SourceIdentity.json"),
+      resolve(identityResources, "InternalRuntime.json"),
+      resolve(identityResources, "DeveloperRepository.json"),
+    ];
+    for (const path of identityPaths) assertRegularIdentityFile(path);
+    if (canonicalPathList(identityPaths) !== canonicalPathList(expectedIdentityPaths)
+      || realpathSync(identityResources) !== identityResources
+      || basename(identityPaths[0]) !== "SourceIdentity.json"
+      || basename(identityPaths[1]) !== "InternalRuntime.json"
+      || basename(identityPaths[2]) !== "DeveloperRepository.json") {
+      throw new Error("identity document layout mismatch");
+    }
+    const locator = JSON.parse(readFileSync(identityPaths[2], "utf8"));
+    if (locator.source_repository !== sourceRootInput || realpathSync(locator.source_repository) !== sourceRoot) {
+      throw new Error("repository locator mismatch");
+    }
+
+    const documentIdentity = loadInstalledSourceIdentity({
+      sourceIdentityPath: identityPaths[0],
+      internalRuntimePath: identityPaths[1],
+      repositoryLocatorPath: identityPaths[2],
+      gitExecutable: "/usr/bin/git",
+    });
+    const branch = runGit(sourceRoot, ["symbolic-ref", "--short", "HEAD"]);
+    const commit = runGit(sourceRoot, ["rev-parse", "HEAD"]);
+    const tree = runGit(sourceRoot, ["rev-parse", "HEAD^{tree}"]);
+    const trackedStatus = runGit(sourceRoot, ["status", "--porcelain=v1", "--untracked-files=no"]);
+    const fingerprintExecutable = resolve(sourceRoot, "desktop/macos/scripts/source-fingerprint");
+    assertRegularIdentityFile(fingerprintExecutable);
+    const fingerprintResult = spawnSync(fingerprintExecutable, ["--json"], {
+      cwd: sourceRoot,
+      encoding: "utf8",
+      timeout: 30_000,
+    });
+    if (fingerprintResult.status !== 0) throw new Error("source fingerprint failed");
+    const fingerprint = JSON.parse(fingerprintResult.stdout);
+    if (branch !== "integration"
+      || trackedStatus !== ""
+      || fingerprint.source_clean !== true
+      || fingerprint.git_commit_sha !== commit
+      || fingerprint.git_tree_sha !== tree
+      || commit !== env.FILMOS_REVIEW_SEAL_SOURCE_COMMIT
+      || tree !== env.FILMOS_REVIEW_SEAL_SOURCE_TREE
+      || fingerprint.source_fingerprint_sha256 !== env.FILMOS_REVIEW_SEAL_SOURCE_FINGERPRINT_SHA256
+      || documentIdentity.commit !== commit
+      || documentIdentity.tree !== tree
+      || documentIdentity.source_fingerprint_sha256 !== fingerprint.source_fingerprint_sha256
+      || documentIdentity.source_clean !== true) {
+      throw new Error("independent source identity mismatch");
+    }
+    return Object.freeze({
+      ...documentIdentity,
+      source_root: sourceRoot,
+      branch,
+      commit,
+      tree,
+      source_fingerprint_sha256: fingerprint.source_fingerprint_sha256,
+      source_file_count: fingerprint.source_file_count,
+      source_clean: true,
+    });
+  } catch (error) {
+    if (error?.code === "SEAL_RUNTIME_SOURCE_IDENTITY_REQUIRED") throw error;
+    throw problem("SEAL_RUNTIME_SOURCE_IDENTITY_MISMATCH", "SEAL_RUNTIME_SOURCE_IDENTITY_MISMATCH", 503);
+  }
+}
+
+export function startFromEnvironment(env = process.env, { assessmentSealTestOnly = null } = {}) {
+  const runtimeMode = env.FILMOS_REVIEW_BUS_RUNTIME_MODE ?? REVIEW_BUS_RUNTIME_MODE_NORMAL;
+  if (!REVIEW_BUS_RUNTIME_MODES.has(runtimeMode)) throw problem("INVALID_REVIEW_BUS_RUNTIME_MODE");
+  if (runtimeMode === REVIEW_BUS_RUNTIME_MODE_ASSESSMENT_SEAL) {
+    return startSealRuntime(env, sealRuntimeConfiguration(assessmentSealTestOnly));
+  }
+
   const localDir = resolve(env.FILMOS_REVIEW_BUS_LOCAL_DIR ?? DEFAULT_DIR);
   const port = Number(env.FILMOS_REVIEW_BUS_PORT ?? DEFAULT_PORT);
   const host = env.FILMOS_REVIEW_BUS_HOST ?? "127.0.0.1";
@@ -609,6 +859,193 @@ export function startFromEnvironment(env = process.env) {
   backupTimer.unref();
   server.listen(port, host);
   return { server, store, service, host, port, backupTimer };
+}
+
+function startSealRuntime(env, configuration) {
+  const { canonicalDatabase, expectedSourceRoot, expectedTarget, expectedDatabaseOrigin, port: requiredPort } = configuration;
+  const canonicalLocalDir = dirname(canonicalDatabase);
+  const localDir = resolve(env.FILMOS_REVIEW_BUS_LOCAL_DIR ?? canonicalLocalDir);
+  const port = Number(env.FILMOS_REVIEW_BUS_PORT ?? requiredPort);
+  const host = env.FILMOS_REVIEW_BUS_HOST ?? "127.0.0.1";
+  if (localDir !== canonicalLocalDir || host !== "127.0.0.1" || port !== requiredPort) {
+    throw problem("SEAL_RUNTIME_DATABASE_REQUIRED");
+  }
+  const sourceIdentity = loadSealSourceIdentity(env, { expectedSourceRoot });
+  const target = sealTargetFromEnvironment(env, expectedTarget);
+  const binding = sealBindingFromEnvironment(env, canonicalDatabase, expectedDatabaseOrigin);
+  const busToken = readExistingSealToken(resolve(localDir, "review-bus.token"), env.FILMOS_REVIEW_BUS_TOKEN);
+  const bridgeToken = readExistingSealToken(resolve(localDir, "review-bridge.token"), env.FILMOS_REVIEW_BRIDGE_TOKEN);
+  const constitutionPath = resolve(env.FILMOS_REVIEW_CONSTITUTION_PATH ?? resolve(import.meta.dirname, "../../../governance/FILMOS_CONSTITUTION.json"));
+  const constitution = JSON.parse(readFileSync(constitutionPath, "utf8"));
+  const store = new ReviewBusStore(canonicalDatabase, {
+    runtimeMode: REVIEW_BUS_RUNTIME_MODE_ASSESSMENT_SEAL,
+    sealBinding: binding,
+    sealTarget: target,
+  });
+  try {
+    const service = new ReviewBusService(store, { taskPackageContentHash: env.FILMOS_REVIEW_TASK_PACKAGE_HASH });
+    const githubVerifier = new GitHubEvidenceVerifier({ repository: env.FILMOS_REVIEW_GITHUB_REPOSITORY ?? "maiyadiu/filmos-studio" });
+    const sealContext = Object.freeze({
+      sourceIdentity,
+      target: store.sealTarget,
+    });
+    const server = createReviewBusHttp({
+      service,
+      store,
+      busToken,
+      bridgeToken,
+      constitution,
+      githubVerifier,
+      listenPort: port,
+      installedSourceIdentity: sourceIdentity,
+      runtimeMode: REVIEW_BUS_RUNTIME_MODE_ASSESSMENT_SEAL,
+      sealContext,
+    });
+    server.listen(port, host);
+    return {
+      server,
+      store,
+      service,
+      host,
+      port,
+      backupTimer: null,
+      runtimeMode: REVIEW_BUS_RUNTIME_MODE_ASSESSMENT_SEAL,
+      sealContext,
+    };
+  } catch (error) {
+    store.close();
+    throw error;
+  }
+}
+
+function sealRuntimeConfiguration(testOnly) {
+  if (testOnly === null) {
+    return Object.freeze({
+      canonicalDatabase: DEFAULT_DATABASE,
+      expectedSourceRoot: DEFAULT_SOURCE_ROOT,
+      expectedTarget: PHASE_5A4_SEAL_TARGET,
+      expectedDatabaseOrigin: PHASE_5A4_SEAL_DATABASE_ORIGIN,
+      port: DEFAULT_PORT,
+    });
+  }
+  if (!process.env.NODE_TEST_CONTEXT
+    || !testOnly || testOnly.enabled !== true
+    || typeof testOnly.canonicalDatabase !== "string"
+    || typeof testOnly.expectedSourceRoot !== "string"
+    || !testOnly.expectedTarget
+    || !testOnly.expectedDatabaseOrigin
+    || !Number.isInteger(testOnly.port)
+    || testOnly.port < 0) {
+    throw problem("SEAL_RUNTIME_DATABASE_REQUIRED");
+  }
+  return Object.freeze({
+    canonicalDatabase: resolve(testOnly.canonicalDatabase),
+    expectedSourceRoot: resolve(testOnly.expectedSourceRoot),
+    expectedTarget: Object.freeze({ ...testOnly.expectedTarget }),
+    expectedDatabaseOrigin: Object.freeze({ ...testOnly.expectedDatabaseOrigin }),
+    port: testOnly.port,
+  });
+}
+
+function sealTargetFromEnvironment(env, expectedTarget = PHASE_5A4_SEAL_TARGET) {
+  const required = [
+    "FILMOS_REVIEW_SEAL_PROJECT_ID",
+    "FILMOS_REVIEW_SEAL_ISSUE_ID",
+    "FILMOS_REVIEW_SEAL_SUBMISSION_ID",
+    "FILMOS_REVIEW_SEAL_ACTOR",
+    "FILMOS_REVIEW_SEAL_ASSESSMENT_ROUND",
+    "FILMOS_REVIEW_SEAL_ENTITY_VERSION",
+    "FILMOS_REVIEW_SEAL_ISSUE_EVENT_COUNT",
+    "FILMOS_REVIEW_SEAL_LAST_EVENT_HASH",
+    "FILMOS_REVIEW_SEAL_PROJECTION_HASH",
+    "FILMOS_REVIEW_SEAL_INTAKE_RECEIPT_HASH",
+  ];
+  if (required.some((name) => typeof env[name] !== "string" || !env[name])) throw problem("SEAL_RUNTIME_TARGET_REQUIRED");
+  const target = {
+    projectId: env.FILMOS_REVIEW_SEAL_PROJECT_ID,
+    issueId: env.FILMOS_REVIEW_SEAL_ISSUE_ID,
+    submissionId: env.FILMOS_REVIEW_SEAL_SUBMISSION_ID,
+    actor: env.FILMOS_REVIEW_SEAL_ACTOR,
+    assessmentRound: strictPositiveInteger(env.FILMOS_REVIEW_SEAL_ASSESSMENT_ROUND, "SEAL_RUNTIME_TARGET_REQUIRED"),
+    entityVersion: strictPositiveInteger(env.FILMOS_REVIEW_SEAL_ENTITY_VERSION, "SEAL_RUNTIME_TARGET_REQUIRED"),
+    issueEventCount: strictPositiveInteger(env.FILMOS_REVIEW_SEAL_ISSUE_EVENT_COUNT, "SEAL_RUNTIME_TARGET_REQUIRED"),
+    lastEventHash: env.FILMOS_REVIEW_SEAL_LAST_EVENT_HASH,
+    projectionHash: env.FILMOS_REVIEW_SEAL_PROJECTION_HASH,
+    intakeReceiptHash: env.FILMOS_REVIEW_SEAL_INTAKE_RECEIPT_HASH,
+  };
+  if (Object.entries(expectedTarget).some(([key, expected]) => target[key] !== expected)) {
+    throw problem("SEAL_RUNTIME_TARGET_MISMATCH");
+  }
+  return target;
+}
+
+function sealBindingFromEnvironment(env, canonicalDatabase, expectedOrigin = PHASE_5A4_SEAL_DATABASE_ORIGIN) {
+  const required = [
+    "FILMOS_REVIEW_SEAL_DATABASE_REALPATH",
+    "FILMOS_REVIEW_SEAL_DATABASE_DEVICE",
+    "FILMOS_REVIEW_SEAL_DATABASE_INODE",
+    "FILMOS_REVIEW_SEAL_DATABASE_SIZE",
+    "FILMOS_REVIEW_SEAL_DATABASE_SHA256",
+    "FILMOS_REVIEW_SEAL_DATABASE_JOURNAL_MODE",
+    "FILMOS_REVIEW_SEAL_DATABASE_PAGE_COUNT",
+    "FILMOS_REVIEW_SEAL_DATABASE_SCHEMA_VERSION",
+    "FILMOS_REVIEW_SEAL_DATABASE_WAL_SHA256",
+    "FILMOS_REVIEW_SEAL_LOGICAL_SNAPSHOT_SHA256",
+  ];
+  if (required.some((name) => typeof env[name] !== "string" || !env[name])
+    || env.FILMOS_REVIEW_SEAL_DATABASE_REALPATH !== canonicalDatabase) {
+    throw problem("SEAL_RUNTIME_DATABASE_REQUIRED");
+  }
+  const binding = {
+    canonicalPath: canonicalDatabase,
+    device: strictNonNegativeInteger(env.FILMOS_REVIEW_SEAL_DATABASE_DEVICE, "SEAL_RUNTIME_DATABASE_REQUIRED"),
+    inode: strictPositiveInteger(env.FILMOS_REVIEW_SEAL_DATABASE_INODE, "SEAL_RUNTIME_DATABASE_REQUIRED"),
+    size: strictPositiveInteger(env.FILMOS_REVIEW_SEAL_DATABASE_SIZE, "SEAL_RUNTIME_DATABASE_REQUIRED"),
+    sha256: env.FILMOS_REVIEW_SEAL_DATABASE_SHA256,
+    journalMode: env.FILMOS_REVIEW_SEAL_DATABASE_JOURNAL_MODE,
+    pageCount: strictPositiveInteger(env.FILMOS_REVIEW_SEAL_DATABASE_PAGE_COUNT, "SEAL_RUNTIME_DATABASE_REQUIRED"),
+    schemaVersion: strictPositiveInteger(env.FILMOS_REVIEW_SEAL_DATABASE_SCHEMA_VERSION, "SEAL_RUNTIME_DATABASE_REQUIRED"),
+    walSha256: env.FILMOS_REVIEW_SEAL_DATABASE_WAL_SHA256,
+    logicalSnapshotSha256: env.FILMOS_REVIEW_SEAL_LOGICAL_SNAPSHOT_SHA256,
+    stateSnapshotSha256: expectedOrigin.stateSnapshotSha256,
+    schemaSqlSha256: expectedOrigin.schemaSqlSha256,
+    submissionCaptureHash: expectedOrigin.submissionCaptureHash,
+    immutableSubmissionIntakeSha256: expectedOrigin.immutableSubmissionIntakeSha256,
+  };
+  if (Object.entries(expectedOrigin).some(([key, expected]) => binding[key] !== expected)) {
+    throw problem("SEAL_RUNTIME_DATABASE_REQUIRED");
+  }
+  return binding;
+}
+
+function strictPositiveInteger(value, code) {
+  if (!/^[1-9][0-9]*$/.test(String(value ?? ""))) throw problem(code);
+  const number = Number(value);
+  if (!Number.isSafeInteger(number)) throw problem(code);
+  return number;
+}
+
+function strictNonNegativeInteger(value, code) {
+  if (!/^(?:0|[1-9][0-9]*)$/.test(String(value ?? ""))) throw problem(code);
+  const number = Number(value);
+  if (!Number.isSafeInteger(number)) throw problem(code);
+  return number;
+}
+
+function assertRegularIdentityFile(path) {
+  if (typeof path !== "string" || !isAbsolute(path) || resolve(path) !== path) throw new Error("identity path required");
+  const metadata = lstatSync(path);
+  if (!metadata.isFile() || metadata.isSymbolicLink() || realpathSync(path) !== path) throw new Error("identity path drift");
+}
+
+function canonicalPathList(paths) {
+  return JSON.stringify(paths.map((path) => ({ path, realpath: realpathSync(path) })));
+}
+
+function runGit(repository, args) {
+  const result = spawnSync("/usr/bin/git", ["-C", repository, ...args], { encoding: "utf8", timeout: 10_000 });
+  if (result.status !== 0) throw new Error("git identity check failed");
+  return result.stdout.trim();
 }
 
 if (import.meta.main || (process.argv[1] && resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url)))) {

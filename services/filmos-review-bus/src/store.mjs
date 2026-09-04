@@ -1,16 +1,108 @@
 import { randomBytes, randomInt, randomUUID } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, closeSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, realpathSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
 import { canonicalJson, sha256, problem } from "./canonical.mjs";
-import { ARCHITECTURE_PROTOCOL_VERSION, architectureTransitionPayload } from "./architecture-protocol.mjs";
+import {
+  ARCHITECTURE_PROTOCOL_VERSION,
+  ARCHITECTURE_STATE_MAPPING_VERSION,
+  ARCHITECTURE_TRANSITION_CONTRACT_HASH,
+  architectureSemanticProjection,
+  architectureTransitionPayload,
+} from "./architecture-protocol.mjs";
 import { ATTACHMENT_RECEIPT_SCHEMA, INSTALLED_SUBMISSION_SOURCE_SCHEMA, RECEIPT_SCHEMA } from "./intake-contract.mjs";
 
+export const REVIEW_BUS_RUNTIME_MODE_NORMAL = "normal";
+export const REVIEW_BUS_RUNTIME_MODE_ASSESSMENT_SEAL = "assessment-seal";
+
+const REQUIRED_SEAL_SCHEMA = Object.freeze([
+  ["table", "review_events"],
+  ["index", "review_events_issue_sequence"],
+  ["table", "review_projections"],
+  ["table", "review_submissions"],
+  ["index", "review_submissions_project_created"],
+  ["table", "review_staged_attachments"],
+  ["index", "review_staged_attachments_submission"],
+  ["table", "review_submission_receipts"],
+  ["table", "review_bootstrap_receipts"],
+  ["table", "review_read_receipts"],
+  ["table", "review_codex_coordination_results"],
+  ["table", "bridge_challenges"],
+  ["table", "local_configuration"],
+  ["table", "review_attachments"],
+  ["index", "review_attachments_issue"],
+  ["table", "bridge_pairing_codes"],
+  ["table", "bridge_clients"],
+  ["trigger", "review_events_no_update"],
+  ["trigger", "review_events_no_delete"],
+  ["trigger", "review_submission_receipts_no_update"],
+  ["trigger", "review_submission_receipts_no_delete"],
+  ["trigger", "review_bootstrap_receipts_no_update"],
+  ["trigger", "review_bootstrap_receipts_no_delete"],
+  ["trigger", "review_codex_coordination_results_no_update"],
+  ["trigger", "review_codex_coordination_results_no_delete"],
+]);
+
 export class ReviewBusStore {
-  constructor(path = ":memory:") {
+  constructor(path = ":memory:", options = {}) {
+    const runtimeMode = options.runtimeMode ?? REVIEW_BUS_RUNTIME_MODE_NORMAL;
+    if (![REVIEW_BUS_RUNTIME_MODE_NORMAL, REVIEW_BUS_RUNTIME_MODE_ASSESSMENT_SEAL].includes(runtimeMode)) {
+      throw problem("INVALID_REVIEW_BUS_RUNTIME_MODE");
+    }
+    this.runtimeMode = runtimeMode;
+    this.sealTarget = null;
+    this.sealSnapshot = null;
+    this.sealDatabaseIdentity = null;
+    this.sealDatabaseBinding = null;
+
+    if (runtimeMode === REVIEW_BUS_RUNTIME_MODE_ASSESSMENT_SEAL) {
+      const target = normalizeSealTarget(options.sealTarget);
+      const binding = normalizeSealBinding(options.sealBinding);
+      const preflightIdentity = readCanonicalSealDatabaseFiles(path, { allowMissingWal: true });
+      assertStableSealMainIdentity(preflightIdentity, binding);
+      const readOnlyDb = new DatabaseSync(preflightIdentity.path, { readOnly: true });
+      let preflightSnapshot;
+      try {
+        preflightSnapshot = inspectOpenSealDatabase(readOnlyDb, preflightIdentity, target, { allowCodexSealed: true });
+      } finally {
+        readOnlyDb.close();
+      }
+      assertSealSnapshotCompatibility(preflightSnapshot, binding);
+      assertSealImmutableBindings(preflightSnapshot, binding);
+      if (preflightSnapshot.sealState === "PRISTINE_EMPTY") {
+        assertPristineSealPhysicalBinding(preflightIdentity, binding);
+        assertPristineSealSnapshots(preflightSnapshot, binding);
+      }
+
+      const beforeWritableIdentity = readCanonicalSealDatabaseFiles(path, { allowMissingWal: true });
+      if (preflightSnapshot.sealState === "PRISTINE_EMPTY") assertSameSealPreopenIdentity(preflightIdentity, beforeWritableIdentity);
+      else assertSameSealMainBytes(preflightIdentity, beforeWritableIdentity);
+      this.path = beforeWritableIdentity.path;
+      this.evidenceRoot = beforeWritableIdentity.evidenceRoot;
+      this.db = new DatabaseSync(this.path);
+      try {
+        const databaseIdentity = readCanonicalSealDatabaseFiles(path, { allowMissingWal: true });
+        assertStableSealMainIdentity(databaseIdentity, binding);
+        if (preflightSnapshot.sealState === "PRISTINE_EMPTY") assertPristineSealPhysicalBinding(databaseIdentity, binding);
+        const snapshot = inspectOpenSealDatabase(this.db, databaseIdentity, target, { allowCodexSealed: true });
+        assertSealSnapshotCompatibility(snapshot, binding);
+        assertSealImmutableBindings(snapshot, binding);
+        if (snapshot.sealState !== preflightSnapshot.sealState) throw problem("SEAL_RUNTIME_TARGET_MISMATCH");
+        if (snapshot.sealState === "PRISTINE_EMPTY") assertPristineSealSnapshots(snapshot, binding);
+        this.sealTarget = Object.freeze({ ...target });
+        this.sealSnapshot = Object.freeze(snapshot);
+        this.sealDatabaseIdentity = Object.freeze(databaseIdentity);
+        this.sealDatabaseBinding = Object.freeze({ ...binding });
+        return;
+      } catch (error) {
+        this.db.close();
+        throw error;
+      }
+    }
+
     if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
     this.path = path;
     this.evidenceRoot = path === ":memory:"
@@ -161,6 +253,54 @@ export class ReviewBusStore {
   }
 
   close() { this.db.close(); }
+
+  refreshSealSnapshot() {
+    if (this.runtimeMode !== REVIEW_BUS_RUNTIME_MODE_ASSESSMENT_SEAL || !this.sealTarget || !this.sealDatabaseBinding) {
+      throw problem("INVALID_REVIEW_BUS_RUNTIME_MODE");
+    }
+    const databaseIdentity = readCanonicalSealDatabaseFiles(this.path, { allowMissingWal: true });
+    assertStableSealMainIdentity(databaseIdentity, this.sealDatabaseBinding);
+    const snapshot = inspectOpenSealDatabase(this.db, databaseIdentity, this.sealTarget, { allowCodexSealed: true });
+    assertSealSnapshotCompatibility(snapshot, this.sealDatabaseBinding);
+    assertSealImmutableBindings(snapshot, this.sealDatabaseBinding);
+    if (snapshot.sealState === "PRISTINE_EMPTY") {
+      assertPristineSealPhysicalBinding(databaseIdentity, this.sealDatabaseBinding);
+      assertPristineSealSnapshots(snapshot, this.sealDatabaseBinding);
+    }
+    this.sealSnapshot = Object.freeze(snapshot);
+    this.sealDatabaseIdentity = Object.freeze(databaseIdentity);
+    return this.sealSnapshot;
+  }
+
+  withSealTargetTransaction(apply) {
+    if (this.runtimeMode !== REVIEW_BUS_RUNTIME_MODE_ASSESSMENT_SEAL || !this.sealTarget || typeof apply !== "function") {
+      throw problem("INVALID_REVIEW_BUS_RUNTIME_MODE");
+    }
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const databaseIdentity = readCanonicalSealDatabaseFiles(this.path, { allowMissingWal: true });
+      assertStableSealMainIdentity(databaseIdentity, this.sealDatabaseBinding);
+      const before = inspectOpenSealDatabase(this.db, databaseIdentity, this.sealTarget, { allowCodexSealed: true });
+      assertSealSnapshotCompatibility(before, this.sealDatabaseBinding);
+      assertSealImmutableBindings(before, this.sealDatabaseBinding);
+      if (before.sealState === "PRISTINE_EMPTY") {
+        assertPristineSealPhysicalBinding(databaseIdentity, this.sealDatabaseBinding);
+        assertPristineSealSnapshots(before, this.sealDatabaseBinding);
+      }
+      const value = apply();
+      const after = inspectOpenSealDatabase(this.db, databaseIdentity, this.sealTarget, { allowCodexSealed: true });
+      assertSealSnapshotCompatibility(after, this.sealDatabaseBinding);
+      assertSealImmutableBindings(after, this.sealDatabaseBinding);
+      if (after.sealState !== "CODEX_SEALED_SUCCESSOR") throw problem("SEAL_RUNTIME_TARGET_MISMATCH");
+      this.db.exec("COMMIT");
+      const committed = this.refreshSealSnapshot();
+      if (committed.sealState !== "CODEX_SEALED_SUCCESSOR") throw problem("SEAL_RUNTIME_TARGET_MISMATCH");
+      return value;
+    } catch (error) {
+      if (this.db.isTransaction) this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
 
   get(issueId) {
     const row = this.db.prepare("SELECT document_json FROM review_projections WHERE issue_id = ?").get(issueId);
@@ -627,6 +767,599 @@ export class ReviewBusStore {
     chmodSync(destination, 0o600);
     return { destination, sha256: createHash("sha256").update(readFileSync(destination)).digest("hex") };
   }
+}
+
+export function prepareReviewBusSealBinding(path, sealTarget) {
+  const target = normalizeSealTarget(sealTarget);
+  const identity = readCanonicalSealDatabaseFiles(path, { allowMissingWal: true });
+  const db = new DatabaseSync(identity.path, { readOnly: true });
+  try {
+    const snapshot = inspectOpenSealDatabase(db, identity, target, { allowCodexSealed: true });
+    if (snapshot.sealState === "PRISTINE_EMPTY" && !identity.wal) throw problem("SEAL_RUNTIME_DATABASE_REQUIRED");
+    const afterRead = readCanonicalSealDatabaseFiles(path, { allowMissingWal: true });
+    if (snapshot.sealState === "PRISTINE_EMPTY") assertSameSealPreopenIdentity(identity, afterRead);
+    else assertSameSealMainBytes(identity, afterRead);
+    return Object.freeze({
+      canonicalPath: identity.path,
+      device: identity.device,
+      inode: identity.inode,
+      size: identity.size,
+      sha256: identity.sha256,
+      walPresent: Boolean(identity.wal),
+      walDevice: identity.wal?.device ?? null,
+      walInode: identity.wal?.inode ?? null,
+      walSize: identity.wal?.size ?? null,
+      walSha256: identity.wal?.sha256 ?? null,
+      shmPresent: Boolean(identity.shm),
+      shmDevice: identity.shm?.device ?? null,
+      shmInode: identity.shm?.inode ?? null,
+      shmSize: identity.shm?.size ?? null,
+      shmSha256: identity.shm?.sha256 ?? null,
+      journalMode: snapshot.journalMode,
+      pageCount: snapshot.pageCount,
+      schemaVersion: snapshot.schemaVersion,
+      logicalSnapshotSha256: snapshot.logicalSnapshotSha256,
+      stateSnapshotSha256: snapshot.stateSnapshotSha256,
+      schemaSqlSha256: snapshot.schemaSqlSha256,
+      submissionCaptureHash: snapshot.submissionCaptureHash,
+      immutableSubmissionIntakeSha256: snapshot.immutableSubmissionIntakeSha256,
+      sealState: snapshot.sealState,
+    });
+  } finally {
+    db.close();
+  }
+}
+
+function normalizeSealTarget(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw problem("SEAL_RUNTIME_TARGET_REQUIRED");
+  const stringFields = ["projectId", "issueId", "submissionId", "actor", "projectionHash", "intakeReceiptHash", "lastEventHash"];
+  const integerFields = ["assessmentRound", "entityVersion", "issueEventCount"];
+  if (stringFields.some((field) => typeof value[field] !== "string" || !value[field])
+    || integerFields.some((field) => !Number.isInteger(value[field]) || value[field] < 1)
+    || !/^FILMOS-ARCH-[A-Za-z0-9-]+$/.test(value.issueId)
+    || !/^FILMOS-SUBMISSION-[A-Za-z0-9-]+$/.test(value.submissionId)
+    || !/^[a-f0-9]{64}$/.test(value.projectionHash)
+    || !/^[a-f0-9]{64}$/.test(value.intakeReceiptHash)
+    || !/^[a-f0-9]{64}$/.test(value.lastEventHash)) {
+    throw problem("SEAL_RUNTIME_TARGET_REQUIRED");
+  }
+  if (value.actor !== "codex") throw problem("SEAL_RUNTIME_TARGET_MISMATCH");
+  return {
+    projectId: value.projectId,
+    issueId: value.issueId,
+    submissionId: value.submissionId,
+    actor: "codex",
+    assessmentRound: value.assessmentRound,
+    entityVersion: value.entityVersion,
+    issueEventCount: value.issueEventCount,
+    projectionHash: value.projectionHash,
+    intakeReceiptHash: value.intakeReceiptHash,
+    lastEventHash: value.lastEventHash,
+  };
+}
+
+function normalizeSealBinding(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)
+    || typeof value.canonicalPath !== "string" || !value.canonicalPath
+    || !Number.isInteger(value.device) || value.device < 0
+    || !Number.isInteger(value.inode) || value.inode < 1
+    || !Number.isInteger(value.size) || value.size < 1
+    || !/^[a-f0-9]{64}$/.test(String(value.sha256 ?? ""))
+    || !/^[a-f0-9]{64}$/.test(String(value.walSha256 ?? ""))
+    || value.journalMode !== "wal"
+    || !Number.isInteger(value.pageCount) || value.pageCount < 1
+    || !Number.isInteger(value.schemaVersion) || value.schemaVersion < 1
+    || !/^[a-f0-9]{64}$/.test(String(value.logicalSnapshotSha256 ?? ""))
+    || !/^[a-f0-9]{64}$/.test(String(value.stateSnapshotSha256 ?? ""))
+    || !/^[a-f0-9]{64}$/.test(String(value.schemaSqlSha256 ?? ""))
+    || !/^[a-f0-9]{64}$/.test(String(value.submissionCaptureHash ?? ""))
+    || !/^[a-f0-9]{64}$/.test(String(value.immutableSubmissionIntakeSha256 ?? ""))) {
+    throw problem("SEAL_RUNTIME_DATABASE_REQUIRED");
+  }
+  for (const optional of ["walDevice", "walInode", "walSize"]) {
+    if (value[optional] !== undefined && (!Number.isInteger(value[optional]) || value[optional] < 0)) {
+      throw problem("SEAL_RUNTIME_DATABASE_REQUIRED");
+    }
+  }
+  return { ...value, canonicalPath: resolve(value.canonicalPath) };
+}
+
+function assertStableSealMainIdentity(identity, binding) {
+  if (identity.path !== binding.canonicalPath
+    || identity.device !== binding.device
+    || identity.inode !== binding.inode) {
+    throw problem("SEAL_RUNTIME_DATABASE_REQUIRED");
+  }
+}
+
+function assertPristineSealPhysicalBinding(identity, binding) {
+  assertStableSealMainIdentity(identity, binding);
+  if (identity.size !== binding.size
+    || identity.sha256 !== binding.sha256
+    || !identity.wal
+    || identity.wal.sha256 !== binding.walSha256
+    || (binding.walDevice !== undefined && identity.wal.device !== binding.walDevice)
+    || (binding.walInode !== undefined && identity.wal.inode !== binding.walInode)
+    || (binding.walSize !== undefined && identity.wal.size !== binding.walSize)) {
+    throw problem("SEAL_RUNTIME_DATABASE_REQUIRED");
+  }
+}
+
+function assertSealSnapshotCompatibility(snapshot, binding) {
+  const pageCountMatches = snapshot.sealState === "PRISTINE_EMPTY"
+    ? snapshot.pageCount === binding.pageCount
+    : snapshot.pageCount >= binding.pageCount;
+  if (snapshot.journalMode !== binding.journalMode || !pageCountMatches) {
+    throw problem("SEAL_RUNTIME_DATABASE_REQUIRED");
+  }
+  if (snapshot.schemaVersion !== binding.schemaVersion || snapshot.schemaSqlSha256 !== binding.schemaSqlSha256) {
+    throw problem("SEAL_RUNTIME_SCHEMA_MISMATCH");
+  }
+}
+
+function assertSealImmutableBindings(snapshot, binding) {
+  if (snapshot.submissionCaptureHash !== binding.submissionCaptureHash
+    || snapshot.immutableSubmissionIntakeSha256 !== binding.immutableSubmissionIntakeSha256) {
+    throw problem("SEAL_RUNTIME_TARGET_MISMATCH");
+  }
+}
+
+function assertPristineSealSnapshots(snapshot, binding) {
+  if (snapshot.logicalSnapshotSha256 !== binding.logicalSnapshotSha256
+    || snapshot.stateSnapshotSha256 !== binding.stateSnapshotSha256) {
+    throw problem("SEAL_RUNTIME_TARGET_MISMATCH");
+  }
+}
+
+function assertSameSealPreopenIdentity(before, after) {
+  assertSameSealMainBytes(before, after);
+  if (Boolean(before.wal) !== Boolean(after.wal)
+    || (before.wal && (before.wal.device !== after.wal.device
+      || before.wal.inode !== after.wal.inode
+      || before.wal.size !== after.wal.size
+      || before.wal.sha256 !== after.wal.sha256))) {
+    throw problem("SEAL_RUNTIME_DATABASE_REQUIRED");
+  }
+}
+
+function assertSameSealMainBytes(before, after) {
+  if (before.path !== after.path
+    || before.device !== after.device
+    || before.inode !== after.inode
+    || before.size !== after.size
+    || before.sha256 !== after.sha256) {
+    throw problem("SEAL_RUNTIME_DATABASE_REQUIRED");
+  }
+}
+
+function readCanonicalSealDatabaseFiles(path, { allowMissingWal = false } = {}) {
+  if (path === ":memory:" || typeof path !== "string" || resolve(path) !== path) {
+    throw problem("SEAL_RUNTIME_DATABASE_REQUIRED");
+  }
+  const parent = dirname(path);
+  let parentMetadata;
+  try {
+    parentMetadata = lstatSync(parent);
+    if (!parentMetadata.isDirectory() || parentMetadata.isSymbolicLink() || realpathSync(parent) !== parent) throw new Error("parent drift");
+  } catch {
+    throw problem("SEAL_RUNTIME_DATABASE_REQUIRED");
+  }
+  const main = readBoundRegularFile(path, "SEAL_RUNTIME_DATABASE_REQUIRED");
+  if (main.realpath !== path) throw problem("SEAL_RUNTIME_DATABASE_REQUIRED");
+  const evidenceRoot = resolve(parent, "evidence");
+  try {
+    const evidence = lstatSync(evidenceRoot);
+    if (!evidence.isDirectory() || evidence.isSymbolicLink() || realpathSync(evidenceRoot) !== evidenceRoot) throw new Error("evidence drift");
+  } catch {
+    throw problem("SEAL_RUNTIME_EVIDENCE_ROOT_REQUIRED");
+  }
+  const walPath = `${path}-wal`;
+  const wal = existsSync(walPath) ? readBoundRegularFile(walPath, "SEAL_RUNTIME_DATABASE_REQUIRED") : null;
+  if (!wal && !allowMissingWal) throw problem("SEAL_RUNTIME_DATABASE_REQUIRED");
+  if (wal && wal.realpath !== walPath) throw problem("SEAL_RUNTIME_DATABASE_REQUIRED");
+  const shm = existsSync(`${path}-shm`) ? readBoundRegularFile(`${path}-shm`, "SEAL_RUNTIME_DATABASE_REQUIRED") : null;
+  if (shm && shm.realpath !== `${path}-shm`) throw problem("SEAL_RUNTIME_DATABASE_REQUIRED");
+  return {
+    path,
+    realpath: main.realpath,
+    device: main.device,
+    inode: main.inode,
+    size: main.size,
+    sha256: main.sha256,
+    evidenceRoot,
+    wal,
+    shm,
+  };
+}
+
+function readBoundRegularFile(path, code) {
+  try {
+    const before = lstatSync(path);
+    if (!before.isFile() || before.isSymbolicLink()) throw new Error("not a regular file");
+    const realpath = realpathSync(path);
+    const digest = sha256File(path);
+    const after = statSync(path);
+    if (before.dev !== after.dev || before.ino !== after.ino || before.size !== after.size || before.mtimeMs !== after.mtimeMs) {
+      throw new Error("file changed during inspection");
+    }
+    return {
+      path,
+      realpath,
+      device: Number(after.dev),
+      inode: Number(after.ino),
+      size: Number(after.size),
+      sha256: digest,
+    };
+  } catch (error) {
+    if (error?.code === code) throw error;
+    throw problem(code);
+  }
+}
+
+function sha256File(path) {
+  const digest = createHash("sha256");
+  const descriptor = openSync(path, "r");
+  const buffer = Buffer.allocUnsafe(1024 * 1024);
+  try {
+    for (;;) {
+      const count = readSync(descriptor, buffer, 0, buffer.length, null);
+      if (count === 0) break;
+      digest.update(buffer.subarray(0, count));
+    }
+  } finally {
+    closeSync(descriptor);
+  }
+  return digest.digest("hex");
+}
+
+function inspectOpenSealDatabase(db, databaseIdentity, target, { allowCodexSealed }) {
+  const journalMode = String(db.prepare("PRAGMA journal_mode").get()?.journal_mode ?? "");
+  const pageCount = Number(db.prepare("PRAGMA page_count").get()?.page_count ?? 0);
+  const schemaVersion = Number(db.prepare("PRAGMA schema_version").get()?.schema_version ?? 0);
+  const frozenLogicalSchemaRows = db.prepare("SELECT type,name,tbl_name,sql FROM sqlite_schema ORDER BY type,name,tbl_name").all();
+  const schemaRows = db.prepare(`SELECT type,name,tbl_name,sql FROM sqlite_schema
+    WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%' ORDER BY type,name,tbl_name`).all();
+  const available = new Set(schemaRows.map((row) => `${row.type}:${row.name}`));
+  if (REQUIRED_SEAL_SCHEMA.some(([type, name]) => !available.has(`${type}:${name}`))) {
+    throw problem("SEAL_RUNTIME_SCHEMA_MISMATCH");
+  }
+  const schemaSummary = schemaRows.map((row) => ({
+    type: row.type,
+    name: row.name,
+    table: row.tbl_name,
+    sql_sha256: sha256(row.sql),
+  }));
+  const schemaSqlSha256 = sha256(schemaSummary);
+
+  const projectionRow = db.prepare("SELECT issue_id,project_id,state,lane,entity_version,document_json,content_hash FROM review_projections WHERE issue_id = ?").get(target.issueId);
+  if (!projectionRow) throw problem("SEAL_RUNTIME_TARGET_MISMATCH");
+  let projection;
+  try { projection = JSON.parse(projectionRow.document_json); }
+  catch { throw problem("SEAL_RUNTIME_TARGET_MISMATCH"); }
+  const projectionForHash = structuredClone(projection);
+  delete projectionForHash.content_hash;
+  if (sha256(projectionForHash) !== projectionRow.content_hash || projection.content_hash !== projectionRow.content_hash) {
+    throw problem("SEAL_RUNTIME_TARGET_MISMATCH");
+  }
+
+  const eventRows = db.prepare(`SELECT sequence,event_id,issue_id,event_type,actor,payload_json,previous_hash,event_hash,created_at
+    FROM review_events WHERE issue_id = ? ORDER BY sequence`).all(target.issueId);
+  if (!verifyStoredEventRows(eventRows)) throw problem("SEAL_RUNTIME_TARGET_MISMATCH");
+  const assessmentEventCount = eventRows.filter((row) => ["assessment.codex.submitted", "assessment.chatgpt.submitted"].includes(row.event_type)).length;
+  const lastEvent = eventRows.at(-1) ?? null;
+  const frozenLastEvent = eventRows[target.issueEventCount - 1] ?? null;
+  const previousEvent = eventRows[target.issueEventCount - 1] ?? null;
+  let lastEventPayload = null;
+  let previousEventPayload = null;
+  try {
+    lastEventPayload = lastEvent ? JSON.parse(lastEvent.payload_json) : null;
+    previousEventPayload = previousEvent ? JSON.parse(previousEvent.payload_json) : null;
+  } catch {
+    throw problem("SEAL_RUNTIME_TARGET_MISMATCH");
+  }
+  const codexSlot = projection.assessment_slots?.codex ?? null;
+  const chatgptSlot = projection.assessment_slots?.chatgpt ?? null;
+  const baseMatches = projectionRow.issue_id === target.issueId
+    && projectionRow.project_id === target.projectId
+    && projectionRow.state === "ARCHITECTURE_ASSESSMENTS_PENDING"
+    && projectionRow.lane === "architecture"
+    && projection.issue_id === target.issueId
+    && projection.project_id === target.projectId
+    && projection.submission_id === target.submissionId
+    && projection.state === projectionRow.state
+    && projection.lane === projectionRow.lane
+    && projection.architecture_protocol_version === ARCHITECTURE_PROTOCOL_VERSION
+    && projection.architecture_state_mapping_version === ARCHITECTURE_STATE_MAPPING_VERSION
+    && projection.architecture_transition_contract_hash === ARCHITECTURE_TRANSITION_CONTRACT_HASH
+    && projection.assessment_round === target.assessmentRound
+    && projection.current_round === target.assessmentRound
+    && chatgptSlot?.status === "EMPTY";
+  const pristine = baseMatches
+    && Number(projectionRow.entity_version) === target.entityVersion
+    && projection.entity_version === target.entityVersion
+    && projectionRow.content_hash === target.projectionHash
+    && codexSlot?.status === "EMPTY"
+    && !projection.assessments?.codex
+    && !projection.assessment_receipts?.codex
+    && eventRows.length === target.issueEventCount
+    && assessmentEventCount === 0
+    && lastEvent?.event_hash === target.lastEventHash;
+  const sealedReplay = allowCodexSealed
+    && baseMatches
+    && Number(projectionRow.entity_version) === target.entityVersion + 1
+    && projection.entity_version === target.entityVersion + 1
+    && projectionRow.content_hash !== target.projectionHash
+    && codexSlot?.status === "SEALED"
+    && Boolean(projection.assessments?.codex)
+    && Boolean(projection.assessment_receipts?.codex)
+    && eventRows.length === target.issueEventCount + 1
+    && assessmentEventCount === 1
+    && frozenLastEvent?.event_hash === target.lastEventHash
+    && lastEvent?.event_type === "assessment.codex.submitted"
+    && lastEvent?.actor === "codex"
+    && lastEvent?.previous_hash === target.lastEventHash
+    && validateSealSuccessorProjection({
+      projection,
+      codexSlot,
+      chatgptSlot,
+      lastEvent,
+      lastEventPayload,
+      previousEventPayload,
+      target,
+    });
+  if (!pristine && !sealedReplay) throw problem("SEAL_RUNTIME_TARGET_MISMATCH");
+
+  const submission = db.prepare(`SELECT submission_id,project_id,capture_hash,state,formal_issue_id
+    FROM review_submissions WHERE submission_id = ?`).get(target.submissionId);
+  const receiptRow = db.prepare(`SELECT submission_id,formal_issue_id,receipt_json,receipt_hash
+    FROM review_submission_receipts WHERE submission_id = ?`).get(target.submissionId);
+  let receipt;
+  try { receipt = receiptRow ? JSON.parse(receiptRow.receipt_json) : null; }
+  catch { throw problem("SEAL_RUNTIME_TARGET_MISMATCH"); }
+  if (!submission || !receiptRow || !receipt) throw problem("SEAL_RUNTIME_TARGET_MISMATCH");
+  const { receipt_hash: receiptHash, ...receiptBase } = receipt;
+  if (submission.submission_id !== target.submissionId
+    || submission.project_id !== target.projectId
+    || submission.state !== "ACCEPTED_AWAITING_READBACK"
+    || submission.formal_issue_id !== target.issueId
+    || receiptRow.submission_id !== target.submissionId
+    || receiptRow.formal_issue_id !== target.issueId
+    || receiptRow.receipt_hash !== target.intakeReceiptHash
+    || receiptHash !== target.intakeReceiptHash
+    || receipt.submission_id !== target.submissionId
+    || receipt.formal_issue_id !== target.issueId
+    || receipt.project_id !== target.projectId
+    || sha256(receiptBase) !== receiptHash) {
+    throw problem("SEAL_RUNTIME_TARGET_MISMATCH");
+  }
+
+  const immutableSubmissionIntake = {
+    submission: {
+      submission_id: submission.submission_id,
+      project_id: submission.project_id,
+      capture_hash: submission.capture_hash,
+      state: submission.state,
+      formal_issue_id: submission.formal_issue_id,
+    },
+    intake_receipt: {
+      submission_id: receiptRow.submission_id,
+      formal_issue_id: receiptRow.formal_issue_id,
+      receipt_hash: receiptRow.receipt_hash,
+    },
+  };
+
+  const stateSnapshot = {
+    schema: schemaSummary,
+    database: {
+      realpath: databaseIdentity.realpath,
+      device: databaseIdentity.device,
+      inode: databaseIdentity.inode,
+      size: databaseIdentity.size,
+      sha256: databaseIdentity.sha256,
+      wal: databaseIdentity.wal ? {
+        present: true,
+        path: databaseIdentity.wal.realpath,
+        device: databaseIdentity.wal.device,
+        inode: databaseIdentity.wal.inode,
+        size: databaseIdentity.wal.size,
+        sha256: databaseIdentity.wal.sha256,
+      } : { present: false, path: `${databaseIdentity.path}-wal` },
+      journal_mode: journalMode,
+      page_count: pageCount,
+      schema_version: schemaVersion,
+    },
+    target: {
+      project_id: projectionRow.project_id,
+      issue_id: projectionRow.issue_id,
+      submission_id: projection.submission_id,
+      actor: target.actor,
+      assessment_round: projection.assessment_round,
+      current_round: projection.current_round,
+      state: projectionRow.state,
+      entity_version: Number(projectionRow.entity_version),
+      codex_slot: codexSlot?.status ?? null,
+      chatgpt_slot: chatgptSlot?.status ?? null,
+      projection_content_hash: projectionRow.content_hash,
+    },
+    events: {
+      count: eventRows.length,
+      last_event_hash: lastEvent?.event_hash ?? null,
+      assessment_event_count: assessmentEventCount,
+      chain_verified: true,
+    },
+    submission: {
+      submission_id: submission.submission_id,
+      project_id: submission.project_id,
+      state: submission.state,
+      formal_issue_id: submission.formal_issue_id,
+      capture_hash: submission.capture_hash,
+    },
+    intake_receipt: {
+      submission_id: receiptRow.submission_id,
+      formal_issue_id: receiptRow.formal_issue_id,
+      receipt_hash: receiptRow.receipt_hash,
+    },
+  };
+  return {
+    journalMode,
+    pageCount,
+    schemaVersion,
+    schemaSqlSha256,
+    logicalSnapshotSha256: frozenLogicalSnapshotSha256({
+      journalMode,
+      pageCount,
+      schemaVersion,
+      schemaRows: frozenLogicalSchemaRows,
+      projectionRow,
+      projection,
+      eventRows,
+      assessmentEventCount,
+      submission,
+      receiptRow,
+    }),
+    stateSnapshotSha256: sha256(stateSnapshot),
+    submissionCaptureHash: submission.capture_hash,
+    immutableSubmissionIntakeSha256: sha256(immutableSubmissionIntake),
+    issueEventCount: eventRows.length,
+    assessmentEventCount,
+    lastEventHash: lastEvent?.event_hash ?? null,
+    projectionContentHash: projectionRow.content_hash,
+    entityVersion: Number(projectionRow.entity_version),
+    codexSlot: codexSlot?.status ?? null,
+    chatgptSlot: chatgptSlot?.status ?? null,
+    sealState: pristine ? "PRISTINE_EMPTY" : "CODEX_SEALED_SUCCESSOR",
+  };
+}
+
+function frozenLogicalSnapshotSha256({ journalMode, pageCount, schemaVersion, schemaRows, projectionRow, projection, eventRows, assessmentEventCount, submission, receiptRow }) {
+  const lines = [
+    journalMode,
+    String(pageCount),
+    String(schemaVersion),
+    ...schemaRows.map((row) => [row.type, row.name, row.tbl_name, row.sql ?? ""].join("|")),
+    [
+      projectionRow.issue_id,
+      projectionRow.project_id,
+      projectionRow.state,
+      projectionRow.entity_version,
+      projectionRow.content_hash,
+      projection.submission_id,
+      projection.assessment_round,
+      projection.current_round,
+      projection.assessment_slots?.codex?.status,
+      projection.assessment_slots?.chatgpt?.status,
+    ].join("|"),
+    `${eventRows.length}|${eventRows.at(-1)?.event_hash ?? ""}`,
+    String(assessmentEventCount),
+    [submission.submission_id, submission.project_id, submission.state, submission.formal_issue_id, submission.capture_hash].join("|"),
+    [receiptRow.submission_id, receiptRow.formal_issue_id, receiptRow.receipt_hash].join("|"),
+  ];
+  return sha256(`${lines.join("\n")}\n`);
+}
+
+function validateSealSuccessorProjection({ projection, codexSlot, chatgptSlot, lastEvent, lastEventPayload, previousEventPayload, target }) {
+  const assessment = projection.assessments?.codex ?? null;
+  const receipt = projection.assessment_receipts?.codex ?? null;
+  if (!assessment || !receipt) return false;
+  const binding = {
+    project_id: projection.project_id,
+    evidence_manifest_hash: projection.evidence?.manifest?.contentHash ?? projection.evidence?.manifest?.content_hash ?? null,
+    constitution_content_hash: projection.constitution_content_hash,
+  };
+  const bindingHash = sha256(binding);
+  const assessmentContentHash = sha256({
+    schema_version: "filmos.architecture-assessment.v2",
+    project_id: target.projectId,
+    issue_id: target.issueId,
+    submission_id: target.submissionId,
+    actor: "codex",
+    assessment_round: target.assessmentRound,
+    binding_hash: bindingHash,
+    assessment: assessment.assessment,
+  });
+  const { receipt_hash: receiptHash, ...receiptBase } = receipt;
+  const transition = lastEventPayload?.transition ?? null;
+  const priorTransition = previousEventPayload?.transition ?? null;
+  const noLaterStage = !projection.option_comparison
+    && !projection.architecture_options
+    && !projection.accepted_architecture_option
+    && !projection.consensus_proposal
+    && (!Array.isArray(projection.consensus_responses) || projection.consensus_responses.length === 0)
+    && !projection.consensus_record
+    && !projection.issue_task_package
+    && !projection.task_package_receipt
+    && !projection.active_candidate
+    && projection.task_package_content_hash === null
+    && projection.next_pilot_allowed === false;
+  return noLaterStage
+    && !projection.assessments?.chatgpt
+    && !projection.assessment_receipts?.chatgpt
+    && chatgptSlot?.status === "EMPTY"
+    && chatgptSlot?.binding_hash === bindingHash
+    && codexSlot?.status === "SEALED"
+    && codexSlot.binding_hash === bindingHash
+    && assessment.schema_version === "filmos.architecture-assessment.v2"
+    && typeof assessment.assessment_id === "string"
+    && assessment.assessment_id.startsWith("architecture-assessment-")
+    && assessment.project_id === target.projectId
+    && assessment.issue_id === target.issueId
+    && assessment.submission_id === target.submissionId
+    && assessment.actor === "codex"
+    && assessment.assessor === "codex"
+    && assessment.assessment_round === target.assessmentRound
+    && canonicalJson(assessment.binding) === canonicalJson(binding)
+    && assessment.binding_hash === bindingHash
+    && assessment.content_hash === assessmentContentHash
+    && assessment.event_id === lastEvent.event_id
+    && assessment.submitted_at === lastEvent.created_at
+    && assessment.sealed_until_pair_complete === true
+    && receipt.schema_version === "filmos.architecture-assessment-receipt.v2"
+    && receipt.assessment_id === assessment.assessment_id
+    && receipt.project_id === target.projectId
+    && receipt.issue_id === target.issueId
+    && receipt.submission_id === target.submissionId
+    && receipt.actor === "codex"
+    && receipt.assessor === "codex"
+    && receipt.assessment_round === target.assessmentRound
+    && receipt.binding_hash === bindingHash
+    && receipt.assessment_content_hash === assessmentContentHash
+    && receipt.event_id === lastEvent.event_id
+    && receipt.accepted_at === lastEvent.created_at
+    && receiptHash === sha256(receiptBase)
+    && codexSlot.assessment_id === assessment.assessment_id
+    && codexSlot.assessment_content_hash === assessmentContentHash
+    && codexSlot.receipt_hash === receiptHash
+    && codexSlot.event_id === lastEvent.event_id
+    && canonicalJson(lastEventPayload?.receipt) === canonicalJson(receipt)
+    && transition?.action === "assessment.submit"
+    && transition.from_state === "ARCHITECTURE_ASSESSMENTS_PENDING"
+    && transition.to_state === "ARCHITECTURE_ASSESSMENTS_PENDING"
+    && transition.transition_contract_version === ARCHITECTURE_PROTOCOL_VERSION
+    && transition.transition_contract_hash === ARCHITECTURE_TRANSITION_CONTRACT_HASH
+    && typeof priorTransition?.post_projection_hash === "string"
+    && transition.pre_projection_hash === priorTransition.post_projection_hash
+    && transition.post_projection_hash === sha256(architectureSemanticProjection(projection));
+}
+
+function verifyStoredEventRows(rows) {
+  let previousHash = null;
+  for (const row of rows) {
+    let payload;
+    try { payload = JSON.parse(row.payload_json); }
+    catch { return false; }
+    const eventBase = {
+      event_id: row.event_id,
+      issue_id: row.issue_id,
+      event_type: row.event_type,
+      actor: row.actor,
+      payload,
+      previous_hash: row.previous_hash,
+      created_at: row.created_at,
+    };
+    if (row.previous_hash !== previousHash || sha256(eventBase) !== row.event_hash) return false;
+    previousHash = row.event_hash;
+  }
+  return true;
 }
 
 function stagedAttachmentRow(row) {

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -15,8 +15,8 @@ import { GitHubEvidenceVerifier, readArtifactEvidenceIndex, readHandoffEvidenceI
 import { loadInstalledSourceIdentity } from "../src/installed-source-identity.mjs";
 import { buildLiveRoundtripTrace } from "../src/live-roundtrip-trace.mjs";
 import { ReviewBusService, candidateBinding, fileInScope } from "../src/service.mjs";
-import { allowedOrigin, createReviewBusHttp } from "../src/server.mjs";
-import { ReviewBusStore } from "../src/store.mjs";
+import { allowedOrigin, createReviewBusHttp, loadSealSourceIdentity, readExistingSealToken, startFromEnvironment } from "../src/server.mjs";
+import { prepareReviewBusSealBinding, REVIEW_BUS_RUNTIME_MODE_ASSESSMENT_SEAL, ReviewBusStore } from "../src/store.mjs";
 import { redactEvidence } from "../src/redaction.mjs";
 
 const projectId = "11111111-1111-4111-8111-111111111111";
@@ -93,6 +93,70 @@ function runAssessmentChild(workerPath, input) {
         if (!message.ok) return reject(Object.assign(new Error(message.error), { code: message.code }));
         resolvePromise(message.result);
       } catch (error) { reject(error); }
+    });
+  });
+}
+
+function runCrashedSealWrite(value) {
+  const input = {
+    storeModule: new URL("../src/store.mjs", import.meta.url).href,
+    serviceModule: new URL("../src/service.mjs", import.meta.url).href,
+    databasePath: value.databasePath,
+    binding: value.binding,
+    target: value.target,
+    assessment: codexAssessment,
+    baseCommit: commit,
+    taskPackageContentHash: taskHash,
+  };
+  const source = `
+    const input = JSON.parse(process.env.FILMOS_SEAL_CRASH_DATA);
+    const { ReviewBusStore, REVIEW_BUS_RUNTIME_MODE_ASSESSMENT_SEAL } = await import(input.storeModule);
+    const { ReviewBusService } = await import(input.serviceModule);
+    const store = new ReviewBusStore(input.databasePath, {
+      runtimeMode: REVIEW_BUS_RUNTIME_MODE_ASSESSMENT_SEAL,
+      sealBinding: input.binding,
+      sealTarget: input.target,
+    });
+    const service = new ReviewBusService(store, {
+      baseCommit: input.baseCommit,
+      taskPackageContentHash: input.taskPackageContentHash,
+    });
+    process.stdout.write("READY\\n");
+    process.stdin.once("data", () => {
+      store.withSealTargetTransaction(() => service.submitAssessment(
+        input.target.issueId,
+        "codex",
+        input.assessment,
+        new Date("2026-09-04T04:00:00.000Z"),
+      ));
+      process.abort();
+    });
+    process.stdin.resume();
+  `;
+  const child = spawn(process.execPath, ["--input-type=module", "--eval", source], {
+    env: { ...process.env, FILMOS_SEAL_CRASH_DATA: JSON.stringify(input) },
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  return new Promise((resolvePromise, reject) => {
+    let ready = false;
+    let stderr = "";
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    child.once("error", reject);
+    child.stdout.on("data", (chunk) => {
+      if (ready || !String(chunk).includes("READY")) return;
+      ready = true;
+      try {
+        value.normalStore.close();
+        child.stdin.end("SUBMIT\n");
+      } catch (error) {
+        child.kill("SIGKILL");
+        reject(error);
+      }
+    });
+    child.once("close", (code, signal) => {
+      if (!ready) return reject(new Error(stderr || `SEAL_CRASH_CHILD_EXIT_${code}`));
+      if (code === 0 && !signal) return reject(new Error("SEAL_CRASH_CHILD_DID_NOT_TERMINATE_ABRUPTLY"));
+      resolvePromise({ code, signal, stderr });
     });
   });
 }
@@ -182,6 +246,189 @@ function installedIdentityFixture() {
   writeFileSync(locatorPath, JSON.stringify(locator));
   const load = () => loadInstalledSourceIdentity({ sourceIdentityPath: sourcePath, internalRuntimePath: runtimePath, repositoryLocatorPath: locatorPath, gitExecutable: "/usr/bin/git" });
   return { directory, repository, sourcePath, runtimePath, locatorPath, source, runtime, locator, sourceCommit, sourceTree, buildID, load };
+}
+
+function sealSourceIdentityFixture() {
+  const directory = realpathSync(mkdtempSync(resolve(tmpdir(), "filmos-seal-source-identity-")));
+  const repository = resolve(directory, "repository");
+  const resources = resolve(repository, ".local/phase5a4-seal-runtime/Resources");
+  const fingerprintPath = resolve(repository, "desktop/macos/scripts/source-fingerprint");
+  mkdirSync(dirname(fingerprintPath), { recursive: true });
+  mkdirSync(resolve(repository, "services/filmos-review-bus"), { recursive: true });
+  mkdirSync(resources, { recursive: true });
+  execFileSync("git", ["-C", directory, "init", "-q", repository]);
+  execFileSync("git", ["-C", repository, "config", "user.name", "FilmOS Test"]);
+  execFileSync("git", ["-C", repository, "config", "user.email", "filmos-test@example.invalid"]);
+  execFileSync("git", ["-C", repository, "remote", "add", "origin", "https://github.com/maiyadiu/filmos-studio.git"]);
+  execFileSync("git", ["-C", repository, "remote", "set-url", "--push", "origin", "git@github.com:maiyadiu/filmos-studio.git"]);
+  copyFileSync(resolve(import.meta.dirname, "../../../desktop/macos/scripts/source-fingerprint"), fingerprintPath);
+  chmodSync(fingerprintPath, 0o755);
+  writeFileSync(resolve(repository, "services/filmos-review-bus/source.txt"), "seal source\n");
+  execFileSync("git", ["-C", repository, "add", "."]);
+  execFileSync("git", ["-C", repository, "commit", "-qm", "test: seal source"]);
+  execFileSync("git", ["-C", repository, "branch", "-M", "integration"]);
+  const fingerprint = JSON.parse(execFileSync(fingerprintPath, ["--json"], { cwd: repository, encoding: "utf8" }));
+  const buildID = `development-${fingerprint.git_commit_sha.slice(0, 8)}-${fingerprint.source_fingerprint_sha256.slice(0, 8)}`;
+  const sourcePath = resolve(resources, "SourceIdentity.json");
+  const runtimePath = resolve(resources, "InternalRuntime.json");
+  const locatorPath = resolve(resources, "DeveloperRepository.json");
+  writeFileSync(sourcePath, JSON.stringify({
+    ...fingerprint,
+    repository: "maiyadiu/filmos-studio",
+    build_id: buildID,
+    release_channel: "development",
+    external_paid_submit_enabled: false,
+  }));
+  writeFileSync(runtimePath, JSON.stringify({
+    schema_version: 4,
+    source_repository: "maiyadiu/filmos-studio",
+    source_commit: fingerprint.git_commit_sha,
+    source_tree: fingerprint.git_tree_sha,
+    source_fingerprint_sha256: fingerprint.source_fingerprint_sha256,
+    build_id: buildID,
+    release_channel: "development",
+    external_paid_submit_enabled: false,
+  }));
+  writeFileSync(locatorPath, JSON.stringify({
+    schema_version: "1.0.0",
+    repository: "maiyadiu/filmos-studio",
+    source_repository: repository,
+    source_commit: fingerprint.git_commit_sha,
+    source_tree: fingerprint.git_tree_sha,
+  }));
+  const env = {
+    FILMOS_REVIEW_SEAL_SOURCE_ROOT: repository,
+    FILMOS_REVIEW_SEAL_SOURCE_COMMIT: fingerprint.git_commit_sha,
+    FILMOS_REVIEW_SEAL_SOURCE_TREE: fingerprint.git_tree_sha,
+    FILMOS_REVIEW_SEAL_SOURCE_FINGERPRINT_SHA256: fingerprint.source_fingerprint_sha256,
+    FILMOS_INSTALLED_SOURCE_IDENTITY_PATH: sourcePath,
+    FILMOS_INSTALLED_INTERNAL_RUNTIME_PATH: runtimePath,
+    FILMOS_REVIEW_DEVELOPER_REPOSITORY_LOCATOR: locatorPath,
+  };
+  return { directory, repository, resources, fingerprintPath, fingerprint, env };
+}
+
+function assessmentSealFixture(uuid = "69696969-6969-4696-8696-696969696969") {
+  const directory = realpathSync(mkdtempSync(resolve(tmpdir(), "filmos-assessment-seal-")));
+  const databasePath = resolve(directory, "review-bus.sqlite");
+  const normalStore = new ReviewBusStore(databasePath);
+  const normalService = new ReviewBusService(normalStore, { baseCommit: commit, taskPackageContentHash: taskHash });
+  const issue = createPendingArchitectureAssessment(normalService, uuid);
+  bindTestSubmission(normalStore, issue);
+  const current = normalService.requireIssue(issue.issue_id);
+  const events = normalStore.events(issue.issue_id);
+  const target = {
+    projectId: current.project_id,
+    issueId: current.issue_id,
+    submissionId: current.submission_id,
+    actor: "codex",
+    assessmentRound: current.assessment_round,
+    entityVersion: current.entity_version,
+    issueEventCount: events.length,
+    lastEventHash: events.at(-1).event_hash,
+    projectionHash: current.content_hash,
+    intakeReceiptHash: normalStore.submissionStatus(current.submission_id).receipt.receipt_hash,
+  };
+  const binding = prepareReviewBusSealBinding(databasePath, target);
+  const createSealStore = () => new ReviewBusStore(databasePath, {
+    runtimeMode: REVIEW_BUS_RUNTIME_MODE_ASSESSMENT_SEAL,
+    sealBinding: binding,
+    sealTarget: target,
+  });
+  const sourceIdentity = Object.freeze({
+    source_root: "/test/filmos-source",
+    branch: "integration",
+    commit,
+    tree: "a".repeat(40),
+    source_fingerprint_sha256: "b".repeat(64),
+    content_hash: "c".repeat(64),
+  });
+  return { directory, databasePath, normalStore, normalService, issue: current, target, binding, createSealStore, sourceIdentity };
+}
+
+function assessmentSealRuntimeInputs(value, source) {
+  const expectedDatabaseOrigin = {
+    device: value.binding.device,
+    inode: value.binding.inode,
+    size: value.binding.size,
+    sha256: value.binding.sha256,
+    journalMode: value.binding.journalMode,
+    pageCount: value.binding.pageCount,
+    schemaVersion: value.binding.schemaVersion,
+    walSha256: value.binding.walSha256,
+    logicalSnapshotSha256: value.binding.logicalSnapshotSha256,
+    stateSnapshotSha256: value.binding.stateSnapshotSha256,
+    schemaSqlSha256: value.binding.schemaSqlSha256,
+    submissionCaptureHash: value.binding.submissionCaptureHash,
+    immutableSubmissionIntakeSha256: value.binding.immutableSubmissionIntakeSha256,
+  };
+  return {
+    env: {
+      FILMOS_REVIEW_BUS_RUNTIME_MODE: REVIEW_BUS_RUNTIME_MODE_ASSESSMENT_SEAL,
+      FILMOS_REVIEW_BUS_LOCAL_DIR: value.directory,
+      FILMOS_REVIEW_BUS_HOST: "127.0.0.1",
+      FILMOS_REVIEW_BUS_PORT: "0",
+      FILMOS_REVIEW_TASK_PACKAGE_HASH: taskHash,
+      ...source.env,
+      FILMOS_REVIEW_SEAL_PROJECT_ID: value.target.projectId,
+      FILMOS_REVIEW_SEAL_ISSUE_ID: value.target.issueId,
+      FILMOS_REVIEW_SEAL_SUBMISSION_ID: value.target.submissionId,
+      FILMOS_REVIEW_SEAL_ACTOR: value.target.actor,
+      FILMOS_REVIEW_SEAL_ASSESSMENT_ROUND: String(value.target.assessmentRound),
+      FILMOS_REVIEW_SEAL_ENTITY_VERSION: String(value.target.entityVersion),
+      FILMOS_REVIEW_SEAL_ISSUE_EVENT_COUNT: String(value.target.issueEventCount),
+      FILMOS_REVIEW_SEAL_LAST_EVENT_HASH: value.target.lastEventHash,
+      FILMOS_REVIEW_SEAL_PROJECTION_HASH: value.target.projectionHash,
+      FILMOS_REVIEW_SEAL_INTAKE_RECEIPT_HASH: value.target.intakeReceiptHash,
+      FILMOS_REVIEW_SEAL_DATABASE_REALPATH: value.databasePath,
+      FILMOS_REVIEW_SEAL_DATABASE_DEVICE: String(value.binding.device),
+      FILMOS_REVIEW_SEAL_DATABASE_INODE: String(value.binding.inode),
+      FILMOS_REVIEW_SEAL_DATABASE_SIZE: String(value.binding.size),
+      FILMOS_REVIEW_SEAL_DATABASE_SHA256: value.binding.sha256,
+      FILMOS_REVIEW_SEAL_DATABASE_JOURNAL_MODE: value.binding.journalMode,
+      FILMOS_REVIEW_SEAL_DATABASE_PAGE_COUNT: String(value.binding.pageCount),
+      FILMOS_REVIEW_SEAL_DATABASE_SCHEMA_VERSION: String(value.binding.schemaVersion),
+      FILMOS_REVIEW_SEAL_DATABASE_WAL_SHA256: value.binding.walSha256,
+      FILMOS_REVIEW_SEAL_LOGICAL_SNAPSHOT_SHA256: value.binding.logicalSnapshotSha256,
+    },
+    options: {
+      assessmentSealTestOnly: {
+        enabled: true,
+        canonicalDatabase: value.databasePath,
+        expectedSourceRoot: source.repository,
+        expectedTarget: value.target,
+        expectedDatabaseOrigin,
+        port: 0,
+      },
+    },
+  };
+}
+
+async function startAssessmentSealServer(value, store = value.createSealStore()) {
+  const service = new ReviewBusService(store, { baseCommit: commit, taskPackageContentHash: taskHash });
+  const constitution = JSON.parse(readFileSync(resolve(import.meta.dirname, "../../../governance/FILMOS_CONSTITUTION.json"), "utf8"));
+  const busToken = "bus-token-1234567890-abcdefghijkl";
+  const server = createReviewBusHttp({
+    service,
+    store,
+    busToken,
+    bridgeToken: "bridge-token-1234567890-abcdefghijkl",
+    constitution,
+    runtimeMode: REVIEW_BUS_RUNTIME_MODE_ASSESSMENT_SEAL,
+    sealContext: {
+      sourceIdentity: value.sourceIdentity,
+      target: store.sealTarget,
+    },
+  });
+  server.listen(0, "127.0.0.1");
+  await new Promise((resolvePromise) => server.once("listening", resolvePromise));
+  return {
+    server,
+    store,
+    service,
+    baseURL: `http://127.0.0.1:${server.address().port}`,
+    headers: { authorization: `Bearer ${busToken}`, "content-type": "application/json", origin: "http://127.0.0.1:43100" },
+  };
 }
 
 function createCoreIssue(service, suffix = "a") {
@@ -1463,6 +1710,560 @@ test("loopback origins with ports are accepted while remote and deceptive origin
   assert.equal(allowedOrigin("https://127.0.0.1:43100"), false);
   assert.equal(allowedOrigin("http://127.0.0.1.evil.example:43100"), false);
   assert.equal(allowedOrigin("https://evil.example"), false);
+});
+
+test("assessment-seal prerequisites fail closed without creating database, evidence, or token files", () => {
+  const directory = mkdtempSync(resolve(tmpdir(), "filmos-seal-prerequisite-"));
+  const databasePath = resolve(directory, "missing", "review-bus.sqlite");
+  const tokenPath = resolve(directory, "missing", "review-bus.token");
+  try {
+    assert.throws(
+      () => new ReviewBusStore(databasePath, { runtimeMode: "unsupported" }),
+      (error) => error.code === "INVALID_REVIEW_BUS_RUNTIME_MODE",
+    );
+    assert.throws(
+      () => startFromEnvironment({ FILMOS_REVIEW_BUS_RUNTIME_MODE: "unsupported", FILMOS_REVIEW_BUS_LOCAL_DIR: dirname(databasePath) }),
+      (error) => error.code === "INVALID_REVIEW_BUS_RUNTIME_MODE",
+    );
+    assert.equal(existsSync(dirname(databasePath)), false);
+    assert.throws(
+      () => new ReviewBusStore(databasePath, {
+        runtimeMode: REVIEW_BUS_RUNTIME_MODE_ASSESSMENT_SEAL,
+        sealBinding: {},
+        sealTarget: {},
+      }),
+      (error) => ["SEAL_RUNTIME_TARGET_REQUIRED", "SEAL_RUNTIME_DATABASE_REQUIRED"].includes(error.code),
+    );
+    assert.equal(existsSync(databasePath), false);
+    assert.throws(() => readExistingSealToken(tokenPath), (error) => error.code === "SEAL_RUNTIME_TOKEN_REQUIRED");
+    assert.equal(existsSync(tokenPath), false);
+    assert.throws(() => readExistingSealToken(tokenPath, "short"), (error) => error.code === "SEAL_RUNTIME_TOKEN_REQUIRED");
+    assert.equal(readExistingSealToken(tokenPath, "explicit-seal-token-1234567890-abcdef"), "explicit-seal-token-1234567890-abcdef");
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("assessment-seal source identity is independently bound to canonical Git and recomputed fingerprint", () => {
+  const value = sealSourceIdentityFixture();
+  try {
+    const identity = loadSealSourceIdentity(value.env, { expectedSourceRoot: value.repository });
+    assert.equal(identity.source_root, value.repository);
+    assert.equal(identity.branch, "integration");
+    assert.equal(identity.commit, value.fingerprint.git_commit_sha);
+    assert.equal(identity.tree, value.fingerprint.git_tree_sha);
+    assert.equal(identity.source_fingerprint_sha256, value.fingerprint.source_fingerprint_sha256);
+    assert.equal(identity.source_clean, true);
+
+    const trackedPath = resolve(value.repository, "services/filmos-review-bus/source.txt");
+    writeFileSync(trackedPath, "spoofed but mutually consistent documents\n");
+    assert.throws(
+      () => loadSealSourceIdentity(value.env, { expectedSourceRoot: value.repository }),
+      (error) => error.code === "SEAL_RUNTIME_SOURCE_IDENTITY_MISMATCH",
+    );
+    writeFileSync(trackedPath, "seal source\n");
+
+    const alias = resolve(value.directory, "repository-alias");
+    symlinkSync(value.repository, alias);
+    assert.throws(
+      () => loadSealSourceIdentity({ ...value.env, FILMOS_REVIEW_SEAL_SOURCE_ROOT: alias }, { expectedSourceRoot: value.repository }),
+      (error) => error.code === "SEAL_RUNTIME_SOURCE_IDENTITY_MISMATCH",
+    );
+    assert.throws(
+      () => loadSealSourceIdentity(value.env, { expectedSourceRoot: value.directory }),
+      (error) => error.code === "SEAL_RUNTIME_SOURCE_IDENTITY_MISMATCH",
+    );
+    const alternateResources = resolve(value.directory, "alternate-resources");
+    mkdirSync(alternateResources, { recursive: true });
+    const alternateSourcePath = resolve(alternateResources, "SourceIdentity.json");
+    const alternateRuntimePath = resolve(alternateResources, "InternalRuntime.json");
+    const alternateLocatorPath = resolve(alternateResources, "DeveloperRepository.json");
+    copyFileSync(value.env.FILMOS_INSTALLED_SOURCE_IDENTITY_PATH, alternateSourcePath);
+    copyFileSync(value.env.FILMOS_INSTALLED_INTERNAL_RUNTIME_PATH, alternateRuntimePath);
+    copyFileSync(value.env.FILMOS_REVIEW_DEVELOPER_REPOSITORY_LOCATOR, alternateLocatorPath);
+    assert.throws(
+      () => loadSealSourceIdentity({
+        ...value.env,
+        FILMOS_INSTALLED_SOURCE_IDENTITY_PATH: alternateSourcePath,
+        FILMOS_INSTALLED_INTERNAL_RUNTIME_PATH: alternateRuntimePath,
+        FILMOS_REVIEW_DEVELOPER_REPOSITORY_LOCATOR: alternateLocatorPath,
+      }, { expectedSourceRoot: value.repository }),
+      (error) => error.code === "SEAL_RUNTIME_SOURCE_IDENTITY_MISMATCH",
+    );
+    assert.throws(
+      () => loadSealSourceIdentity({}, { expectedSourceRoot: value.repository }),
+      (error) => error.code === "SEAL_RUNTIME_SOURCE_IDENTITY_REQUIRED",
+    );
+  } finally {
+    rmSync(value.directory, { recursive: true, force: true });
+  }
+});
+
+test("assessment-seal real environment startup assembles the isolated runtime without Production defaults or startup writes", async () => {
+  const value = assessmentSealFixture("84848484-8484-4848-8848-848484848484");
+  const source = sealSourceIdentityFixture();
+  const { env, options } = assessmentSealRuntimeInputs(value, source);
+  const busTokenPath = resolve(value.directory, "review-bus.token");
+  const bridgeTokenPath = resolve(value.directory, "review-bridge.token");
+  const busToken = "environment-bus-token-1234567890-abcdef";
+  const bridgeToken = "environment-bridge-token-1234567890-abcdef";
+  const beforeIssue = value.normalService.requireIssue(value.target.issueId);
+  const beforeEvents = value.normalStore.events(value.target.issueId);
+  const beforeMain = createHash("sha256").update(readFileSync(value.databasePath)).digest("hex");
+  const beforeWal = createHash("sha256").update(readFileSync(`${value.databasePath}-wal`)).digest("hex");
+  let running = null;
+  try {
+    assert.throws(
+      () => startFromEnvironment(env),
+      (error) => error.code === "SEAL_RUNTIME_DATABASE_REQUIRED",
+    );
+    assert.throws(
+      () => startFromEnvironment(env, options),
+      (error) => error.code === "SEAL_RUNTIME_TOKEN_REQUIRED",
+    );
+    assert.equal(existsSync(busTokenPath), false);
+    assert.equal(existsSync(bridgeTokenPath), false);
+
+    writeFileSync(busTokenPath, `${busToken}\n`, { mode: 0o600 });
+    writeFileSync(bridgeTokenPath, `${bridgeToken}\n`, { mode: 0o600 });
+    assert.throws(
+      () => startFromEnvironment({ ...env, FILMOS_REVIEW_SEAL_SOURCE_FINGERPRINT_SHA256: "0".repeat(64) }, options),
+      (error) => error.code === "SEAL_RUNTIME_SOURCE_IDENTITY_MISMATCH",
+    );
+    assert.throws(
+      () => startFromEnvironment({ ...env, FILMOS_REVIEW_SEAL_DATABASE_SHA256: "0".repeat(64) }, options),
+      (error) => error.code === "SEAL_RUNTIME_DATABASE_REQUIRED",
+    );
+
+    running = startFromEnvironment(env, options);
+    await new Promise((resolvePromise, reject) => {
+      running.server.once("listening", resolvePromise);
+      running.server.once("error", reject);
+    });
+    assert.equal(running.runtimeMode, REVIEW_BUS_RUNTIME_MODE_ASSESSMENT_SEAL);
+    assert.equal(running.backupTimer, null);
+    assert.equal(running.host, "127.0.0.1");
+    assert.equal(existsSync(resolve(value.directory, "backups")), false);
+    assert.equal(readFileSync(busTokenPath, "utf8"), `${busToken}\n`);
+    assert.equal(readFileSync(bridgeTokenPath, "utf8"), `${bridgeToken}\n`);
+
+    const baseURL = `http://127.0.0.1:${running.server.address().port}`;
+    const healthResponse = await fetch(`${baseURL}/healthz`);
+    assert.equal(healthResponse.status, 200);
+    const health = await healthResponse.json();
+    assert.equal(health.runtime_mode, REVIEW_BUS_RUNTIME_MODE_ASSESSMENT_SEAL);
+    assert.equal(health.port, running.server.address().port);
+    assert.equal(health.source_identity.source_root, source.repository);
+    assert.equal(health.source_identity.commit, source.fingerprint.git_commit_sha);
+    assert.equal(health.seal_target.issue_id, value.target.issueId);
+    assert.equal(health.frozen_scope_logical_snapshot_sha256, value.binding.logicalSnapshotSha256);
+    assert.equal(health.pristine_state_snapshot_sha256, value.binding.stateSnapshotSha256);
+    assert.equal(health.current_scope_logical_snapshot_sha256, value.binding.logicalSnapshotSha256);
+    assert.equal(health.current_state_snapshot_sha256, value.binding.stateSnapshotSha256);
+    assert.equal(health.current_seal_state, "PRISTINE_EMPTY");
+
+    const denied = await fetch(`${baseURL}/v1/review/pending`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${busToken}`,
+        "content-type": "application/json",
+        origin: "http://127.0.0.1:43100",
+      },
+      body: "{",
+    });
+    assert.equal(denied.status, 404);
+    assert.equal((await denied.json()).code, "SEAL_RUNTIME_ROUTE_DENIED");
+    await new Promise((resolvePromise) => running.server.close(resolvePromise));
+    running.store.close();
+    running = null;
+    assert.deepEqual(value.normalService.requireIssue(value.target.issueId), beforeIssue);
+    assert.deepEqual(value.normalStore.events(value.target.issueId), beforeEvents);
+    assert.equal(createHash("sha256").update(readFileSync(value.databasePath)).digest("hex"), beforeMain);
+    assert.equal(createHash("sha256").update(readFileSync(`${value.databasePath}-wal`)).digest("hex"), beforeWal);
+  } finally {
+    if (running) {
+      await new Promise((resolvePromise) => running.server.close(resolvePromise));
+      running.store.close();
+    }
+    value.normalStore.close();
+    rmSync(value.directory, { recursive: true, force: true });
+    rmSync(source.directory, { recursive: true, force: true });
+  }
+});
+
+test("assessment-seal store rejects alternate, symlinked, replaced, and identity-mismatched databases", () => {
+  const value = assessmentSealFixture("70707070-7070-4707-8707-707070707070");
+  let sealStore;
+  try {
+    sealStore = value.createSealStore();
+    assert.equal(sealStore.runtimeMode, REVIEW_BUS_RUNTIME_MODE_ASSESSMENT_SEAL);
+    assert.equal(sealStore.sealSnapshot.issueEventCount, value.target.issueEventCount);
+    assert.equal(sealStore.sealSnapshot.logicalSnapshotSha256, value.binding.logicalSnapshotSha256);
+    assert.equal(sealStore.sealSnapshot.stateSnapshotSha256, value.binding.stateSnapshotSha256);
+    assert.notEqual(value.binding.logicalSnapshotSha256, value.binding.stateSnapshotSha256);
+    sealStore.close();
+    sealStore = null;
+
+    assert.throws(
+      () => new ReviewBusStore(":memory:", { runtimeMode: REVIEW_BUS_RUNTIME_MODE_ASSESSMENT_SEAL, sealBinding: value.binding, sealTarget: value.target }),
+      (error) => error.code === "SEAL_RUNTIME_DATABASE_REQUIRED",
+    );
+    assert.throws(
+      () => new ReviewBusStore(value.databasePath, { runtimeMode: REVIEW_BUS_RUNTIME_MODE_ASSESSMENT_SEAL, sealBinding: { ...value.binding, inode: value.binding.inode + 1 }, sealTarget: value.target }),
+      (error) => error.code === "SEAL_RUNTIME_DATABASE_REQUIRED",
+    );
+    assert.throws(
+      () => new ReviewBusStore(value.databasePath, { runtimeMode: REVIEW_BUS_RUNTIME_MODE_ASSESSMENT_SEAL, sealBinding: { ...value.binding, sha256: "0".repeat(64) }, sealTarget: value.target }),
+      (error) => error.code === "SEAL_RUNTIME_DATABASE_REQUIRED",
+    );
+    assert.throws(
+      () => new ReviewBusStore(value.databasePath, { runtimeMode: REVIEW_BUS_RUNTIME_MODE_ASSESSMENT_SEAL, sealBinding: { ...value.binding, journalMode: "delete" }, sealTarget: value.target }),
+      (error) => error.code === "SEAL_RUNTIME_DATABASE_REQUIRED",
+    );
+    assert.throws(
+      () => new ReviewBusStore(value.databasePath, { runtimeMode: REVIEW_BUS_RUNTIME_MODE_ASSESSMENT_SEAL, sealBinding: { ...value.binding, stateSnapshotSha256: "0".repeat(64) }, sealTarget: value.target }),
+      (error) => error.code === "SEAL_RUNTIME_TARGET_MISMATCH",
+    );
+
+    const alternateDirectory = resolve(value.directory, "alternate");
+    mkdirSync(resolve(alternateDirectory, "evidence"), { recursive: true });
+    const alternatePath = resolve(alternateDirectory, "review-bus.sqlite");
+    copyFileSync(value.databasePath, alternatePath);
+    copyFileSync(`${value.databasePath}-wal`, `${alternatePath}-wal`);
+    assert.throws(
+      () => new ReviewBusStore(alternatePath, { runtimeMode: REVIEW_BUS_RUNTIME_MODE_ASSESSMENT_SEAL, sealBinding: value.binding, sealTarget: value.target }),
+      (error) => error.code === "SEAL_RUNTIME_DATABASE_REQUIRED",
+    );
+
+    const aliasPath = resolve(value.directory, "review-bus-alias.sqlite");
+    symlinkSync(value.databasePath, aliasPath);
+    assert.throws(
+      () => new ReviewBusStore(aliasPath, { runtimeMode: REVIEW_BUS_RUNTIME_MODE_ASSESSMENT_SEAL, sealBinding: { ...value.binding, canonicalPath: aliasPath }, sealTarget: value.target }),
+      (error) => error.code === "SEAL_RUNTIME_DATABASE_REQUIRED",
+    );
+  } finally {
+    try { sealStore?.close(); } catch {}
+    value.normalStore.close();
+    rmSync(value.directory, { recursive: true, force: true });
+  }
+});
+
+test("assessment-seal prelisten validation rejects target, receipt, slot, and schema drift", () => {
+  const missingEvidence = assessmentSealFixture("78787878-7878-4787-8787-787878787878");
+  try {
+    rmSync(resolve(missingEvidence.directory, "evidence"), { recursive: true, force: true });
+    assert.throws(
+      () => missingEvidence.createSealStore(),
+      (error) => error.code === "SEAL_RUNTIME_EVIDENCE_ROOT_REQUIRED",
+    );
+  } finally {
+    missingEvidence.normalStore.close();
+    rmSync(missingEvidence.directory, { recursive: true, force: true });
+  }
+
+  const wrongTarget = assessmentSealFixture("71717171-7171-4717-8717-717171717171");
+  try {
+    for (const target of [
+      { ...wrongTarget.target, projectId: "22222222-2222-4222-8222-222222222222" },
+      { ...wrongTarget.target, issueId: "FILMOS-ARCH-72727272-7272-4727-8727-727272727272" },
+      { ...wrongTarget.target, submissionId: "FILMOS-SUBMISSION-73737373-7373-4737-8737-737373737373" },
+      { ...wrongTarget.target, actor: "chatgpt" },
+      { ...wrongTarget.target, assessmentRound: wrongTarget.target.assessmentRound + 1 },
+      { ...wrongTarget.target, entityVersion: wrongTarget.target.entityVersion + 1 },
+      { ...wrongTarget.target, issueEventCount: wrongTarget.target.issueEventCount + 1 },
+      { ...wrongTarget.target, lastEventHash: "2".repeat(64) },
+      { ...wrongTarget.target, projectionHash: "0".repeat(64) },
+      { ...wrongTarget.target, intakeReceiptHash: "1".repeat(64) },
+    ]) {
+      assert.throws(
+        () => new ReviewBusStore(wrongTarget.databasePath, { runtimeMode: REVIEW_BUS_RUNTIME_MODE_ASSESSMENT_SEAL, sealBinding: wrongTarget.binding, sealTarget: target }),
+        (error) => error.code === "SEAL_RUNTIME_TARGET_MISMATCH",
+      );
+    }
+  } finally {
+    wrongTarget.normalStore.close();
+    rmSync(wrongTarget.directory, { recursive: true, force: true });
+  }
+
+  const sealedSlot = assessmentSealFixture("74747474-7474-4747-8747-747474747474");
+  try {
+    sealedSlot.normalService.submitAssessment(sealedSlot.issue.issue_id, "chatgpt", chatgptAssessment);
+    assert.throws(
+      () => prepareReviewBusSealBinding(sealedSlot.databasePath, sealedSlot.target),
+      (error) => error.code === "SEAL_RUNTIME_TARGET_MISMATCH",
+    );
+  } finally {
+    sealedSlot.normalStore.close();
+    rmSync(sealedSlot.directory, { recursive: true, force: true });
+  }
+
+  const tamperedSuccessor = assessmentSealFixture("79797979-7979-4797-8797-797979797979");
+  try {
+    tamperedSuccessor.normalService.submitAssessment(tamperedSuccessor.issue.issue_id, "codex", codexAssessment);
+    const row = tamperedSuccessor.normalStore.db.prepare("SELECT document_json FROM review_projections WHERE issue_id = ?").get(tamperedSuccessor.target.issueId);
+    const document = JSON.parse(row.document_json);
+    document.assessment_receipts.codex.receipt_hash = "3".repeat(64);
+    delete document.content_hash;
+    document.content_hash = sha256(document);
+    tamperedSuccessor.normalStore.db.prepare("UPDATE review_projections SET document_json = ?, content_hash = ? WHERE issue_id = ?")
+      .run(JSON.stringify(document), document.content_hash, tamperedSuccessor.target.issueId);
+    assert.throws(
+      () => prepareReviewBusSealBinding(tamperedSuccessor.databasePath, tamperedSuccessor.target),
+      (error) => error.code === "SEAL_RUNTIME_TARGET_MISMATCH",
+    );
+  } finally {
+    tamperedSuccessor.normalStore.close();
+    rmSync(tamperedSuccessor.directory, { recursive: true, force: true });
+  }
+
+  const nonUniqueSuccessor = assessmentSealFixture("81818181-8181-4818-8818-818181818181");
+  try {
+    nonUniqueSuccessor.normalService.submitAssessment(nonUniqueSuccessor.issue.issue_id, "codex", codexAssessment);
+    nonUniqueSuccessor.normalService.recordRuntimeObservation(nonUniqueSuccessor.issue.issue_id, "unexpected-runtime", new Date("2026-09-04T04:01:00.000Z"));
+    assert.throws(
+      () => prepareReviewBusSealBinding(nonUniqueSuccessor.databasePath, nonUniqueSuccessor.target),
+      (error) => error.code === "SEAL_RUNTIME_TARGET_MISMATCH",
+    );
+  } finally {
+    nonUniqueSuccessor.normalStore.close();
+    rmSync(nonUniqueSuccessor.directory, { recursive: true, force: true });
+  }
+
+  const schemaDrift = assessmentSealFixture("75757575-7575-4757-8757-757575757575");
+  try {
+    schemaDrift.normalStore.db.exec("DROP TRIGGER review_events_no_delete");
+    assert.throws(
+      () => prepareReviewBusSealBinding(schemaDrift.databasePath, schemaDrift.target),
+      (error) => error.code === "SEAL_RUNTIME_SCHEMA_MISMATCH",
+    );
+  } finally {
+    schemaDrift.normalStore.close();
+    rmSync(schemaDrift.directory, { recursive: true, force: true });
+  }
+
+  const restoredSchemaVersionDrift = assessmentSealFixture("82828282-8282-4828-8828-828282828282");
+  try {
+    restoredSchemaVersionDrift.normalService.submitAssessment(
+      restoredSchemaVersionDrift.target.issueId,
+      "codex",
+      codexAssessment,
+    );
+    restoredSchemaVersionDrift.normalStore.db.exec(`
+      DROP INDEX review_attachments_issue;
+      CREATE INDEX review_attachments_issue ON review_attachments(issue_id, attachment_id);
+      PRAGMA schema_version = ${restoredSchemaVersionDrift.binding.schemaVersion};
+    `);
+    assert.throws(
+      () => new ReviewBusStore(restoredSchemaVersionDrift.databasePath, {
+        runtimeMode: REVIEW_BUS_RUNTIME_MODE_ASSESSMENT_SEAL,
+        sealBinding: restoredSchemaVersionDrift.binding,
+        sealTarget: restoredSchemaVersionDrift.target,
+      }),
+      (error) => error.code === "SEAL_RUNTIME_SCHEMA_MISMATCH",
+    );
+  } finally {
+    restoredSchemaVersionDrift.normalStore.close();
+    rmSync(restoredSchemaVersionDrift.directory, { recursive: true, force: true });
+  }
+
+  const captureHashDrift = assessmentSealFixture("83838383-8383-4838-8838-838383838383");
+  try {
+    captureHashDrift.normalService.submitAssessment(captureHashDrift.target.issueId, "codex", codexAssessment);
+    captureHashDrift.normalStore.db.prepare("UPDATE review_submissions SET capture_hash = ? WHERE submission_id = ?")
+      .run("4".repeat(64), captureHashDrift.target.submissionId);
+    assert.throws(
+      () => new ReviewBusStore(captureHashDrift.databasePath, {
+        runtimeMode: REVIEW_BUS_RUNTIME_MODE_ASSESSMENT_SEAL,
+        sealBinding: captureHashDrift.binding,
+        sealTarget: captureHashDrift.target,
+      }),
+      (error) => error.code === "SEAL_RUNTIME_TARGET_MISMATCH",
+    );
+  } finally {
+    captureHashDrift.normalStore.close();
+    rmSync(captureHashDrift.directory, { recursive: true, force: true });
+  }
+});
+
+test("assessment-seal start-health-stop is zero-write and denies every route outside the exact Codex target", async () => {
+  const value = assessmentSealFixture("76767676-7676-4767-8767-767676767676");
+  const before = value.normalService.requireIssue(value.issue.issue_id);
+  const beforeEvents = value.normalStore.events(value.issue.issue_id);
+  const beforeMain = createHash("sha256").update(readFileSync(value.databasePath)).digest("hex");
+  const beforeWal = createHash("sha256").update(readFileSync(`${value.databasePath}-wal`)).digest("hex");
+  const running = await startAssessmentSealServer(value);
+  try {
+    const healthResponse = await fetch(`${running.baseURL}/healthz`);
+    assert.equal(healthResponse.status, 200);
+    const health = await healthResponse.json();
+    assert.equal(health.runtime_mode, REVIEW_BUS_RUNTIME_MODE_ASSESSMENT_SEAL);
+    assert.equal(health.source_identity.commit, commit);
+    assert.equal(health.seal_target.issue_id, value.target.issueId);
+    assert.equal(health.seal_target.actor, "codex");
+    assert.equal(health.frozen_scope_logical_snapshot_sha256, value.binding.logicalSnapshotSha256);
+    assert.equal(health.pristine_state_snapshot_sha256, value.binding.stateSnapshotSha256);
+    assert.equal(health.current_scope_logical_snapshot_sha256, value.binding.logicalSnapshotSha256);
+    assert.equal(health.current_state_snapshot_sha256, value.binding.stateSnapshotSha256);
+    assert.equal(health.current_seal_state, "PRISTINE_EMPTY");
+    assert.equal(JSON.stringify(health).includes("assessment_body"), false);
+
+    const denied = await fetch(`${running.baseURL}/v1/review/pending`, { method: "POST", headers: running.headers, body: "{" });
+    assert.equal(denied.status, 404);
+    assert.equal((await denied.json()).code, "SEAL_RUNTIME_ROUTE_DENIED");
+    const wrongActor = await fetch(`${running.baseURL}/v1/issues/${value.target.issueId}/assessments/chatgpt`, { method: "POST", headers: running.headers, body: "{" });
+    assert.equal(wrongActor.status, 404);
+    assert.equal((await wrongActor.json()).code, "SEAL_RUNTIME_ROUTE_DENIED");
+
+    const endpoint = `${running.baseURL}/v1/issues/${value.target.issueId}/assessments/codex`;
+    const wrongProject = await fetch(`${endpoint}?project_id=wrong&submission_id=${value.target.submissionId}`, { method: "POST", headers: running.headers, body: "{" });
+    assert.equal(wrongProject.status, 403);
+    assert.equal((await wrongProject.json()).code, "PROJECT_SCOPE_DENIED");
+    const wrongSubmission = await fetch(`${endpoint}?project_id=${value.target.projectId}&submission_id=wrong`, { method: "POST", headers: running.headers, body: "{" });
+    assert.equal(wrongSubmission.status, 409);
+    assert.equal((await wrongSubmission.json()).code, "SUBMISSION_BINDING_MISMATCH");
+    const missingScope = await fetch(endpoint, { method: "POST", headers: running.headers, body: "{" });
+    assert.equal(missingScope.status, 403);
+    assert.equal((await missingScope.json()).code, "PROJECT_SCOPE_DENIED");
+    assert.equal(existsSync(resolve(value.directory, "backups")), false);
+  } finally {
+    await new Promise((resolvePromise) => running.server.close(resolvePromise));
+    running.store.close();
+  }
+  assert.deepEqual(value.normalService.requireIssue(value.issue.issue_id), before);
+  assert.deepEqual(value.normalStore.events(value.issue.issue_id), beforeEvents);
+  assert.equal(createHash("sha256").update(readFileSync(value.databasePath)).digest("hex"), beforeMain);
+  assert.equal(createHash("sha256").update(readFileSync(`${value.databasePath}-wal`)).digest("hex"), beforeWal);
+  value.normalStore.close();
+  rmSync(value.directory, { recursive: true, force: true });
+});
+
+test("assessment-seal preserves one first write across concurrency and process-restart recovery", async () => {
+  const value = assessmentSealFixture("77777777-7777-4777-8777-777777777777");
+  const firstStore = value.createSealStore();
+  const secondStore = value.createSealStore();
+  value.normalStore.close();
+  let first = await startAssessmentSealServer(value, firstStore);
+  let second = await startAssessmentSealServer(value, secondStore);
+  let restarted = null;
+  const endpoint = (running) => `${running.baseURL}/v1/issues/${value.target.issueId}/assessments/codex?project_id=${value.target.projectId}&submission_id=${value.target.submissionId}`;
+  try {
+    const responses = await Promise.all([
+      fetch(endpoint(first), { method: "POST", headers: first.headers, body: JSON.stringify(codexAssessment) }),
+      fetch(endpoint(second), { method: "POST", headers: second.headers, body: JSON.stringify(codexAssessment) }),
+    ]);
+    const bodies = await Promise.all(responses.map((response) => response.json()));
+    assert.deepEqual(responses.map((response) => response.status), [200, 200], JSON.stringify(bodies));
+    assert.deepEqual(bodies[0].assessment_receipt, bodies[1].assessment_receipt);
+    assert.equal(bodies.filter((body) => body.idempotent_replay === false).length, 1);
+    assert.equal(bodies.filter((body) => body.idempotent_replay === true).length, 1);
+    const persisted = first.service.requireIssue(value.target.issueId);
+    assert.equal(persisted.entity_version, value.target.entityVersion + 1);
+    assert.equal(first.store.events(value.target.issueId).length, value.target.issueEventCount + 1);
+    const sealedHealth = await fetch(`${first.baseURL}/healthz`);
+    assert.equal(sealedHealth.status, 200);
+    const sealedHealthBody = await sealedHealth.json();
+    assert.equal(sealedHealthBody.current_seal_state, "CODEX_SEALED_SUCCESSOR");
+    assert.equal(sealedHealthBody.frozen_scope_logical_snapshot_sha256, value.binding.logicalSnapshotSha256);
+    assert.equal(sealedHealthBody.pristine_state_snapshot_sha256, value.binding.stateSnapshotSha256);
+    assert.notEqual(sealedHealthBody.current_scope_logical_snapshot_sha256, value.binding.logicalSnapshotSha256);
+    assert.notEqual(sealedHealthBody.current_state_snapshot_sha256, value.binding.stateSnapshotSha256);
+
+    const replay = await fetch(endpoint(first), { method: "POST", headers: first.headers, body: JSON.stringify(codexAssessment) });
+    assert.equal(replay.status, 200);
+    assert.equal((await replay.json()).idempotent_replay, true);
+    const version = first.service.requireIssue(value.target.issueId).entity_version;
+    const eventCount = first.store.events(value.target.issueId).length;
+    const conflict = await fetch(endpoint(second), { method: "POST", headers: second.headers, body: JSON.stringify({ ...codexAssessment, rollback: ["different"] }) });
+    assert.equal(conflict.status, 409);
+    assert.equal((await conflict.json()).code, "ASSESSMENT_FROZEN_CONFLICT");
+    assert.equal(first.service.requireIssue(value.target.issueId).entity_version, version);
+    assert.equal(first.store.events(value.target.issueId).length, eventCount);
+    assert.equal(first.store.verifyEventChain(value.target.issueId), true);
+
+    await Promise.all([
+      new Promise((resolvePromise) => first.server.close(resolvePromise)),
+      new Promise((resolvePromise) => second.server.close(resolvePromise)),
+    ]);
+    first.store.close();
+    second.store.close();
+    first = null;
+    second = null;
+
+    const successorProbe = prepareReviewBusSealBinding(value.databasePath, value.target);
+    assert.equal(successorProbe.sealState, "CODEX_SEALED_SUCCESSOR");
+    assert.equal(successorProbe.walPresent, false);
+    assert.notEqual(createHash("sha256").update(readFileSync(value.databasePath)).digest("hex"), value.binding.sha256);
+    const restartedStore = new ReviewBusStore(value.databasePath, {
+      runtimeMode: REVIEW_BUS_RUNTIME_MODE_ASSESSMENT_SEAL,
+      sealBinding: value.binding,
+      sealTarget: value.target,
+    });
+    restarted = await startAssessmentSealServer(value, restartedStore);
+    const restartedReplay = await fetch(endpoint(restarted), { method: "POST", headers: restarted.headers, body: JSON.stringify(codexAssessment) });
+    assert.equal(restartedReplay.status, 200);
+    const restartedBody = await restartedReplay.json();
+    assert.equal(restartedBody.idempotent_replay, true);
+    assert.deepEqual(restartedBody.assessment_receipt, bodies[0].assessment_receipt);
+    const restartedConflict = await fetch(endpoint(restarted), { method: "POST", headers: restarted.headers, body: JSON.stringify({ ...codexAssessment, rollback: ["restart-different"] }) });
+    assert.equal(restartedConflict.status, 409);
+    assert.equal((await restartedConflict.json()).code, "ASSESSMENT_FROZEN_CONFLICT");
+    assert.equal(restarted.service.requireIssue(value.target.issueId).entity_version, version);
+    assert.equal(restarted.store.events(value.target.issueId).length, eventCount);
+    assert.equal(restarted.store.verifyEventChain(value.target.issueId), true);
+  } finally {
+    const running = [first, second, restarted].filter(Boolean);
+    await Promise.all(running.map((item) => new Promise((resolvePromise) => item.server.close(resolvePromise))));
+    for (const item of running) item.store.close();
+    rmSync(value.directory, { recursive: true, force: true });
+  }
+});
+
+test("assessment-seal recovers a lost response after an abrupt process termination with changed WAL", async () => {
+  const value = assessmentSealFixture("80808080-8080-4808-8808-808080808080");
+  let restarted = null;
+  try {
+    const crash = await runCrashedSealWrite(value);
+    assert.notEqual(crash.code, 0);
+    assert.equal(existsSync(`${value.databasePath}-wal`), true);
+    const changedWalHash = createHash("sha256").update(readFileSync(`${value.databasePath}-wal`)).digest("hex");
+    assert.notEqual(changedWalHash, value.binding.walSha256);
+
+    const successorProbe = prepareReviewBusSealBinding(value.databasePath, value.target);
+    assert.equal(successorProbe.sealState, "CODEX_SEALED_SUCCESSOR");
+    assert.equal(successorProbe.walPresent, true);
+    assert.equal(successorProbe.walSha256, changedWalHash);
+    const restartedStore = new ReviewBusStore(value.databasePath, {
+      runtimeMode: REVIEW_BUS_RUNTIME_MODE_ASSESSMENT_SEAL,
+      sealBinding: value.binding,
+      sealTarget: value.target,
+    });
+    restarted = await startAssessmentSealServer(value, restartedStore);
+    assert.equal(restarted.store.sealSnapshot.sealState, "CODEX_SEALED_SUCCESSOR");
+    const endpoint = `${restarted.baseURL}/v1/issues/${value.target.issueId}/assessments/codex?project_id=${value.target.projectId}&submission_id=${value.target.submissionId}`;
+    const before = restarted.service.requireIssue(value.target.issueId);
+    const originalReceipt = structuredClone(before.assessment_receipts.codex);
+    const beforeEventCount = restarted.store.events(value.target.issueId).length;
+    const replayResponse = await fetch(endpoint, { method: "POST", headers: restarted.headers, body: JSON.stringify(codexAssessment) });
+    assert.equal(replayResponse.status, 200);
+    const replay = await replayResponse.json();
+    assert.equal(replay.idempotent_replay, true);
+    assert.deepEqual(replay.assessment_receipt, originalReceipt);
+    const conflictResponse = await fetch(endpoint, { method: "POST", headers: restarted.headers, body: JSON.stringify({ ...codexAssessment, rollback: ["crash-different"] }) });
+    assert.equal(conflictResponse.status, 409);
+    assert.equal((await conflictResponse.json()).code, "ASSESSMENT_FROZEN_CONFLICT");
+    const after = restarted.service.requireIssue(value.target.issueId);
+    assert.equal(after.entity_version, before.entity_version);
+    assert.equal(after.content_hash, before.content_hash);
+    assert.equal(restarted.store.events(value.target.issueId).length, beforeEventCount);
+    assert.equal(restarted.store.verifyEventChain(value.target.issueId), true);
+  } finally {
+    if (restarted) {
+      await new Promise((resolvePromise) => restarted.server.close(resolvePromise));
+      restarted.store.close();
+    }
+    try { value.normalStore.close(); } catch {}
+    rmSync(value.directory, { recursive: true, force: true });
+  }
 });
 
 test("Installed SourceIdentity cross-checks Bundle runtime, repository locator, and real Git objects", () => {
