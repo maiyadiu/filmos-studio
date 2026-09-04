@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import { Worker } from "node:worker_threads";
 
 import { sha256 } from "../src/canonical.mjs";
@@ -40,6 +41,60 @@ function fixture() {
   const store = new ReviewBusStore(":memory:");
   const service = new ReviewBusService(store, { baseCommit: commit, taskPackageContentHash: taskHash });
   return { store, service };
+}
+
+function createPendingArchitectureAssessment(service, uuid = "55555555-5555-4555-8555-555555555555", scopedProjectId = projectId) {
+  const submissionId = `FILMOS-SUBMISSION-${uuid}`;
+  const issue = service.createIssue({
+    project_id: scopedProjectId,
+    what_happened: "Assessment sealing must be safely replayable.",
+    expected_result: "One immutable Assessment receipt per actor and round.",
+    location: "Review Bus Assessment workflow",
+    blocks_work: true,
+    lane: "architecture",
+  }, "user", new Date("2026-09-04T00:00:00.000Z"), { submissionId });
+  service.freezeRequirementDelta(issue.issue_id, architectureDelta, "user", new Date("2026-09-04T00:01:00.000Z"));
+  service.freezeEvidence(issue.issue_id, { source_commit: commit, items: architectureEvidence }, "codex", new Date("2026-09-04T00:02:00.000Z"));
+  service.beginArchitectureAssessments(issue.issue_id, "review-codex-coordinator", new Date("2026-09-04T00:03:00.000Z"));
+  return service.requireIssue(issue.issue_id);
+}
+
+function bindTestSubmission(store, issue) {
+  const timestamp = "2026-09-04T00:00:00.000Z";
+  const captureHash = sha256({ submission_id: issue.submission_id, project_id: issue.project_id });
+  const receiptBase = {
+    schema_version: "filmos.issue-intake-receipt.v1",
+    submission_id: issue.submission_id,
+    formal_issue_id: issue.issue_id,
+    project_id: issue.project_id,
+  };
+  const receipt = { ...receiptBase, receipt_hash: sha256(receiptBase) };
+  store.db.prepare(`INSERT INTO review_submissions(submission_id,project_id,capture_schema,capture_hash,capture_json,state,formal_issue_id,created_at,updated_at)
+    VALUES(?,?,?,?,?,?,?,?,?)`).run(issue.submission_id, issue.project_id, "filmos.test-capture.v1", captureHash, "{}", "ACCEPTED_AWAITING_READBACK", issue.issue_id, timestamp, timestamp);
+  store.db.prepare("INSERT INTO review_submission_receipts(submission_id,formal_issue_id,receipt_json,receipt_hash,created_at) VALUES(?,?,?,?,?)")
+    .run(issue.submission_id, issue.issue_id, JSON.stringify(receipt), receipt.receipt_hash, timestamp);
+}
+
+function runAssessmentChild(workerPath, input) {
+  return new Promise((resolvePromise, reject) => {
+    const child = spawn(process.execPath, [workerPath], {
+      env: { ...process.env, FILMOS_APPEND_WORKER_DATA: JSON.stringify(input) },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => { stdout += chunk; });
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    child.once("error", reject);
+    child.once("close", (code) => {
+      if (code !== 0) return reject(new Error(stderr || `ASSESSMENT_CHILD_EXIT_${code}`));
+      try {
+        const message = JSON.parse(stdout.trim().split("\n").at(-1));
+        if (!message.ok) return reject(Object.assign(new Error(message.error), { code: message.code }));
+        resolvePromise(message.result);
+      } catch (error) { reject(error); }
+    });
+  });
 }
 
 function stageABody(overrides = {}) {
@@ -819,6 +874,358 @@ test("Architecture v2 freezes Requirement and Evidence idempotently without a se
   assert.equal(evidenceReplay.entity_version, evidence.entity_version);
   assert.equal(store.events(issue.issue_id).length, evidenceEventCount);
   assert.throws(() => service.freezeEvidence(issue.issue_id, { source_commit: commit, items: [...architectureEvidence, { kind: "extra", completeness_kind: "attachment", content: "drift" }] }), /EVIDENCE_FROZEN_CONFLICT/);
+  assert.equal(store.verifyEventChain(issue.issue_id), true);
+  store.close();
+});
+
+test("Architecture v2 Assessment receipts are sealed once, replayed exactly, and conflict without mutation", () => {
+  const { service, store } = fixture();
+  const issue = createPendingArchitectureAssessment(service);
+  const before = service.requireIssue(issue.issue_id);
+  const beforeEvents = store.events(issue.issue_id).length;
+  const untouchedChatGPTSlot = structuredClone(before.assessment_slots.chatgpt);
+  const first = service.submitAssessment(issue.issue_id, "codex", codexAssessment, new Date("2026-09-04T00:04:00.000Z"));
+  const receipt = first.operation_receipt;
+  const persisted = service.requireIssue(issue.issue_id);
+  const submittedEvent = store.events(issue.issue_id).at(-1);
+
+  assert.equal(first.idempotent_replay, false);
+  assert.equal(first.entity_version, before.entity_version + 1);
+  assert.equal(store.events(issue.issue_id).length, beforeEvents + 1);
+  assert.equal(Object.keys(persisted.assessments).length, Object.keys(before.assessments).length + 1);
+  assert.deepEqual(persisted.assessment_slots.chatgpt, untouchedChatGPTSlot);
+  assert.equal(receipt.schema_version, "filmos.architecture-assessment-receipt.v2");
+  assert.match(receipt.assessment_id, /^architecture-assessment-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  assert.equal(receipt.project_id, issue.project_id);
+  assert.equal(receipt.issue_id, issue.issue_id);
+  assert.equal(receipt.submission_id, issue.submission_id);
+  assert.equal(receipt.actor, "codex");
+  assert.equal(receipt.assessor, "codex");
+  assert.equal(receipt.assessment_round, 1);
+  assert.equal(receipt.event_id, submittedEvent.event_id);
+  assert.deepEqual(submittedEvent.payload.receipt, receipt);
+  assert.deepEqual(persisted.assessment_receipts.codex, receipt);
+  assert.equal(persisted.assessments.codex.assessment_id, receipt.assessment_id);
+  assert.equal(persisted.assessments.codex.event_id, receipt.event_id);
+  assert.equal(persisted.assessments.codex.content_hash, receipt.assessment_content_hash);
+  assert.deepEqual(persisted.assessment_slots.codex, {
+    status: "SEALED",
+    binding_hash: receipt.binding_hash,
+    assessment_id: receipt.assessment_id,
+    assessment_content_hash: receipt.assessment_content_hash,
+    receipt_hash: receipt.receipt_hash,
+    event_id: receipt.event_id,
+  });
+  assert.equal(receipt.assessment_content_hash, sha256({
+    schema_version: "filmos.architecture-assessment.v2",
+    project_id: issue.project_id,
+    issue_id: issue.issue_id,
+    submission_id: issue.submission_id,
+    actor: "codex",
+    assessment_round: 1,
+    binding_hash: receipt.binding_hash,
+    assessment: codexAssessment,
+  }));
+  const { receipt_hash: receiptHash, ...receiptBase } = receipt;
+  assert.equal(receiptHash, sha256(receiptBase));
+
+  const replayVersion = persisted.entity_version;
+  const replayEvents = store.events(issue.issue_id).length;
+  const replay = service.submitAssessment(issue.issue_id, "codex", codexAssessment, new Date("2026-09-04T00:05:00.000Z"));
+  assert.equal(replay.idempotent_replay, true);
+  assert.deepEqual(replay.operation_receipt, receipt);
+  assert.equal(replay.entity_version, replayVersion);
+  assert.equal(store.events(issue.issue_id).length, replayEvents);
+
+  const beforeConflict = service.requireIssue(issue.issue_id);
+  const beforeConflictEvents = store.events(issue.issue_id);
+  assert.throws(
+    () => service.submitAssessment(issue.issue_id, "codex", { ...codexAssessment, root_cause: "different content" }),
+    (error) => error.code === "ASSESSMENT_FROZEN_CONFLICT" && error.status === 409,
+  );
+  assert.deepEqual(service.requireIssue(issue.issue_id), beforeConflict);
+  assert.deepEqual(store.events(issue.issue_id), beforeConflictEvents);
+
+  const beforePairVersion = beforeConflict.entity_version;
+  const beforePairEvents = beforeConflictEvents.length;
+  const paired = service.submitAssessment(issue.issue_id, "chatgpt", chatgptAssessment, new Date("2026-09-04T00:06:00.000Z"));
+  assert.equal(paired.idempotent_replay, false);
+  assert.equal(paired.state, "OPTION_COMPARISON");
+  assert.equal(paired.entity_version, beforePairVersion + 1);
+  assert.equal(store.events(issue.issue_id).length, beforePairEvents + 1);
+  assert.equal(paired.operation_receipt.actor, "chatgpt");
+  assert.equal(paired.operation_receipt.event_id, store.events(issue.issue_id).at(-1).event_id);
+  const replayAfterPair = service.submitAssessment(issue.issue_id, "codex", codexAssessment, new Date("2026-09-04T00:07:00.000Z"));
+  assert.equal(replayAfterPair.idempotent_replay, true);
+  assert.deepEqual(replayAfterPair.operation_receipt, receipt);
+  assert.equal(store.verifyEventChain(issue.issue_id), true);
+  store.close();
+});
+
+test("Architecture v2 recovers a lost first Assessment response from the persisted receipt", () => {
+  const { service, store } = fixture();
+  const issue = createPendingArchitectureAssessment(service, "56565656-5656-4565-8565-565656565656");
+  service.submitAssessment(issue.issue_id, "codex", codexAssessment, new Date("2026-09-04T01:00:00.000Z"));
+  const persisted = service.requireIssue(issue.issue_id);
+  const originalReceipt = structuredClone(persisted.assessment_receipts.codex);
+  const eventCount = store.events(issue.issue_id).length;
+  const recovered = service.submitAssessment(issue.issue_id, "codex", codexAssessment, new Date("2026-09-04T01:01:00.000Z"));
+  assert.equal(recovered.idempotent_replay, true);
+  assert.deepEqual(recovered.operation_receipt, originalReceipt);
+  assert.equal(recovered.entity_version, persisted.entity_version);
+  assert.equal(store.events(issue.issue_id).length, eventCount);
+  store.close();
+});
+
+test("Architecture v2 replays the original Assessment receipt after Review Bus restart", () => {
+  const directory = mkdtempSync(resolve(tmpdir(), "filmos-assessment-restart-"));
+  const databasePath = resolve(directory, "review-bus.sqlite");
+  let store = new ReviewBusStore(databasePath);
+  try {
+    let service = new ReviewBusService(store, { baseCommit: commit, taskPackageContentHash: taskHash });
+    const issue = createPendingArchitectureAssessment(service, "57575757-5757-4575-8575-575757575757");
+    const first = service.submitAssessment(issue.issue_id, "codex", codexAssessment, new Date("2026-09-04T02:00:00.000Z"));
+    const originalReceipt = structuredClone(first.operation_receipt);
+    store.close();
+
+    store = new ReviewBusStore(databasePath);
+    service = new ReviewBusService(store, { baseCommit: commit, taskPackageContentHash: taskHash });
+    const beforeReplay = service.requireIssue(issue.issue_id);
+    const eventCount = store.events(issue.issue_id).length;
+    const replay = service.submitAssessment(issue.issue_id, "codex", codexAssessment, new Date("2026-09-04T02:01:00.000Z"));
+    assert.equal(replay.idempotent_replay, true);
+    assert.deepEqual(replay.operation_receipt, originalReceipt);
+    assert.equal(replay.entity_version, beforeReplay.entity_version);
+    assert.equal(store.events(issue.issue_id).length, eventCount);
+    assert.equal(store.verifyEventChain(issue.issue_id), true);
+  } finally {
+    try { store.close(); } catch {}
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("Architecture v2 serializes identical Assessment submissions across independent processes", async () => {
+  const directory = mkdtempSync(resolve(tmpdir(), "filmos-assessment-concurrency-"));
+  const databasePath = resolve(directory, "review-bus.sqlite");
+  const store = new ReviewBusStore(databasePath);
+  try {
+    const service = new ReviewBusService(store, { baseCommit: commit, taskPackageContentHash: taskHash });
+    const issue = createPendingArchitectureAssessment(service, "58585858-5858-4585-8585-585858585858");
+    const before = service.requireIssue(issue.issue_id);
+    const beforeEvents = store.events(issue.issue_id).length;
+    const input = {
+      mode: "assessment",
+      databasePath,
+      storeModule: new URL("../src/store.mjs", import.meta.url).href,
+      serviceModule: new URL("../src/service.mjs", import.meta.url).href,
+      issueId: issue.issue_id,
+      actor: "codex",
+      assessment: codexAssessment,
+      baseCommit: commit,
+      taskPackageContentHash: taskHash,
+      now: "2026-09-04T03:00:00.000Z",
+      startAt: Date.now() + 250,
+    };
+    const workerPath = fileURLToPath(new URL("./append-worker.mjs", import.meta.url));
+    const results = await Promise.all([
+      runAssessmentChild(workerPath, input),
+      runAssessmentChild(workerPath, input),
+    ]);
+    assert.deepEqual(results[0].operation_receipt, results[1].operation_receipt);
+    assert.equal(results.filter((result) => result.idempotent_replay === false).length, 1);
+    assert.equal(results.filter((result) => result.idempotent_replay === true).length, 1);
+    const persisted = service.requireIssue(issue.issue_id);
+    assert.equal(persisted.entity_version, before.entity_version + 1);
+    assert.equal(store.events(issue.issue_id).length, beforeEvents + 1);
+    assert.equal(Object.keys(persisted.assessments).length, 1);
+    assert.equal(store.events(issue.issue_id).filter((event) => event.event_type === "assessment.codex.submitted").length, 1);
+    assert.equal(persisted.assessment_slots.codex.assessment_id, results[0].operation_receipt.assessment_id);
+    assert.equal(store.verifyEventChain(issue.issue_id), true);
+  } finally {
+    store.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("Architecture v2 Assessment HTTP response exposes the persisted receipt and enforces scope", async () => {
+  const { service, store } = fixture();
+  const issue = createPendingArchitectureAssessment(service, "59595959-5959-4595-8595-595959595959");
+  bindTestSubmission(store, issue);
+  const { server, baseURL, headers } = await startReviewServer(service, store);
+  const endpoint = `${baseURL}/v1/issues/${issue.issue_id}/assessments/codex?project_id=${issue.project_id}&submission_id=${issue.submission_id}`;
+  try {
+    const before = service.requireIssue(issue.issue_id);
+    const beforeEvents = store.events(issue.issue_id).length;
+    const response = await fetch(endpoint, { method: "POST", headers, body: JSON.stringify(codexAssessment) });
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    for (const field of ["project_id", "issue_id", "submission_id", "actor", "assessment_id", "assessment_content_hash", "assessment_receipt", "event_id"]) {
+      assert.equal(Object.hasOwn(body, field), true, field);
+    }
+    assert.equal(body.project_id, issue.project_id);
+    assert.equal(body.issue_id, issue.issue_id);
+    assert.equal(body.submission_id, issue.submission_id);
+    assert.equal(body.actor, "codex");
+    assert.deepEqual(body.assessment_receipt, body.operation_receipt);
+    const persisted = service.requireIssue(issue.issue_id);
+    assert.deepEqual(body.assessment_receipt, persisted.assessment_receipts.codex);
+    assert.equal(body.event_id, store.events(issue.issue_id).at(-1).event_id);
+    assert.equal(body.assessment_content_hash, sha256({
+      schema_version: "filmos.architecture-assessment.v2",
+      project_id: issue.project_id,
+      issue_id: issue.issue_id,
+      submission_id: issue.submission_id,
+      actor: "codex",
+      assessment_round: 1,
+      binding_hash: body.assessment_receipt.binding_hash,
+      assessment: codexAssessment,
+    }));
+    assert.equal(persisted.entity_version, before.entity_version + 1);
+    assert.equal(store.events(issue.issue_id).length, beforeEvents + 1);
+
+    const replayVersion = persisted.entity_version;
+    const replayEvents = store.events(issue.issue_id).length;
+    const replayResponse = await fetch(endpoint, { method: "POST", headers, body: JSON.stringify(codexAssessment) });
+    assert.equal(replayResponse.status, 200);
+    const replay = await replayResponse.json();
+    assert.equal(replay.idempotent_replay, true);
+    assert.deepEqual(replay.assessment_receipt, body.assessment_receipt);
+    assert.equal(service.requireIssue(issue.issue_id).entity_version, replayVersion);
+    assert.equal(store.events(issue.issue_id).length, replayEvents);
+
+    const conflictResponse = await fetch(endpoint, { method: "POST", headers, body: JSON.stringify({ ...codexAssessment, rollback: ["different"] }) });
+    assert.equal(conflictResponse.status, 409);
+    assert.equal((await conflictResponse.json()).code, "ASSESSMENT_FROZEN_CONFLICT");
+    assert.equal(service.requireIssue(issue.issue_id).entity_version, replayVersion);
+    assert.equal(store.events(issue.issue_id).length, replayEvents);
+
+    const otherProjectId = "22222222-2222-4222-8222-222222222222";
+    const deniedResponse = await fetch(`${baseURL}/v1/issues/${issue.issue_id}/assessments/codex?project_id=${otherProjectId}&submission_id=${issue.submission_id}`, { method: "POST", headers, body: JSON.stringify(codexAssessment) });
+    assert.equal(deniedResponse.status, 403);
+    const denied = await deniedResponse.json();
+    assert.deepEqual(denied, { status: 403, code: "PROJECT_SCOPE_DENIED", message: "PROJECT_SCOPE_DENIED", retryable: false });
+
+    const mismatchedSubmission = await fetch(`${baseURL}/v1/issues/${issue.issue_id}/assessments/codex?project_id=${issue.project_id}&submission_id=FILMOS-SUBMISSION-60606060-6060-4606-8606-606060606060`, { method: "POST", headers, body: JSON.stringify(codexAssessment) });
+    assert.equal(mismatchedSubmission.status, 409);
+    assert.equal((await mismatchedSubmission.json()).code, "SUBMISSION_BINDING_MISMATCH");
+
+    const missingIssue = await fetch(`${baseURL}/v1/issues/FILMOS-ARCH-61616161-6161-4616-8616-616161616161/assessments/codex?project_id=${issue.project_id}&submission_id=${issue.submission_id}`, { method: "POST", headers, body: JSON.stringify(codexAssessment) });
+    assert.equal(missingIssue.status, 404);
+    assert.equal((await missingIssue.json()).code, "ISSUE_NOT_FOUND");
+    assert.equal(store.verifyEventChain(issue.issue_id), true);
+  } finally {
+    await new Promise((resolvePromise) => server.close(resolvePromise));
+    store.close();
+  }
+});
+
+test("Architecture v2 ChatGPT Bridge returns and replays the same persisted Assessment receipt", async () => {
+  const { service, store } = fixture();
+  const issue = createPendingArchitectureAssessment(service, "62626262-6262-4626-8626-626262626262");
+  bindTestSubmission(store, issue);
+  const { server, baseURL } = await startReviewServer(service, store);
+  const headers = { authorization: "Bearer bridge-token-1234567890-abcdefghijkl", "content-type": "application/json", "x-filmos-user-gesture": "1" };
+  const decisionURL = `${baseURL}/v1/bridge/decision?project_id=${issue.project_id}&submission_id=${issue.submission_id}`;
+  const issueChallenge = async () => {
+    const response = await fetch(`${baseURL}/v1/bridge/challenge`, { method: "POST", headers, body: JSON.stringify({ purpose: "CHATGPT_ASSESSMENT", issue_id: issue.issue_id, candidate_id: null, candidate_commit: null }) });
+    assert.equal(response.status, 201);
+    return response.json();
+  };
+  const writeDecision = (challenge, assessment) => fetch(decisionURL, { method: "POST", headers, body: JSON.stringify({
+    challenge_id: challenge.challenge_id,
+    nonce: challenge.nonce,
+    purpose: "CHATGPT_ASSESSMENT",
+    issue_id: issue.issue_id,
+    candidate_id: null,
+    candidate_commit: null,
+    decision: assessment,
+  }) });
+  try {
+    const firstResponse = await writeDecision(await issueChallenge(), chatgptAssessment);
+    assert.equal(firstResponse.status, 200);
+    const first = await firstResponse.json();
+    assert.equal(first.ack, true);
+    for (const field of ["project_id", "issue_id", "submission_id", "actor", "assessment_id", "assessment_content_hash", "assessment_receipt", "event_id"]) {
+      assert.equal(Object.hasOwn(first, field), true, field);
+    }
+    assert.equal(first.actor, "chatgpt");
+    assert.deepEqual(first.assessment_receipt, service.requireIssue(issue.issue_id).assessment_receipts.chatgpt);
+    assert.equal(first.event_id, store.events(issue.issue_id).at(-1).event_id);
+    const version = service.requireIssue(issue.issue_id).entity_version;
+    const eventCount = store.events(issue.issue_id).length;
+
+    const replayResponse = await writeDecision(await issueChallenge(), chatgptAssessment);
+    assert.equal(replayResponse.status, 200);
+    const replay = await replayResponse.json();
+    assert.equal(replay.idempotent_replay, true);
+    assert.deepEqual(replay.assessment_receipt, first.assessment_receipt);
+    assert.equal(service.requireIssue(issue.issue_id).entity_version, version);
+    assert.equal(store.events(issue.issue_id).length, eventCount);
+
+    const conflictResponse = await writeDecision(await issueChallenge(), { ...chatgptAssessment, workflow_impact: "different" });
+    assert.equal(conflictResponse.status, 409);
+    assert.equal((await conflictResponse.json()).code, "ASSESSMENT_FROZEN_CONFLICT");
+    assert.equal(service.requireIssue(issue.issue_id).entity_version, version);
+    assert.equal(store.events(issue.issue_id).length, eventCount);
+    assert.equal(store.verifyEventChain(issue.issue_id), true);
+  } finally {
+    await new Promise((resolvePromise) => server.close(resolvePromise));
+    store.close();
+  }
+});
+
+test("pre-repair Architecture Assessment receipts remain immutable without history rewrite", () => {
+  const { service, store } = fixture();
+  const issue = createPendingArchitectureAssessment(service, "63636363-6363-4636-8636-636363636363");
+  const current = service.requireIssue(issue.issue_id);
+  const binding = {
+    project_id: current.project_id,
+    evidence_manifest_hash: current.evidence.manifest.contentHash,
+    constitution_content_hash: current.constitution_content_hash,
+  };
+  const bindingHash = sha256(binding);
+  const submittedAt = "2026-09-04T04:00:00.000Z";
+  const sealedBase = {
+    assessment: codexAssessment,
+    assessor: "codex",
+    assessment_round: 1,
+    project_id: current.project_id,
+    binding,
+    binding_hash: bindingHash,
+    submitted_at: submittedAt,
+  };
+  const sealed = { ...sealedBase, content_hash: sha256(sealedBase), sealed_until_pair_complete: true };
+  const receiptBase = {
+    schema_version: "filmos.architecture-assessment-receipt.v2",
+    issue_id: current.issue_id,
+    assessor: "codex",
+    assessment_round: 1,
+    binding_hash: bindingHash,
+    assessment_content_hash: sealed.content_hash,
+    accepted_at: submittedAt,
+  };
+  const legacyReceipt = { ...receiptBase, receipt_hash: sha256(receiptBase) };
+  store.append({
+    issueId: current.issue_id,
+    projectId: current.project_id,
+    lane: current.lane,
+    eventType: "assessment.codex.submitted",
+    actor: "codex",
+    payload: { receipt: legacyReceipt },
+    now: new Date(submittedAt),
+    transitionAction: "assessment.submit",
+    mutate: (next) => {
+      next.assessments.codex = sealed;
+      next.assessment_receipts.codex = legacyReceipt;
+      next.assessment_slots.codex = { status: "SEALED", binding_hash: bindingHash, receipt_hash: legacyReceipt.receipt_hash };
+      return next;
+    },
+  });
+  const eventRows = store.db.prepare("SELECT * FROM review_events WHERE issue_id = ? ORDER BY sequence").all(issue.issue_id);
+  const projectionRow = store.db.prepare("SELECT * FROM review_projections WHERE issue_id = ?").get(issue.issue_id);
+  assert.throws(() => service.submitAssessment(issue.issue_id, "codex", codexAssessment), /ASSESSMENT_IMMUTABLE/);
+  assert.deepEqual(store.db.prepare("SELECT * FROM review_events WHERE issue_id = ? ORDER BY sequence").all(issue.issue_id), eventRows);
+  assert.deepEqual(store.db.prepare("SELECT * FROM review_projections WHERE issue_id = ?").get(issue.issue_id), projectionRow);
   assert.equal(store.verifyEventChain(issue.issue_id), true);
   store.close();
 });

@@ -6,6 +6,7 @@ import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { ARCHITECTURE_PROTOCOL_VERSION } from "./architecture-protocol.mjs";
 import { exactObject, problem, safeEqual, sha256 } from "./canonical.mjs";
 import { CONSTITUTION_HASH, CONSTITUTION_VERSION } from "./contracts.mjs";
 import { REVIEW_ERROR_CODE_PATTERN } from "./generated-review-contract.mjs";
@@ -158,8 +159,8 @@ export function createReviewBusHttp({ service, store, busToken, bridgeToken, con
           return send(res, 201, { ...issueReceipt(stored.issue), attachment: stored.attachment });
         }
         if (req.method === "POST" && action === "evidence/freeze") return send(res, 200, issueReceipt(service.freezeEvidence(issueId, body, "codex", now())));
-        if (req.method === "POST" && action === "assessments/codex") return send(res, 200, issueReceipt(service.submitAssessment(issueId, "codex", body, now())));
-        if (req.method === "POST" && action === "assessments/chatgpt") return send(res, 200, issueReceipt(service.submitAssessment(issueId, "chatgpt", body, now())));
+        if (req.method === "POST" && action === "assessments/codex") return send(res, 200, submitAssessmentResponse({ service, store, issueId, actor: "codex", assessment: body, url, now: now() }));
+        if (req.method === "POST" && action === "assessments/chatgpt") return send(res, 200, submitAssessmentResponse({ service, store, issueId, actor: "chatgpt", assessment: body, url, now: now() }));
         if (req.method === "POST" && action === "architecture/assessments/begin") return send(res, 200, issueReceipt(service.beginArchitectureAssessments(issueId, "review-codex-coordinator", now())));
         if (req.method === "GET" && action === "assessments/blind") return send(res, 200, service.assessmentBlind(issueId, String(url.searchParams.get("viewer") ?? "")));
         if (req.method === "POST" && action === "consensus/responses/codex") return send(res, 200, issueReceipt(service.respondConsensus(issueId, "codex", body, now())));
@@ -277,11 +278,15 @@ export function createReviewBusHttp({ service, store, busToken, bridgeToken, con
       if (req.method === "POST" && url.pathname === "/v1/bridge/decision") {
         exactObject(body, ["challenge_id", "nonce", "purpose", "issue_id", "candidate_id", "candidate_commit", "decision"]);
         if (!BRIDGE_PURPOSES.has(body.purpose)) throw problem("UNSUPPORTED_BRIDGE_PURPOSE");
+        const bridgeIssue = service.requireIssue(body.issue_id);
+        const architectureAssessment = body.purpose === "CHATGPT_ASSESSMENT" && isArchitectureV2Issue(bridgeIssue);
+        if (architectureAssessment) validateArchitectureAssessmentBinding(store, bridgeIssue, url);
         const decisionTime = now();
         const issue = store.consumeChallengeAndApply(
           { challengeId: body.challenge_id, nonce: body.nonce, purpose: body.purpose, issueId: body.issue_id, candidateId: body.candidate_id, candidateCommit: body.candidate_commit, now: decisionTime },
           () => applyBridgeDecision(service, body, decisionTime),
         );
+        if (architectureAssessment) return send(res, 200, { ack: true, ...assessmentIssueReceipt(issue, "chatgpt") });
         return send(res, 200, { ack: true, issue_id: issue.issue_id, state: issue.state, content_hash: issue.content_hash });
       }
       if (req.method === "POST" && url.pathname === "/v1/bridge/revoke") {
@@ -416,6 +421,60 @@ function authenticateBridge(req, legacyToken, store, now) {
 
 function requireProject(url) { const value = url.searchParams.get("project_id"); if (!value) throw problem("PROJECT_SCOPE_REQUIRED"); return value; }
 function readConsumer(req) { return req.headers["x-filmos-read-consumer"] === "chatgpt-mcp" ? "chatgpt-mcp" : null; }
+function submitAssessmentResponse({ service, store, issueId, actor, assessment, url, now }) {
+  const current = service.requireIssue(issueId);
+  if (!isArchitectureV2Issue(current)) return issueReceipt(service.submitAssessment(issueId, actor, assessment, now));
+  validateArchitectureAssessmentBinding(store, current, url);
+  return assessmentIssueReceipt(service.submitAssessment(issueId, actor, assessment, now), actor);
+}
+function isArchitectureV2Issue(issue) {
+  return issue?.lane === "architecture" && issue.architecture_protocol_version === ARCHITECTURE_PROTOCOL_VERSION;
+}
+function validateArchitectureAssessmentBinding(store, issue, url) {
+  const requestedProjectId = url.searchParams.get("project_id");
+  if (requestedProjectId && requestedProjectId !== issue.project_id) throw problem("PROJECT_SCOPE_DENIED", "PROJECT_SCOPE_DENIED", 403);
+  if (!issue.submission_id) throw problem("SUBMISSION_RECEIPT_NOT_FOUND", "SUBMISSION_RECEIPT_NOT_FOUND", 404);
+  const requestedSubmissionId = url.searchParams.get("submission_id");
+  if (requestedSubmissionId && requestedSubmissionId !== issue.submission_id) {
+    throw problem("SUBMISSION_BINDING_MISMATCH", "SUBMISSION_BINDING_MISMATCH", 409);
+  }
+  let submission;
+  try { submission = store.submissionStatus(issue.submission_id); }
+  catch (error) {
+    if (error?.code === "SUBMISSION_NOT_FOUND") throw problem("SUBMISSION_RECEIPT_NOT_FOUND", "SUBMISSION_RECEIPT_NOT_FOUND", 404);
+    throw error;
+  }
+  if (!submission.receipt) throw problem("SUBMISSION_RECEIPT_NOT_FOUND", "SUBMISSION_RECEIPT_NOT_FOUND", 404);
+  if (submission.project_id !== issue.project_id
+    || submission.formal_issue_id !== issue.issue_id
+    || submission.receipt?.submission_id !== issue.submission_id
+    || submission.receipt?.formal_issue_id !== issue.issue_id
+    || submission.receipt?.project_id !== issue.project_id) {
+    throw problem("SUBMISSION_BINDING_MISMATCH", "SUBMISSION_BINDING_MISMATCH", 409);
+  }
+}
+function assessmentIssueReceipt(issue, actor) {
+  const receipt = issue.operation_receipt;
+  if (!receipt
+    || receipt.actor !== actor
+    || receipt.assessor !== actor
+    || receipt.issue_id !== issue.issue_id
+    || receipt.project_id !== issue.project_id
+    || receipt.submission_id !== issue.submission_id) {
+    throw problem("ASSESSMENT_RESPONSE_OBSERVABILITY_FAILED", "ASSESSMENT_RESPONSE_OBSERVABILITY_FAILED", 500);
+  }
+  return {
+    ...issueReceipt(issue),
+    project_id: receipt.project_id,
+    issue_id: receipt.issue_id,
+    submission_id: receipt.submission_id,
+    actor: receipt.actor,
+    assessment_id: receipt.assessment_id,
+    assessment_content_hash: receipt.assessment_content_hash,
+    assessment_receipt: receipt,
+    event_id: receipt.event_id,
+  };
+}
 function issueReceipt(issue) {
   return {
     issue_id: issue.issue_id,

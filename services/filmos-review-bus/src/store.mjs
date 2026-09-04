@@ -407,11 +407,16 @@ export class ReviewBusStore {
     return row ? { ...row, result: JSON.parse(row.result_json), result_json: undefined } : null;
   }
 
-  append({ issueId, eventType, actor, payload, projectId, lane, mutate, revokeCandidate = null, transitionAction = null, now = new Date() }) {
+  append({ issueId, eventType, actor, payload, projectId, lane, mutate, resolveCurrent = null, revokeCandidate = null, transitionAction = null, now = new Date() }) {
     const ownsTransaction = !this.db.isTransaction;
     if (ownsTransaction) this.db.exec("BEGIN IMMEDIATE");
     try {
       const current = this.get(issueId);
+      const resolved = resolveCurrent?.(structuredClone(current));
+      if (resolved !== undefined && resolved !== null) {
+        if (ownsTransaction) this.db.exec("COMMIT");
+        return resolved;
+      }
       const previous = this.db.prepare("SELECT event_hash FROM review_events WHERE issue_id = ? ORDER BY sequence DESC LIMIT 1").get(issueId);
       const createdAt = now.toISOString();
       const eventId = `review-event-${randomUUID()}`;
@@ -422,12 +427,14 @@ export class ReviewBusStore {
       const isV2Architecture = next.lane === "architecture"
         && (next.architecture_protocol_version === ARCHITECTURE_PROTOCOL_VERSION
           || current?.architecture_protocol_version === ARCHITECTURE_PROTOCOL_VERSION);
-      let eventPayload = payload;
+      let eventPayload = typeof payload === "function"
+        ? payload({ current: structuredClone(current), next: structuredClone(next), eventId, createdAt })
+        : payload;
       if (isV2Architecture) {
         const action = transitionAction ?? (current && current.state === next.state ? "operational" : null);
         if (!action) throw problem("ARCHITECTURE_TRANSITION_ACTION_REQUIRED");
         eventPayload = {
-          ...payload,
+          ...eventPayload,
           transition: architectureTransitionPayload({ current, next, action, actor }),
         };
       }
