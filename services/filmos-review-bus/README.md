@@ -10,6 +10,8 @@ Runtime: **Node.js >= 24.10.0**; CI pins Node 26.3.0. `external-read` depends on
 
 Actor selection does not authorize arbitrary Production targets or bypass source/database identity, schema, token, scope or immutable-intake checks. A reviewed frozen-evidence transport may supply an independent Assessment, but is not a JIT/live/Connector read receipt and does not establish the old live-path acceptance result.
 
+The ChatGPT seal consumes the existing canonical source launcher's `.local/source-host/Resources` identity, recomputing its fingerprint against clean `integration`. The original Codex target retains its frozen Phase 5A identity directory; do not overwrite those historical files to start a second-actor process. Refreshing source identity metadata does not require packaging an App or starting ordinary Production services.
+
 ```bash
 FILMOS_REVIEW_BUS_TOKEN='<local-pairing-secret>' npm start
 npm test

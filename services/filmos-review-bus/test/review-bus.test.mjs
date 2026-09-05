@@ -248,10 +248,10 @@ function installedIdentityFixture() {
   return { directory, repository, sourcePath, runtimePath, locatorPath, source, runtime, locator, sourceCommit, sourceTree, buildID, load };
 }
 
-function sealSourceIdentityFixture() {
+function sealSourceIdentityFixture(identityResourcesRelative = ".local/phase5a4-seal-runtime/Resources") {
   const directory = realpathSync(mkdtempSync(resolve(tmpdir(), "filmos-seal-source-identity-")));
   const repository = resolve(directory, "repository");
-  const resources = resolve(repository, ".local/phase5a4-seal-runtime/Resources");
+  const resources = resolve(repository, identityResourcesRelative);
   const fingerprintPath = resolve(repository, "desktop/macos/scripts/source-fingerprint");
   mkdirSync(dirname(fingerprintPath), { recursive: true });
   mkdirSync(resolve(repository, "services/filmos-review-bus"), { recursive: true });
@@ -1803,7 +1803,7 @@ test("assessment-seal source identity is independently bound to canonical Git an
 for (const actor of ["codex", "chatgpt"]) {
 test(`assessment-seal ${actor} real environment startup assembles the isolated runtime without Production defaults or startup writes`, async () => {
   const value = assessmentSealFixture("84848484-8484-4848-8848-848484848484", projectId, actor);
-  const source = sealSourceIdentityFixture();
+  const source = sealSourceIdentityFixture(actor === "chatgpt" ? ".local/source-host/Resources" : ".local/phase5a4-seal-runtime/Resources");
   const { env, options } = assessmentSealRuntimeInputs(value, source);
   const busTokenPath = resolve(value.directory, "review-bus.token");
   const bridgeTokenPath = resolve(value.directory, "review-bridge.token");

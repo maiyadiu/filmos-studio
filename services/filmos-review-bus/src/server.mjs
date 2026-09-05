@@ -1113,7 +1113,13 @@ function startSealRuntime(env, configuration) {
   if (localDir !== canonicalLocalDir || host !== "127.0.0.1" || port !== requiredPort) {
     throw problem("SEAL_RUNTIME_DATABASE_REQUIRED");
   }
-  const sourceIdentity = loadSealSourceIdentity(env, { expectedSourceRoot });
+  const sourceIdentity = loadSealSourceIdentity(env, {
+    expectedSourceRoot,
+    // Keep the completed Codex seal's evidence files intact; the second actor
+    // consumes the existing source launcher's independently verified identity.
+    identityResourcesRelative: expectedTarget.actor === "chatgpt"
+      ? ".local/source-host/Resources" : SEAL_IDENTITY_RESOURCES_RELATIVE,
+  });
   const target = sealTargetFromEnvironment(env, expectedTarget);
   const binding = sealBindingFromEnvironment(env, canonicalDatabase, expectedDatabaseOrigin);
   const busToken = readExistingSealToken(resolve(localDir, "review-bus.token"), env.FILMOS_REVIEW_BUS_TOKEN);
