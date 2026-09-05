@@ -48,6 +48,7 @@ import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import { formatCount, formatTime, statusLabel, type ProjectDetailViewProps } from "./shared";
 import { extractChapterCharacters } from "./project-chapter-ai";
 import { documentTextFromHtml, parseChapterDocumentView, type ChapterDocumentView } from "./chapter-document-view";
+import { ScriptRevisionHistory } from "./script-revision-history";
 
 const CHAPTER_ROW_HEIGHT = 52;
 const MAX_NOVEL_IMPORT_CHAPTERS = 2500;
@@ -68,6 +69,7 @@ export default function ProjectChaptersView({ detail, refreshProject, onCreateCa
     const [draggedId, setDraggedId] = useState("");
     const [draftTitle, setDraftTitle] = useState("");
     const [draftMarkdown, setDraftMarkdown] = useState("");
+    const [draftRevision, setDraftRevision] = useState(0);
     const [documentView, setDocumentView] = useState<ChapterDocumentView>(() => parseChapterDocumentView(localStorage.getItem(`project-chapter-document-view:${detail.project.id}`)));
     const [dirty, setDirty] = useState(false);
     const [extractingCharacters, setExtractingCharacters] = useState(false);
@@ -141,13 +143,16 @@ export default function ProjectChaptersView({ detail, refreshProject, onCreateCa
     const saveMutation = useMutation({
         mutationFn: () => selectedUnitQuery.data?.unit
             ? updateProjectUnit(detail.project.id, selectedUnitQuery.data.unit.id, {
+                expectedRevision: draftRevision,
+                requestId: crypto.randomUUID(),
+                note: "章节编辑器保存",
                 title: draftTitle.trim(),
                 sourceText: plainTextToHtml(draftMarkdown),
                 status: draftMarkdown.trim() ? "ready" : "draft",
             })
             : Promise.reject(new Error("请选择章节")),
-        onSuccess: ({ unit }) => { queryClient.setQueryData(["project-unit", detail.project.id, unit.id], { unit }); setDirty(false); refreshProject(); message.success("章节已保存"); },
-        onError: (error) => message.error(error instanceof Error ? error.message : "章节保存失败"),
+        onSuccess: ({ unit }) => { queryClient.setQueryData(["project-unit", detail.project.id, unit.id], { unit }); void queryClient.invalidateQueries({ queryKey: ["project-script-revisions", detail.project.id, unit.id] }); setDirty(false); refreshProject(); message.success(`章节已保存为修订 v${unit.revision}`); },
+        onError: (error) => { message.error(error instanceof Error ? error.message : "章节保存失败"); void selectedUnitQuery.refetch(); },
     });
     const createMutation = useMutation({
         mutationFn: (values: { title: string; sourceText?: string }) => createProjectUnit(detail.project.id, { kind: "chapter", title: values.title, sourceText: plainTextToHtml(values.sourceText || ""), position: detail.units.length }),
@@ -185,17 +190,32 @@ export default function ProjectChaptersView({ detail, refreshProject, onCreateCa
         if (!selectedUnitSummary) return;
         setDraftTitle(selectedUnitSummary.title);
         setDraftMarkdown("");
+        setDraftRevision(0);
         setDirty(false);
     }, [selectedUnitSummary?.id]);
 
     useEffect(() => {
         const loadedUnit = selectedUnitQuery.data?.unit;
-        if (!loadedUnit) return;
+        if (!loadedUnit || loadedUnit.id !== selectedId || dirty) return;
         setDraftTitle(loadedUnit.title);
         setDraftMarkdown(documentTextFromHtml(loadedUnit.sourceText || ""));
+        setDraftRevision(loadedUnit.revision);
         setDirty(false);
-        // 只在切换章节时装载服务端内容，避免项目刷新覆盖当前未保存正文。
-    }, [selectedUnitQuery.data?.unit]);
+        // Keep the edit's original revision across background refreshes; using
+        // the latest revision with an older dirty draft would bypass CAS.
+    }, [selectedUnitQuery.data?.unit, selectedId, dirty]);
+
+    useEffect(() => {
+        const onRevision = (event: Event) => {
+            const scope = (event as CustomEvent<{ projectId: string; unitId: string }>).detail;
+            if (scope?.projectId !== detail.project.id) return;
+            void queryClient.invalidateQueries({ queryKey: ["project-unit", scope.projectId, scope.unitId] });
+            void queryClient.invalidateQueries({ queryKey: ["project-script-revisions", scope.projectId, scope.unitId] });
+            refreshProject();
+        };
+        window.addEventListener("filmos:script-revised", onRevision);
+        return () => window.removeEventListener("filmos:script-revised", onRevision);
+    }, [detail.project.id, queryClient, refreshProject]);
 
     const wordCount = useMemo(() => draftMarkdown.length, [draftMarkdown]);
     const chapterCanvasCount = (unitId: string) => canvasCountByUnitId.get(unitId) || 0;
@@ -336,7 +356,7 @@ export default function ProjectChaptersView({ detail, refreshProject, onCreateCa
         </div>
     ) : (
         <div className={`project-chapter-editor-scroll min-h-0 bg-foreground/[.012] ${storyStudioEnabled ? "" : "flex-1"}`}>
-            {selectedUnitQuery.isLoading ? <WorkspaceState icon="loading" compact className="h-full" title="正在读取章节正文" description="正文准备完成后会自动显示。" /> : selectedUnitQuery.isError ? <WorkspaceErrorState compact title="章节正文读取失败" description={selectedUnitQuery.error instanceof Error ? selectedUnitQuery.error.message : "请检查网络连接后重试。"} onRetry={() => void selectedUnitQuery.refetch()} /> : <textarea value={markdownSource} onChange={(event) => { setDraftMarkdown(event.target.value); setDirty(true); }} className="thin-scrollbar h-full min-h-[320px] w-full resize-none border-0 bg-transparent px-6 py-5 font-mono text-sm leading-7 text-foreground outline-none placeholder:text-foreground/28" spellCheck={false} placeholder={'# 章节标题\n\n使用 Markdown 编写正文……'} aria-label="Markdown 原文" />}
+            {selectedUnitQuery.isLoading ? <WorkspaceState icon="loading" compact className="h-full" title="正在读取章节正文" description="正文准备完成后会自动显示。" /> : selectedUnitQuery.isError ? <WorkspaceErrorState compact title="章节正文读取失败" description={selectedUnitQuery.error instanceof Error ? selectedUnitQuery.error.message : "请检查网络连接后重试。"} onRetry={() => void selectedUnitQuery.refetch()} /> : <textarea value={markdownSource} readOnly={saveMutation.isPending} onChange={(event) => { setDraftMarkdown(event.target.value); setDirty(true); }} className="thin-scrollbar h-full min-h-[320px] w-full resize-none border-0 bg-transparent px-6 py-5 font-mono text-sm leading-7 text-foreground outline-none placeholder:text-foreground/28" spellCheck={false} placeholder={'# 章节标题\n\n使用 Markdown 编写正文……'} aria-label="Markdown 原文" />}
         </div>
     );
 
@@ -395,7 +415,7 @@ export default function ProjectChaptersView({ detail, refreshProject, onCreateCa
                         <header className="flex shrink-0 flex-wrap items-start gap-3 border-b border-border/70 px-4 py-3">
                             <div className="min-w-0 flex-1">
                                 <div className="mb-1 text-[var(--fs-tiny)] font-medium tabular-nums text-foreground/38">第 {String(orderedUnits.findIndex((unit) => unit.id === selectedUnit.id) + 1).padStart(2, "0")} 章</div>
-                                <Input variant="borderless" value={draftTitle} disabled={!selectedUnitQuery.data?.unit} onChange={(event) => { setDraftTitle(event.target.value); setDirty(true); }} className="!h-auto !px-0 !py-0 !text-xl !font-semibold !leading-tight disabled:!cursor-wait disabled:!text-foreground" placeholder="章节标题" />
+                                <Input variant="borderless" value={draftTitle} disabled={!selectedUnitQuery.data?.unit || saveMutation.isPending} onChange={(event) => { setDraftTitle(event.target.value); setDirty(true); }} className="!h-auto !px-0 !py-0 !text-xl !font-semibold !leading-tight disabled:!cursor-wait disabled:!text-foreground" placeholder="章节标题" />
                                 <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[var(--fs-tiny)] text-foreground/38"><span>{dirty ? "有未保存修改" : `保存于 ${formatTime(selectedUnit.updatedAt)}`}</span><span>·</span><span>{formatCount(wordCount)} 字</span><span>·</span><span>{chapterCanvasCount(selectedUnit.id)} 个画布</span></div>
                             </div>
                             <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
@@ -403,11 +423,13 @@ export default function ProjectChaptersView({ detail, refreshProject, onCreateCa
                                     <button type="button" aria-pressed={documentView === "readable"} onClick={() => setDocumentView("readable")} className={`inline-flex h-7 items-center gap-1 rounded-full px-2.5 text-[var(--fs-label)] transition-colors ${documentView === "readable" ? "bg-surface-active font-medium text-foreground" : "text-foreground/45 hover:text-foreground"}`}><Eye className="size-3.5" />易读</button>
                                     <button type="button" aria-pressed={documentView === "markdown"} onClick={() => setDocumentView("markdown")} className={`inline-flex h-7 items-center gap-1 rounded-full px-2.5 text-[var(--fs-label)] transition-colors ${documentView === "markdown" ? "bg-surface-active font-medium text-foreground" : "text-foreground/45 hover:text-foreground"}`}><Code2 className="size-3.5" />Markdown</button>
                                 </div>
+                                <ScriptRevisionHistory key={selectedUnit.id} projectId={detail.project.id} unitId={selectedUnit.id} revision={selectedUnit.revision} />
                                 <Button size="small" icon={<UsersRound className="size-3.5" />} disabled={!selectedUnitQuery.data?.unit || dirty || extractingCharacters} loading={extractingCharacters} onClick={() => void extractCharacters()}>提取角色</Button>
                                 {chapterShotCount(selectedUnit.id) ? <Dropdown trigger={["click"]} menu={{ items: [{ key: "new", icon: <Plus className="size-3.5" />, label: "新建章节画布并导入" }, ...(projectCanvasTargets.length ? [{ type: "divider" as const }, ...projectCanvasTargets.map((canvas) => ({ key: canvas.id, icon: <LayoutGrid className="size-3.5" />, label: `导入到：${canvas.title}${detail.canvasUnitLinks.some((link) => link.canvasId === canvas.id && link.unitId === selectedUnit.id) ? " · 已关联本章" : ""}` }))] : [])], onClick: ({ key }) => void importStoryboardToCanvas(key === "new" ? undefined : key) }}><Button size="small" type="primary" icon={<LayoutGrid className="size-3.5" />} loading={Boolean(importingCanvasId)} disabled={extractingCharacters}>导入分镜</Button></Dropdown> : <Button size="small" type="primary" icon={<LayoutGrid className="size-3.5" />} disabled={!selectedUnitQuery.data?.unit || dirty || extractingCharacters} onClick={onCreateCanvas}>在画布中分镜</Button>}
                                 <Button size="small" type={dirty ? "primary" : "default"} icon={dirty ? <Save className="size-3.5" /> : <Check className="size-3.5" />} disabled={!selectedUnitQuery.data?.unit || !dirty || !draftTitle.trim() || saveMutation.isPending} loading={saveMutation.isPending} onClick={() => saveMutation.mutate()}>{dirty ? "保存" : "已保存"}</Button>
                             </div>
                         </header>
+                        {dirty && draftRevision > 0 && selectedUnitQuery.data?.unit.revision !== draftRevision && <div role="alert" className="flex flex-wrap items-center gap-2 border-b border-border bg-accent p-3 text-sm"><p>服务器已有新修订。本地草稿已保留，但不能覆盖新版本；请先复制需要保留的内容，再加载最新正文合并。</p><Popconfirm title="放弃本地未保存的草稿？" description="此操作不会删除服务器上的修订历史。请先复制需要保留的文字。" onConfirm={() => setDirty(false)}><Button size="small">加载最新正文</Button></Popconfirm></div>}
                         {storyStudioEnabled ? (
                             <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)_minmax(220px,42%)] lg:grid-cols-[minmax(0,1fr)_340px] lg:grid-rows-1">
                                 {editorSurface}

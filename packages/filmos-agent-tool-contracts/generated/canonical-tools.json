@@ -4130,6 +4130,75 @@
       "input_schema_hash": "35b20ae1f03a56efdffc4056ebb9e0c760b0ea0229ca153c9fcf3f20d249ef3e"
     },
     {
+      "name": "project_get_script",
+      "title": "Project Get Script",
+      "description": "读取当前项目一个章节的真实完整正文、修订号和哈希。修改剧本前必须读取，不能从章节摘要或画布节点标题推测正文。",
+      "risk": "read",
+      "surfaces": [
+        "canvas_legacy",
+        "runtime_admin",
+        "workbench_operator"
+      ],
+      "provider": "host_project",
+      "requires_fresh_context": true,
+      "may_create_charges": false,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "projectId": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "unitId": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "unitId"
+        ],
+        "type": "object"
+      },
+      "input_schema_hash": "f0a323090624d97d0983c7e96468aba6545f8b42b5b37da7a7f8ad37eb9827d3"
+    },
+    {
+      "name": "project_get_script_revision",
+      "title": "Project Get Script Revision",
+      "description": "回读指定章节修订的真实正文与哈希；用于原版、新版比较和保存后的核验。不会修改或锁定剧本。",
+      "risk": "read",
+      "surfaces": [
+        "canvas_legacy",
+        "runtime_admin",
+        "workbench_operator"
+      ],
+      "provider": "host_project",
+      "requires_fresh_context": true,
+      "may_create_charges": false,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "projectId": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "revision": {
+            "exclusiveMinimum": 0,
+            "type": "integer"
+          },
+          "unitId": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "unitId",
+          "revision"
+        ],
+        "type": "object"
+      },
+      "input_schema_hash": "aca626a3f62caef7db9f9f136608586f4c7d077ac43bbb0e8c7dff22b818de11"
+    },
+    {
       "name": "project_link_asset",
       "title": "Project Link Asset",
       "description": "将个人资产引用到当前短剧项目，不复制媒体文件。",
@@ -4310,6 +4379,80 @@
       "input_schema_hash": "4368857628ceb83c5552094a36a6e785cdee432e051e6f599ee48d78a386e291"
     },
     {
+      "name": "project_revise_script",
+      "title": "Project Revise Script",
+      "description": "按已读取正文中的唯一 oldText 片段进行精确替换，未指定的正文保持不变。沿用 sourceFormat，保留 HTML 格式；使用读取到的 expectedRevision，每次逻辑修订一个 requestId，重试复用相同 ID 和参数。保存修订历史并回读验证，失败不得报完成。不修改已完成章节、不批准或锁定 Film Core 剧本，也不生成素材。",
+      "risk": "write",
+      "surfaces": [
+        "canvas_legacy",
+        "runtime_admin",
+        "workbench_operator"
+      ],
+      "provider": "host_project",
+      "requires_fresh_context": true,
+      "may_create_charges": false,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "edits": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "newText": {
+                  "maxLength": 2097152,
+                  "type": "string"
+                },
+                "oldText": {
+                  "maxLength": 2097152,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "oldText",
+                "newText"
+              ],
+              "type": "object"
+            },
+            "maxItems": 20,
+            "minItems": 1,
+            "type": "array"
+          },
+          "expectedRevision": {
+            "exclusiveMinimum": 0,
+            "type": "integer"
+          },
+          "note": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "projectId": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "requestId": {
+            "maxLength": 100,
+            "minLength": 1,
+            "type": "string"
+          },
+          "unitId": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "unitId",
+          "expectedRevision",
+          "requestId",
+          "note",
+          "edits"
+        ],
+        "type": "object"
+      },
+      "input_schema_hash": "8b3dd7352bf85ab2ac75c61ea0687f87244e234e1786f21cbf71cf4801ec4f93"
+    },
+    {
       "name": "project_start_workflow_step",
       "title": "Project Start Workflow Step",
       "description": "启动项目或章节制作流程中的一个步骤。",
@@ -4402,5 +4545,5 @@
       "input_schema_hash": "99334726611ccf58a148b0814696bfa6fe08c1b2d027e946beccf5a74331c9aa"
     }
   ],
-  "contract_hash": "54e96c88f932421339e8a7ea2373e0300714b5c1e2acff8174107adcf06ef926"
+  "contract_hash": "138b986290fcafb943d9120abfa2d0ceba162add8fe4c860831bf0194dd7b9e5"
 }

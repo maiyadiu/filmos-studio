@@ -11,8 +11,10 @@ import {
     type ProjectDetail,
     type ShotAssetReference,
 } from "./projects";
+import { projectScriptToolNames, runProjectScriptTool, type ProjectScriptToolName } from "./project-script-tools";
 
 export const projectAgentToolNames = [
+    ...projectScriptToolNames,
     "project_get_context",
     "project_list_units",
     "project_extract_asset_candidates",
@@ -32,10 +34,11 @@ export function isProjectAgentToolName(value: string): value is ProjectAgentTool
 }
 
 export function isProjectAgentReadTool(value: string) {
-    return value === "project_get_context" || value === "project_list_units";
+    return value === "project_get_context" || value === "project_list_units" || value === "project_get_script" || value === "project_get_script_revision";
 }
 
 export async function runProjectAgentTool(name: ProjectAgentToolName, rawInput: Record<string, unknown>, fallbackProjectId?: string) {
+    if ((projectScriptToolNames as readonly string[]).includes(name)) return runProjectScriptTool(name as ProjectScriptToolName, rawInput, fallbackProjectId || "");
     const projectId = String(rawInput.projectId || fallbackProjectId || "").trim();
     if (!projectId) throw new Error("当前画布没有关联短剧项目");
     if (name === "project_get_context") return getProject(projectId);

@@ -8,6 +8,7 @@ const readCanvasTools = new Set([
     "canvas_get_state", "canvas_get_context", "canvas_find_nodes", "canvas_get_node", "canvas_get_connection",
     "canvas_get_generation_tasks", "canvas_get_resources", "canvas_get_selection", "canvas_export_snapshot",
     "project_get_context", "project_list_units",
+    "project_get_script", "project_get_script_revision",
 ]);
 const draftCanvasTools = new Set(["canvas_validate_ops"]);
 const paidCanvasTools = new Set([

@@ -28,6 +28,7 @@ def test_source_suite_has_real_diff_and_fixture_contracts_without_app_or_user_da
     assert {
         "architecture-current-diff", "review-bus-governance", "external-read-runner-contract",
         "known-dependency-security", "portrait-image-compatibility",
+        "project-script-persistence", "project-script-tools", "project-script-broker",
     } <= ids
     assert not {"desktop-release-build", "desktop-runtime", "desktop-review-vertical-canary"} & ids
     for check in checks:

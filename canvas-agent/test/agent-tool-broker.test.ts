@@ -9,6 +9,7 @@ import { AgentPermissionGrantStore } from "../src/brains/permission-grants.js";
 import { AgentPolicyGateway } from "../src/brains/policy-gateway.js";
 import { CanonicalAgentToolBroker } from "../src/brains/tool-broker.js";
 import { CanonicalAgentToolManifest } from "../src/brains/tool-manifest.js";
+import { ProjectToolProvider } from "../src/brains/tool-providers.js";
 
 test("all native adapters receive the same canonical confirmation semantics and trusted identity", async () => {
     for (const profileId of ["codex.subscription", "openai.api", "local.model"] as const) {
@@ -117,6 +118,33 @@ test("a write cannot be reported successful without a verifiable postcondition",
         /POSTCONDITION_REQUIRED/,
     );
     assert.equal(runtime.audit.records.at(-1)?.outcome, "failed");
+});
+
+test("script reads and revision writes use the existing project provider and confirmation policy", async () => {
+    const runtime = setup("codex.subscription");
+    const calls: string[] = [];
+    const provider = new ProjectToolProvider({ callTool: async (name) => {
+        calls.push(String(name));
+        return { ok: true, data: { verification: { ok: true, persisted: true, currentRevision: 2 } } };
+    } });
+    for (const name of ["project_get_script", "project_get_script_revision", "project_revise_script"]) {
+        assert.equal(runtime.manifest.get(name).provider, "host_project");
+        assert.equal(runtime.manifest.names("workbench_operator").includes(name), true);
+        runtime.broker.register(name, provider);
+    }
+    assert.equal(runtime.manifest.get("project_get_script").risk, "read");
+    assert.equal(runtime.manifest.get("project_get_script_revision").risk, "read");
+    assert.equal(runtime.manifest.get("project_revise_script").risk, "write");
+    const base = { profile: runtime.profile, session: runtime.session, turnId: "script-turn", contextReceiptId: runtime.receiptId, currentContext: runtime.snapshot };
+    assert.equal((await runtime.broker.request({ ...base, toolName: "project_get_script", input: { unitId: "unit" } })).status, "completed");
+    const proposed = await runtime.broker.request({ ...base, toolName: "project_revise_script", input: { unitId: "unit", expectedRevision: 1, requestId: "script-edit", note: "改对白", edits: [{ oldText: "我不走", newText: "我陪你" }] } });
+    assert.equal(proposed.status, "confirmation_required");
+    assert.deepEqual(calls, ["project_get_script"]);
+    if (proposed.status !== "confirmation_required") return;
+    runtime.confirmations.decide(proposed.confirmation.id, { sessionId: runtime.session.id, actorId: "human-owner", approved: true });
+    const result = await runtime.broker.executeConfirmed({ confirmationId: proposed.confirmation.id, profile: runtime.profile, session: runtime.session, currentContext: runtime.snapshot });
+    assert.equal(result.status, "completed");
+    assert.deepEqual(calls, ["project_get_script", "project_revise_script"]);
 });
 
 test("manifest is the single grant source for Workbench Canvas Project and Film tools", () => {

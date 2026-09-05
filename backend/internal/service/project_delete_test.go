@@ -21,6 +21,7 @@ func newProjectDeleteTestService(t *testing.T) (*Service, *gorm.DB) {
 	if err := db.AutoMigrate(
 		&model.Project{},
 		&model.ProjectUnit{},
+		&model.ProjectUnitRevision{},
 		&model.CanvasProject{},
 		&model.CanvasShare{},
 		&model.CanvasUnitLink{},

@@ -42,9 +42,12 @@ type CreateProjectUnitRequest struct {
 }
 
 type UpdateProjectUnitRequest struct {
-	Title      string `json:"title"`
-	SourceText string `json:"sourceText"`
-	Status     string `json:"status"`
+	ExpectedRevision int64  `json:"expectedRevision"`
+	RequestID        string `json:"requestId"`
+	Note             string `json:"note"`
+	Title            string `json:"title"`
+	SourceText       string `json:"sourceText"`
+	Status           string `json:"status"`
 }
 
 type ImportProjectUnitsRequest struct {
@@ -432,31 +435,8 @@ func newProjectUnit(projectID string, req CreateProjectUnitRequest, position int
 }
 
 func (s *Service) UpdateProjectUnit(userID string, projectID string, unitID string, req UpdateProjectUnitRequest) (model.ProjectUnit, error) {
-	if _, err := s.repo.ProjectForUser(userID, projectID); err != nil {
-		return model.ProjectUnit{}, err
-	}
-	unit, err := s.repo.ProjectUnit(projectID, unitID)
-	if err != nil {
-		return model.ProjectUnit{}, err
-	}
-	if title := strings.TrimSpace(req.Title); title != "" {
-		unit.Title = title
-	}
-	unit.SourceText = req.SourceText
-	if status := model.ProjectUnitStatus(strings.TrimSpace(req.Status)); status != "" {
-		if status != model.ProjectUnitStatusDraft && status != model.ProjectUnitStatusReady && status != model.ProjectUnitStatusCompleted {
-			return model.ProjectUnit{}, BadAuthRequest("不支持的章节状态")
-		}
-		unit.Status = status
-	}
-	unit.UpdatedAt = time.Now()
-	if err := s.repo.UpdateProjectUnit(unit); err != nil {
-		return model.ProjectUnit{}, err
-	}
-	if err := s.repo.BumpProjectRevision(projectID); err != nil {
-		return model.ProjectUnit{}, err
-	}
-	return *unit, nil
+	result, err := s.SaveProjectScriptRevision(userID, projectID, unitID, req)
+	return result.Unit, err
 }
 
 func (s *Service) LinkCanvasUnit(userID string, projectID string, req LinkCanvasUnitRequest) (model.CanvasUnitLink, error) {

@@ -187,6 +187,7 @@ type ProjectUnit struct {
 	Kind       ProjectUnitKind   `json:"kind" gorm:"index;size:24"`
 	Title      string            `json:"title" gorm:"size:240"`
 	SourceText string            `json:"sourceText" gorm:"type:text"`
+	Revision   int64             `json:"revision" gorm:"not null;default:1"`
 	Status     ProjectUnitStatus `json:"status" gorm:"index;size:24"`
 	Position   int               `json:"position"`
 	CreatedAt  time.Time         `json:"createdAt"`

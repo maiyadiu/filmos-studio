@@ -28,6 +28,18 @@ Connect token: xxxxxx
 
 在画布右上角点击 `Agent`，填入地址和 token 后连接。
 
+## 章节脚本修订
+
+已关联短剧项目的画布可通过既有 Canonical Broker 使用三个工具：
+
+- `project_get_script`：用章节 `unitId` 读取完整 HTML 正文、修订号和哈希。
+- `project_revise_script`：用已读的 `expectedRevision`、本次唯一且可重试的 `requestId`、修改说明 `note` 和 1–20 个 `oldText/newText` 精确片段修订。原文片段必须唯一，保留未要求修改的对白、场景、动作及 HTML 格式。相同操作重发沿用同一请求 ID。
+- `project_get_script_revision`：按章节及修订号读取保存的历史版本，检查正文和哈希。
+
+工具绑定当前授权业务项目，不允许模型改写项目范围。修订只编辑 draft/ready 章节；原编辑器和 Agent 共用业务数据库修订历史，先保存再回读一致才报告成功。项目未绑定、正文片段不唯一、版本冲突或回读失败时停止并说明，不退化为写画布文本节点。正式 Film Core 审阅/锁定、付费生成和删除保持原权限边界。
+
+用户在项目章节页的“修订历史”查看前后对照。验证以隔离测试和实际会话分别记录，不把工具调用测试当作自然语言创作质量验收。
+
 ## ComfyUI Bridge
 
 Bridge 让云端后端把工作流请求投递到运行 Bridge 的机器，再由该进程访问 ComfyUI。`--comfy` 可填写本机 `127.0.0.1:8188`、局域网地址或公网 HTTP/HTTPS 地址，只要运行 Bridge 的机器能够访问即可；网页和云端不直接访问该地址。

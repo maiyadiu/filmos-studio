@@ -7,6 +7,19 @@ description: 影策后端核心持久化表与状态边界
 
 后端通过 GORM 管理 SQLite 与 PostgreSQL 表结构。服务启动时由 `backend/internal/database/schema.go` 执行迁移；业务写路径必须通过 service 和 repository 的状态约束，不能直接依赖前端状态。
 
+## 章节正文与修订历史
+
+`project_units.source_text` 仍是章节编辑器的当前正文（HTML）；`revision` 为非空整数，新增及迁移前的章节从 1 开始。`project_unit_revisions` 在同一业务数据库保存追加式修订：项目/章节 ID、修订号、标题、完整正文、SHA-256、章节状态、请求 ID/请求哈希、说明、操作用户和时间。首次修改会同时保存修改前的原始版本；历史记录不被后续编辑覆盖，随所属章节/项目的既有删除事务清理。
+
+- `GET /api/projects/:id/units/:unitId/script-revisions`：最近 50 个修订元数据，不携带正文；更早版本仍可按修订号读取。
+- `GET /api/projects/:id/units/:unitId/script-revisions/:revision`：精确版本正文及哈希；未修改章节返回当前初始版本，不因读取写库。
+- `POST /api/projects/:id/units/:unitId/script-revisions`：Agent 草稿修订，仅允许 draft/ready，不更改完成/审批状态。
+- 原 `PATCH /api/projects/:id/units/:unitId` 编辑器保存使用同一事务。两种写入都要求 `expectedRevision`、唯一 `requestId` 与 `sourceText`，可携带标题和说明。旧调用方不能省略版本守卫。
+
+所有读取/写入经登录态与项目归属检查。CAS 更新当前正文、保存前后版本、递增项目版本在同一事务完成；失败整体回滚。相同请求 ID 与相同请求内容重发复用原结果，内容不同或基线过期返回 HTTP 409 和非零业务错误码。正文限 2 MiB。SQLite 同时抢占写锁也可能返回数据库忙，此时不能当作保存成功，应先回读。
+
+这是日常章节编辑历史，不是 Film Core 的正式 `ScriptVersion` 审阅/批准/锁定，也不生成 Candidate、Consensus 或图片。Agent 工具成功后再次读取精确修订和当前章节，比对项目、版本、正文与哈希；保存响应和回读不一致时不报告完成。
+
 ## Production Canvas
 
 | 表 | 用途 | 关键边界 |

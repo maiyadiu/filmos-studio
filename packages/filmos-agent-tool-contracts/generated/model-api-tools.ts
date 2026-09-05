@@ -3843,6 +3843,67 @@ export const canonicalModelApiToolManifest = [
     }
   },
   {
+    "risk": "read",
+    "tool": {
+      "type": "function",
+      "function": {
+        "name": "project_get_script",
+        "description": "读取当前项目一个章节的真实完整正文、修订号和哈希。修改剧本前必须读取，不能从章节摘要或画布节点标题推测正文。",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "projectId": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "unitId": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "unitId"
+          ],
+          "type": "object"
+        },
+        "strict": true
+      }
+    }
+  },
+  {
+    "risk": "read",
+    "tool": {
+      "type": "function",
+      "function": {
+        "name": "project_get_script_revision",
+        "description": "回读指定章节修订的真实正文与哈希；用于原版、新版比较和保存后的核验。不会修改或锁定剧本。",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "projectId": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "revision": {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            "unitId": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "unitId",
+            "revision"
+          ],
+          "type": "object"
+        },
+        "strict": true
+      }
+    }
+  },
+  {
     "risk": "write",
     "tool": {
       "type": "function",
@@ -3999,6 +4060,76 @@ export const canonicalModelApiToolManifest = [
           "required": [
             "stepId",
             "taskId"
+          ],
+          "type": "object"
+        },
+        "strict": true
+      }
+    }
+  },
+  {
+    "risk": "write",
+    "tool": {
+      "type": "function",
+      "function": {
+        "name": "project_revise_script",
+        "description": "按已读取正文中的唯一 oldText 片段进行精确替换，未指定的正文保持不变。沿用 sourceFormat，保留 HTML 格式；使用读取到的 expectedRevision，每次逻辑修订一个 requestId，重试复用相同 ID 和参数。保存修订历史并回读验证，失败不得报完成。不修改已完成章节、不批准或锁定 Film Core 剧本，也不生成素材。",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "edits": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "newText": {
+                    "maxLength": 2097152,
+                    "type": "string"
+                  },
+                  "oldText": {
+                    "maxLength": 2097152,
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "oldText",
+                  "newText"
+                ],
+                "type": "object"
+              },
+              "maxItems": 20,
+              "minItems": 1,
+              "type": "array"
+            },
+            "expectedRevision": {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            "note": {
+              "maxLength": 1000,
+              "minLength": 1,
+              "type": "string"
+            },
+            "projectId": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "requestId": {
+              "maxLength": 100,
+              "minLength": 1,
+              "type": "string"
+            },
+            "unitId": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "unitId",
+            "expectedRevision",
+            "requestId",
+            "note",
+            "edits"
           ],
           "type": "object"
         },

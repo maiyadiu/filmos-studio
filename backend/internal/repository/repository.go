@@ -1131,6 +1131,9 @@ func (r *Repository) DeleteProject(userID string, id string, canvasUpdates []mod
 		if err := tx.Where("project_id = ?", id).Delete(&model.ProjectAssetCandidate{}).Error; err != nil {
 			return err
 		}
+		if err := tx.Where("project_id = ?", id).Delete(&model.ProjectUnitRevision{}).Error; err != nil {
+			return err
+		}
 		if err := tx.Where("project_id = ?", id).Delete(&model.ProjectUnit{}).Error; err != nil {
 			return err
 		}
@@ -1156,7 +1159,7 @@ func (r *Repository) ProjectUnits(projectID string) ([]model.ProjectUnit, error)
 
 func (r *Repository) ProjectUnitSummaries(projectID string) ([]model.ProjectUnit, error) {
 	var units []model.ProjectUnit
-	err := r.db.Select("id", "project_id", "kind", "title", "status", "position", "created_at", "updated_at").Where("project_id = ?", projectID).Order("position asc, created_at asc").Find(&units).Error
+	err := r.db.Select("id", "project_id", "kind", "title", "status", "revision", "position", "created_at", "updated_at").Where("project_id = ?", projectID).Order("position asc, created_at asc").Find(&units).Error
 	return units, err
 }
 
@@ -1204,12 +1207,6 @@ func (r *Repository) ProjectUnit(projectID string, id string) (*model.ProjectUni
 	return &unit, nil
 }
 
-func (r *Repository) UpdateProjectUnit(unit *model.ProjectUnit) error {
-	return r.db.Model(&model.ProjectUnit{}).Where("id = ? AND project_id = ?", unit.ID, unit.ProjectID).Updates(map[string]any{
-		"parent_id": unit.ParentID, "title": unit.Title, "source_text": unit.SourceText, "status": unit.Status, "position": unit.Position, "updated_at": unit.UpdatedAt,
-	}).Error
-}
-
 func (r *Repository) DeleteProjectUnit(projectID string, id string) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("project_id = ? AND unit_id = ?", projectID, id).Delete(&model.CanvasUnitLink{}).Error; err != nil {
@@ -1237,6 +1234,9 @@ func (r *Repository) DeleteProjectUnit(projectID string, id string) error {
 			return err
 		}
 		if err := tx.Where("project_id = ? AND unit_id = ?", projectID, id).Delete(&model.ProjectAssetCandidate{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("project_id = ? AND unit_id = ?", projectID, id).Delete(&model.ProjectUnitRevision{}).Error; err != nil {
 			return err
 		}
 		result := tx.Delete(&model.ProjectUnit{}, "id = ? AND project_id = ?", id, projectID)

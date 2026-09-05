@@ -41,6 +41,7 @@ export type ProjectUnit = {
     kind: "chapter" | "episode" | string;
     title: string;
     sourceText: string;
+    revision: number;
     status: "draft" | "ready" | "completed" | string;
     position: number;
     createdAt: string;
@@ -229,7 +230,36 @@ export function reorderProjectUnits(projectId: string, unitIds: string[]) {
     return request<{ unitIds: string[] }>(api.patch(`/projects/${encodeURIComponent(projectId)}/units/reorder`, { unitIds }));
 }
 
-export function updateProjectUnit(projectId: string, unitId: string, input: { title?: string; sourceText: string; status?: ProjectUnit["status"] }) {
+export type ProjectScriptRevision = {
+    id?: string;
+    projectId: string;
+    unitId: string;
+    revision: number;
+    title: string;
+    sourceText?: string;
+    sourceHash: string;
+    status: ProjectUnit["status"];
+    note: string;
+    requestId: string;
+    createdAt: string;
+    createdBy: string;
+};
+
+export type ProjectScriptUpdate = { expectedRevision: number; requestId: string; title?: string; sourceText: string; note?: string };
+
+export function listProjectScriptRevisions(projectId: string, unitId: string) {
+    return request<{ revisions: ProjectScriptRevision[] }>(api.get(`/projects/${encodeURIComponent(projectId)}/units/${encodeURIComponent(unitId)}/script-revisions`));
+}
+
+export function getProjectScriptRevision(projectId: string, unitId: string, revision: number) {
+    return request<{ revision: ProjectScriptRevision }>(api.get(`/projects/${encodeURIComponent(projectId)}/units/${encodeURIComponent(unitId)}/script-revisions/${revision}`));
+}
+
+export function reviseProjectScript(projectId: string, unitId: string, input: ProjectScriptUpdate) {
+    return request<{ unit: ProjectUnit; revision: ProjectScriptRevision; replayed: boolean }>(api.post(`/projects/${encodeURIComponent(projectId)}/units/${encodeURIComponent(unitId)}/script-revisions`, input));
+}
+
+export function updateProjectUnit(projectId: string, unitId: string, input: ProjectScriptUpdate & { status?: ProjectUnit["status"] }) {
     return request<{ unit: ProjectUnit }>(api.patch(`/projects/${encodeURIComponent(projectId)}/units/${encodeURIComponent(unitId)}`, input));
 }
 

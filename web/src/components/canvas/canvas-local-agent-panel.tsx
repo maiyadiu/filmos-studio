@@ -615,7 +615,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
             addMessage({
                 role: "tool",
                 title: `${toolName(payload.name)}完成`,
-                text: payload.name === "canvas_apply_ops" ? (result as { message?: string }).message || summarizeCanvasAgentOps((input.ops || []) as CanvasAgentOp[]) || "画布操作" : "已完成",
+                text: payload.name === "canvas_apply_ops" ? (result as { message?: string }).message || summarizeCanvasAgentOps((input.ops || []) as CanvasAgentOp[]) || "画布操作" : payload.name === "project_revise_script" ? (result as { message: string }).message : "已完成",
                 detail: { requestId: payload.requestId, name: payload.name, input, result },
             });
         } catch (error) {
@@ -1485,6 +1485,9 @@ function toolName(name: string) {
     if (name === "canvas_set_viewport") return "调整视口";
     if (name === "canvas_run_generation") return "触发生成";
     if (name === "project_get_context") return "读取项目上下文";
+    if (name === "project_get_script") return "读取完整剧本";
+    if (name === "project_get_script_revision") return "回读剧本修订";
+    if (name === "project_revise_script") return "修订剧本并核验保存";
     if (name === "project_list_units") return "读取项目章节";
     if (name === "project_extract_asset_candidates") return "登记资产候选";
     if (name === "project_confirm_asset_candidate") return "确认资产候选";

@@ -11,6 +11,7 @@ import (
 )
 
 func RegisterProjectRoutes(r *gin.RouterGroup, svc *service.Service) {
+	registerProjectScriptRoutes(r, svc)
 	RegisterStyleProfileRoutes(r, svc)
 	r.GET("/voice-profiles", func(c *gin.Context) {
 		user, err := currentUser(c, svc)

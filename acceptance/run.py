@@ -421,6 +421,27 @@ SOURCE_CHECK_IDS = frozenset({
 # entry must have fixture/temporary storage and no live credential dependency.
 SOURCE_CHECKS = tuple(check for check in RC_LOCAL_CHECKS if check.check_id in SOURCE_CHECK_IDS) + (
     Check(
+        "project-script-persistence",
+        "Script revision migration, concurrent writes, rollback, scope and authenticated HTTP fixtures",
+        ("go", "test", "./internal/service", "./internal/handler", "-run", "TestScriptRevision|TestProjectScriptHTTPAuthConflictAndReadback", "-count=1"),
+        ROOT / "backend",
+        ("03-project-ui", "08-agent", "13-qa"),
+    ),
+    Check(
+        "project-script-tools",
+        "Exact script edits and hash-verified readback through an isolated tool port",
+        ("bun", "test", "test/project-script-tools.test.ts"),
+        ROOT / "web",
+        ("03-project-ui", "08-agent", "13-qa"),
+    ),
+    Check(
+        "project-script-broker",
+        "Script tools use existing project provider, canonical grants and confirmation policy",
+        ("node_modules/.bin/tsx", "--test", "test/agent-tool-broker.test.ts"),
+        ROOT / "canvas-agent",
+        ("08-agent", "13-qa"),
+    ),
+    Check(
         "source-supervisor-lifecycle",
         "Source Swift supervisor/window/configuration tests (mock/owned processes, no Keychain suite)",
         ("xcrun", "swift", "test", "--package-path", "desktop/macos", "--scratch-path", ".local/source-swift-test", "--filter", "ServiceSupervisorTests|DesktopWindowLifecycleTests|InternalWorkbenchConfigurationTests"),
