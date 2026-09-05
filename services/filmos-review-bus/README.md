@@ -6,6 +6,10 @@ Runtime: **Node.js >= 24.10.0**; CI pins Node 26.3.0. `external-read` depends on
 
 `npm test` uses fixture/temporary databases. A normal `npm start` is **not a read-only diagnostic**: it may initialize schema, pairing files and runtime observations in the configured local store. Do not use the default Production directory as an ordinary test fixture. Assessment-seal and external-read keep their existing frozen identity/policy contracts; changing the runtime prerequisite does not authorize starting them.
 
+`assessment-seal` pins one actor and one existing Issue/Submission per process. The original Codex target accepts only its empty-slot predecessor or exact single-Codex successor. The separately frozen ChatGPT target requires the original Codex record already sealed and accepts only one ChatGPT event leading to the existing `OPTION_COMPARISON`. It reconstructs and hashes the frozen predecessor to preserve the Codex body, receipt, slot and all other projection fields; the comparison must bind both immutable assessment hashes. No options, consensus, task package or candidate is authorized by this mode. Same-content retries return the original receipt, including after restart; different content returns `ASSESSMENT_FROZEN_CONFLICT`. Health does not expose assessment bodies. The original external-read target remains Codex-sealed / ChatGPT-empty and is not made compatible with paired state.
+
+Actor selection does not authorize arbitrary Production targets or bypass source/database identity, schema, token, scope or immutable-intake checks. A reviewed frozen-evidence transport may supply an independent Assessment, but is not a JIT/live/Connector read receipt and does not establish the old live-path acceptance result.
+
 ```bash
 FILMOS_REVIEW_BUS_TOKEN='<local-pairing-secret>' npm start
 npm test

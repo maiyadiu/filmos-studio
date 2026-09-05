@@ -104,7 +104,7 @@ function runCrashedSealWrite(value) {
     databasePath: value.databasePath,
     binding: value.binding,
     target: value.target,
-    assessment: codexAssessment,
+    assessment: value.target.actor === "chatgpt" ? chatgptAssessment : codexAssessment,
     baseCommit: commit,
     taskPackageContentHash: taskHash,
   };
@@ -125,7 +125,7 @@ function runCrashedSealWrite(value) {
     process.stdin.once("data", () => {
       store.withSealTargetTransaction(() => service.submitAssessment(
         input.target.issueId,
-        "codex",
+        input.target.actor,
         input.assessment,
         new Date("2026-09-04T04:00:00.000Z"),
       ));
@@ -308,20 +308,21 @@ function sealSourceIdentityFixture() {
   return { directory, repository, resources, fingerprintPath, fingerprint, env };
 }
 
-function assessmentSealFixture(uuid = "69696969-6969-4696-8696-696969696969", scopedProjectId = projectId) {
+function assessmentSealFixture(uuid = "69696969-6969-4696-8696-696969696969", scopedProjectId = projectId, actor = "codex") {
   const directory = realpathSync(mkdtempSync(resolve(tmpdir(), "filmos-assessment-seal-")));
   const databasePath = resolve(directory, "review-bus.sqlite");
   const normalStore = new ReviewBusStore(databasePath);
   const normalService = new ReviewBusService(normalStore, { baseCommit: commit, taskPackageContentHash: taskHash });
   const issue = createPendingArchitectureAssessment(normalService, uuid, scopedProjectId);
   bindTestSubmission(normalStore, issue);
+  if (actor === "chatgpt") normalService.submitAssessment(issue.issue_id, "codex", codexAssessment, new Date("2026-09-04T03:00:00.000Z"));
   const current = normalService.requireIssue(issue.issue_id);
   const events = normalStore.events(issue.issue_id);
   const target = {
     projectId: current.project_id,
     issueId: current.issue_id,
     submissionId: current.submission_id,
-    actor: "codex",
+    actor,
     assessmentRound: current.assessment_round,
     entityVersion: current.entity_version,
     issueEventCount: events.length,
@@ -1799,8 +1800,9 @@ test("assessment-seal source identity is independently bound to canonical Git an
   }
 });
 
-test("assessment-seal real environment startup assembles the isolated runtime without Production defaults or startup writes", async () => {
-  const value = assessmentSealFixture("84848484-8484-4848-8848-848484848484");
+for (const actor of ["codex", "chatgpt"]) {
+test(`assessment-seal ${actor} real environment startup assembles the isolated runtime without Production defaults or startup writes`, async () => {
+  const value = assessmentSealFixture("84848484-8484-4848-8848-848484848484", projectId, actor);
   const source = sealSourceIdentityFixture();
   const { env, options } = assessmentSealRuntimeInputs(value, source);
   const busTokenPath = resolve(value.directory, "review-bus.token");
@@ -1826,6 +1828,18 @@ test("assessment-seal real environment startup assembles the isolated runtime wi
 
     writeFileSync(busTokenPath, `${busToken}\n`, { mode: 0o600 });
     writeFileSync(bridgeTokenPath, `${bridgeToken}\n`, { mode: 0o600 });
+    for (const invalidActor of ["chatgpt ", "ChatGPT", "unknown", actor === "codex" ? "chatgpt" : "codex"]) {
+      assert.throws(
+        () => startFromEnvironment({ ...env, FILMOS_REVIEW_SEAL_ACTOR: invalidActor }, options),
+        error => error.code === "SEAL_RUNTIME_TARGET_MISMATCH",
+      );
+    }
+    for (const missingActor of [undefined, ""]) {
+      assert.throws(
+        () => startFromEnvironment({ ...env, FILMOS_REVIEW_SEAL_ACTOR: missingActor }, options),
+        error => error.code === "SEAL_RUNTIME_TARGET_REQUIRED",
+      );
+    }
     assert.throws(
       () => startFromEnvironment({ ...env, FILMOS_REVIEW_SEAL_SOURCE_FINGERPRINT_SHA256: "0".repeat(64) }, options),
       (error) => error.code === "SEAL_RUNTIME_SOURCE_IDENTITY_MISMATCH",
@@ -1860,7 +1874,8 @@ test("assessment-seal real environment startup assembles the isolated runtime wi
     assert.equal(health.pristine_state_snapshot_sha256, value.binding.stateSnapshotSha256);
     assert.equal(health.current_scope_logical_snapshot_sha256, value.binding.logicalSnapshotSha256);
     assert.equal(health.current_state_snapshot_sha256, value.binding.stateSnapshotSha256);
-    assert.equal(health.current_seal_state, "PRISTINE_EMPTY");
+    assert.equal(health.current_seal_state, actor === "chatgpt" ? "CODEX_SEALED_CHATGPT_EMPTY" : "PRISTINE_EMPTY");
+    assert.equal(health.seal_target.actor, actor);
 
     const denied = await fetch(`${baseURL}/v1/review/pending`, {
       method: "POST",
@@ -1890,6 +1905,8 @@ test("assessment-seal real environment startup assembles the isolated runtime wi
     rmSync(source.directory, { recursive: true, force: true });
   }
 });
+
+}
 
 test("assessment-seal store rejects alternate, symlinked, replaced, and identity-mismatched databases", () => {
   const value = assessmentSealFixture("70707070-7070-4707-8707-707070707070");
@@ -2085,8 +2102,87 @@ test("assessment-seal prelisten validation rejects target, receipt, slot, and sc
   }
 });
 
-test("assessment-seal start-health-stop is zero-write and denies every route outside the exact Codex target", async () => {
-  const value = assessmentSealFixture("76767676-7676-4767-8767-767676767676");
+test("assessment-seal ChatGPT rejects changed Codex records, paired comparison, unrelated fields, and extra events", () => {
+  const changes = [
+    document => { document.assessments.codex.assessment.root_cause = "changed"; },
+    document => { document.assessment_receipts.codex.receipt_hash = "3".repeat(64); },
+    document => { document.assessment_slots.codex.event_id = "changed"; },
+    document => { document.option_comparison.codex_assessment_hash = "4".repeat(64); },
+    document => { document.option_comparison.content_hash = "5".repeat(64); },
+    document => { document.option_comparison.extra = true; },
+    document => { document.assessments.chatgpt.assessment.workflow_impact = "changed"; },
+    document => { document.constitution_content_hash = "6".repeat(64); },
+    document => { document.evidence.manifest.contentHash = "7".repeat(64); },
+    document => { document.runtime_recovery = { unexpected: true }; },
+    document => { document.codex_coordination = { unexpected: true }; },
+    document => { document.architecture_options = { unexpected: true }; },
+    document => { document.consensus_record = { unexpected: true }; },
+    document => { document.issue_task_package = { unexpected: true }; },
+    document => { document.active_candidate = { unexpected: true }; },
+  ];
+  for (const change of changes) {
+    const value = assessmentSealFixture(undefined, projectId, "chatgpt");
+    const sealStore = value.createSealStore();
+    const service = new ReviewBusService(sealStore);
+    try {
+      sealStore.withSealTargetTransaction(() => service.submitAssessment(value.target.issueId, "chatgpt", chatgptAssessment));
+      const document = value.normalStore.get(value.target.issueId);
+      change(document);
+      delete document.content_hash;
+      document.content_hash = sha256(document);
+      value.normalStore.db.prepare("UPDATE review_projections SET document_json = ?, content_hash = ? WHERE issue_id = ?")
+        .run(JSON.stringify(document), document.content_hash, value.target.issueId);
+      assert.throws(() => sealStore.refreshSealSnapshot(), error => error.code === "SEAL_RUNTIME_TARGET_MISMATCH");
+      assert.throws(() => value.createSealStore(), error => error.code === "SEAL_RUNTIME_TARGET_MISMATCH");
+    } finally {
+      sealStore.close();
+      value.normalStore.close();
+      rmSync(value.directory, { recursive: true, force: true });
+    }
+  }
+  const value = assessmentSealFixture(undefined, projectId, "chatgpt");
+  try {
+    value.normalService.recordRuntimeObservation(value.target.issueId, "unexpected-runtime");
+    assert.throws(() => value.createSealStore(), error => error.code === "SEAL_RUNTIME_TARGET_MISMATCH");
+  } finally {
+    value.normalStore.close();
+    rmSync(value.directory, { recursive: true, force: true });
+  }
+});
+
+test("assessment-seal ChatGPT transaction rolls back a valid pair plus an out-of-scope mutation", () => {
+  const value = assessmentSealFixture(undefined, projectId, "chatgpt");
+  const store = value.createSealStore();
+  const service = new ReviewBusService(store);
+  try {
+    const beforeEvents = store.events(value.target.issueId);
+    const before = store.get(value.target.issueId);
+    assert.throws(() => store.withSealTargetTransaction(() => {
+      service.submitAssessment(value.target.issueId, "chatgpt", chatgptAssessment);
+      const document = store.get(value.target.issueId);
+      document.active_candidate = { unexpected: true };
+      delete document.content_hash;
+      document.content_hash = sha256(document);
+      store.db.prepare("UPDATE review_projections SET document_json = ?, content_hash = ? WHERE issue_id = ?")
+        .run(JSON.stringify(document), document.content_hash, value.target.issueId);
+    }), error => error.code === "SEAL_RUNTIME_TARGET_MISMATCH");
+    assert.deepEqual(store.get(value.target.issueId), before);
+    assert.deepEqual(store.events(value.target.issueId), beforeEvents);
+    assert.equal(store.refreshSealSnapshot().sealState, "CODEX_SEALED_CHATGPT_EMPTY");
+  } finally {
+    store.close();
+    value.normalStore.close();
+    rmSync(value.directory, { recursive: true, force: true });
+  }
+});
+
+for (const sealActor of ["codex", "chatgpt"]) {
+const sealAssessment = sealActor === "chatgpt" ? chatgptAssessment : codexAssessment;
+const initialSealState = sealActor === "chatgpt" ? "CODEX_SEALED_CHATGPT_EMPTY" : "PRISTINE_EMPTY";
+const successorSealState = sealActor === "chatgpt" ? "ASSESSMENT_PAIR_SEALED_SUCCESSOR" : "CODEX_SEALED_SUCCESSOR";
+
+test(`assessment-seal start-health-stop is zero-write and denies every route outside the exact ${sealActor} target`, async () => {
+  const value = assessmentSealFixture("76767676-7676-4767-8767-767676767676", projectId, sealActor);
   const before = value.normalService.requireIssue(value.issue.issue_id);
   const beforeEvents = value.normalStore.events(value.issue.issue_id);
   const beforeMain = createHash("sha256").update(readFileSync(value.databasePath)).digest("hex");
@@ -2099,22 +2195,26 @@ test("assessment-seal start-health-stop is zero-write and denies every route out
     assert.equal(health.runtime_mode, REVIEW_BUS_RUNTIME_MODE_ASSESSMENT_SEAL);
     assert.equal(health.source_identity.commit, commit);
     assert.equal(health.seal_target.issue_id, value.target.issueId);
-    assert.equal(health.seal_target.actor, "codex");
+    assert.equal(health.seal_target.actor, sealActor);
     assert.equal(health.frozen_scope_logical_snapshot_sha256, value.binding.logicalSnapshotSha256);
     assert.equal(health.pristine_state_snapshot_sha256, value.binding.stateSnapshotSha256);
     assert.equal(health.current_scope_logical_snapshot_sha256, value.binding.logicalSnapshotSha256);
     assert.equal(health.current_state_snapshot_sha256, value.binding.stateSnapshotSha256);
-    assert.equal(health.current_seal_state, "PRISTINE_EMPTY");
+    assert.equal(health.current_seal_state, initialSealState);
     assert.equal(JSON.stringify(health).includes("assessment_body"), false);
 
     const denied = await fetch(`${running.baseURL}/v1/review/pending`, { method: "POST", headers: running.headers, body: "{" });
     assert.equal(denied.status, 404);
     assert.equal((await denied.json()).code, "SEAL_RUNTIME_ROUTE_DENIED");
-    const wrongActor = await fetch(`${running.baseURL}/v1/issues/${value.target.issueId}/assessments/chatgpt`, { method: "POST", headers: running.headers, body: "{" });
+    const otherActor = sealActor === "codex" ? "chatgpt" : "codex";
+    const wrongActor = await fetch(`${running.baseURL}/v1/issues/${value.target.issueId}/assessments/${otherActor}`, { method: "POST", headers: running.headers, body: "{" });
     assert.equal(wrongActor.status, 404);
     assert.equal((await wrongActor.json()).code, "SEAL_RUNTIME_ROUTE_DENIED");
 
-    const endpoint = `${running.baseURL}/v1/issues/${value.target.issueId}/assessments/codex`;
+    const wrongIssue = await fetch(`${running.baseURL}/v1/issues/FILMOS-ARCH-other/assessments/${sealActor}`, { method: "POST", headers: running.headers, body: "{" });
+    assert.equal(wrongIssue.status, 404);
+    assert.equal((await wrongIssue.json()).code, "SEAL_RUNTIME_ROUTE_DENIED");
+    const endpoint = `${running.baseURL}/v1/issues/${value.target.issueId}/assessments/${sealActor}`;
     const wrongProject = await fetch(`${endpoint}?project_id=wrong&submission_id=${value.target.submissionId}`, { method: "POST", headers: running.headers, body: "{" });
     assert.equal(wrongProject.status, 403);
     assert.equal((await wrongProject.json()).code, "PROJECT_SCOPE_DENIED");
@@ -2137,19 +2237,19 @@ test("assessment-seal start-health-stop is zero-write and denies every route out
   rmSync(value.directory, { recursive: true, force: true });
 });
 
-test("assessment-seal preserves one first write across concurrency and process-restart recovery", async () => {
-  const value = assessmentSealFixture("77777777-7777-4777-8777-777777777777");
+test(`assessment-seal ${sealActor} preserves one first write across concurrency and process-restart recovery`, async () => {
+  const value = assessmentSealFixture("77777777-7777-4777-8777-777777777777", projectId, sealActor);
   const firstStore = value.createSealStore();
   const secondStore = value.createSealStore();
   value.normalStore.close();
   let first = await startAssessmentSealServer(value, firstStore);
   let second = await startAssessmentSealServer(value, secondStore);
   let restarted = null;
-  const endpoint = (running) => `${running.baseURL}/v1/issues/${value.target.issueId}/assessments/codex?project_id=${value.target.projectId}&submission_id=${value.target.submissionId}`;
+  const endpoint = (running) => `${running.baseURL}/v1/issues/${value.target.issueId}/assessments/${sealActor}?project_id=${value.target.projectId}&submission_id=${value.target.submissionId}`;
   try {
     const responses = await Promise.all([
-      fetch(endpoint(first), { method: "POST", headers: first.headers, body: JSON.stringify(codexAssessment) }),
-      fetch(endpoint(second), { method: "POST", headers: second.headers, body: JSON.stringify(codexAssessment) }),
+      fetch(endpoint(first), { method: "POST", headers: first.headers, body: JSON.stringify(sealAssessment) }),
+      fetch(endpoint(second), { method: "POST", headers: second.headers, body: JSON.stringify(sealAssessment) }),
     ]);
     const bodies = await Promise.all(responses.map((response) => response.json()));
     assert.deepEqual(responses.map((response) => response.status), [200, 200], JSON.stringify(bodies));
@@ -2158,22 +2258,32 @@ test("assessment-seal preserves one first write across concurrency and process-r
     assert.equal(bodies.filter((body) => body.idempotent_replay === true).length, 1);
     const persisted = first.service.requireIssue(value.target.issueId);
     assert.equal(persisted.entity_version, value.target.entityVersion + 1);
+    if (sealActor === "chatgpt") {
+      assert.equal(persisted.state, "OPTION_COMPARISON");
+      assert.deepEqual(persisted.assessments.codex, value.issue.assessments.codex);
+      assert.deepEqual(persisted.assessment_receipts.codex, value.issue.assessment_receipts.codex);
+      assert.deepEqual(persisted.assessment_slots.codex, value.issue.assessment_slots.codex);
+      const { content_hash, ...comparison } = persisted.option_comparison;
+      assert.equal(content_hash, sha256(comparison));
+      assert.equal(comparison.codex_assessment_hash, value.issue.assessment_receipts.codex.assessment_content_hash);
+      assert.equal(comparison.chatgpt_assessment_hash, persisted.assessment_receipts.chatgpt.assessment_content_hash);
+    }
     assert.equal(first.store.events(value.target.issueId).length, value.target.issueEventCount + 1);
     const sealedHealth = await fetch(`${first.baseURL}/healthz`);
     assert.equal(sealedHealth.status, 200);
     const sealedHealthBody = await sealedHealth.json();
-    assert.equal(sealedHealthBody.current_seal_state, "CODEX_SEALED_SUCCESSOR");
+    assert.equal(sealedHealthBody.current_seal_state, successorSealState);
     assert.equal(sealedHealthBody.frozen_scope_logical_snapshot_sha256, value.binding.logicalSnapshotSha256);
     assert.equal(sealedHealthBody.pristine_state_snapshot_sha256, value.binding.stateSnapshotSha256);
     assert.notEqual(sealedHealthBody.current_scope_logical_snapshot_sha256, value.binding.logicalSnapshotSha256);
     assert.notEqual(sealedHealthBody.current_state_snapshot_sha256, value.binding.stateSnapshotSha256);
 
-    const replay = await fetch(endpoint(first), { method: "POST", headers: first.headers, body: JSON.stringify(codexAssessment) });
+    const replay = await fetch(endpoint(first), { method: "POST", headers: first.headers, body: JSON.stringify(sealAssessment) });
     assert.equal(replay.status, 200);
     assert.equal((await replay.json()).idempotent_replay, true);
     const version = first.service.requireIssue(value.target.issueId).entity_version;
     const eventCount = first.store.events(value.target.issueId).length;
-    const conflict = await fetch(endpoint(second), { method: "POST", headers: second.headers, body: JSON.stringify({ ...codexAssessment, rollback: ["different"] }) });
+    const conflict = await fetch(endpoint(second), { method: "POST", headers: second.headers, body: JSON.stringify({ ...sealAssessment, rollback: ["different"] }) });
     assert.equal(conflict.status, 409);
     assert.equal((await conflict.json()).code, "ASSESSMENT_FROZEN_CONFLICT");
     assert.equal(first.service.requireIssue(value.target.issueId).entity_version, version);
@@ -2190,7 +2300,7 @@ test("assessment-seal preserves one first write across concurrency and process-r
     second = null;
 
     const successorProbe = prepareReviewBusSealBinding(value.databasePath, value.target);
-    assert.equal(successorProbe.sealState, "CODEX_SEALED_SUCCESSOR");
+    assert.equal(successorProbe.sealState, successorSealState);
     assert.equal(successorProbe.walPresent, false);
     assert.notEqual(createHash("sha256").update(readFileSync(value.databasePath)).digest("hex"), value.binding.sha256);
     const restartedStore = new ReviewBusStore(value.databasePath, {
@@ -2199,12 +2309,12 @@ test("assessment-seal preserves one first write across concurrency and process-r
       sealTarget: value.target,
     });
     restarted = await startAssessmentSealServer(value, restartedStore);
-    const restartedReplay = await fetch(endpoint(restarted), { method: "POST", headers: restarted.headers, body: JSON.stringify(codexAssessment) });
+    const restartedReplay = await fetch(endpoint(restarted), { method: "POST", headers: restarted.headers, body: JSON.stringify(sealAssessment) });
     assert.equal(restartedReplay.status, 200);
     const restartedBody = await restartedReplay.json();
     assert.equal(restartedBody.idempotent_replay, true);
     assert.deepEqual(restartedBody.assessment_receipt, bodies[0].assessment_receipt);
-    const restartedConflict = await fetch(endpoint(restarted), { method: "POST", headers: restarted.headers, body: JSON.stringify({ ...codexAssessment, rollback: ["restart-different"] }) });
+    const restartedConflict = await fetch(endpoint(restarted), { method: "POST", headers: restarted.headers, body: JSON.stringify({ ...sealAssessment, rollback: ["restart-different"] }) });
     assert.equal(restartedConflict.status, 409);
     assert.equal((await restartedConflict.json()).code, "ASSESSMENT_FROZEN_CONFLICT");
     assert.equal(restarted.service.requireIssue(value.target.issueId).entity_version, version);
@@ -2218,8 +2328,8 @@ test("assessment-seal preserves one first write across concurrency and process-r
   }
 });
 
-test("assessment-seal recovers a lost response after an abrupt process termination with changed WAL", async () => {
-  const value = assessmentSealFixture("80808080-8080-4808-8808-808080808080");
+test(`assessment-seal ${sealActor} recovers a lost response after an abrupt process termination with changed WAL`, async () => {
+  const value = assessmentSealFixture("80808080-8080-4808-8808-808080808080", projectId, sealActor);
   let restarted = null;
   try {
     const crash = await runCrashedSealWrite(value);
@@ -2229,7 +2339,7 @@ test("assessment-seal recovers a lost response after an abrupt process terminati
     assert.notEqual(changedWalHash, value.binding.walSha256);
 
     const successorProbe = prepareReviewBusSealBinding(value.databasePath, value.target);
-    assert.equal(successorProbe.sealState, "CODEX_SEALED_SUCCESSOR");
+    assert.equal(successorProbe.sealState, successorSealState);
     assert.equal(successorProbe.walPresent, true);
     assert.equal(successorProbe.walSha256, changedWalHash);
     const restartedStore = new ReviewBusStore(value.databasePath, {
@@ -2238,17 +2348,17 @@ test("assessment-seal recovers a lost response after an abrupt process terminati
       sealTarget: value.target,
     });
     restarted = await startAssessmentSealServer(value, restartedStore);
-    assert.equal(restarted.store.sealSnapshot.sealState, "CODEX_SEALED_SUCCESSOR");
-    const endpoint = `${restarted.baseURL}/v1/issues/${value.target.issueId}/assessments/codex?project_id=${value.target.projectId}&submission_id=${value.target.submissionId}`;
+    assert.equal(restarted.store.sealSnapshot.sealState, successorSealState);
+    const endpoint = `${restarted.baseURL}/v1/issues/${value.target.issueId}/assessments/${sealActor}?project_id=${value.target.projectId}&submission_id=${value.target.submissionId}`;
     const before = restarted.service.requireIssue(value.target.issueId);
-    const originalReceipt = structuredClone(before.assessment_receipts.codex);
+    const originalReceipt = structuredClone(before.assessment_receipts[sealActor]);
     const beforeEventCount = restarted.store.events(value.target.issueId).length;
-    const replayResponse = await fetch(endpoint, { method: "POST", headers: restarted.headers, body: JSON.stringify(codexAssessment) });
+    const replayResponse = await fetch(endpoint, { method: "POST", headers: restarted.headers, body: JSON.stringify(sealAssessment) });
     assert.equal(replayResponse.status, 200);
     const replay = await replayResponse.json();
     assert.equal(replay.idempotent_replay, true);
     assert.deepEqual(replay.assessment_receipt, originalReceipt);
-    const conflictResponse = await fetch(endpoint, { method: "POST", headers: restarted.headers, body: JSON.stringify({ ...codexAssessment, rollback: ["crash-different"] }) });
+    const conflictResponse = await fetch(endpoint, { method: "POST", headers: restarted.headers, body: JSON.stringify({ ...sealAssessment, rollback: ["crash-different"] }) });
     assert.equal(conflictResponse.status, 409);
     assert.equal((await conflictResponse.json()).code, "ASSESSMENT_FROZEN_CONFLICT");
     const after = restarted.service.requireIssue(value.target.issueId);
@@ -2265,6 +2375,8 @@ test("assessment-seal recovers a lost response after an abrupt process terminati
     rmSync(value.directory, { recursive: true, force: true });
   }
 });
+
+}
 
 test("Installed SourceIdentity cross-checks Bundle runtime, repository locator, and real Git objects", () => {
   const value = installedIdentityFixture();

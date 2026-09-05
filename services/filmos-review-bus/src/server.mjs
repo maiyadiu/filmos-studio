@@ -104,10 +104,30 @@ const PHASE_7_EXTERNAL_READ_POLICY = Object.freeze({
   }),
 });
 
+// A second, separately pinned target of the same single-actor runtime, not permission
+// to select an arbitrary issue or to reopen the first Assessment.
+const CHATGPT_ASSESSMENT_SEAL_TARGET = Object.freeze({
+  ...PHASE_5A4_SEAL_TARGET,
+  actor: "chatgpt",
+  entityVersion: PHASE_7_EXTERNAL_READ_POLICY.targetEntityVersion,
+  issueEventCount: PHASE_7_EXTERNAL_READ_POLICY.targetIssueEventCount,
+  lastEventHash: PHASE_7_EXTERNAL_READ_POLICY.targetLastEventHash,
+  projectionHash: PHASE_7_EXTERNAL_READ_POLICY.targetProjectionHash,
+});
+const CHATGPT_ASSESSMENT_SEAL_DATABASE_ORIGIN = Object.freeze({
+  ...PHASE_5A4_SEAL_DATABASE_ORIGIN,
+  walSha256: PHASE_7_EXTERNAL_READ_POLICY.databaseIdentity.wal.sha256,
+  logicalSnapshotSha256: "dd05f28e38641c030c6e3a44c85a38277e5a3e1ec8ca932edb7c746b8bc225ad",
+  stateSnapshotSha256: "cc199a350e5cb771629dd5d39431096f73c5538ecffec64c9162b0cb0235d667",
+});
+
 export function createReviewBusHttp({ service, store, busToken, bridgeToken, constitution, githubVerifier = new GitHubEvidenceVerifier(), listenPort = DEFAULT_PORT, now = () => new Date(), runtimeInstanceId = `review-runtime-${randomUUID()}`, intakeBootstrap = STAGE_A_BOOTSTRAP, installedSourceIdentity = null, sourceIdentityErrorCode = "INSTALLED_SOURCE_IDENTITY_UNAVAILABLE", runtimeMode = REVIEW_BUS_RUNTIME_MODE_NORMAL, sealContext = null, externalReadContext = null }) {
   if (!REVIEW_BUS_RUNTIME_MODES.has(runtimeMode)) throw problem("INVALID_REVIEW_BUS_RUNTIME_MODE");
   if (runtimeMode === REVIEW_BUS_RUNTIME_MODE_ASSESSMENT_SEAL && (!sealContext || store.runtimeMode !== REVIEW_BUS_RUNTIME_MODE_ASSESSMENT_SEAL)) {
     throw problem("SEAL_RUNTIME_TARGET_REQUIRED");
+  }
+  if (runtimeMode === REVIEW_BUS_RUNTIME_MODE_ASSESSMENT_SEAL && sha256(sealContext.target) !== sha256(store.sealTarget)) {
+    throw problem("SEAL_RUNTIME_TARGET_MISMATCH");
   }
   if (runtimeMode === REVIEW_BUS_RUNTIME_MODE_EXTERNAL_READ
     && (!externalReadContext || store.runtimeMode !== REVIEW_BUS_RUNTIME_MODE_EXTERNAL_READ)) {
@@ -167,7 +187,7 @@ export function createReviewBusHttp({ service, store, busToken, bridgeToken, con
         return readReviewProjection(service, store, url, req, res, now());
       }
       if (runtimeMode === REVIEW_BUS_RUNTIME_MODE_ASSESSMENT_SEAL) {
-        const allowedPath = `/v1/issues/${sealContext.target.issueId}/assessments/codex`;
+        const allowedPath = `/v1/issues/${sealContext.target.issueId}/assessments/${sealContext.target.actor}`;
         if (!((req.method === "GET" && url.pathname === "/healthz") || (req.method === "POST" && url.pathname === allowedPath))) {
           throw problem("SEAL_RUNTIME_ROUTE_DENIED", "SEAL_RUNTIME_ROUTE_DENIED", 404);
         }
@@ -183,7 +203,7 @@ export function createReviewBusHttp({ service, store, busToken, bridgeToken, con
           service,
           store,
           issueId: sealContext.target.issueId,
-          actor: "codex",
+          actor: sealContext.target.actor,
           assessment,
           url,
           now: now(),
@@ -968,7 +988,7 @@ export function startFromEnvironment(env = process.env, { assessmentSealTestOnly
   const runtimeMode = env.FILMOS_REVIEW_BUS_RUNTIME_MODE ?? REVIEW_BUS_RUNTIME_MODE_NORMAL;
   if (!REVIEW_BUS_RUNTIME_MODES.has(runtimeMode)) throw problem("INVALID_REVIEW_BUS_RUNTIME_MODE");
   if (runtimeMode === REVIEW_BUS_RUNTIME_MODE_ASSESSMENT_SEAL) {
-    return startSealRuntime(env, sealRuntimeConfiguration(assessmentSealTestOnly));
+    return startSealRuntime(env, sealRuntimeConfiguration(assessmentSealTestOnly, env.FILMOS_REVIEW_SEAL_ACTOR));
   }
   if (runtimeMode === REVIEW_BUS_RUNTIME_MODE_EXTERNAL_READ) {
     assertExternalReadRuntimeCapability();
@@ -1141,13 +1161,13 @@ function startSealRuntime(env, configuration) {
   }
 }
 
-function sealRuntimeConfiguration(testOnly) {
+function sealRuntimeConfiguration(testOnly, actor) {
   if (testOnly === null) {
     return Object.freeze({
       canonicalDatabase: DEFAULT_DATABASE,
       expectedSourceRoot: DEFAULT_SOURCE_ROOT,
-      expectedTarget: PHASE_5A4_SEAL_TARGET,
-      expectedDatabaseOrigin: PHASE_5A4_SEAL_DATABASE_ORIGIN,
+      expectedTarget: actor === "chatgpt" ? CHATGPT_ASSESSMENT_SEAL_TARGET : PHASE_5A4_SEAL_TARGET,
+      expectedDatabaseOrigin: actor === "chatgpt" ? CHATGPT_ASSESSMENT_SEAL_DATABASE_ORIGIN : PHASE_5A4_SEAL_DATABASE_ORIGIN,
       port: DEFAULT_PORT,
     });
   }

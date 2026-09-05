@@ -90,14 +90,14 @@ export class ReviewBusStore {
       }
       assertSealSnapshotCompatibility(preflightSnapshot, binding);
       assertSealImmutableBindings(preflightSnapshot, binding);
-      if (preflightSnapshot.sealState === "PRISTINE_EMPTY") {
+      if (isInitialSealSnapshot(preflightSnapshot)) {
         assertPristineSealPhysicalBinding(preflightIdentity, binding);
         assertPristineSealSnapshots(preflightSnapshot, binding);
       }
 
       const beforeWritableIdentity = readCanonicalSealDatabaseFiles(path, { allowMissingWal: true });
       if (externalReadPolicy) assertExternalReadDatabaseIdentity(beforeWritableIdentity, externalReadPolicy.databaseIdentity);
-      if (preflightSnapshot.sealState === "PRISTINE_EMPTY") assertSameSealPreopenIdentity(preflightIdentity, beforeWritableIdentity);
+      if (isInitialSealSnapshot(preflightSnapshot)) assertSameSealPreopenIdentity(preflightIdentity, beforeWritableIdentity);
       else assertSameSealMainBytes(preflightIdentity, beforeWritableIdentity);
       this.path = beforeWritableIdentity.path;
       this.evidenceRoot = beforeWritableIdentity.evidenceRoot;
@@ -106,13 +106,13 @@ export class ReviewBusStore {
         if (externalReadPolicy) installExternalReadAuthorizer(this.db);
         const databaseIdentity = readCanonicalSealDatabaseFiles(path, { allowMissingWal: true });
         assertStableSealMainIdentity(databaseIdentity, binding);
-        if (preflightSnapshot.sealState === "PRISTINE_EMPTY") assertPristineSealPhysicalBinding(databaseIdentity, binding);
+        if (isInitialSealSnapshot(preflightSnapshot)) assertPristineSealPhysicalBinding(databaseIdentity, binding);
         const snapshot = inspectOpenSealDatabase(this.db, databaseIdentity, target, { allowCodexSealed: true });
         if (externalReadPolicy) assertExternalReadTarget(snapshot, externalReadPolicy);
         assertSealSnapshotCompatibility(snapshot, binding);
         assertSealImmutableBindings(snapshot, binding);
         if (snapshot.sealState !== preflightSnapshot.sealState) throw problem("SEAL_RUNTIME_TARGET_MISMATCH");
-        if (snapshot.sealState === "PRISTINE_EMPTY") assertPristineSealSnapshots(snapshot, binding);
+        if (isInitialSealSnapshot(snapshot)) assertPristineSealSnapshots(snapshot, binding);
         this.sealTarget = Object.freeze({ ...target });
         this.sealSnapshot = Object.freeze(snapshot);
         this.sealDatabaseIdentity = Object.freeze(databaseIdentity);
@@ -287,7 +287,7 @@ export class ReviewBusStore {
     if (this.runtimeMode === REVIEW_BUS_RUNTIME_MODE_EXTERNAL_READ) assertExternalReadTarget(snapshot, this.externalReadPolicy);
     assertSealSnapshotCompatibility(snapshot, this.sealDatabaseBinding);
     assertSealImmutableBindings(snapshot, this.sealDatabaseBinding);
-    if (snapshot.sealState === "PRISTINE_EMPTY") {
+    if (isInitialSealSnapshot(snapshot)) {
       assertPristineSealPhysicalBinding(databaseIdentity, this.sealDatabaseBinding);
       assertPristineSealSnapshots(snapshot, this.sealDatabaseBinding);
     }
@@ -307,7 +307,7 @@ export class ReviewBusStore {
       const before = inspectOpenSealDatabase(this.db, databaseIdentity, this.sealTarget, { allowCodexSealed: true });
       assertSealSnapshotCompatibility(before, this.sealDatabaseBinding);
       assertSealImmutableBindings(before, this.sealDatabaseBinding);
-      if (before.sealState === "PRISTINE_EMPTY") {
+      if (isInitialSealSnapshot(before)) {
         assertPristineSealPhysicalBinding(databaseIdentity, this.sealDatabaseBinding);
         assertPristineSealSnapshots(before, this.sealDatabaseBinding);
       }
@@ -315,10 +315,10 @@ export class ReviewBusStore {
       const after = inspectOpenSealDatabase(this.db, databaseIdentity, this.sealTarget, { allowCodexSealed: true });
       assertSealSnapshotCompatibility(after, this.sealDatabaseBinding);
       assertSealImmutableBindings(after, this.sealDatabaseBinding);
-      if (after.sealState !== "CODEX_SEALED_SUCCESSOR") throw problem("SEAL_RUNTIME_TARGET_MISMATCH");
+      if (after.sealState !== sealSuccessorState(this.sealTarget)) throw problem("SEAL_RUNTIME_TARGET_MISMATCH");
       this.db.exec("COMMIT");
       const committed = this.refreshSealSnapshot();
-      if (committed.sealState !== "CODEX_SEALED_SUCCESSOR") throw problem("SEAL_RUNTIME_TARGET_MISMATCH");
+      if (committed.sealState !== sealSuccessorState(this.sealTarget)) throw problem("SEAL_RUNTIME_TARGET_MISMATCH");
       return value;
     } catch (error) {
       if (this.db.isTransaction) this.db.exec("ROLLBACK");
@@ -883,9 +883,9 @@ export function prepareReviewBusSealBinding(path, sealTarget) {
   const db = new DatabaseSync(identity.path, { readOnly: true });
   try {
     const snapshot = inspectOpenSealDatabase(db, identity, target, { allowCodexSealed: true });
-    if (snapshot.sealState === "PRISTINE_EMPTY" && !identity.wal) throw problem("SEAL_RUNTIME_DATABASE_REQUIRED");
+    if (isInitialSealSnapshot(snapshot) && !identity.wal) throw problem("SEAL_RUNTIME_DATABASE_REQUIRED");
     const afterRead = readCanonicalSealDatabaseFiles(path, { allowMissingWal: true });
-    if (snapshot.sealState === "PRISTINE_EMPTY") assertSameSealPreopenIdentity(identity, afterRead);
+    if (isInitialSealSnapshot(snapshot)) assertSameSealPreopenIdentity(identity, afterRead);
     else assertSameSealMainBytes(identity, afterRead);
     return Object.freeze({
       canonicalPath: identity.path,
@@ -931,12 +931,12 @@ function normalizeSealTarget(value) {
     || !/^[a-f0-9]{64}$/.test(value.lastEventHash)) {
     throw problem("SEAL_RUNTIME_TARGET_REQUIRED");
   }
-  if (value.actor !== "codex") throw problem("SEAL_RUNTIME_TARGET_MISMATCH");
+  if (!["codex", "chatgpt"].includes(value.actor)) throw problem("SEAL_RUNTIME_TARGET_MISMATCH");
   return {
     projectId: value.projectId,
     issueId: value.issueId,
     submissionId: value.submissionId,
-    actor: "codex",
+    actor: value.actor,
     assessmentRound: value.assessmentRound,
     entityVersion: value.entityVersion,
     issueEventCount: value.issueEventCount,
@@ -948,6 +948,7 @@ function normalizeSealTarget(value) {
 
 function normalizeExternalReadPolicy(value, target, binding) {
   if (!value || typeof value !== "object" || Array.isArray(value)
+    || target.actor !== "codex"
     || value.projectId !== target.projectId
     || value.targetIssueId !== target.issueId
     || !Number.isInteger(value.targetEntityVersion) || value.targetEntityVersion !== target.entityVersion + 1
@@ -1140,7 +1141,7 @@ function assertPristineSealPhysicalBinding(identity, binding) {
 }
 
 function assertSealSnapshotCompatibility(snapshot, binding) {
-  const pageCountMatches = snapshot.sealState === "PRISTINE_EMPTY"
+  const pageCountMatches = isInitialSealSnapshot(snapshot)
     ? snapshot.pageCount === binding.pageCount
     : snapshot.pageCount >= binding.pageCount;
   if (snapshot.journalMode !== binding.journalMode || !pageCountMatches) {
@@ -1266,6 +1267,14 @@ function sha256File(path) {
   return digest.digest("hex");
 }
 
+function isInitialSealSnapshot(snapshot) {
+  return ["PRISTINE_EMPTY", "CODEX_SEALED_CHATGPT_EMPTY"].includes(snapshot.sealState);
+}
+
+function sealSuccessorState(target) {
+  return target.actor === "chatgpt" ? "ASSESSMENT_PAIR_SEALED_SUCCESSOR" : "CODEX_SEALED_SUCCESSOR";
+}
+
 function inspectOpenSealDatabase(db, databaseIdentity, target, { allowCodexSealed }) {
   const journalMode = String(db.prepare("PRAGMA journal_mode").get()?.journal_mode ?? "");
   const pageCount = Number(db.prepare("PRAGMA page_count").get()?.page_count ?? 0);
@@ -1315,7 +1324,6 @@ function inspectOpenSealDatabase(db, databaseIdentity, target, { allowCodexSeale
   const chatgptSlot = projection.assessment_slots?.chatgpt ?? null;
   const baseMatches = projectionRow.issue_id === target.issueId
     && projectionRow.project_id === target.projectId
-    && projectionRow.state === "ARCHITECTURE_ASSESSMENTS_PENDING"
     && projectionRow.lane === "architecture"
     && projection.issue_id === target.issueId
     && projection.project_id === target.projectId
@@ -1326,9 +1334,11 @@ function inspectOpenSealDatabase(db, databaseIdentity, target, { allowCodexSeale
     && projection.architecture_state_mapping_version === ARCHITECTURE_STATE_MAPPING_VERSION
     && projection.architecture_transition_contract_hash === ARCHITECTURE_TRANSITION_CONTRACT_HASH
     && projection.assessment_round === target.assessmentRound
-    && projection.current_round === target.assessmentRound
-    && chatgptSlot?.status === "EMPTY";
+    && projection.current_round === target.assessmentRound;
   const pristine = baseMatches
+    && target.actor === "codex"
+    && projectionRow.state === "ARCHITECTURE_ASSESSMENTS_PENDING"
+    && chatgptSlot?.status === "EMPTY"
     && Number(projectionRow.entity_version) === target.entityVersion
     && projection.entity_version === target.entityVersion
     && projectionRow.content_hash === target.projectionHash
@@ -1340,6 +1350,9 @@ function inspectOpenSealDatabase(db, databaseIdentity, target, { allowCodexSeale
     && lastEvent?.event_hash === target.lastEventHash;
   const sealedReplay = allowCodexSealed
     && baseMatches
+    && target.actor === "codex"
+    && projectionRow.state === "ARCHITECTURE_ASSESSMENTS_PENDING"
+    && chatgptSlot?.status === "EMPTY"
     && Number(projectionRow.entity_version) === target.entityVersion + 1
     && projection.entity_version === target.entityVersion + 1
     && projectionRow.content_hash !== target.projectionHash
@@ -1361,7 +1374,30 @@ function inspectOpenSealDatabase(db, databaseIdentity, target, { allowCodexSeale
       previousEventPayload,
       target,
     });
-  if (!pristine && !sealedReplay) throw problem("SEAL_RUNTIME_TARGET_MISMATCH");
+  const chatgptInitial = baseMatches
+    && target.actor === "chatgpt"
+    && projectionRow.state === "ARCHITECTURE_ASSESSMENTS_PENDING"
+    && Number(projectionRow.entity_version) === target.entityVersion
+    && projection.entity_version === target.entityVersion
+    && projectionRow.content_hash === target.projectionHash
+    && eventRows.length === target.issueEventCount
+    && assessmentEventCount === 1
+    && lastEvent?.event_hash === target.lastEventHash
+    && validateChatGPTSealProjection({ projection, eventRows, target, paired: false });
+  const pairedReplay = allowCodexSealed
+    && baseMatches
+    && target.actor === "chatgpt"
+    && projectionRow.state === "OPTION_COMPARISON"
+    && Number(projectionRow.entity_version) === target.entityVersion + 1
+    && projection.entity_version === target.entityVersion + 1
+    && eventRows.length === target.issueEventCount + 1
+    && assessmentEventCount === 2
+    && frozenLastEvent?.event_hash === target.lastEventHash
+    && lastEvent?.event_type === "assessment.chatgpt.submitted"
+    && lastEvent?.actor === "chatgpt"
+    && lastEvent?.previous_hash === target.lastEventHash
+    && validateChatGPTSealProjection({ projection, eventRows, target, paired: true });
+  if (!pristine && !sealedReplay && !chatgptInitial && !pairedReplay) throw problem("SEAL_RUNTIME_TARGET_MISMATCH");
 
   const submission = db.prepare(`SELECT submission_id,project_id,capture_hash,state,formal_issue_id
     FROM review_submissions WHERE submission_id = ?`).get(target.submissionId);
@@ -1482,7 +1518,8 @@ function inspectOpenSealDatabase(db, databaseIdentity, target, { allowCodexSeale
     entityVersion: Number(projectionRow.entity_version),
     codexSlot: codexSlot?.status ?? null,
     chatgptSlot: chatgptSlot?.status ?? null,
-    sealState: pristine ? "PRISTINE_EMPTY" : "CODEX_SEALED_SUCCESSOR",
+    sealState: pristine ? "PRISTINE_EMPTY"
+      : chatgptInitial ? "CODEX_SEALED_CHATGPT_EMPTY" : sealSuccessorState(target),
   };
 }
 
@@ -1513,9 +1550,77 @@ function frozenLogicalSnapshotSha256({ journalMode, pageCount, schemaVersion, sc
 }
 
 function validateSealSuccessorProjection({ projection, codexSlot, chatgptSlot, lastEvent, lastEventPayload, previousEventPayload, target }) {
-  const assessment = projection.assessments?.codex ?? null;
-  const receipt = projection.assessment_receipts?.codex ?? null;
-  if (!assessment || !receipt) return false;
+  return !projection.option_comparison
+    && !projection.architecture_options
+    && !projection.accepted_architecture_option
+    && !projection.consensus_proposal
+    && (!Array.isArray(projection.consensus_responses) || projection.consensus_responses.length === 0)
+    && !projection.consensus_record
+    && !projection.issue_task_package
+    && !projection.task_package_receipt
+    && !projection.active_candidate
+    && projection.task_package_content_hash === null
+    && projection.next_pilot_allowed === false
+    && !projection.assessments?.chatgpt
+    && !projection.assessment_receipts?.chatgpt
+    && chatgptSlot?.status === "EMPTY"
+    && chatgptSlot?.binding_hash === codexSlot?.binding_hash
+    && validateSealedAssessment({ projection, actor: "codex", lastEvent, lastEventPayload, target })
+    && validateSealTransition(projection, lastEventPayload, previousEventPayload, "ARCHITECTURE_ASSESSMENTS_PENDING");
+}
+
+function validateChatGPTSealProjection({ projection, eventRows, target, paired }) {
+  const codexEvent = eventRows[target.issueEventCount - 1];
+  const priorEvent = eventRows[target.issueEventCount - 2];
+  if (!codexEvent || !priorEvent || codexEvent.event_type !== "assessment.codex.submitted" || codexEvent.actor !== "codex") return false;
+  const codexPayload = JSON.parse(codexEvent.payload_json);
+  const initial = structuredClone(projection);
+  if (paired) {
+    // Reconstruct the frozen predecessor, not a permissive view with both bodies removed.
+    // Its full hash pins the original Codex record and all non-assessment fields.
+    if (!initial.assessments || !initial.assessment_receipts || !initial.assessment_slots) return false;
+    delete initial.assessments.chatgpt;
+    delete initial.assessment_receipts.chatgpt;
+    initial.assessment_slots.chatgpt = { status: "EMPTY", binding_hash: initial.assessment_slots.codex?.binding_hash };
+    delete initial.option_comparison;
+    initial.state = "ARCHITECTURE_ASSESSMENTS_PENDING";
+    initial.entity_version = target.entityVersion;
+    initial.updated_at = codexEvent.created_at;
+  }
+  delete initial.content_hash;
+  if (sha256(initial) !== target.projectionHash
+    || !validateSealSuccessorProjection({
+      projection: initial,
+      codexSlot: initial.assessment_slots?.codex,
+      chatgptSlot: initial.assessment_slots?.chatgpt,
+      lastEvent: codexEvent,
+      lastEventPayload: codexPayload,
+      previousEventPayload: JSON.parse(priorEvent.payload_json),
+      target,
+    })) return false;
+  if (!paired) return true;
+
+  const lastEvent = eventRows.at(-1);
+  const lastEventPayload = JSON.parse(lastEvent.payload_json);
+  const comparisonBase = {
+    schema_version: "filmos.architecture-option-comparison.v2",
+    issue_id: target.issueId,
+    assessment_round: target.assessmentRound,
+    binding_hash: initial.assessment_slots.codex.binding_hash,
+    codex_assessment_hash: initial.assessment_receipts.codex.assessment_content_hash,
+    chatgpt_assessment_hash: projection.assessment_receipts?.chatgpt?.assessment_content_hash,
+  };
+  return canonicalJson(projection.option_comparison) === canonicalJson({ ...comparisonBase, content_hash: sha256(comparisonBase) })
+    && projection.updated_at === lastEvent.created_at
+    && validateSealedAssessment({ projection, actor: "chatgpt", lastEvent, lastEventPayload, target })
+    && validateSealTransition(projection, lastEventPayload, codexPayload, "OPTION_COMPARISON");
+}
+
+function validateSealedAssessment({ projection, actor, lastEvent, lastEventPayload, target }) {
+  const assessment = projection.assessments?.[actor] ?? null;
+  const receipt = projection.assessment_receipts?.[actor] ?? null;
+  const slot = projection.assessment_slots?.[actor] ?? null;
+  if (!assessment || !receipt || !lastEvent) return false;
   const binding = {
     project_id: projection.project_id,
     evidence_manifest_hash: projection.evidence?.manifest?.contentHash ?? projection.evidence?.manifest?.content_hash ?? null,
@@ -1527,40 +1632,24 @@ function validateSealSuccessorProjection({ projection, codexSlot, chatgptSlot, l
     project_id: target.projectId,
     issue_id: target.issueId,
     submission_id: target.submissionId,
-    actor: "codex",
+    actor,
     assessment_round: target.assessmentRound,
     binding_hash: bindingHash,
     assessment: assessment.assessment,
   });
   const { receipt_hash: receiptHash, ...receiptBase } = receipt;
-  const transition = lastEventPayload?.transition ?? null;
-  const priorTransition = previousEventPayload?.transition ?? null;
-  const noLaterStage = !projection.option_comparison
-    && !projection.architecture_options
-    && !projection.accepted_architecture_option
-    && !projection.consensus_proposal
-    && (!Array.isArray(projection.consensus_responses) || projection.consensus_responses.length === 0)
-    && !projection.consensus_record
-    && !projection.issue_task_package
-    && !projection.task_package_receipt
-    && !projection.active_candidate
-    && projection.task_package_content_hash === null
-    && projection.next_pilot_allowed === false;
-  return noLaterStage
-    && !projection.assessments?.chatgpt
-    && !projection.assessment_receipts?.chatgpt
-    && chatgptSlot?.status === "EMPTY"
-    && chatgptSlot?.binding_hash === bindingHash
-    && codexSlot?.status === "SEALED"
-    && codexSlot.binding_hash === bindingHash
+  return slot?.status === "SEALED"
+    && slot.binding_hash === bindingHash
+    && lastEvent.actor === actor
+    && lastEvent.event_type === `assessment.${actor}.submitted`
     && assessment.schema_version === "filmos.architecture-assessment.v2"
     && typeof assessment.assessment_id === "string"
     && assessment.assessment_id.startsWith("architecture-assessment-")
     && assessment.project_id === target.projectId
     && assessment.issue_id === target.issueId
     && assessment.submission_id === target.submissionId
-    && assessment.actor === "codex"
-    && assessment.assessor === "codex"
+    && assessment.actor === actor
+    && assessment.assessor === actor
     && assessment.assessment_round === target.assessmentRound
     && canonicalJson(assessment.binding) === canonicalJson(binding)
     && assessment.binding_hash === bindingHash
@@ -1573,22 +1662,27 @@ function validateSealSuccessorProjection({ projection, codexSlot, chatgptSlot, l
     && receipt.project_id === target.projectId
     && receipt.issue_id === target.issueId
     && receipt.submission_id === target.submissionId
-    && receipt.actor === "codex"
-    && receipt.assessor === "codex"
+    && receipt.actor === actor
+    && receipt.assessor === actor
     && receipt.assessment_round === target.assessmentRound
     && receipt.binding_hash === bindingHash
     && receipt.assessment_content_hash === assessmentContentHash
     && receipt.event_id === lastEvent.event_id
     && receipt.accepted_at === lastEvent.created_at
     && receiptHash === sha256(receiptBase)
-    && codexSlot.assessment_id === assessment.assessment_id
-    && codexSlot.assessment_content_hash === assessmentContentHash
-    && codexSlot.receipt_hash === receiptHash
-    && codexSlot.event_id === lastEvent.event_id
-    && canonicalJson(lastEventPayload?.receipt) === canonicalJson(receipt)
-    && transition?.action === "assessment.submit"
+    && slot.assessment_id === assessment.assessment_id
+    && slot.assessment_content_hash === assessmentContentHash
+    && slot.receipt_hash === receiptHash
+    && slot.event_id === lastEvent.event_id
+    && canonicalJson(lastEventPayload?.receipt) === canonicalJson(receipt);
+}
+
+function validateSealTransition(projection, lastEventPayload, previousEventPayload, expectedState) {
+  const transition = lastEventPayload?.transition ?? null;
+  const priorTransition = previousEventPayload?.transition ?? null;
+  return transition?.action === "assessment.submit"
     && transition.from_state === "ARCHITECTURE_ASSESSMENTS_PENDING"
-    && transition.to_state === "ARCHITECTURE_ASSESSMENTS_PENDING"
+    && transition.to_state === expectedState
     && transition.transition_contract_version === ARCHITECTURE_PROTOCOL_VERSION
     && transition.transition_contract_hash === ARCHITECTURE_TRANSITION_CONTRACT_HASH
     && typeof priorTransition?.post_projection_hash === "string"
