@@ -4,6 +4,8 @@
 
 ## 启动
 
+源码运行要求 Node.js >=20.9.0，与当前 sharp 原生图片处理依赖保持一致。仓库依赖以 `bun.lock` 为准，使用 Bun 1.4.0 执行 `bun install --frozen-lockfile`；不要在源码目录生成平行的 npm 锁文件。
+
 ```bash
 npx -y @ddcat666/open-ai-canvas-agent
 ```
@@ -12,7 +14,7 @@ npx -y @ddcat666/open-ai-canvas-agent
 
 ```bash
 cd canvas-agent
-npm install
+bun install --frozen-lockfile
 npm run build
 node dist/index.js
 ```

@@ -3,9 +3,12 @@ from __future__ import annotations
 import importlib.util
 from importlib.machinery import SourceFileLoader
 import ast
+import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
+from urllib.parse import quote
 
 import pytest
 
@@ -22,7 +25,10 @@ def test_source_suite_has_real_diff_and_fixture_contracts_without_app_or_user_da
     checks = runner.selected_checks("source")
     ids = {check.check_id for check in checks}
     assert len(ids) == len(checks)
-    assert {"architecture-current-diff", "review-bus-governance", "external-read-runner-contract"} <= ids
+    assert {
+        "architecture-current-diff", "review-bus-governance", "external-read-runner-contract",
+        "known-dependency-security", "portrait-image-compatibility",
+    } <= ids
     assert not {"desktop-release-build", "desktop-runtime", "desktop-review-vertical-canary"} & ids
     for check in checks:
         command = " ".join(check.command)
@@ -89,3 +95,25 @@ def test_source_fingerprint_detects_helper_bytes_and_executable_mode(tmp_path: P
     assert changed != original
     helper.chmod(0o644)
     assert module.fingerprint([helper]) != changed
+
+
+@pytest.mark.parametrize("foreign_home", [False, True])
+def test_portable_binding_and_path_checks_need_no_ignored_files(tmp_path: Path, foreign_home: bool) -> None:
+    scripts = tmp_path / "isolated source" / "scripts"
+    scripts.mkdir(parents=True)
+    for name in ("filmos-external-read-runtime.mjs", "test-filmos-external-read-runtime.mjs"):
+        shutil.copy2(ROOT / "scripts" / name, scripts / name)
+    command = ["node"]
+    if foreign_home:
+        # Override only this disposable Node process's OS function, never the
+        # user's HOME/environment or any actual profile/data directory.
+        preload = (
+            "import os from 'node:os'; import {syncBuiltinESMExports} from 'node:module';"
+            f"os.homedir=()=>{json.dumps(str(tmp_path / 'runner-profile'))};syncBuiltinESMExports();"
+        )
+        command += ["--import", "data:text/javascript," + quote(preload, safe="")]
+    command += ["--test", "--test-reporter=tap", "--test-name-pattern", "Phase 6 binding|source-independent path", str(scripts / "test-filmos-external-read-runtime.mjs")]
+    result = subprocess.run(command, cwd=tmp_path, capture_output=True, text=True, timeout=15)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "# pass 2" in result.stdout
+    assert not (scripts.parent / ".local").exists()

@@ -441,6 +441,20 @@ SOURCE_CHECKS = tuple(check for check in RC_LOCAL_CHECKS if check.check_id in SO
         ROOT,
         ("01-desktop", "13-qa"),
     ),
+    Check(
+        "known-dependency-security",
+        "Known advisory floors, actual nested dependency resolution and parser contracts (not a full security audit)",
+        ("node", "--test", "scripts/test-依赖安全.mjs"),
+        ROOT,
+        ("03-project-ui", "08-agent", "13-qa", "14-chatgpt-app"),
+    ),
+    Check(
+        "portrait-image-compatibility",
+        "Portrait image decode/transform/output and storage fixtures without live models",
+        ("node_modules/.bin/tsx", "--test", "test/portrait-clearance.test.ts"),
+        ROOT / "canvas-agent",
+        ("08-agent", "13-qa"),
+    ),
 )
 
 

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { chmod, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { resolve } from "node:path";
 import test from "node:test";
 import { pathToFileURL } from "node:url";
@@ -367,11 +367,49 @@ test("preference plist parser decodes all three saved bindings and rejects drift
   assert.throws(() => validatePreferenceSnapshot(parsed), /SAVED_PROJECT_SESSION_DRIFT/);
 });
 
-test("Phase 6 binding replaces exactly twelve JIT tokens and four current-source constants without changing the template", async () => {
-  const template = await readFile(PHASE7.templatePath, "utf8");
-  assert.equal(sha256(template), PHASE7.templateSha256);
+test("Phase 6 binding replaces exactly twelve JIT tokens and four current-source constants in a synthetic template", () => {
+  // Portable CI must not depend on or publish the frozen workstation package.
+  const template = [
+    "# Synthetic binding contract",
+    "app: <JIT_EXISTING_CONNECTOR_APP_ID>",
+    "version: <JIT_EXISTING_CONNECTOR_VERSION_ID>",
+    "grant: <JIT_PROJECT_GRANT_ID>",
+    "issued: <JIT_PROJECT_GRANT_ISSUED_AT>",
+    "expires: <JIT_PROJECT_GRANT_EXPIRES_AT>",
+    "tunnel: <JIT_EXISTING_TUNNEL_ID>",
+    "challenge: <JIT_TUNNEL_CHALLENGE_ID>",
+    "receipt: <JIT_LIVE_CONTEXT_RECEIPT_ID>",
+    "context_expires: <JIT_LIVE_CONTEXT_EXPIRES_AT>",
+    "unit: <JIT_CONTENT_UNIT_ID>",
+    "canvas: <JIT_CANVAS_ID>",
+    "canvas_hash: <JIT_CANVAS_STATE_HASH>",
+    `commit: ${PHASE7.legacySource.commit}`,
+    `same_commit: ${PHASE7.legacySource.commit}`,
+    `tree: ${PHASE7.legacySource.tree}`,
+    `fingerprint: ${PHASE7.legacySource.fingerprint}`,
+    `build: ${PHASE7.legacySource.buildId}`,
+    "history: ee8aac7d044fce067487b18a82b4eaf9c7b4c9f5",
+    "history: 964f590a52c75c40b878a869742b5f37631efeb2",
+    "",
+  ].join("\n");
+  const templateHash = sha256(template);
   const source = sourceIdentity();
-  const result = bindPhase6Package(template, binding(), source);
+  const bound = binding();
+  const result = bindPhase6Package(template, bound, source);
+  assert.deepEqual(result.placeholderValues, {
+    JIT_EXISTING_CONNECTOR_APP_ID: PHASE7.connectorAppId,
+    JIT_EXISTING_CONNECTOR_VERSION_ID: PHASE7.connectorVersionId,
+    JIT_PROJECT_GRANT_ID: bound.project_grant_id,
+    JIT_PROJECT_GRANT_ISSUED_AT: bound.project_grant_issued_at,
+    JIT_PROJECT_GRANT_EXPIRES_AT: bound.project_grant_expires_at,
+    JIT_EXISTING_TUNNEL_ID: PHASE7.tunnelId,
+    JIT_TUNNEL_CHALLENGE_ID: bound.challenge_id,
+    JIT_LIVE_CONTEXT_RECEIPT_ID: bound.context_receipt_id,
+    JIT_LIVE_CONTEXT_EXPIRES_AT: bound.live_context_expires_at,
+    JIT_CONTENT_UNIT_ID: bound.content_unit_id,
+    JIT_CANVAS_ID: bound.canvas_id,
+    JIT_CANVAS_STATE_HASH: bound.canvas_state_hash,
+  });
   assert.equal(Object.keys(result.placeholderValues).length, 12);
   assert.equal(result.sourceReplacements.length, 4);
   assert.equal(result.sourceReplacements.reduce((sum, item) => sum + item.occurrence_count, 0), 5);
@@ -380,8 +418,17 @@ test("Phase 6 binding replaces exactly twelve JIT tokens and four current-source
   assert.match(result.output, new RegExp(source.git_commit_sha));
   assert.match(result.output, /ee8aac7d044fce067487b18a82b4eaf9c7b4c9f5/);
   assert.match(result.output, /964f590a52c75c40b878a869742b5f37631efeb2/);
-  assert.equal(await readFile(PHASE7.templatePath, "utf8"), template);
-  assert.throws(() => bindPhase6Package(template.replace("<JIT_CANVAS_ID>", "missing"), binding(), source), /PHASE6_PLACEHOLDER_COUNT_MISMATCH:JIT_CANVAS_ID/);
+  assert.equal(sha256(template), templateHash);
+  for (const name of Object.keys(result.placeholderValues)) {
+    const token = `<${name}>`;
+    const missing = new RegExp(`PHASE6_PLACEHOLDER_COUNT_MISMATCH:${name}`);
+    assert.throws(() => bindPhase6Package(template.replace(token, "missing"), bound, source), missing);
+    assert.throws(() => bindPhase6Package(template + token, bound, source), missing);
+  }
+  assert.throws(() => bindPhase6Package(template + "<JIT_UNKNOWN>", bound, source), /PHASE6_PLACEHOLDER_REMAINS/);
+  for (const oldValue of Object.values(PHASE7.legacySource)) {
+    assert.throws(() => bindPhase6Package(template.replaceAll(oldValue, "missing"), bound, source), /PHASE6_LEGACY_SOURCE_VALUE_MISSING/);
+  }
 });
 
 test("RPC parser accepts strict JSON and SSE data while rejecting malformed input", () => {
@@ -984,8 +1031,13 @@ test("tunnel payload verification accepts only the exact regular-file set and ex
 
 test("source-independent path and main-module guards fail closed", () => {
   assert.equal(assertSourceIndependentPath("/tmp/filmos-phase7-safe"), "/tmp/filmos-phase7-safe");
-  assert.throws(() => assertSourceIndependentPath("/Users/apple/Applications/FilmOS Studio.app/Contents/MacOS/FilmOS Studio"), /APP_PATH_FORBIDDEN/);
-  assert.throws(() => assertSourceIndependentPath(resolve(import.meta.dirname, "../.local/source-host/server")), /SOURCE_HOST_PATH_FORBIDDEN/);
+  const appRoot = resolve(homedir(), "Applications/FilmOS Studio.app");
+  const sourceHost = resolve(SOURCE_ROOT, ".local/source-host");
+  for (const [root, error] of [[appRoot, /APP_PATH_FORBIDDEN/], [sourceHost, /SOURCE_HOST_PATH_FORBIDDEN/]]) {
+    assert.throws(() => assertSourceIndependentPath(root), error);
+    assert.throws(() => assertSourceIndependentPath(resolve(root, "Contents/MacOS/server")), error);
+    assert.equal(assertSourceIndependentPath(root + "-sibling"), root + "-sibling");
+  }
   assert.equal(isExecutedAsMain(pathToFileURL("/tmp/a.mjs").href, "/tmp/a.mjs"), true);
   assert.equal(isExecutedAsMain(pathToFileURL("/tmp/a.mjs").href, "/tmp/b.mjs"), false);
   assert.equal(isExecutedAsMain(pathToFileURL("/tmp/a.mjs").href, undefined), false);

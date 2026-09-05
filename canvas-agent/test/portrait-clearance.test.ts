@@ -7,11 +7,34 @@ import sharp from "sharp";
 
 import { createPortraitClearanceTaskRequestSchema, portraitClearanceSettingsSchema, riskFromFaceSimilarity } from "../src/portrait-clearance/contracts.js";
 import { deduplicatePortraitCandidates } from "../src/portrait-clearance/dedup.js";
-import { computePHash, cosineSimilarity, hammingDistance, imageQuality, structuralSimilarity } from "../src/portrait-clearance/image-metrics.js";
+import { computePHash, cosineSimilarity, cropPortraitSearchImage, decodePortraitImage, hammingDistance, imageQuality, structuralSimilarity } from "../src/portrait-clearance/image-metrics.js";
 import { buildPortraitReports } from "../src/portrait-clearance/reports.js";
 import { downloadPortraitCandidate, validatePublicUrl } from "../src/portrait-clearance/safe-image-download.js";
 import { PortraitTaskStore } from "../src/portrait-clearance/task-store.js";
 import { installPortraitModels } from "../src/portrait-clearance/model-store.js";
+
+test("patched sharp preserves portrait decode, colour conversion, crop and output for bounded fixtures", async () => {
+    const image = () => sharp({ create: { width: 32, height: 24, channels: 4, background: "#80a0c080" } });
+    const inputs = [
+        await image().png().toBuffer(),
+        await image().flatten().greyscale().jpeg().toBuffer(),
+        await image().webp().toBuffer(),
+        await image().removeAlpha().toColourspace("cmyk").tiff({ compression: "lzw" }).toBuffer(),
+    ];
+    for (const bytes of inputs) {
+        const decoded = await decodePortraitImage(bytes);
+        assert.equal(decoded.width, 32);
+        assert.equal(decoded.height, 24);
+        assert.equal(decoded.channels, 3);
+        assert.equal(decoded.rgb.length, 32 * 24 * 3);
+        assert.ok(decoded.gray.every(Number.isFinite));
+        const cropped = await cropPortraitSearchImage(bytes, decoded, [4, 4, 20, 20]);
+        const metadata = await sharp(cropped).metadata();
+        assert.equal(metadata.format, "jpeg");
+        assert.ok(metadata.width! > 0 && metadata.height! > 0);
+    }
+    await assert.rejects(() => decodePortraitImage(Buffer.from("invalid-image-fixture")));
+});
 
 test("portrait risk thresholds and cosine similarity are deterministic", () => {
     assert.equal(riskFromFaceSimilarity(undefined), "unable_to_determine");
