@@ -5,6 +5,40 @@ description: 在宿主机启动影策前后端开发服务
 
 # 本地开发
 
+## FilmOS macOS 源码入口
+
+FilmOS 日常开发使用权威仓库 `maiyadiu/filmos-studio` 的 `integration`，不是默认下载的历史 `main`。在该源码目录双击 `源码启动.command`，或执行：
+
+```bash
+scripts/filmos-source-start start
+scripts/filmos-source-start status
+scripts/filmos-source-start stop
+```
+
+启动器编译必要的 Go/Swift 源码可执行文件，使用 `.local/source-host` 中的运行资源，不生成、安装或替换 `.app`。需要本机 Node（Review Bus >=24.10.0，CI 26.3.0）、Bun、Go、完整 Xcode、当前仓库 `.local/acceptance-venv` 与已安装的依赖；Tunnel 组件只复用已有本机文件，不自动下载。启动器拒绝与已运行 App 或占用源码端口的未知进程并存。
+
+**此用户入口使用真实 Application Support 数据，不是隔离测试入口。** 不改变用户项目、Review Bus 的既有权威目录。历史 App、source-host 缓存、净克隆及审阅 worktree 只是历史产物/证据，不能冒充当前运行来源，也不应为了“唯一源码”自动删除。
+
+## 验证范围与数据边界
+
+普通验证复用现有验收器：
+
+```bash
+# 首次准备当前源码的锁定依赖；不打包 App
+acceptance/bootstrap
+.local/acceptance-venv/bin/python acceptance/run.py --suite source --evidence-root .local/source-validation
+```
+
+- `SOURCE_VALIDATION`：类型检查、源码构建、fixture/临时数据库及 mock/自有临时进程合同。真实 Git diff 的路径/宪法检查会执行；关键词只能提示复核，不能自动证明架构语义正确。
+- `APP_ACCEPTANCE`：原全量 `rc-local` 保留，只能在用户明确允许打包后运行 `acceptance/run_all --authorize-app-acceptance`。CI 同样仅在手工 dispatch 且明确设置打包授权时执行，不由普通 push/PR 自动触发。
+- `EXTERNAL_LIVE_ACCEPTANCE`：真实外部调用/连接的独立证据。源码测试通过、App 通过或上传已有 Trace 都不代表本轮实际执行了外部链路。
+
+本地默认 diff 为 `HEAD` 对当前 tracked 工作树，并检查未跟踪路径（不读取用户未跟踪材料正文）；CI 绑定实际 base/head。手工比较已提交范围可设置 `FILMOS_DIFF_BASE`、`FILMOS_DIFF_HEAD`。回执保留初始 Commit/Tree、脏状态与源码快照；执行期间源码变化会使验收失败。
+
+源码身份指纹包含实际的 `源码启动.command`、source-start、source-helper 和 source-runtime-metadata；修改启动脚本的字节或执行权限也必须导致指纹变化，不能只比较前后端目录。
+
+历史 `scripts/test-filmos-source-host` 和 `scripts/test-filmos-source-lifecycle` 会启动/重启真实用户服务并访问用户数据库。现在无显式 `--authorize-user-data-test` 参数时先行拒绝；参数只能在已获得相应真实数据测试授权后使用，不允许为了普通 CI 通过而自动添加。源码二进制 smoke 和单元测试不等于这两项真实宿主测试已通过。
+
 ## 一键启动（Windows PowerShell）
 
 在仓库根目录执行：

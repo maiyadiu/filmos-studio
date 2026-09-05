@@ -19,6 +19,14 @@ export const REVIEW_BUS_RUNTIME_MODE_NORMAL = "normal";
 export const REVIEW_BUS_RUNTIME_MODE_ASSESSMENT_SEAL = "assessment-seal";
 export const REVIEW_BUS_RUNTIME_MODE_EXTERNAL_READ = "external-read";
 
+export function assertExternalReadRuntimeCapability() {
+  if (typeof DatabaseSync.prototype.setAuthorizer !== "function"
+    || ["SQLITE_OK", "SQLITE_DENY", "SQLITE_INSERT", "SQLITE_UPDATE", "SQLITE_PRAGMA", "SQLITE_FUNCTION", "SQLITE_READ", "SQLITE_RECURSIVE", "SQLITE_SELECT", "SQLITE_TRANSACTION"]
+      .some((key) => typeof sqliteConstants[key] !== "number")) {
+    throw problem("EXTERNAL_READ_RUNTIME_NODE_CAPABILITY_REQUIRED", "Node.js >= 24.10.0 with SQLite authorizer support is required", 503);
+  }
+}
+
 const REQUIRED_SEAL_SCHEMA = Object.freeze([
   ["table", "review_events"],
   ["index", "review_events_issue_sequence"],
@@ -53,6 +61,8 @@ export class ReviewBusStore {
     if (![REVIEW_BUS_RUNTIME_MODE_NORMAL, REVIEW_BUS_RUNTIME_MODE_ASSESSMENT_SEAL, REVIEW_BUS_RUNTIME_MODE_EXTERNAL_READ].includes(runtimeMode)) {
       throw problem("INVALID_REVIEW_BUS_RUNTIME_MODE");
     }
+    // Reject unsupported runtimes before even inspecting the bound database.
+    if (runtimeMode === REVIEW_BUS_RUNTIME_MODE_EXTERNAL_READ) assertExternalReadRuntimeCapability();
     this.runtimeMode = runtimeMode;
     this.sealTarget = null;
     this.sealSnapshot = null;

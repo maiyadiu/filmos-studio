@@ -4,7 +4,7 @@
 
 ## 1. 项目边界
 
-影策（`ddcat-ai/open-ai-canvas`）是面向 AI 影视与短剧创作的工作台，当前仍在快速开发。公开接口、数据结构和部署配置可能直接调整；除非任务明确要求，不为旧字段、旧 API 或旧数据增加兼容层。
+FilmOS Studio 是基于影策（`ddcat-ai/open-ai-canvas`）演进的 AI 影视与短剧创作工作台，当前权威仓库为 `maiyadiu/filmos-studio`，日常开发分支为 `integration`。`main`、`candidate` 和保留审阅分支有独立历史职责，不能因为落后于开发分支而自动合并、回退或删除。公开接口、数据结构和部署配置可能直接调整；除非任务明确要求，不为旧字段、旧 API 或旧数据增加兼容层。
 
 仓库由几个边界清晰但可独立运行的单元组成：
 
@@ -14,7 +14,7 @@
 | `backend/` | Go 1.25、Gin、GORM、SQLite/PostgreSQL、Redis 协调 | `backend/cmd/server/main.go` | 登录、权限、业务 API、任务队列、资源、模型中转和后台管理 |
 | `canvas-agent/` | Node.js 18+、TypeScript、Express、MCP SDK、Codex SDK | `canvas-agent/src/index.ts` | 本机 Agent、MCP、画布会话桥接和本地渠道 |
 | `plugins/yingce/` | Codex App 插件清单和 skills | `.codex-plugin/plugin.json` | 将 Canvas Agent MCP 接入 Codex App |
-| `docs/` | Next.js、Fumadocs、MDX | `docs/content/docs/` | 面向用户和开发者的专题文档；构建配置见 `docs/source.config.ts` |
+| `docs/` | Markdown、MDX | `docs/index.md` | 面向用户和开发者的专题文档；当前没有独立文档站构建包 |
 
 根目录的 `Dockerfile` 构建前端静态镜像；`nginx.conf` 托管 SPA 并代理后端。`docker-compose.dev.yml` 是源码热更新开发编排，`docker-compose.local.yml` 是本地构建运行，`docker-compose.deploy.yml` 是 PostgreSQL + Redis 部署编排。
 
@@ -25,6 +25,7 @@
 3. 先形成目标边界：页面负责什么、service 负责什么、handler/service/repository 如何分层、数据和错误如何流动。新增 helper 必须消除真实重复或隔离明确协议，不能只透传参数。
 4. 检查 `git status --short`。不覆盖、不回滚、不清理非本次产生的变更；不使用 `git reset --hard`、`git checkout --` 或宽范围删除。
 5. 手工编辑使用 `apply_patch`；默认使用 ASCII，业务中文或已有 Unicode 文件除外。注释只解释非直观算法、核心入口、安全边界和降级原因。
+6. 日常修改只有一个权威源码位置和一个交付负责人。历史净克隆、DeveloperRepository、审阅 worktree 和归档可以保留，但不是平行开发入口；未提交修改和用户材料不得自动清理。重要数据、权限、发布或架构边界采用独立复核，不将每个普通命令变成双重审批。
 
 ## 3. 目录职责和依赖方向
 
@@ -103,7 +104,7 @@
 - 节点和对象名称要有可发现的铅笔入口并支持单击编辑；双击或右键不能是唯一入口。图片节点保持原始比例，面板不能长期遮挡主要画布空间。
 - Ant Design 共性主题和控件状态集中在 `web/src/lib/app-theme.ts` / `AppProviders`。Modal 当前内容外壳是 `.ant-modal-container`，优先使用 `styles.container`、`styles.body` 和组件 class。
 - 第三方覆盖限定在具体组件，不新增全局 `.ant-modal-*`、`.dark .ant-switch-*`、`.ant-checkbox-*` 或 Segmented 状态补丁。新增 CSS 前先搜索同名选择器，回到唯一源规则修改。
-- 遵循 `docs/ui-design-system.md` 及项目三层 token：Primitive → Semantic → Component。inline style 优先引用 `var(--token-name)`，不要散落颜色、圆角、阴影和层级字面值。
+- 遵循 `docs/index.md` 中的设计沉淀、`web/src/styles/` 和 `web/src/lib/app-theme.ts` 中现有 token。inline style 优先引用 `var(--token-name)`，不要散落颜色、圆角、阴影和层级字面值。
 - 主操作、普通选中、Checkbox/Radio、Switch 是不同颜色角色；持久切换使用 `aria-pressed`，`type="primary"` 只表示当前主要命令。尊重 `prefers-reduced-motion`，键盘导航保留 `:focus-visible`。
 
 ## 7. 本地开发、部署和数据目录
@@ -115,12 +116,12 @@
 - 默认不启动 dev server；只有用户明确要求浏览器预览或联调时才启动，并先确认端口、数据目录和现有进程。
 - 健康检查只能证明入口可用，不能替代登录、SSE、任务生成和资源访问验证。
 
-### 桌面 App 同步硬规则
+### 源码优先硬规则
 
-- `~/Applications/FilmOS Studio.app` 是唯一可固定到程序坞的本地 App；`.local/`、worktree 和验收目录中的 `.app` 只能作为构建中间物或取证候选，不能作为用户入口。
-- 任何仓库修改形成新 Commit 后，交付前必须执行 `FILMOS_DESKTOP_RUNTIME_PROFILE=filmos-candidate desktop/macos/scripts/install-local-app --relaunch`；影响 `web/`、`backend/`、`canvas-agent/`、`film-core/`、`services/filmos-chatgpt-app/`、`packages/`、`desktop/macos/` 或 Agent Runtime Profile 的未提交修改也必须先同步 App 再交给用户试用。
-- 安装必须通过 `desktop/macos/scripts/verify-installed-app-sync`。该校验比较 App 内嵌的 `SourceIdentity.json` 与当前源码指纹；不一致即视为旧 App，任务不得声明完成、提交交接或让用户自行判断版本。
-- 构建期间源码发生变化必须失败；安装后校验失败必须自动恢复上一份 App。App 数据、项目库和 Runtime Key 继续保存在 Application Support 与 Keychain，不得随 App 包更新迁移或删除。
+- 未获得用户明确“成熟，可以打包 App”的授权前，普通开发、调试和验证只走当前源码；不自动 build/install/replace/relaunch App。本规则也适用于普通 push/PR 的 CI。
+- macOS 用户入口为仓库根的 tracked 普通可执行文件 `源码启动.command`，转交 `scripts/filmos-source-start`。该脚本编译源码所需的 Go/Swift 可执行文件，不生成 `.app`；它使用真实用户数据，因此不能充当默认隔离测试。
+- `.local/source-host` 中的 SourceIdentity 必须与实际源码指纹核对；旧缓存、旧 App、健康检查或 CI 绿色都不能代替当前运行来源证明。源码脏状态必须如实保留，不能冒称 clean HEAD 验收。
+- 获得独立 App 打包授权后才使用现有安装和 `desktop/macos/scripts/verify-installed-app-sync` 流程。用户入口仍只允许 `~/Applications/FilmOS Studio.app`；安装失败应恢复上一份 App，不得迁移、删除 Application Support 数据或 Keychain 凭据。
 
 ## 8. 验证纪律
 
@@ -129,7 +130,9 @@
 - 前端：`cd web && bun run build`；专项测试用 `bun test ...`。
 - 后端：`cd backend && go test ./...`；涉及 PostgreSQL、资源、任务或权限时补对应集成/冒烟路径。
 - Canvas Agent：`cd canvas-agent && npm test`，构建用 `npm run build`。
-- 文档站：`cd docs && bun run types:check` 或 `bun run build`。
+- 文档：检查本次修改的链接和实际代码/命令入口；当前不存在 `docs/package.json`，不执行虚构的文档构建命令。
+- 普通源码验证使用 `acceptance/run.py --suite source`，只证明 `SOURCE_VALIDATION`。App 验收、真实外部链路分别标记为 `APP_ACCEPTANCE`、`EXTERNAL_LIVE_ACCEPTANCE`；不得互相替代。
+- 普通测试只能使用 fixture/临时存储，不默认读取真实用户数据库、保存的连接或 Keychain。历史 `test-filmos-source-host` / `test-filmos-source-lifecycle` 使用真实数据，必须明确单独授权，不能直接接入普通 CI。
 - UI 变更能浏览器验证时，检查关键路由、明暗主题、滚动、弹窗、空态和核心交互；不能验证时说明替代依据，不把静态阅读或 `git diff` 写成运行验证。
 
 同类失败连续三次时停止盲试，记录现象、已排除项和新假设，再切换路径或请求用户决策。
@@ -137,7 +140,7 @@
 ## 9. 文档与交付
 
 - 根 `README.md` 只保留项目定位、能力概览、快速开始、部署、安全和文档入口；详细专题写入 `docs/content/docs/`。
-- 功能、代码地图、待办、待测试分别维护在 `docs/content/docs/overview/features.mdx`、`docs/content/docs/backend/code-map.mdx`、`docs/content/docs/progress/todo.mdx`、`docs/content/docs/progress/pending-test.mdx`。已实现但未由用户确认的变化先写入 `pending-test.mdx`。
+- 功能和待测试分别维护在 `docs/content/docs/overview/features.mdx`、`docs/content/docs/progress/pending-test.mdx`。其他专题从 `docs/index.md` 进入，不把尚未存在的代码地图或待办页面当成真实入口。已实现但未由用户确认的变化先写入 `pending-test.mdx`。
 - API、数据表、SSE、资源存储、部署或安全边界变化时同步对应专题文档；不要只改代码和根 README。
 - 文档默认中文，不写过期日期，不公开密码、Token、Cookie、真实账号或机器敏感路径。命令、端口、环境变量必须以当前脚本和 Compose 为准。
 - Git 提交说明使用 `<type>(<scope>): <业务模块> - <变更摘要>`，`type` 为 `feat|fix|refactor|perf|docs|test|build|ci|chore|revert`。

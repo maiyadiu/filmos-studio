@@ -119,6 +119,13 @@ RC_LOCAL_CHECKS = CURRENT_CHECKS + (
         ("00-upstream", "02-film-core", "08-agent", "13-qa"),
     ),
     Check(
+        "architecture-current-diff",
+        "Actual Git diff structural guard and non-blocking keyword review signals",
+        ("node", "governance/architecture-drift-gate.mjs"),
+        ROOT,
+        ("00-upstream", "02-film-core", "08-agent", "13-qa"),
+    ),
+    Check(
         "review-bus-governance",
         "SQLite WAL Review Bus, evidence, consensus, lane and Pilot gates",
         ("npm", "test"),
@@ -402,6 +409,41 @@ RC_LOCAL_CHECKS = CURRENT_CHECKS + (
 )
 
 
+SOURCE_CHECK_IDS = frozenset({
+    "desktop-local-auth", "web-typecheck", "web-production-build",
+    "no-openai-model-api-billing", "acceptance-runner-environment",
+    "canonical-review-contract", "host-boundary-contract", "repository-hygiene",
+    "architecture-drift-gate", "architecture-current-diff", "review-bus-governance",
+    "desktop-backup-restore", "acceptance-full-chain",
+})
+
+# This is intentionally not rc-local minus a few App checks: each included
+# entry must have fixture/temporary storage and no live credential dependency.
+SOURCE_CHECKS = tuple(check for check in RC_LOCAL_CHECKS if check.check_id in SOURCE_CHECK_IDS) + (
+    Check(
+        "source-supervisor-lifecycle",
+        "Source Swift supervisor/window/configuration tests (mock/owned processes, no Keychain suite)",
+        ("xcrun", "swift", "test", "--package-path", "desktop/macos", "--scratch-path", ".local/source-swift-test", "--filter", "ServiceSupervisorTests|DesktopWindowLifecycleTests|InternalWorkbenchConfigurationTests"),
+        ROOT,
+        ("01-desktop", "13-qa"),
+    ),
+    Check(
+        "external-read-runner-contract",
+        "External runner unit contracts with temporary storage and owned mock processes (not live acceptance)",
+        ("node", "--test", "scripts/test-filmos-external-read-runtime.mjs"),
+        ROOT,
+        ("13-qa", "14-chatgpt-app"),
+    ),
+    Check(
+        "source-validation-contract",
+        "Source CI scope, isolated test entry and evidence classification regression",
+        (sys.executable, "-m", "pytest", "-q", "acceptance/tests/test_source_validation.py"),
+        ROOT,
+        ("01-desktop", "13-qa"),
+    ),
+)
+
+
 REAL_AGENT_CHECKS = (
     Check(
         "codex-subscription-real",
@@ -522,6 +564,16 @@ def source_snapshot_sha256() -> str:
 
 
 def selected_checks(suite: str) -> Sequence[Check]:
+    if suite == "source-pinned":
+        return (Check(
+            "external-read-physical-contract",
+            "Frozen workstation physical file pins and minimal command resolution (no services)",
+            ("node", "--test", "scripts/test-外部物理绑定.mjs"),
+            ROOT,
+            ("13-qa", "14-chatgpt-app"),
+        ),)
+    if suite == "source":
+        return SOURCE_CHECKS
     if suite == "current":
         return CURRENT_CHECKS
     if suite == "rc-local":
@@ -588,8 +640,16 @@ def resolve_film_core_python(
     return expected_text
 
 
-def acceptance_environment() -> tuple[dict[str, str], bool]:
+def acceptance_environment(*, source_only: bool = False) -> tuple[dict[str, str], bool]:
     environment = os.environ.copy()
+    if source_only:
+        # Do not pass ambient Production URLs, database paths, grants or model
+        # credentials to ordinary tests. Tests supply their own fixture config.
+        allowed_film_keys = {"FILMOS_DIFF_BASE", "FILMOS_DIFF_HEAD", "FILMOS_CORE_PYTHON", "FILMOS_TEST_PYTHON"}
+        for key in list(environment):
+            if (key.startswith(("FILMOS_", "CANVAS_", "FRAMEFIELD_", "OPENAI_", "ANTHROPIC_", "GOOGLE_", "GEMINI_"))
+                    and key not in allowed_film_keys):
+                del environment[key]
     python = resolve_film_core_python(environment)
     environment["FILMOS_CORE_PYTHON"] = python
     environment["FILMOS_TEST_PYTHON"] = python
@@ -641,11 +701,12 @@ def run_check(check: Check, run_dir: Path, environment: dict[str, str]) -> dict[
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="FilmOS reproducible acceptance runner")
-    parser.add_argument("--suite", choices=("current", "rc-local", "rc-real-agent"), default="current")
+    parser.add_argument("--suite", choices=("source", "source-pinned", "current", "rc-local", "rc-real-agent"), default="source")
     parser.add_argument("--only", action="append", default=[], help="run only the named check; repeatable")
     parser.add_argument("--evidence-root", type=Path, default=DEFAULT_EVIDENCE_ROOT)
     parser.add_argument("--receipt-path-file", type=Path)
     parser.add_argument("--list", action="store_true")
+    parser.add_argument("--authorize-app-acceptance", action="store_true", help="only after explicit user authorization for App packaging")
     args = parser.parse_args()
 
     checks = list(selected_checks(args.suite))
@@ -660,12 +721,17 @@ def main() -> int:
             print(check.check_id)
         return 0
 
+    if args.suite in {"current", "rc-local"} and not args.authorize_app_acceptance:
+        parser.error("APP_ACCEPTANCE_AUTHORIZATION_REQUIRED: use --suite source for ordinary development")
+
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     short_head = git_value("rev-parse", "--short=12", "HEAD") or "no-git"
     initial_worktree_porcelain = git_value("status", "--short")
     initial_source_snapshot = source_snapshot_sha256()
+    initial_commit = git_value("rev-parse", "HEAD")
+    initial_tree = git_value("rev-parse", "HEAD^{tree}")
     try:
-        environment, film_core_python_ready = acceptance_environment()
+        environment, film_core_python_ready = acceptance_environment(source_only=args.suite.startswith("source"))
     except FilmCorePythonError as error:
         print(json.dumps({
             "status": "CONFIGURATION_ERROR",
@@ -684,12 +750,17 @@ def main() -> int:
         results.append(result)
         print(f"[{check.check_id}] {result['status']} ({result['duration_ms']} ms)", flush=True)
 
+    source_unchanged = initial_source_snapshot == source_snapshot_sha256() and initial_commit == git_value("rev-parse", "HEAD")
     payload: dict[str, object] = {
         "schema_version": "1.0.0",
         "run_id": run_id,
         "suite": args.suite,
-        "status": "PASSED" if all(result["status"] == "PASSED" for result in results) else "FAILED",
-        "started_from_commit": git_value("rev-parse", "HEAD"),
+        "validation_class": "SOURCE_VALIDATION" if args.suite.startswith("source") else ("EXTERNAL_LIVE_ACCEPTANCE" if args.suite == "rc-real-agent" else "APP_ACCEPTANCE"),
+        "coverage_scope": "SELECTED_CHECKS_ONLY" if args.only else "SUITE_CHECKS_ONLY",
+        "source_unchanged_during_validation": source_unchanged,
+        "status": "PASSED" if source_unchanged and all(result["status"] == "PASSED" for result in results) else "FAILED",
+        "started_from_commit": initial_commit,
+        "started_from_tree": initial_tree,
         "branch": git_value("branch", "--show-current"),
         "clean_worktree": initial_worktree_porcelain == "",
         "source_snapshot_sha256": initial_source_snapshot,

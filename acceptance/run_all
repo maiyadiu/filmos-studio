@@ -1,6 +1,11 @@
 #!/bin/sh
 set -eu
 
+if [ "${1:-}" != "--authorize-app-acceptance" ] || [ "$#" -ne 1 ]; then
+    printf '%s\n' "APP_ACCEPTANCE_AUTHORIZATION_REQUIRED: run_all builds an App. Use acceptance/run.py --suite source for ordinary development." >&2
+    exit 2
+fi
+
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 if [ "${FILMOS_ACCEPTANCE_ALLOW_DIRTY:-0}" != "1" ] && [ -n "$(git -C "$ROOT" status --porcelain)" ]; then
     printf '%s\n' "Formal acceptance requires a clean worktree. Set FILMOS_ACCEPTANCE_ALLOW_DIRTY=1 only for development evidence." >&2
@@ -28,6 +33,7 @@ fi
 
 "$ROOT/.local/acceptance-venv/bin/python" "$ROOT/acceptance/run.py" \
     --suite rc-local \
+    --authorize-app-acceptance \
     --evidence-root "$EVIDENCE_ROOT" \
     --receipt-path-file "$PATH_FILE"
 RECEIPT=$(sed -n '1p' "$PATH_FILE")

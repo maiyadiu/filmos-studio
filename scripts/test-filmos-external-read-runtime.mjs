@@ -36,7 +36,7 @@ import {
   validateAuditRecords,
   validateExternalResponse,
   validateExternalConversationBinding,
-  validateNestedProcessDerivation,
+  deriveNestedProcessBudget,
   validatePreferenceSnapshot,
   validateTransientRecords,
   verifyPostCleanupProcessBoundary,
@@ -933,7 +933,17 @@ test("production preservation covers Film Core siblings and permits only SHM con
 });
 
 test("nested process derivation proves the corrected 52..53, three-fingerprint and 31-Git totals", async () => {
-  const result = await validateNestedProcessDerivation();
+  const files = {
+    metadataSource: "scripts/source-runtime-metadata.mjs",
+    fingerprintSource: "desktop/macos/scripts/source-fingerprint",
+    widgetSource: "services/filmos-chatgpt-app/scripts/build-widget.mjs",
+    reviewBusSource: "services/filmos-review-bus/src/server.mjs",
+    installedSource: "services/filmos-review-bus/src/installed-source-identity.mjs",
+  };
+  const sources = Object.fromEntries(await Promise.all(Object.entries(files).map(async ([key, path]) => [key, await readFile(resolve(SOURCE_ROOT, path), "utf8")])));
+  const result = deriveNestedProcessBudget(sources);
+  assert.equal(result.evidence_standard, "STATIC_SOURCE_DERIVATION_ONLY");
+  assert.throws(() => deriveNestedProcessBudget({ ...sources, metadataSource: "" }), /SOURCE_METADATA_FINGERPRINT_PROCESS_COUNT_DRIFT/);
   assert.equal(result.review_bus.total_transient_subtree_invocations, 14);
   assert.equal(result.total_transient_process_invocations, "52..53");
   assert.equal(result.total_source_fingerprint_invocations, 3);

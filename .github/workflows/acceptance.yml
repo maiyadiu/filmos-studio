@@ -3,6 +3,11 @@ name: FilmOS Acceptance
 on:
   workflow_dispatch:
     inputs:
+      authorize_app_acceptance:
+        description: Explicit user authorization to build an App (never enable for ordinary source development)
+        required: false
+        default: false
+        type: boolean
       live_trace_base64:
         description: Optional base64 V1.1 external Live Trace; required only for final operational Handoff
         required: false
@@ -33,6 +38,8 @@ on:
       - services/filmos-review-bus/**
       - web/**
       - .github/workflows/acceptance.yml
+      - AGENTS.md
+      - docs/content/docs/backend/local-development.mdx
   push:
     branches:
       - integration
@@ -45,8 +52,75 @@ permissions:
   actions: read
 
 jobs:
+  source:
+    name: SOURCE_VALIDATION (no App or live services)
+    runs-on: macos-26
+    timeout-minutes: 30
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26.3.0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
+      - name: Bind source C/Swift toolchain (no App build)
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -d "$DEVELOPER_DIR"
+          echo "CC=$(xcrun --sdk macosx --find clang)" >> "$GITHUB_ENV"
+          echo "CXX=$(xcrun --sdk macosx --find clang++)" >> "$GITHUB_ENV"
+          echo "SDKROOT=$(xcrun --sdk macosx --show-sdk-path)" >> "$GITHUB_ENV"
+      - name: Bind actual diff range and reject ambiguous live inputs
+        env:
+          EVENT_BEFORE: ${{ github.event.before }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          LIVE_TRACE: ${{ inputs.live_trace_base64 }}
+          APP_AUTHORIZED: ${{ inputs.authorize_app_acceptance }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "$LIVE_TRACE" ] && [ "$APP_AUTHORIZED" != "true" ]; then
+            echo "Live trace belongs to separately authorized App/external acceptance" >&2
+            exit 2
+          fi
+          if [ -n "$PR_BASE" ]; then
+            diff_base=$(git merge-base "$PR_BASE" HEAD)
+          elif [ -n "$EVENT_BEFORE" ] && [ "$EVENT_BEFORE" != "0000000000000000000000000000000000000000" ]; then
+            diff_base=$(git rev-parse --verify "$EVENT_BEFORE^{commit}")
+          else
+            diff_base=$(git rev-parse --verify HEAD^)
+          fi
+          echo "FILMOS_DIFF_BASE=$diff_base" >> "$GITHUB_ENV"
+          echo "FILMOS_DIFF_HEAD=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+      - name: Prepare locked source dependencies (no App build)
+        run: acceptance/bootstrap
+      - name: Run fixture-only source validation
+        run: .local/acceptance-venv/bin/python acceptance/run.py --suite source --evidence-root .local/source-validation
+      - name: Upload SOURCE_VALIDATION evidence (not release or live acceptance)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: filmos-source-validation-${{ github.sha }}
+          path: .local/source-validation/
+          if-no-files-found: error
+          retention-days: 30
+
   rc-local:
-    name: Reproducible Local Acceptance
+    name: APP_ACCEPTANCE (explicit packaging authorization)
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.authorize_app_acceptance == true }}
     runs-on: macos-26
     timeout-minutes: 90
     env:
@@ -139,7 +213,10 @@ jobs:
       - name: Run clean Local-first acceptance
         env:
           FILMOS_ACCEPTANCE_BUILD_ID: github-${{ github.run_id }}-${{ github.run_attempt }}
-        run: acceptance/run_all
+        run: |
+          export FILMOS_DIFF_BASE="$(git rev-parse HEAD^)"
+          export FILMOS_DIFF_HEAD="$(git rev-parse HEAD)"
+          acceptance/run_all --authorize-app-acceptance
 
       - name: Upload original machine evidence and Release Manifest
         if: always()

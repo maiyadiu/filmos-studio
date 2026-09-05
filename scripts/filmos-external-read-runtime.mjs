@@ -92,7 +92,7 @@ const EXECUTABLES = Object.freeze({
 const HELPERS = Object.freeze({
   profile: { path: resolve(SOURCE_ROOT, "scripts/agent_runtime_profile.py"), sha256: "08cdd1f2ce3cfb5b1338fde9c875ee44e834fe27dc81acb73c2da134c8517191" },
   metadata: { path: resolve(SOURCE_ROOT, "scripts/source-runtime-metadata.mjs"), sha256: "dd58959366905ec76d66dfadc1cbda8290b86e3f21ec7d77ef566b5c41d3eec3" },
-  fingerprint: { path: resolve(SOURCE_ROOT, "desktop/macos/scripts/source-fingerprint"), sha256: "72ed0b6f9c1f8310c8117b4ea93fde094e278dea1ca139da1b782e7468c68adc" },
+  fingerprint: { path: resolve(SOURCE_ROOT, "desktop/macos/scripts/source-fingerprint"), sha256: "0288e7bd53de1f13aead747131eebfa80db753d18e74fe5ad78aca7f9adf50b0" },
   tsc: { path: resolve(SOURCE_ROOT, "services/filmos-chatgpt-app/node_modules/typescript/lib/tsc.js"), sha256: "cbdfbf11c26ed00dfc073155e316a42d6d6d8a387be61006b82fa9aa93ac572e" },
   widget: { path: resolve(SOURCE_ROOT, "services/filmos-chatgpt-app/scripts/build-widget.mjs"), sha256: "a84788b08acd9f30887a5ba0fc1e0bbdf79346d384a1d7e98093d4374221d5d2" },
   widgetSource: { path: resolve(SOURCE_ROOT, "services/filmos-chatgpt-app/src/widget-runtime.ts"), sha256: "a7a8b0e6dcb2b676a9413e6767b5c5861306bf33ef3d6ad82f2b043271acb172" },
@@ -518,7 +518,20 @@ export async function validateNestedProcessDerivation() {
     readFile(files.review_bus_server.path, "utf8"),
     readFile(files.installed_source_identity.path, "utf8"),
   ]);
+  return {
+    ...deriveNestedProcessBudget({ metadataSource, fingerprintSource, widgetSource, reviewBusSource, installedSource }),
+    evidence_standard: "PINNED_CODE_PLUS_READY_POST_ZERO_SURVIVORS_ACCEPTED",
+    minimal_path_resolution: {
+      python3: await resolveMinimalCommand("python3"),
+      git: await resolveMinimalCommand("git"),
+    },
+    files: Object.fromEntries(Object.entries(files).map(([name, value]) => [name, {
+      path: value.path, sha256: value.sha256, size: value.size, mode: value.mode,
+    }])),
+  };
+}
 
+export function deriveNestedProcessBudget({ metadataSource, fingerprintSource, widgetSource, reviewBusSource, installedSource }) {
   invariant(matchCount(metadataSource, /\bexecFileSync\s*\(/g) === 1, "SOURCE_METADATA_FINGERPRINT_PROCESS_COUNT_DRIFT");
   invariant(metadataSource.includes('resolve(sourceRoot, "desktop/macos/scripts/source-fingerprint")'), "SOURCE_METADATA_FINGERPRINT_TARGET_DRIFT");
   invariant(matchCount(fingerprintSource, /\bsubprocess\.run\s*\(/g) === 2, "SOURCE_FINGERPRINT_SUBPROCESS_HELPER_DRIFT");
@@ -553,17 +566,7 @@ export async function validateNestedProcessDerivation() {
   invariant(totalMin === TRANSIENT_PROCESS_BUDGET.total_min && totalMax === TRANSIENT_PROCESS_BUDGET.total_max, "TRANSIENT_TOTAL_BUDGET_DRIFT");
   return {
     schema_version: "filmos.phase7.nested-process-derivation.v1",
-    evidence_standard: "PINNED_CODE_PLUS_READY_POST_ZERO_SURVIVORS_ACCEPTED",
-    minimal_path_resolution: {
-      python3: await resolveMinimalCommand("python3"),
-      git: await resolveMinimalCommand("git"),
-    },
-    files: Object.fromEntries(Object.entries(files).map(([name, value]) => [name, {
-      path: value.path,
-      sha256: value.sha256,
-      size: value.size,
-      mode: value.mode,
-    }])),
+    evidence_standard: "STATIC_SOURCE_DERIVATION_ONLY",
     runner_direct_invocations: RUNNER_DIRECT_TRANSIENT_ORDER.length,
     source_metadata_fingerprint_invocations: 1,
     source_fingerprint_git_invocations: 2 * fingerprintGitPerInvocation,

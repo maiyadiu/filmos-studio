@@ -5,6 +5,13 @@ description: 影策已实现功能的手工验证清单与未确认边界
 
 # 待测试
 
+## 源码基线整改
+
+- 普通 push/PR 切换到单独标识的 `SOURCE_VALIDATION`；App 全量验收保留为显式授权入口。远端行为须在获准推送后由实际新 CI 验证，不把本地修改写成已部署。
+- 真实宿主/生命周期测试现在需要显式真实数据测试授权；普通验证只运行临时数据与定向 Supervisor 测试。源码 smoke、单测、隔离 HTTP 与用户真实运行验收分开记载。
+- Review Bus Node 要求及缺少 SQLite authorizer 的失败关闭已补齐；不得由此自动启动历史封存或 external-read Runtime。
+- 后续 App 专属界面/安装验收仍等待用户允许成熟打包；下列历史 App 验证记录不构成当前自动打包授权。
+
 ## RC1 前 Agent 生命周期
 
 - [x] Browser OpenAI/DeepSeek/Local 会话按各自 Profile 完成 create/cancel/close，跨 Profile 操作失败关闭。

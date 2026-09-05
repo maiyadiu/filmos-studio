@@ -25,6 +25,10 @@ SOURCE_SCOPES = (
     "governance/FILMOS_CONSTITUTION.json",
     "web",
     "scripts/agent_runtime_profile.py",
+    "scripts/filmos-source-start",
+    "scripts/filmos-source-helper",
+    "scripts/source-runtime-metadata.mjs",
+    "源码启动.command",
 )
 
 

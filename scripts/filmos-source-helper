@@ -84,9 +84,9 @@ case "$helper_name" in
         exec "$bun_bin" run src/workbench-mcp.ts
         ;;
     FilmOSReviewBus)
-        bun_bin=$(tool bun /opt/homebrew/bin/bun)
+        node_bin=$(tool node /opt/homebrew/bin/node)
         cd "$source_root/services/filmos-review-bus"
-        exec "$bun_bin" run src/server.mjs
+        exec "$node_bin" src/server.mjs
         ;;
     FilmOSChatGPTMCP)
         bun_bin=$(tool bun /opt/homebrew/bin/bun)

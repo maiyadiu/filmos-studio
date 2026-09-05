@@ -1,6 +1,11 @@
 #!/bin/sh
 set -eu
 
+if [ "${1:-}" != "--authorize-user-data-test" ] || [ "$#" -ne 1 ]; then
+    echo "USER_DATA_TEST_AUTHORIZATION_REQUIRED: this test starts the real source host and accesses user databases; it is not ordinary source CI." >&2
+    exit 2
+fi
+
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 source_root=$(CDPATH= cd -- "$script_dir/.." && pwd)
 launcher="$script_dir/filmos-source-start"

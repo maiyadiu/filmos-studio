@@ -16,7 +16,7 @@ import { normalizeInstalledSubmission, normalizeStageASubmission, normalizeStage
 import { loadInstalledSourceIdentity } from "./installed-source-identity.mjs";
 import { buildLiveRoundtripTrace } from "./live-roundtrip-trace.mjs";
 import { ReviewBusService } from "./service.mjs";
-import { REVIEW_BUS_RUNTIME_MODE_ASSESSMENT_SEAL, REVIEW_BUS_RUNTIME_MODE_EXTERNAL_READ, REVIEW_BUS_RUNTIME_MODE_NORMAL, ReviewBusStore } from "./store.mjs";
+import { REVIEW_BUS_RUNTIME_MODE_ASSESSMENT_SEAL, REVIEW_BUS_RUNTIME_MODE_EXTERNAL_READ, REVIEW_BUS_RUNTIME_MODE_NORMAL, ReviewBusStore, assertExternalReadRuntimeCapability } from "./store.mjs";
 
 const DEFAULT_PORT = 17920;
 const DEFAULT_DIR = resolve(homedir(), "Library/Application Support/FilmOS Studio/review-bus");
@@ -971,6 +971,7 @@ export function startFromEnvironment(env = process.env, { assessmentSealTestOnly
     return startSealRuntime(env, sealRuntimeConfiguration(assessmentSealTestOnly));
   }
   if (runtimeMode === REVIEW_BUS_RUNTIME_MODE_EXTERNAL_READ) {
+    assertExternalReadRuntimeCapability();
     return startExternalReadRuntime(env, externalReadRuntimeConfiguration(externalReadTestOnly));
   }
 
