@@ -162,6 +162,11 @@ const AUDIT_ORDER = Object.freeze([
   "filmos_get_live_workbench_context",
   ...EXTERNAL_TOOL_ORDER,
 ]);
+export const WIDGET_PREBUILD_LINK_NAMES = Object.freeze([
+  "esbuild",
+  "@modelcontextprotocol",
+  "zod",
+]);
 export const RUNNER_DIRECT_TRANSIENT_ORDER = Object.freeze([
   "source-gate-before-branch",
   "source-gate-before-identity",
@@ -1156,11 +1161,14 @@ async function buildIsolatedMcp() {
   await rm(resolve(sourceBuild, "packages"), { recursive: true });
 
   await regularFile(HELPERS.esbuild.path, HELPERS.esbuild.sha256);
+  const sourceNodeModules = resolve(SOURCE_ROOT, "services/filmos-chatgpt-app/node_modules");
   const compileLinks = [];
-  compileLinks.push(await createExactLink(
-    resolve(chatSource, "node_modules/esbuild"),
-    resolve(SOURCE_ROOT, "services/filmos-chatgpt-app/node_modules/esbuild"),
-  ));
+  for (const name of WIDGET_PREBUILD_LINK_NAMES) {
+    compileLinks.push(await createExactLink(
+      resolve(chatSource, "node_modules", name),
+      resolve(sourceNodeModules, name),
+    ));
+  }
   await runAudited({
     label: "widget-generated-input",
     executable: EXECUTABLES.node.path,
@@ -1187,10 +1195,8 @@ async function buildIsolatedMcp() {
 
   const sourceLinks = [
     ["@filmos/tool-contracts", contractOutput],
-    ["@modelcontextprotocol", resolve(SOURCE_ROOT, "services/filmos-chatgpt-app/node_modules/@modelcontextprotocol")],
-    ["express", resolve(SOURCE_ROOT, "services/filmos-chatgpt-app/node_modules/express")],
-    ["zod", resolve(SOURCE_ROOT, "services/filmos-chatgpt-app/node_modules/zod")],
-    ["@types", resolve(SOURCE_ROOT, "services/filmos-chatgpt-app/node_modules/@types")],
+    ["express", resolve(sourceNodeModules, "express")],
+    ["@types", resolve(sourceNodeModules, "@types")],
   ];
   for (const [name, target] of sourceLinks) {
     compileLinks.push(await createExactLink(resolve(chatSource, "node_modules", name), target));

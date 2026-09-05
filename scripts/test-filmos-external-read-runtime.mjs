@@ -13,6 +13,7 @@ import {
   RUNNER_DIRECT_TRANSIENT_ORDER,
   SOURCE_ROOT,
   TRANSIENT_PROCESS_BUDGET,
+  WIDGET_PREBUILD_LINK_NAMES,
   assertProductionPreserved,
   assertReviewBusFailurePreserved,
   assertReviewBusHealth,
@@ -283,6 +284,47 @@ function transientRecords(parentPid = 4321) {
     }];
   });
 }
+
+test("isolated Widget prebuild links close ext-apps, SDK and zod before bundling", async () => {
+  assert.deepEqual(WIDGET_PREBUILD_LINK_NAMES, ["esbuild", "@modelcontextprotocol", "zod"]);
+
+  const runnerSource = await readFile(resolve(SOURCE_ROOT, "scripts/filmos-external-read-runtime.mjs"), "utf8");
+  const prebuildLoop = runnerSource.indexOf("for (const name of WIDGET_PREBUILD_LINK_NAMES)");
+  const widgetBuild = runnerSource.indexOf('label: "widget-generated-input"');
+  const postbuildLinks = runnerSource.indexOf("const sourceLinks = [", widgetBuild);
+  const linkCountGuard = runnerSource.indexOf("invariant(compileLinks.length === 6", postbuildLinks);
+  assert.ok(prebuildLoop >= 0 && prebuildLoop < widgetBuild);
+  assert.ok(widgetBuild < postbuildLinks && postbuildLinks < linkCountGuard);
+
+  const prebuildBlock = runnerSource.slice(prebuildLoop, widgetBuild);
+  assert.match(prebuildBlock, /resolve\(chatSource, "node_modules", name\)/);
+  assert.match(prebuildBlock, /resolve\(sourceNodeModules, name\)/);
+  const postbuildBlock = runnerSource.slice(postbuildLinks, linkCountGuard);
+  assert.match(postbuildBlock, /\["@filmos\/tool-contracts", contractOutput\]/);
+  assert.match(postbuildBlock, /\["express", resolve\(sourceNodeModules, "express"\)\]/);
+  assert.match(postbuildBlock, /\["@types", resolve\(sourceNodeModules, "@types"\)\]/);
+  assert.doesNotMatch(postbuildBlock, /"@modelcontextprotocol"|"zod"/);
+
+  const sourceNodeModules = resolve(SOURCE_ROOT, "services/filmos-chatgpt-app/node_modules");
+  const packageVersion = async (...segments) => JSON.parse(
+    await readFile(resolve(sourceNodeModules, ...segments, "package.json"), "utf8"),
+  ).version;
+  assert.equal(await packageVersion("esbuild"), "0.25.10");
+  assert.equal(await packageVersion("@modelcontextprotocol", "ext-apps"), "1.7.5");
+  assert.equal(await packageVersion("@modelcontextprotocol", "sdk"), "1.30.0");
+  assert.equal(await packageVersion("zod"), "3.25.76");
+  for (const path of ["v3/index.js", "v4/index.js", "v4-mini/index.js"]) {
+    assert.equal(await realpath(resolve(sourceNodeModules, "zod", path)), resolve(sourceNodeModules, "zod", path));
+  }
+
+  const widgetSource = await readFile(resolve(SOURCE_ROOT, "services/filmos-chatgpt-app/src/widget-runtime.ts"), "utf8");
+  const extAppsSource = await readFile(resolve(sourceNodeModules, "@modelcontextprotocol/ext-apps/dist/src/app.js"), "utf8");
+  const sdkTypesSource = await readFile(resolve(sourceNodeModules, "@modelcontextprotocol/sdk/dist/esm/types.js"), "utf8");
+  assert.match(widgetSource, /from "@modelcontextprotocol\/ext-apps"/);
+  assert.match(extAppsSource, /@modelcontextprotocol\/sdk\/shared\/protocol\.js/);
+  assert.match(extAppsSource, /from"zod\/v4"/);
+  assert.match(sdkTypesSource, /from 'zod\/v4'/);
+});
 
 test("canonical JSON and live receipt use stable sorted-key hashing", () => {
   assert.deepEqual(canonicalize({ z: 1, a: { y: 2, x: 3 }, list: [{ b: 2, a: 1 }] }), {
