@@ -1,10 +1,14 @@
 import type { CanvasAgentSnapshot } from "./canvas-agent-ops";
 import { CanvasNodeType } from "@/types/canvas";
+import { SHOT_IMAGE_SCHEMA, SHOT_IMAGE_MAX_BYTES, SHOT_IMAGE_TTL_MS, type ShotImageEvidence } from "../../../../packages/filmos-agent-contracts/src/shot-image";
+
+export type ShotImageSnapshot = Omit<ShotImageEvidence, "bytesBase64">;
 
 export type AgentCreativeResult =
     | { kind: "script"; projectId: string; unitId: string; revision: number }
     | { kind: "shots"; projectId: string; unitId: string }
-    | { kind: "prompt"; projectId: string; canvasId: string; nodeId: string; rowId: string; promptKind: "image" | "video"; revision: number; shotNumber: number };
+    | { kind: "prompt"; projectId: string; canvasId: string; nodeId: string; rowId: string; promptKind: "image" | "video"; revision: number; shotNumber: number }
+    | { kind: "shot-image"; evidence: ShotImageSnapshot; shotNumber: number };
 
 const record = (value: unknown): Record<string, unknown> => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 const text = (value: unknown): value is string => typeof value === "string" && Boolean(value.trim());
@@ -20,13 +24,38 @@ export function agentCreativeResult(item: { role: string; detail?: unknown }, sn
     let output = record(detail.result);
     if (output.isError === true) return null;
     if (Array.isArray(output.content)) {
-        // Native MCP history contains exactly one JSON text block for these tools.
-        if (output.content.length !== 1 || record(output.content[0]).type !== "text") return null;
+        // Only the image reader has a second, non-persisted pixel descriptor.
+        const imageResult = name === "project_read_shot_image" && output.content.length === 2
+            && record(output.content[1]).type === "image";
+        if ((!imageResult && output.content.length !== 1) || record(output.content[0]).type !== "text") return null;
         try { output = record(JSON.parse(String(record(output.content[0]).text))); } catch { return null; }
     }
     if (output.ok === false || output.isError === true) return null;
     const data = record(output.data), verification = record(data.verification);
     const inScope = (projectId: unknown, unitId: unknown) => projectId === snapshot.domainProjectId && text(unitId) && (!snapshot.contentUnitId || snapshot.contentUnitId === unitId);
+    if (name === "project_read_shot_image") {
+        const binding = record(output.binding), image = record(output.image), constraints = record(output.constraints), shot = record(constraints.shot);
+        const hex = (value: unknown) => typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
+        const captured = Date.parse(String(output.capturedAt)), expires = Date.parse(String(output.expiresAt));
+        if (output.schema !== SHOT_IMAGE_SCHEMA || !inScope(binding.projectId, binding.sourceUnitId) || binding.canvasId !== snapshot.projectId
+            || ![binding.nodeId, binding.imageNodeId, binding.resourceId, binding.shotId].every(text) || binding.rowId !== `project-shot:${binding.shotId}`
+            || ![binding.shotRevision, binding.sourceRevision].every(revision)
+            || ![binding.sourceHash, binding.canvasContentHash, binding.dependencyHash, image.sha256].every(hex)
+            || !Number.isFinite(Date.parse(String(binding.resourceUpdatedAt))) || typeof binding.resourceETag !== "string"
+            || !Number.isFinite(captured) || !Number.isFinite(expires) || expires <= captured || expires - captured > SHOT_IMAGE_TTL_MS
+            || !["image/png", "image/jpeg", "image/webp"].includes(String(image.mimeType))
+            || ![image.byteLength, image.width, image.height].every(revision) || Number(image.byteLength) > SHOT_IMAGE_MAX_BYTES
+            || Number(image.width) > 8192 || Number(image.height) > 8192 || Number(image.width) * Number(image.height) > 16_777_216
+            || typeof constraints.scriptText !== "string" || record(constraints.project).id !== binding.projectId || !Array.isArray(constraints.assets)
+            || !constraints.direction || Array.isArray(constraints.direction) || typeof constraints.direction !== "object"
+            || shot.id !== binding.shotId || shot.unitId !== binding.sourceUnitId || shot.projectId !== binding.projectId
+            || shot.revision !== binding.shotRevision || shot.sourceRevision !== binding.sourceRevision || shot.sourceHash !== binding.sourceHash
+            || !Number.isSafeInteger(shot.position) || Number(shot.position) < 0) return null;
+        // This is a historical reading, not a claim about today's row or QC state.
+        // Select metadata explicitly: raw transport bytes never enter this result.
+        const evidence = { schema: SHOT_IMAGE_SCHEMA, binding, image, constraints, capturedAt: output.capturedAt, expiresAt: output.expiresAt } as ShotImageSnapshot;
+        return { kind: "shot-image", evidence, shotNumber: Number(shot.position) + 1 };
+    }
     if (["project_revise_script", "project_get_script_revision", "project_get_script"].includes(String(name))) {
         if (name === "project_revise_script" && (output.ok !== true || verification.ok !== true || verification.persisted !== true)) return null;
         const source = record(name === "project_revise_script" ? data.after : name === "project_get_script_revision" ? output.revision : output.unit);

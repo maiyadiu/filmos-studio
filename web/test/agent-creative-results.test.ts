@@ -3,6 +3,7 @@ import { agentCreativeResult, creativeToolTargetSummary } from "../src/lib/canva
 import type { CanvasAgentSnapshot } from "../src/lib/canvas/canvas-agent-ops";
 import { CanvasNodeType } from "../src/types/canvas";
 import { createCanvasNode, createStoryboardRow } from "../src/lib/canvas/canvas-project-domain";
+import { SHOT_IMAGE_SCHEMA, type ShotImageEvidence } from "../../packages/filmos-agent-contracts/src/shot-image";
 
 function scope(): CanvasAgentSnapshot {
     const node = createCanvasNode(CanvasNodeType.Script, { x: 0, y: 0 });
@@ -18,6 +19,37 @@ function prompt() {
         dependencies: { project: { id: "p" }, source: { unitId: "u" }, shot: { id: "s", projectId: "p", unitId: "u", position: 0 } } };
     return { ok: true, data: { context, verification: { ok: true, persisted: true } } };
 }
+
+function imageReading(): ShotImageEvidence {
+    return { schema: SHOT_IMAGE_SCHEMA, capturedAt: "2026-09-06T09:00:00Z", expiresAt: "2026-09-06T09:05:00Z", bytesBase64: "never-copy-to-action",
+        binding: { projectId: "p", canvasId: "c", nodeId: "n", rowId: "project-shot:s", shotId: "s", shotRevision: 1, sourceUnitId: "u", sourceRevision: 1,
+            sourceHash: "a".repeat(64), imageNodeId: "old-image", resourceId: "old-resource", resourceUpdatedAt: "2026-09-06T08:00:00Z", resourceETag: "etag", canvasContentHash: "b".repeat(64), dependencyHash: "c".repeat(64) },
+        image: { mimeType: "image/png", sha256: "d".repeat(64), byteLength: 12, width: 64, height: 48 },
+        constraints: { scriptText: "<p>原稿</p>", project: { id: "p" }, shot: { id: "s", projectId: "p", unitId: "u", position: 0, revision: 1, sourceRevision: 1, sourceHash: "a".repeat(64) }, direction: {}, assets: [] } };
+}
+
+test("image result reopens pinned historical reading, not current replacement or expired live evidence", () => {
+    const evidence = imageReading(), s = scope();
+    s.nodes[0].metadata!.storyboard!.rows[0].imageNodeId = "new-image";
+    const result = agentCreativeResult(item("project_read_shot_image", evidence), s);
+    expect(result).toMatchObject({ kind: "shot-image", shotNumber: 1, evidence: { binding: { imageNodeId: "old-image", resourceId: "old-resource" } } });
+    expect(JSON.stringify(result)).not.toContain("never-copy-to-action");
+    const native = { content: [{ type: "text", text: JSON.stringify(evidence) }, { type: "image", mimeType: "image/png", pixelsOmittedFromHistory: true }] };
+    expect(agentCreativeResult(item("project_read_shot_image", native), s)).toEqual(result);
+    expect(agentCreativeResult(item("project_get_prompt", native), s)).toBeNull();
+});
+
+test("image feedback cannot turn malformed, cross-project or inconsistent identities into an action", () => {
+    const mutations = [
+        (e: ShotImageEvidence) => { e.binding.projectId = "foreign"; }, (e: ShotImageEvidence) => { e.binding.canvasId = "foreign"; },
+        (e: ShotImageEvidence) => { e.binding.sourceUnitId = "foreign"; }, (e: ShotImageEvidence) => { e.binding.rowId = "project-shot:other"; },
+        (e: ShotImageEvidence) => { e.image.sha256 = "path.png"; }, (e: ShotImageEvidence) => { e.image.mimeType = "image/svg+xml" as "image/png"; },
+        (e: ShotImageEvidence) => { e.image.width = 99999; }, (e: ShotImageEvidence) => { e.constraints.shot.sourceHash = "d".repeat(64); },
+        (e: ShotImageEvidence) => { e.expiresAt = "invalid"; }, (e: ShotImageEvidence) => { e.constraints.shot.position = -1; },
+    ];
+    for (const mutate of mutations) { const e = imageReading(); mutate(e); expect(agentCreativeResult(item("project_read_shot_image", e), scope())).toBeNull(); }
+    expect(agentCreativeResult({ role: "assistant", detail: { name: "project_read_shot_image", result: imageReading() } }, scope())).toBeNull();
+});
 
 test("verified script output opens exact historical revision and native MCP history uses the same path", () => {
     const output = { ok: true, data: { after: { projectId: "p", unitId: "u", revision: 2 }, verification: { ok: true, persisted: true } } };

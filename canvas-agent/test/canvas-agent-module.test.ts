@@ -262,6 +262,19 @@ test("Canvas tool bridge retains backend failures but never accepts invalid fail
                 return true;
             });
         }
+        for (const visualError of ["canvas_image_target_missing", "canvas_image_scope_mismatch", "canvas_image_stale", "canvas_image_unavailable", "canvas_image_invalid", "canvas_image_too_large", "unknown", true]) {
+            const pending = session.callTool("project_read_shot_image", { projectId: "fixture", nodeId: "n", rowId: "project-shot:s" });
+            const call = latestToolCall(events.writes());
+            session.resolveResult({ requestId: call.requestId, visualError, error: "SECRET details", result: { ok: true } });
+            await assert.rejects(pending, error => {
+                const failure = publicAgentRuntimeFailure(error);
+                if (typeof visualError === "string" && visualError.startsWith("canvas_image_")) {
+                    assert.equal(failure?.code, visualError);
+                    assert.doesNotMatch(failure!.message, /SECRET/);
+                } else assert.equal(failure, undefined);
+                return true;
+            });
+        }
         for (const localConflict of ["canvas_local_prompt_conflict", "unknown", true]) {
             const pending = session.callTool("canvas_apply_ops", { ops: [] });
             const call = latestToolCall(events.writes());

@@ -1,5 +1,6 @@
 export const AGENT_CONTRACT_SCHEMA_VERSION = "1" as const;
 export { CanvasToolApiError, canvasToolApiError, CanvasPromptConflictError } from "./canvas-tool-error.js";
+export * from "./shot-image.js";
 
 export type BrainProvider =
     | "openai.codex"

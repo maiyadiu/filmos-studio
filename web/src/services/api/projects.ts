@@ -256,8 +256,8 @@ export function createProjectUnit(projectId: string, input: { kind: string; titl
     return request<{ unit: ProjectUnit }>(api.post(`/projects/${encodeURIComponent(projectId)}/units`, input));
 }
 
-export function getProjectUnit(projectId: string, unitId: string) {
-    return request<{ unit: ProjectUnit }>(api.get(`/projects/${encodeURIComponent(projectId)}/units/${encodeURIComponent(unitId)}`));
+export function getProjectUnit(projectId: string, unitId: string, signal?: AbortSignal) {
+    return request<{ unit: ProjectUnit }>(api.get(`/projects/${encodeURIComponent(projectId)}/units/${encodeURIComponent(unitId)}`, { signal }));
 }
 
 export function importProjectUnits(projectId: string, units: Array<{ kind: string; title: string; sourceText?: string }>) {

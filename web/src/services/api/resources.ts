@@ -107,7 +107,9 @@ export async function importResourceFromUrl(url: string, kind: "image" | "video"
     return data.resource;
 }
 
-export function getResource(id: string): Promise<RemoteResource> {
+export function getResource(id: string, options?: { fresh?: boolean; signal?: AbortSignal }): Promise<RemoteResource> {
+    // Evidence reads must not reuse the display cache or its in-flight request.
+    if (options?.fresh || options?.signal) return request<{ resource: RemoteResource }>(api.get(`/resources/${encodeURIComponent(id)}`, { signal: options.signal })).then(data => data.resource);
     const cacheKey = resourceCacheKey(id);
     const cached = resourceCache.get(cacheKey);
     if (cached) return Promise.resolve(cached);
@@ -162,12 +164,31 @@ export function resolveResourceUrl(storageKey?: string, fallback = "") {
     return id ? resourceFileUrl(id) : fallback;
 }
 
-export async function getResourceBlob(storageKey: string) {
+export async function getResourceBlob(storageKey: string, options?: { signal?: AbortSignal; maxBytes?: number }) {
     const id = resourceIdFromStorageKey(storageKey);
     if (!id) return null;
     const url = resourceProxyFileUrl(id);
-    const response = await fetch(url, { credentials: isResourceUrl(url) ? "include" : "same-origin" });
+    const response = await fetch(url, { credentials: isResourceUrl(url) ? "include" : "same-origin", signal: options?.signal, ...(options ? { cache: "no-store" as const } : {}) });
     if (!response.ok) return null;
+    if (options?.maxBytes !== undefined) {
+        const limit = options.maxBytes;
+        if (!Number.isSafeInteger(limit) || limit < 1) throw new RangeError("RESOURCE_BYTE_LIMIT_INVALID");
+        if (Number(response.headers.get("content-length")) > limit) { await response.body?.cancel(); throw new RangeError("RESOURCE_BYTE_LIMIT_EXCEEDED"); }
+        const reader = response.body?.getReader();
+        if (!reader) return null;
+        const chunks: Uint8Array<ArrayBuffer>[] = [];
+        let length = 0;
+        try {
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                length += value.byteLength;
+                if (length > limit) { await reader.cancel(); throw new RangeError("RESOURCE_BYTE_LIMIT_EXCEEDED"); }
+                chunks.push(new Uint8Array(value));
+            }
+        } finally { reader.releaseLock(); }
+        return new Blob(chunks, { type: response.headers.get("content-type") || "" });
+    }
     return response.blob();
 }
 

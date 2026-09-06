@@ -1,3 +1,4 @@
+import { summarizeShotImageMcpResult } from "@filmos/agent-contracts";
 import type {
     AgentEventSink,
     AgentHistoryMessage,
@@ -279,7 +280,7 @@ function normalizedEmit(sessionId: string, turnId: string, sink: AgentEventSink)
                     sessionId,
                     toolName,
                     outcome: failed ? "failed" : "succeeded",
-                    ...(item.result !== undefined ? { output: item.result } : {}),
+                    ...(item.result !== undefined ? { output: toolName === "project_read_shot_image" ? summarizeShotImageMcpResult(item.result) : item.result } : {}),
                     ...(failed ? { errorCode: "CODEX_MCP_TOOL_FAILED", errorMessage: String(record(item.error).message || item.error || "MCP tool failed") } : {}),
                     completedAt: now,
                 },
@@ -336,7 +337,8 @@ export function codexThreadHistory(thread: unknown): AgentHistoryMessage[] {
             if (type === "mcpToolCall") {
                 const tool = String(field(item, "tool") || "工具调用");
                 const error = field(field(item, "error"), "message");
-                messages.push({ id, role: error ? "error" : "tool", title: tool, text: error ? String(error) : `${tool} ${String(field(item, "status") || "完成")}`, detail: item, source: "provider" });
+                const detail = tool === "project_read_shot_image" ? { ...record(item), result: summarizeShotImageMcpResult(field(item, "result")) } : item;
+                messages.push({ id, role: error ? "error" : "tool", title: tool, text: error ? String(error) : `${tool} ${String(field(item, "status") || "完成")}`, detail, source: "provider" });
             }
             if (type === "commandExecution") {
                 const command = String(field(item, "command") || "").trim();

@@ -63,6 +63,7 @@ export const toolNames = [
     "project_get_shot_revisions",
     "project_sync_storyboard",
     "project_get_prompt",
+    "project_read_shot_image",
     "project_save_prompt",
     "project_get_prompt_revision",
     "project_get_prompt_request",
@@ -175,6 +176,7 @@ export const toolInputSchemas = {
     project_get_context: z.object({ projectId: projectIdSchema }),
     project_get_script: z.object({ projectId: projectIdSchema, unitId: z.string().min(1) }),
     project_get_prompt: z.object(projectPromptTarget).strict(),
+    project_read_shot_image: z.object({ projectId: projectIdSchema, canvasId: z.string().min(1).optional(), nodeId: z.string().min(1), rowId: z.string().startsWith("project-shot:"), expectedImageHash: z.string().regex(/^[a-f0-9]{64}$/).optional() }).strict(),
     project_save_prompt: z.object({ ...projectPromptTarget, requestId: z.string().min(1).max(100), expectedRevision: z.number().int().min(0), expectedContentHash: z.string().regex(/^[0-9a-f]{64}$/), dependencyHash: z.string().regex(/^[0-9a-f]{64}$/), prompt: z.string().min(1).max(65536) }).strict(),
     project_get_prompt_revision: z.object({ ...projectPromptTarget, revision: z.number().int().min(0) }).strict(),
     project_get_prompt_request: z.object({ ...projectPromptTarget, requestId: z.string().min(1).max(100) }).strict(),
@@ -196,6 +198,7 @@ export const toolInputSchemas = {
 } satisfies Record<ToolName, z.AnyZodObject>;
 
 export const toolDescriptions: Record<ToolName, string> = {
+    project_read_shot_image: "读取当前授权画布指定业务镜头的已保存图片，返回真实MCP图片内容及图片SHA256、资源版本、镜头/完整剧本和场景约束。先读工作台/分镜取得真实script nodeId、project-shot:镜头ID rowId，不猜ID、不接受文件路径或URL；需要复核同一原图时携带expectedImageHash。缺图、旧来源、错项目、读取期间手改、过期或无法解码会明确失败；没有image内容不得声称看见。binding只证明当前行引用，不证明图片生成时的来源。反馈须分开观察事实、引用约束、判断、置信度/未知和建议，并标明本次binding及图像哈希；看不清应说明，审美偏好不是客观违规。此工具不保存诊断/修改图片、不生成、不做QC批准。",
     canvas_get_state: "读取当前网页画布的节点、连线、选区和视口。",
     canvas_get_context: "读取面向 Agent 的语义化画布上下文：节点用途、连接关系、选区、资源引用、生成状态和状态哈希。优先于直接猜测节点 metadata。",
     canvas_find_nodes: "按标题、内容、提示词、类型、状态、资产或工作流检索真实节点，返回可用于后续写操作的节点 id。",

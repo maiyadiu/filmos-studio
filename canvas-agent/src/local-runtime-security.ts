@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { CanvasToolApiError, CanvasPromptConflictError } from "@filmos/agent-contracts";
+import { CanvasToolApiError, CanvasPromptConflictError, ShotImageReadError } from "@filmos/agent-contracts";
 
 import type { NextFunction, Request, RequestHandler, Response } from "express";
 
@@ -229,6 +229,7 @@ export function runtimeErrorHandler(
 }
 
 export function publicAgentRuntimeFailure(error: unknown) {
+    if (error instanceof ShotImageReadError) return new LocalRuntimeSessionError(error.code, error.message, error.statusCode);
     if (error instanceof CanvasToolApiError) return new LocalRuntimeSessionError(error.code, error.message, error.statusCode);
     if (error instanceof CanvasPromptConflictError) return new LocalRuntimeSessionError(error.code, error.message, 409);
     if (!(error instanceof Error)) return undefined;

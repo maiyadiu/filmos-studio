@@ -24,6 +24,7 @@ import {
     type AgentThreadSummary,
 } from "@/stores/canvas/use-canvas-agent-store";
 import { canvasAgentPostconditionMessage, hashCanvasAgentSnapshot, previewCanvasAgentOps, summarizeCanvasAgentOps, verifyCanvasAgentOps, type CanvasAgentOp, type CanvasAgentSnapshot } from "@/lib/canvas/canvas-agent-ops";
+import { summarizeShotImage } from "../../../../packages/filmos-agent-contracts/src/shot-image";
 import { buildCanvasAgentContext, findCanvasAgentNodes, getCanvasAgentConnection, getCanvasAgentGenerationTasks, getCanvasAgentNode, getCanvasAgentResources, validateCanvasAgentOps } from "@/lib/canvas/canvas-agent-context";
 import { buildCanvasResourceReferences } from "@/lib/canvas/canvas-resource-references";
 import { canvasToolFailure } from "@/lib/canvas/canvas-tool-failure";
@@ -712,7 +713,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
                                     });
                                 })()
                             : projectToolName
-                              ? await runProjectAgentTool(projectToolName, input, snapshotRef.current.domainProjectId, snapshotRef.current.projectId)
+                              ? await runProjectAgentTool(projectToolName, input, snapshotRef.current.domainProjectId, snapshotRef.current.projectId, () => snapshotRef.current)
                               : snapshotRef.current;
             await postToolResult(clientIdRef.current, { requestId: payload.requestId, result });
             if (payload.name === "canvas_apply_ops") syncState(clientIdRef.current, (result as { snapshot?: CanvasAgentSnapshot }).snapshot || snapshotRef.current);
@@ -720,12 +721,13 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
             const unverified = toolResult?.ok === false || toolResult?.data?.verification?.ok === false;
             const outcomeTitle = `${toolName(payload.name)}${unverified ? "结果待核对" : "完成"}`;
             setAgentState({ activity: unverified ? "结果待核对" : "工具完成", waiting: true });
-            addEventLog(outcomeTitle, result, result);
+            const displayResult = payload.name === "project_read_shot_image" ? summarizeShotImage(result) : result;
+            addEventLog(outcomeTitle, displayResult, displayResult);
             addMessage({
                 role: "tool",
                 title: outcomeTitle,
                 text: unverified ? toolResult?.message || "工具返回结果尚未通过核验；请回读，不要重复写入" : payload.name === "canvas_apply_ops" ? (result as { message?: string }).message || summarizeCanvasAgentOps((input.ops || []) as CanvasAgentOp[]) || "画布操作" : payload.name === "project_revise_script" ? (result as { message: string }).message : "已完成",
-                detail: { requestId: payload.requestId, name: payload.name, input, result },
+                detail: { requestId: payload.requestId, name: payload.name, input, result: displayResult },
             });
         } catch (error) {
             const message = error instanceof Error ? error.message : "画布操作失败";
@@ -1091,7 +1093,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
                                 item={agentMessageToChatMessage(item)}
                                 theme={theme}
                                 user={user}
-                                resultAction={result ? <AgentCreativeResultAction key={JSON.stringify(result)} result={result} /> : undefined}
+                                resultAction={result ? <AgentCreativeResultAction key={JSON.stringify(result)} result={result} current={() => snapshotRef.current} /> : undefined}
                                 isStreaming={(sending || waiting) && item.id === messages.at(-1)?.id && item.role === "assistant"}
                                 onQuickAction={(text) => void sendPrompt(text)}
                                 onOpenChatGPT={() => window.open("https://chatgpt.com/", "_blank", "noopener,noreferrer")}
@@ -1442,7 +1444,7 @@ function AgentHistoryView({
     );
 }
 
-async function postToolResult(clientId: string, body: { requestId: string; result?: unknown; error?: string; backendStatus?: number; localConflict?: string }) {
+async function postToolResult(clientId: string, body: { requestId: string; result?: unknown; error?: string; backendStatus?: number; localConflict?: string; visualError?: string }) {
     const response = await getLocalRuntimeSessionClient().request(`/canvas/result?clientId=${encodeURIComponent(clientId)}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
     if (!response.ok) throw new Error("Canvas Agent 工具结果写回失败");
 }
@@ -1621,6 +1623,7 @@ function toolName(name: string) {
     if (name === "project_get_shots") return "读取分镜与脚本来源";
     if (name === "project_sync_storyboard") return "同步分镜到当前画布并核验";
     if (name === "project_get_prompt") return "读取镜头提示词与来源";
+    if (name === "project_read_shot_image") return "读取镜头图片像素与来源";
     if (name === "project_save_prompt") return "保存并核验镜头提示词";
     if (name === "project_get_prompt_revision") return "回读提示词历史版本";
     if (name === "project_get_prompt_request") return "核对提示词原请求";

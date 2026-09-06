@@ -11,6 +11,7 @@ const readCanvasTools = new Set([
     "project_get_script", "project_get_script_revision",
     "project_get_shots", "project_get_shot_batch", "project_get_shot_revisions",
     "project_get_prompt", "project_get_prompt_revision", "project_get_prompt_request",
+    "project_read_shot_image",
 ]);
 const draftCanvasTools = new Set(["canvas_validate_ops"]);
 const paidCanvasTools = new Set([

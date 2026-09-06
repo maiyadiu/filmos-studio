@@ -2,6 +2,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { canonicalMcpTools } from "@filmos/agent-tool-contracts/mcp-tools";
 import { z } from "zod";
+import { shotImageMcpContent } from "./shot-image-content.js";
+import { ShotImageReadError } from "@filmos/agent-contracts";
 
 import { AGENT_PROMPT, loadConfig, type CanvasAgentConfig, VERSION } from "./config.js";
 import type { AgentToolRisk, AgentToolSurfaceId } from "./brains/contracts.js";
@@ -105,6 +107,13 @@ function registerCanvasTool(server: McpServer, config: CanvasAgentConfig, name: 
         annotations: contract.annotations,
     }, async (input: unknown) => {
         const result = await postCanvasAgentTool(config, name, schema.parse(input));
+        if (name === "project_read_shot_image") {
+            try { return await shotImageMcpContent(result, Date.now(), toolInputSchemas.project_read_shot_image.parse(input)); }
+            catch (error) {
+                if (error instanceof ShotImageReadError) throw new Error(`${error.code}: ${error.message}`);
+                throw error;
+            }
+        }
         return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
     });
 }

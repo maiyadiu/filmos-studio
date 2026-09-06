@@ -4360,6 +4360,46 @@ export const canonicalMcpTools = [
     }
   },
   {
+    "name": "project_read_shot_image",
+    "description": "读取当前授权画布指定业务镜头的已保存图片，返回真实MCP图片内容及图片SHA256、资源版本、镜头/完整剧本和场景约束。先读工作台/分镜取得真实script nodeId、project-shot:镜头ID rowId，不猜ID、不接受文件路径或URL；需要复核同一原图时携带expectedImageHash。缺图、旧来源、错项目、读取期间手改、过期或无法解码会明确失败；没有image内容不得声称看见。binding只证明当前行引用，不证明图片生成时的来源。反馈须分开观察事实、引用约束、判断、置信度/未知和建议，并标明本次binding及图像哈希；看不清应说明，审美偏好不是客观违规。此工具不保存诊断/修改图片、不生成、不做QC批准。",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "canvasId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "expectedImageHash": {
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
+        },
+        "nodeId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "projectId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "rowId": {
+          "pattern": "^project\\-shot\\:",
+          "type": "string"
+        }
+      },
+      "required": [
+        "nodeId",
+        "rowId"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
     "name": "project_register_task_output",
     "description": "将成功生成任务挂到流程步骤，并登记到具体资产版本和资源表示。",
     "inputSchema": {

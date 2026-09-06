@@ -14,12 +14,14 @@ import { projectScriptToolNames, runProjectScriptTool, type ProjectScriptToolNam
 import { projectShotToolNames, runProjectShotTool, type ProjectShotToolName } from "./project-shot-tools";
 import { projectPromptToolNames, runProjectPromptTool, type ProjectPromptToolName } from "./project-prompt-tools";
 import { runProjectStoryboardTool } from "./project-storyboard-tools";
+import type { CanvasAgentSnapshot } from "@/lib/canvas/canvas-agent-ops";
 
 export const projectAgentToolNames = [
     ...projectScriptToolNames,
     ...projectShotToolNames,
     ...projectPromptToolNames,
     "project_sync_storyboard",
+    "project_read_shot_image",
     "project_get_context",
     "project_list_units",
     "project_extract_asset_candidates",
@@ -38,12 +40,17 @@ export function isProjectAgentToolName(value: string): value is ProjectAgentTool
 }
 
 export function isProjectAgentReadTool(value: string) {
+    if (value === "project_read_shot_image") return true;
     if ((projectPromptToolNames as readonly string[]).includes(value)) return value !== "project_save_prompt";
     return value === "project_get_context" || value === "project_list_units" || value === "project_get_script" || value === "project_get_script_revision" || value === "project_get_shots" || value === "project_get_shot_batch" || value === "project_get_shot_revisions";
 }
 
-export async function runProjectAgentTool(name: ProjectAgentToolName, rawInput: Record<string, unknown>, fallbackProjectId?: string, boundCanvasId?: string) {
+export async function runProjectAgentTool(name: ProjectAgentToolName, rawInput: Record<string, unknown>, fallbackProjectId?: string, boundCanvasId?: string, currentCanvas?: () => CanvasAgentSnapshot) {
     if (!fallbackProjectId || (rawInput.projectId !== undefined && rawInput.projectId !== fallbackProjectId)) throw new Error("项目工具必须绑定当前授权项目");
+    if (name === "project_read_shot_image") {
+        if (!currentCanvas) throw new Error("图片工具缺少当前画布，不读取历史快照作为当前来源");
+        return (await import("./project-shot-image")).readProjectShotImage(rawInput, fallbackProjectId, boundCanvasId, currentCanvas);
+    }
     if ((projectScriptToolNames as readonly string[]).includes(name)) return runProjectScriptTool(name as ProjectScriptToolName, rawInput, fallbackProjectId || "");
     if ((projectShotToolNames as readonly string[]).includes(name)) return runProjectShotTool(name as ProjectShotToolName, rawInput, fallbackProjectId);
     if ((projectPromptToolNames as readonly string[]).includes(name)) return runProjectPromptTool(name as ProjectPromptToolName, rawInput, fallbackProjectId, boundCanvasId);

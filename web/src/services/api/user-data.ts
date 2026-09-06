@@ -42,8 +42,8 @@ export function listRemoteCanvasProjects() {
     return request<{ projects: RemoteUserDataSummary[] }>(api.get("/canvas-projects"));
 }
 
-export function getRemoteCanvasProject(id: string) {
-    return request<{ project: CanvasProject; contentHash: string }>(api.get(`/canvas-projects/${encodeURIComponent(id)}`));
+export function getRemoteCanvasProject(id: string, signal?: AbortSignal) {
+    return request<{ project: CanvasProject; contentHash: string }>(api.get(`/canvas-projects/${encodeURIComponent(id)}`, { signal }));
 }
 
 export function upsertRemoteCanvasProject(project: CanvasProject, expectedContentHash?: string) {

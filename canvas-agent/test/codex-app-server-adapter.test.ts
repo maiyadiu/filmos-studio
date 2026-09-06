@@ -211,6 +211,22 @@ test("Codex resume history is reconstructed from the real provider thread payloa
     ]);
 });
 
+test("pixel tool keeps descriptors but not duplicate image bytes in events or resumed UI history", async () => {
+    const result = { content: [{ type: "text", text: '{"image":{"sha256":"fixture-hash"}}' }, { type: "image", mimeType: "image/png", data: "fixture-pixels-never-store-twice" }] };
+    const fake = fakeClient(async binding => { binding.emit("agent_event", { type: "item.completed", item: { id: "image-call", type: "mcp_tool_call", tool: "project_read_shot_image", status: "completed", result } }); });
+    const adapter = new CodexSubscriptionAdapter({ client: async () => fake } as never, () => "/tmp/fixture", () => ({}));
+    const patch = await adapter.createSession(sessionInput(), grant);
+    const events: NormalizedBrainEvent[] = [];
+    await adapter.sendTurn(turnInput({ ...session(), ...patch }), async event => { events.push(event); });
+    const history = codexThreadHistory({ turns: [{ items: [{ id: "image-call", type: "mcpToolCall", tool: "project_read_shot_image", status: "completed", result }] }] });
+    for (const output of [events, history]) {
+        assert.doesNotMatch(JSON.stringify(output), /fixture-pixels-never-store-twice/);
+        assert.match(JSON.stringify(output), /fixture-hash/);
+        assert.match(JSON.stringify(output), /pixelsOmittedFromHistory/);
+    }
+    assert.equal(result.content[1].data, "fixture-pixels-never-store-twice");
+});
+
 test("native plan, exact deltas and completed messages retain identity through normalized events and history", async () => {
     const text = "## 原稿\n\n哈哈\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n";
     const fake = fakeClient(async binding => {

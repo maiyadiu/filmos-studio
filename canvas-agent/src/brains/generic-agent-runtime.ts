@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import path from "node:path";
+import { summarizeShotImage } from "@filmos/agent-contracts";
 
 import { CONFIG_DIR, ensureCanvasWorkspace, type LocalRuntimeConfig } from "../config.js";
 import { codexConfig, codexProcessManager } from "../agents.js";
@@ -443,7 +444,8 @@ export class GenericAgentRuntime {
             this.emit("agent_event", { type: "confirmation.required", sessionId, turnId, confirmation: outcome.confirmation, at });
             return;
         }
-        this.emit("agent_event", { type: "tool.completed", sessionId, turnId, result: outcome.result, at });
+        const result = outcome.result.toolName === "project_read_shot_image" ? { ...outcome.result, output: summarizeShotImage(outcome.result.output) } : outcome.result;
+        this.emit("agent_event", { type: "tool.completed", sessionId, turnId, result, at });
     }
 
     async dispose() {

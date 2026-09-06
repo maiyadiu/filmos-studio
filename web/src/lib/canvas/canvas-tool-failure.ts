@@ -1,8 +1,9 @@
-import { canvasToolApiError, CanvasPromptConflictError } from "../../../../packages/filmos-agent-contracts/src/index";
+import { canvasToolApiError, CanvasPromptConflictError, ShotImageReadError } from "../../../../packages/filmos-agent-contracts/src/index";
 import { ApiError } from "../../services/api/request";
 import { CanvasPromptSaveError } from "../../services/api/canvas-prompts";
 
-export function canvasToolFailure(error: unknown): { error: string; backendStatus?: number; localConflict?: string } {
+export function canvasToolFailure(error: unknown): { error: string; backendStatus?: number; localConflict?: string; visualError?: string } {
+    if (error instanceof ShotImageReadError) return { error: error.message, visualError: error.code };
     const apiError = error instanceof CanvasPromptSaveError && (error.cause instanceof ApiError || error.cause instanceof CanvasPromptConflictError) ? error.cause : error;
     if (apiError instanceof CanvasPromptConflictError) return { error: apiError.message, localConflict: apiError.code };
     if (apiError instanceof ApiError) {
