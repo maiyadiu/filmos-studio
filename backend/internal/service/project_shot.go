@@ -6,20 +6,18 @@ import (
 	"time"
 
 	"infinite-canvas/backend/internal/model"
+	"infinite-canvas/backend/internal/repository"
 )
 
 type CreateProjectShotRequest struct {
-	ID          string `json:"id"`
-	UnitID      string `json:"unitId"`
-	Title       string `json:"title"`
-	Description string `json:"description"`
-	Position    int    `json:"position"`
-	DurationMs  int64  `json:"durationMs"`
-	Status      string `json:"status"`
-}
-
-type ReplaceProjectUnitShotsRequest struct {
-	Shots []CreateProjectShotRequest `json:"shots"`
+	ID               string `json:"id"`
+	UnitID           string `json:"unitId"`
+	Title            string `json:"title"`
+	Description      string `json:"description"`
+	Position         int    `json:"position"`
+	DurationMs       int64  `json:"durationMs"`
+	Status           string `json:"status"`
+	ExpectedRevision int64  `json:"expectedRevision"`
 }
 
 type LinkShotAssetRequest struct {
@@ -60,8 +58,12 @@ func (s *Service) CreateProjectShot(userID string, projectID string, req CreateP
 	shotID := strings.TrimSpace(req.ID)
 	create := shotID == ""
 	status := strings.TrimSpace(req.Status)
+	var original model.Shot
 	if create {
 		shotID = newID()
+		if req.ExpectedRevision != 0 {
+			return model.Shot{}, BadAuthRequest("新镜头版本必须为0")
+		}
 		if status == "" {
 			status = "draft"
 		}
@@ -73,47 +75,20 @@ func (s *Service) CreateProjectShot(userID string, projectID string, req CreateP
 		if status == "" {
 			status = existing.Status
 		}
+		if req.ExpectedRevision < 1 || req.ExpectedRevision != existing.Revision || (unitID != "" && unitID != existing.UnitID) {
+			return model.Shot{}, shotWriteError(repository.ErrShotRevisionConflict)
+		}
+		unitID = existing.UnitID
+		original = *existing
 		now = existing.CreatedAt
 	}
 	if !validShotStatus(status) {
 		return model.Shot{}, BadAuthRequest("不支持的镜头状态")
 	}
 	shot := model.Shot{ID: shotID, ProjectID: projectID, UnitID: unitID, Title: title, Description: strings.TrimSpace(req.Description), Position: req.Position, DurationMs: req.DurationMs, Status: status, CreatedAt: now, UpdatedAt: time.Now()}
-	if err := s.repo.SaveShot(&shot, create); err != nil {
-		return model.Shot{}, err
-	}
-	if err := s.repo.BumpProjectRevision(projectID); err != nil {
-		return model.Shot{}, err
-	}
-	return shot, nil
-}
-
-func (s *Service) ReplaceProjectUnitShots(userID string, projectID string, unitID string, req ReplaceProjectUnitShotsRequest) ([]model.Shot, error) {
-	if _, err := s.repo.ProjectForUser(userID, projectID); err != nil {
-		return nil, err
-	}
-	unitID = strings.TrimSpace(unitID)
-	if _, err := s.repo.ProjectUnit(projectID, unitID); err != nil {
-		return nil, err
-	}
-	if len(req.Shots) == 0 || len(req.Shots) > 200 {
-		return nil, BadAuthRequest("章节分镜数量必须在 1 到 200 之间")
-	}
-	now := time.Now()
-	shots := make([]model.Shot, 0, len(req.Shots))
-	for position, input := range req.Shots {
-		title := strings.TrimSpace(input.Title)
-		description := strings.TrimSpace(input.Description)
-		if title == "" || description == "" || input.DurationMs < 0 {
-			return nil, BadAuthRequest("分镜标题、描述或时长无效")
-		}
-		shots = append(shots, model.Shot{ID: newID(), ProjectID: projectID, UnitID: unitID, Title: title, Description: description, Position: position, DurationMs: input.DurationMs, Status: "draft", CreatedAt: now, UpdatedAt: now})
-	}
-	// 章节级重生成是一个整体写操作，旧镜头与引用必须和新镜头在同一事务中替换。
-	if err := s.repo.ReplaceProjectUnitShots(projectID, unitID, shots); err != nil {
-		return nil, err
-	}
-	return shots, nil
+	shot.Content, shot.SourceRevision, shot.SourceHash = original.Content, original.SourceRevision, original.SourceHash
+	saved, err := s.repo.SaveShotVersion(repository.ShotWrite{Shot: shot, ExpectedRevision: req.ExpectedRevision}, userID)
+	return saved, shotWriteError(err)
 }
 
 func validShotStatus(status string) bool {

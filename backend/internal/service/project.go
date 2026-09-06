@@ -312,6 +312,9 @@ func (s *Service) DeleteProject(userID string, id string) error {
 		return BadAuthRequest("项目仍有进行中的生成任务，请等待任务完成或取消后再删除")
 	}
 	if err := s.repo.DeleteProject(userID, id, canvasUpdates); err != nil {
+		if errors.Is(err, model.ErrCanvasPromptConflict) {
+			return WrapAppError(409, "画布在解除项目关系前发生变化，请刷新后重试", err)
+		}
 		if errors.Is(err, repository.ErrProjectHasActiveTasks) {
 			return BadAuthRequest("项目仍有进行中的生成任务，请等待任务完成或取消后再删除")
 		}
@@ -462,6 +465,9 @@ func (s *Service) LinkCanvasUnit(userID string, projectID string, req LinkCanvas
 		return model.CanvasUnitLink{}, BadAuthRequest("production 关联只能通过专用的 Human 确认与并发守卫端点创建")
 	}
 	if err := s.repo.AssignCanvasToProject(userID, canvasID, projectID); err != nil {
+		if errors.Is(err, model.ErrCanvasPromptConflict) {
+			return model.CanvasUnitLink{}, WrapAppError(409, "画布包含已绑定提示词，不能直接改挂到其他项目", err)
+		}
 		return model.CanvasUnitLink{}, err
 	}
 	now := time.Now()
@@ -513,16 +519,20 @@ func (s *Service) UnlinkCanvasProject(userID string, projectID string, canvasID 
 		return err
 	}
 	// 关系列、同步快照和更新时间必须原子更新，否则浏览器会用旧 projectId 把关系重新写回。
-	return s.repo.UnassignCanvasFromProject(userID, projectID, canvas.ID, payloadJSON, now)
+	err = s.repo.UnassignCanvasFromProject(userID, projectID, canvas.ID, payloadJSON, now)
+	if errors.Is(err, model.ErrCanvasPromptConflict) {
+		return WrapAppError(409, "画布在解除项目关系前发生变化，请刷新后重试", err)
+	}
+	return err
 }
 
 func canvasPayloadWithoutProject(payloadJSON string, updatedAt time.Time) (string, error) {
-	var payload map[string]any
-	if err := json.Unmarshal([]byte(payloadJSON), &payload); err != nil {
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(payloadJSON), &payload); err != nil || payload == nil {
 		return "", BadAuthRequest("画布数据格式错误，无法解除项目关系")
 	}
 	delete(payload, "projectId")
-	payload["updatedAt"] = updatedAt.Format(time.RFC3339Nano)
+	payload["updatedAt"], _ = json.Marshal(updatedAt.Format(time.RFC3339Nano))
 	next, err := json.Marshal(payload)
 	if err != nil {
 		return "", err

@@ -988,18 +988,25 @@ func (r *Repository) CanvasProjectForUser(userID string, id string) (*model.Canv
 	return &project, nil
 }
 
-func (r *Repository) UpsertCanvasProject(project *model.CanvasProject) error {
-	result := r.db.Model(&model.CanvasProject{}).
-		Where("id = ? AND user_id = ?", project.ID, project.UserID).
-		Updates(map[string]any{"project_id": project.ProjectID, "title": project.Title, "payload_json": project.PayloadJSON, "updated_at": project.UpdatedAt})
-	if result.Error != nil || result.RowsAffected > 0 {
-		return result.Error
+func (r *Repository) UpsertCanvasProject(project *model.CanvasProject, expectedContentHash ...*string) error {
+	var expected *string
+	if len(expectedContentHash) > 0 {
+		expected = expectedContentHash[0]
 	}
-	return r.db.Create(project).Error
+	return r.upsertCanvasProjectPreservingPrompts(project, expected)
 }
 
 func (r *Repository) DeleteCanvasProject(userID string, id string) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
+		var current model.CanvasProject
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ? AND user_id = ?", id, userID).First(&current).Error; err != nil {
+			return err
+		}
+		for _, history := range []any{&model.CanvasPromptRevision{}, &model.CanvasPromptReceipt{}} {
+			if err := tx.Where("user_id = ? AND canvas_id = ?", userID, id).Delete(history).Error; err != nil {
+				return err
+			}
+		}
 		if err := tx.Where("user_id = ? AND project_id = ?", userID, id).Delete(&model.CanvasShare{}).Error; err != nil {
 			return err
 		}
@@ -1087,8 +1094,15 @@ func (r *Repository) DeleteProject(userID string, id string, canvasUpdates []mod
 			return err
 		}
 		for _, canvas := range canvasUpdates {
+			var current model.CanvasProject
+			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ? AND user_id = ? AND project_id = ?", canvas.ID, userID, id).First(&current).Error; err != nil {
+				return err
+			}
+			if err := validateCanvasDetachment(current.PayloadJSON, canvas.PayloadJSON); err != nil {
+				return err
+			}
 			result := tx.Model(&model.CanvasProject{}).
-				Where("id = ? AND user_id = ? AND project_id = ?", canvas.ID, userID, id).
+				Where("id = ? AND user_id = ? AND project_id = ? AND payload_json = ?", canvas.ID, userID, id, current.PayloadJSON).
 				Updates(map[string]any{"project_id": "", "payload_json": canvas.PayloadJSON, "updated_at": canvas.UpdatedAt})
 			if result.Error != nil {
 				return result.Error
@@ -1110,6 +1124,11 @@ func (r *Repository) DeleteProject(userID string, id string, canvasUpdates []mod
 		}
 		if err := tx.Where("project_id = ?", id).Delete(&model.Shot{}).Error; err != nil {
 			return err
+		}
+		for _, history := range []any{&model.ShotRevision{}, &model.ShotBatchReceipt{}} {
+			if err := tx.Where("project_id = ?", id).Delete(history).Error; err != nil {
+				return err
+			}
 		}
 		instanceIDs := tx.Model(&model.WorkflowInstance{}).Select("id").Where("project_id = ?", id)
 		stepIDs := tx.Model(&model.WorkflowStepInstance{}).Select("id").Where("workflow_instance_id IN (?)", instanceIDs)
@@ -1159,7 +1178,7 @@ func (r *Repository) ProjectUnits(projectID string) ([]model.ProjectUnit, error)
 
 func (r *Repository) ProjectUnitSummaries(projectID string) ([]model.ProjectUnit, error) {
 	var units []model.ProjectUnit
-	err := r.db.Select("id", "project_id", "kind", "title", "status", "revision", "position", "created_at", "updated_at").Where("project_id = ?", projectID).Order("position asc, created_at asc").Find(&units).Error
+	err := r.db.Select("id", "project_id", "kind", "title", "status", "revision", "shot_revision", "position", "created_at", "updated_at").Where("project_id = ?", projectID).Order("position asc, created_at asc").Find(&units).Error
 	return units, err
 }
 
@@ -1221,6 +1240,11 @@ func (r *Repository) DeleteProjectUnit(projectID string, id string) error {
 		}
 		if err := tx.Where("project_id = ? AND unit_id = ?", projectID, id).Delete(&model.Shot{}).Error; err != nil {
 			return err
+		}
+		for _, history := range []any{&model.ShotRevision{}, &model.ShotBatchReceipt{}} {
+			if err := tx.Where("project_id = ? AND unit_id = ?", projectID, id).Delete(history).Error; err != nil {
+				return err
+			}
 		}
 		instanceIDs := tx.Model(&model.WorkflowInstance{}).Select("id").Where("project_id = ? AND unit_id = ?", projectID, id)
 		stepIDs := tx.Model(&model.WorkflowStepInstance{}).Select("id").Where("workflow_instance_id IN (?)", instanceIDs)
@@ -1298,18 +1322,34 @@ func (r *Repository) DeleteCanvasUnitLink(projectID string, canvasID string, uni
 }
 
 func (r *Repository) AssignCanvasToProject(userID string, canvasID string, projectID string) error {
-	return r.db.Model(&model.CanvasProject{}).Where("id = ? AND user_id = ?", canvasID, userID).Update("project_id", projectID).Error
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		var canvas model.CanvasProject
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ? AND user_id = ?", canvasID, userID).First(&canvas).Error; err != nil {
+			return err
+		}
+		if err := model.ValidateCanvasPromptProjectAssignment([]byte(canvas.PayloadJSON), projectID); err != nil {
+			return err
+		}
+		return tx.Model(&model.CanvasProject{}).Where("id = ? AND user_id = ?", canvasID, userID).Update("project_id", projectID).Error
+	})
 }
 
 func (r *Repository) UnassignCanvasFromProject(userID string, projectID string, canvasID string, payloadJSON string, updatedAt time.Time) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
+		var current model.CanvasProject
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ? AND user_id = ? AND project_id = ?", canvasID, userID, projectID).First(&current).Error; err != nil {
+			return err
+		}
+		if err := validateCanvasDetachment(current.PayloadJSON, payloadJSON); err != nil {
+			return err
+		}
 		if err := tx.Where("project_id = ? AND canvas_id = ?", projectID, canvasID).Delete(&model.CanvasUnitLink{}).Error; err != nil {
 			return err
 		}
 		if err := tx.Where("project_id = ? AND canvas_id = ?", projectID, canvasID).Delete(&model.ProductionCanvasGuard{}).Error; err != nil {
 			return err
 		}
-		result := tx.Model(&model.CanvasProject{}).Where("id = ? AND user_id = ? AND project_id = ?", canvasID, userID, projectID).Updates(map[string]any{
+		result := tx.Model(&model.CanvasProject{}).Where("id = ? AND user_id = ? AND project_id = ? AND payload_json = ?", canvasID, userID, projectID, current.PayloadJSON).Updates(map[string]any{
 			"project_id": "", "payload_json": payloadJSON, "updated_at": updatedAt,
 		})
 		if result.Error != nil {
@@ -1556,33 +1596,10 @@ func (r *Repository) ProjectShots(projectID string) ([]model.Shot, error) {
 	return shots, err
 }
 
-func (r *Repository) SaveShot(shot *model.Shot, create bool) error {
-	if create {
-		return r.db.Create(shot).Error
-	}
-	return r.db.Model(&model.Shot{}).Where("id = ? AND project_id = ?", shot.ID, shot.ProjectID).Updates(map[string]any{
-		"unit_id": shot.UnitID, "title": shot.Title, "description": shot.Description, "position": shot.Position,
-		"duration_ms": shot.DurationMs, "status": shot.Status, "updated_at": shot.UpdatedAt,
-	}).Error
-}
-
-func (r *Repository) ReplaceProjectUnitShots(projectID string, unitID string, shots []model.Shot) error {
-	return r.db.Transaction(func(tx *gorm.DB) error {
-		shotIDs := tx.Model(&model.Shot{}).Select("id").Where("project_id = ? AND unit_id = ?", projectID, unitID)
-		if err := tx.Where("shot_id IN (?)", shotIDs).Delete(&model.ShotAssetReference{}).Error; err != nil {
-			return err
-		}
-		if err := tx.Where("project_id = ? AND shot_id IN (?)", projectID, shotIDs).Delete(&model.ProjectAssetCandidate{}).Error; err != nil {
-			return err
-		}
-		if err := tx.Where("project_id = ? AND unit_id = ?", projectID, unitID).Delete(&model.Shot{}).Error; err != nil {
-			return err
-		}
-		if err := tx.Create(&shots).Error; err != nil {
-			return err
-		}
-		return tx.Model(&model.Project{}).Where("id = ?", projectID).Updates(map[string]any{"revision": gorm.Expr("revision + 1"), "updated_at": time.Now()}).Error
-	})
+func (r *Repository) ProjectUnitShots(projectID, unitID string) ([]model.Shot, error) {
+	shots := []model.Shot{}
+	err := r.db.Where("project_id = ? AND unit_id = ?", projectID, unitID).Order("position asc, id asc").Find(&shots).Error
+	return shots, err
 }
 
 func (r *Repository) ShotForProject(projectID string, shotID string) (*model.Shot, error) {
@@ -1828,6 +1845,36 @@ func (r *Repository) DeleteCanvasShare(userID string, projectID string) error {
 
 func (r *Repository) ReplaceCanvasProjects(userID string, projects []model.CanvasProject) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
+		var current []model.CanvasProject
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("user_id = ?", userID).Order("id").Find(&current).Error; err != nil {
+			return err
+		}
+		oldByID := make(map[string]model.CanvasProject, len(current))
+		for _, item := range current {
+			oldByID[item.ID] = item
+		}
+		seen := make(map[string]bool, len(projects))
+		for _, item := range projects {
+			if item.UserID != userID || seen[item.ID] {
+				return model.ErrCanvasPromptConflict
+			}
+			seen[item.ID] = true
+			before := `{"nodes":[]}`
+			if old, ok := oldByID[item.ID]; ok {
+				before = old.PayloadJSON
+				delete(oldByID, item.ID)
+			}
+			if err := model.ValidateCanvasPromptPreservation([]byte(before), []byte(item.PayloadJSON)); err != nil {
+				return err
+			}
+		}
+		// Bulk synchronization is not explicit permission to erase prompts that
+		// were saved by another client. Use the existing canvas-delete endpoint.
+		for _, item := range oldByID {
+			if err := model.ValidateCanvasPromptPreservation([]byte(item.PayloadJSON), []byte(`{"nodes":[]}`)); err != nil {
+				return err
+			}
+		}
 		if err := tx.Delete(&model.CanvasProject{}, "user_id = ?", userID).Error; err != nil {
 			return err
 		}

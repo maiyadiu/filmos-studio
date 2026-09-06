@@ -690,17 +690,56 @@ func RegisterProjectRoutes(r *gin.RouterGroup, svc *service.Service) {
 			return
 		}
 		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 2<<20)
-		var req service.ReplaceProjectUnitShotsRequest
+		var req service.SaveProjectUnitShotsRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
 			fail(c, http.StatusBadRequest, err)
 			return
 		}
-		shots, err := svc.ReplaceProjectUnitShots(user.ID, c.Param("id"), c.Param("unitId"), req)
+		result, err := svc.SaveProjectUnitShots(user.ID, c.Param("id"), c.Param("unitId"), req)
 		if err != nil {
 			failService(c, err)
 			return
 		}
-		ok(c, gin.H{"shots": shots})
+		ok(c, result)
+	})
+	r.GET("/projects/:id/units/:unitId/shots", func(c *gin.Context) {
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		result, err := svc.GetProjectShotContext(user.ID, c.Param("id"), c.Param("unitId"))
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, result)
+	})
+	r.GET("/projects/:id/units/:unitId/shot-batches/:requestId", func(c *gin.Context) {
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		result, err := svc.GetProjectShotBatch(user.ID, c.Param("id"), c.Param("unitId"), c.Param("requestId"))
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, gin.H{"receipt": result})
+	})
+	r.GET("/projects/:id/shots/:shotId/revisions", func(c *gin.Context) {
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		result, err := svc.GetProjectShotRevisions(user.ID, c.Param("id"), c.Param("shotId"))
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, gin.H{"revisions": result})
 	})
 	r.POST("/projects/:id/shots/:shotId/assets", func(c *gin.Context) {
 		user, err := currentUser(c, svc)

@@ -20,6 +20,56 @@ description: 影策后端核心持久化表与状态边界
 
 这是日常章节编辑历史，不是 Film Core 的正式 `ScriptVersion` 审阅/批准/锁定，也不生成 Candidate、Consensus 或图片。Agent 工具成功后再次读取精确修订和当前章节，比对项目、版本、正文与哈希；保存响应和回读不一致时不报告完成。
 
+## 业务分镜与批次回执
+
+`shots` 继续作为业务镜头的唯一权威，画布 `project-shot:<id>` 是展示映射。新增 `revision`（旧镜头迁移为1）、`source_revision`（未绑定为0）、`source_hash` 与 JSON `content`；后者保存来源段落引用、场景、角色名、精确对白、动作和镜头要求。旧镜头内容与ID不变，不凭空补来源；当前脚本版本或哈希不同的镜头标记过期。段落ID只在指定章节、脚本修订号和哈希内有效，不是跨版本不变的场景ID。
+
+- `project_units.shot_revision`：章节分镜集合版本，初始0；批量与普通单镜头写入都递增，用于冲突检测。
+- `shot_revisions`：同库追加镜头快照、修订号、内容SHA-256、请求/操作者/时间；已有镜头首次修改补存原版本。
+- `shot_batch_receipts`：同库保存章节/requestId唯一键、请求哈希、脚本来源、`source_paragraph_ids`编辑范围、集合版本及本批镜头快照。相同请求重发返回原回执；不同内容复用requestId返回409。
+
+接口均检查登录与项目归属：
+
+- `GET /api/projects/:id/units/:unitId/shots`：完整来源正文、版本/哈希、段落及可识别的`dialogue`、当前镜头、过期镜头ID和`coverage`。
+- `PUT /api/projects/:id/units/:unitId/shots`：要求requestId、expectedShotRevision、sourceRevision/sourceHash、sourceParagraphIds和1–100个结构化镜头，正文上限2 MiB。修改必须给原镜头id/expectedRevision；新镜头不传id且expectedRevision=0。**不再删除或全章替换**，未传镜头及原素材引用/候选保持不变。
+- `GET /api/projects/:id/units/:unitId/shot-batches/:requestId`：精确批次回执，供丢失响应后恢复，不代表当前版本。
+- `GET /api/projects/:id/shots/:shotId/revisions`：镜头修订历史。
+- 原 `POST /api/projects/:id/shots`：同一事务版本路径，修改要求expectedRevision；保留已有结构化内容和脚本来源，不允许靠省略unitId移动镜头。
+
+整批先校验来源、条目及归属，再以章节来源/集合版本CAS提交；镜头、历史、回执、项目版本任一失败全部回滚。同章节位置不可重复，批次不改变已完成章节或镜头。回执从事务内实际落库行生成，包含数据库处理后的时间精度，不能用内存拟写对象冒充已存版本。普通手工写入亦守护章节状态与集合版本。项目/章节删除沿既有事务清理所属历史和回执。
+
+`sourceParagraphIds`明确本批编辑覆盖范围：全章任务传全部段落，局部任务不能缩小原镜头已覆盖的范围来丢失对白。引用合并须完整覆盖范围内原文，结构化对白的说话人、文字（含空白）、顺序须完全一致；允许一句对白跨连续镜头分配，不要求逐句切镜。与未修改的新鲜镜头合并核验，禁止颠倒相邻原对白。解析保留原文用于引用，排除场景/动作等已知标签并支持说话人的括注及外层Markdown格式；不是任意格式的通用剧本解析器。`coverage.chapterComplete`仅表示原文引用与已识别对白覆盖，不证明动作可见性、空间因果或导演质量。前端详细对白对照复用既有保真比较；规模超过阈值时仅跳过高开销细节比较，不截断原文或绕过后端保存验证。
+
+Agent保存后经共享API回读批次与当前镜头，逐字段比较来源、ID、版本及内容；若后来已有修改，回传`persisted=true, matchesCurrent=false`，不宣称旧请求是当前验收结果。网络失败不能改用新requestId盲建镜头。本合同不自动批准/锁定Film Core对象，不生成图片；完整对白/场景覆盖和真实创作质量单独验收，基础来源引用校验不等于语义完整性证明。
+
+## 单画布同步版本
+
+原 `GET /api/canvas-projects/:id` 返回 `project` 和服务端持久 JSON 的 `contentHash`；聚合 `GET /api/user-data/snapshot` 同时返回 `projectContentHashes`，不额外逐条读取。原 `PUT /api/canvas-projects/:id` 接受可选 `expectedContentHash`：非空必须匹配当前内容，空串仅允许创建不存在的画布；缺失沿用原调用合同。成功摘要返回实际保存的 `contentHash`。版本冲突是 HTTP 409 和非零业务码；不覆盖原数据。无需新增数据库字段或表。
+
+浏览器同步必须使用服务端提供的版本，不自行推算或以空值兜底覆盖。单画布分镜同步与原生导入复用同一队列和映射，不保存其他脏画布/素材，不上传本地媒体。保存后精确回读，安全应用本地节点后才确认同步基线，防止后续自动保存撤销已保存的 Agent 结果。章节关联与画布保存是两个既有事务，回执分别标明保存、本地应用、关联、来源复核结果；部分完成不伪称整体成功，也不自动回滚覆盖。
+
+提示词读取的 `canvasUpdatedAt` 来自该次数据库快照内的画布 JSON。提示词保存会在同一事务更新此时间；前端校验预期画布时使用该已读时间，而不是旧保存时间或浏览器本机时间，其余字段仍逐项严格比较。连续保存图像/视频草稿后，普通画布编辑继续使用最新服务端 CAS 版本。
+
+## 日常分镜提示词（接入中）
+
+当前正文仍在 `canvas_projects.payload_json` 的原生分镜行 `imageGenerationPrompt` / `videoMotionPrompt`，不另设可编辑的“当前提示词库”。`promptDrafts.image|video` 只记录修订号、正文 SHA-256 和依赖 SHA-256；编译回执不是保存回执，也不是生成结果或 Film Core 正式审批。
+
+- `canvas_prompt_revisions`：同库追加画布/节点/行/类型/修订号唯一快照、完整文本、来源依赖、哈希、requestId、用户与时间。第一次保存补记原文本为 revision 0，依赖为 null，明确旧文本没有可证明的创作来源；迁移本身不改旧画布、不伪造历史。
+- `canvas_prompt_receipts`：画布/requestId 唯一，保存请求哈希和已存修订快照。同请求同内容复用原回执，不同内容返回409；旧请求回执不冒充当前版本。
+
+登录态接口（全部检查画布归属）：
+
+- `GET /api/canvas-projects/:id/prompt-drafts?projectId=…&nodeId=…&rowId=…&kind=image|video`：同一数据库快照读取当前正文、版本、来源、过期和不可写原因。`dependencies.guidance` 复用原生首帧/视频模板与用户定制编译器；完整镜头文字不走生成侧的截短 helper。模板、定制内容及身份纳入依赖哈希，变化时旧稿过期，历史不补写。没有实际模型能力绑定时仅是创作指导，不代表模型适配完成。
+- `POST /api/canvas-projects/:id/prompt-drafts`：要求上述定位、requestId、expectedRevision、expectedContentHash、dependencyHash 与 prompt。正文1–64 KiB、依赖最多1 MiB，沿用画布写限流、数据大小和存储配额校验。
+- `GET …/prompt-drafts/history?nodeId=…&rowId=…&kind=…`：最近50版元数据，不加载全文；`GET …/history/:revision` 精确读取包括0版在内的已存历史。
+- `GET …/prompt-drafts/requests/:requestId`：丢失响应后的原请求回读。历史读取不依赖来源素材仍然存在，避免上游删除后无法找回旧草稿。
+
+写入在同一事务重新核验项目、章节关联、稳定业务镜头、当前脚本/镜头版本以及有效画布导演字段。原生手工机位等调整以 `localOverrides` 明示，与业务镜头并列保留，不静默改写业务事实。绑定的角色/素材版本从真实项目关联和所属用户读取；固定版本与当前主版本分别解析，资源记录校验用户和元数据。`visualVerified=false` 明确这里只证明引用/版本，未读取像素、不证明构图正确。来源或素材改变后旧草稿标记过期；过期镜头/画布映射禁止新写，已完成对象不通过此入口修改。
+
+当前字段、追加历史和请求回执一起提交或回滚，最终画布JSON使用CAS；数据库并发忙/序列化冲突返回409，先按原requestId回读，不盲造新请求。普通整画布PUT和整批同步不得改写已有管理版本。原生删除行/节点必须携带最近一次提示词写入的 `promptWriteToken`，旧画布不能删除新稿，单独抹掉仍存在行的版本元数据也被拒绝；被删除行的历史保留。显式解除项目关联要求画布快照没有变化并保留提示词；不能直接把管理中的提示词画布改挂到另一项目。显式删除整个画布时，在原事务清理该用户该画布的提示词历史/回执，不触及其他画布。
+
+目前已接通后端服务/API及隔离测试，原生编辑器、Agent工具与真实自然语言端到端仍在M3实施，不能把后端测试通过写成整项功能交付。PostgreSQL运行验证和完整源码CI另列后续验收，不由SQLite测试代替。
+
 ## Production Canvas
 
 | 表 | 用途 | 关键边界 |

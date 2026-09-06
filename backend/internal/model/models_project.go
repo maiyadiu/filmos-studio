@@ -181,17 +181,18 @@ type StyleProfile struct {
 }
 
 type ProjectUnit struct {
-	ID         string            `json:"id" gorm:"primaryKey;size:36"`
-	ProjectID  string            `json:"projectId" gorm:"index;size:36"`
-	ParentID   string            `json:"parentId,omitempty" gorm:"index;size:36"`
-	Kind       ProjectUnitKind   `json:"kind" gorm:"index;size:24"`
-	Title      string            `json:"title" gorm:"size:240"`
-	SourceText string            `json:"sourceText" gorm:"type:text"`
-	Revision   int64             `json:"revision" gorm:"not null;default:1"`
-	Status     ProjectUnitStatus `json:"status" gorm:"index;size:24"`
-	Position   int               `json:"position"`
-	CreatedAt  time.Time         `json:"createdAt"`
-	UpdatedAt  time.Time         `json:"updatedAt"`
+	ID           string            `json:"id" gorm:"primaryKey;size:36"`
+	ProjectID    string            `json:"projectId" gorm:"index;size:36"`
+	ParentID     string            `json:"parentId,omitempty" gorm:"index;size:36"`
+	Kind         ProjectUnitKind   `json:"kind" gorm:"index;size:24"`
+	Title        string            `json:"title" gorm:"size:240"`
+	SourceText   string            `json:"sourceText" gorm:"type:text"`
+	Revision     int64             `json:"revision" gorm:"not null;default:1"`
+	ShotRevision int64             `json:"shotRevision" gorm:"not null;default:0"`
+	Status       ProjectUnitStatus `json:"status" gorm:"index;size:24"`
+	Position     int               `json:"position"`
+	CreatedAt    time.Time         `json:"createdAt"`
+	UpdatedAt    time.Time         `json:"updatedAt"`
 }
 
 type CanvasUnitLink struct {
@@ -219,16 +220,20 @@ type ProductionCanvasGuard struct {
 }
 
 type Shot struct {
-	ID          string    `json:"id" gorm:"primaryKey;size:36"`
-	ProjectID   string    `json:"projectId" gorm:"index;size:36"`
-	UnitID      string    `json:"unitId" gorm:"index;size:36"`
-	Title       string    `json:"title" gorm:"size:240"`
-	Description string    `json:"description" gorm:"type:text"`
-	Position    int       `json:"position"`
-	DurationMs  int64     `json:"durationMs"`
-	Status      string    `json:"status" gorm:"index;size:24"`
-	CreatedAt   time.Time `json:"createdAt"`
-	UpdatedAt   time.Time `json:"updatedAt"`
+	ID             string      `json:"id" gorm:"primaryKey;size:36"`
+	ProjectID      string      `json:"projectId" gorm:"index;size:36"`
+	UnitID         string      `json:"unitId" gorm:"index;size:36"`
+	Title          string      `json:"title" gorm:"size:240"`
+	Description    string      `json:"description" gorm:"type:text"`
+	Position       int         `json:"position"`
+	DurationMs     int64       `json:"durationMs"`
+	Status         string      `json:"status" gorm:"index;size:24"`
+	Revision       int64       `json:"revision" gorm:"not null;default:1"`
+	SourceRevision int64       `json:"sourceRevision" gorm:"not null;default:0"`
+	SourceHash     string      `json:"sourceHash" gorm:"size:64"`
+	Content        ShotContent `json:"content" gorm:"serializer:json;type:text"`
+	CreatedAt      time.Time   `json:"createdAt"`
+	UpdatedAt      time.Time   `json:"updatedAt"`
 }
 
 type ShotAssetReference struct {

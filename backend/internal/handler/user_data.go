@@ -16,6 +16,7 @@ import (
 )
 
 func RegisterUserDataRoutes(r *gin.RouterGroup, svc *service.Service) {
+	registerCanvasPromptRoutes(r, svc)
 	r.GET("/settings/prompt-templates", func(c *gin.Context) {
 		user, err := currentUser(c, svc)
 		if err != nil {
@@ -422,7 +423,7 @@ func RegisterUserDataRoutes(r *gin.RouterGroup, svc *service.Service) {
 			fail(c, http.StatusNotFound, err)
 			return
 		}
-		ok(c, gin.H{"project": project})
+		ok(c, gin.H{"project": project, "contentHash": model.CanvasContentHash(project)})
 	})
 	r.PUT("/canvas-projects/:id", func(c *gin.Context) {
 		user, err := currentUser(c, svc)
@@ -436,7 +437,8 @@ func RegisterUserDataRoutes(r *gin.RouterGroup, svc *service.Service) {
 		}
 		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 5<<20)
 		var req struct {
-			Project json.RawMessage `json:"project"`
+			Project             json.RawMessage `json:"project"`
+			ExpectedContentHash *string         `json:"expectedContentHash"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
 			fail(c, http.StatusBadRequest, err)
@@ -449,7 +451,7 @@ func RegisterUserDataRoutes(r *gin.RouterGroup, svc *service.Service) {
 			fail(c, http.StatusBadRequest, service.BadAuthRequest("画布 ID 与请求路径不一致"))
 			return
 		}
-		project, err := svc.UpsertUserCanvasProject(user.ID, req.Project)
+		project, err := svc.UpsertUserCanvasProject(user.ID, req.Project, req.ExpectedContentHash)
 		if err != nil {
 			failService(c, err)
 			return

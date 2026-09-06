@@ -1,6 +1,7 @@
 package service
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -21,18 +22,20 @@ type CanvasProjectsSyncRequest struct {
 }
 
 type UserDataSummary struct {
-	ID        string    `json:"id"`
-	Kind      string    `json:"kind,omitempty"`
-	Category  string    `json:"category,omitempty"`
-	Status    string    `json:"status,omitempty"`
-	Title     string    `json:"title"`
-	CreatedAt time.Time `json:"createdAt"`
-	UpdatedAt time.Time `json:"updatedAt"`
+	ID          string    `json:"id"`
+	Kind        string    `json:"kind,omitempty"`
+	Category    string    `json:"category,omitempty"`
+	Status      string    `json:"status,omitempty"`
+	Title       string    `json:"title"`
+	CreatedAt   time.Time `json:"createdAt"`
+	UpdatedAt   time.Time `json:"updatedAt"`
+	ContentHash string    `json:"contentHash,omitempty"`
 }
 
 type UserDataSnapshot struct {
-	Assets   []json.RawMessage `json:"assets"`
-	Projects []json.RawMessage `json:"projects"`
+	Assets               []json.RawMessage `json:"assets"`
+	Projects             []json.RawMessage `json:"projects"`
+	ProjectContentHashes map[string]string `json:"projectContentHashes"`
 }
 
 func (s *Service) UserDataSnapshot(userID string) (UserDataSnapshot, error) {
@@ -44,7 +47,17 @@ func (s *Service) UserDataSnapshot(userID string) (UserDataSnapshot, error) {
 	if err != nil {
 		return UserDataSnapshot{}, err
 	}
-	return UserDataSnapshot{Assets: assets, Projects: projects}, nil
+	hashes := make(map[string]string, len(projects))
+	for _, raw := range projects {
+		var identity struct {
+			ID string `json:"id"`
+		}
+		if err := json.Unmarshal(raw, &identity); err != nil || identity.ID == "" {
+			return UserDataSnapshot{}, errors.New("invalid persisted canvas identity")
+		}
+		hashes[identity.ID] = model.CanvasContentHash(raw)
+	}
+	return UserDataSnapshot{Assets: assets, Projects: projects, ProjectContentHashes: hashes}, nil
 }
 
 func (s *Service) UserAssetSummaries(userID string) ([]UserDataSummary, error) {
@@ -189,7 +202,17 @@ func (s *Service) UserCanvasProject(userID string, id string) (json.RawMessage, 
 	return json.RawMessage(project.PayloadJSON), nil
 }
 
-func (s *Service) UpsertUserCanvasProject(userID string, raw json.RawMessage) (UserDataSummary, error) {
+func (s *Service) UpsertUserCanvasProject(userID string, raw json.RawMessage, expectedContentHash ...*string) (UserDataSummary, error) {
+	var expected *string
+	if len(expectedContentHash) > 0 {
+		expected = expectedContentHash[0]
+	}
+	if expected != nil && *expected != "" {
+		decoded, err := hex.DecodeString(*expected)
+		if err != nil || len(decoded) != 32 || strings.ToLower(*expected) != *expected {
+			return UserDataSummary{}, BadAuthRequest("expectedContentHash 必须来自画布读取结果；空值只允许创建新画布")
+		}
+	}
 	project, err := canvasProjectFromJSON(userID, raw)
 	if err != nil {
 		return UserDataSummary{}, err
@@ -215,13 +238,19 @@ func (s *Service) UpsertUserCanvasProject(userID string, raw json.RawMessage) (U
 	if err := validateStructuredStorageQuotaWithPolicy(usage, "canvas", errors.Is(existingErr, gorm.ErrRecordNotFound), int64(len(raw))-existingBytes, policy.Resource); err != nil {
 		return UserDataSummary{}, err
 	}
-	if err := s.repo.UpsertCanvasProject(&project); err != nil {
+	if err := s.repo.UpsertCanvasProject(&project, expected); err != nil {
+		if errors.Is(err, model.ErrCanvasContentConflict) {
+			return UserDataSummary{}, WrapAppError(409, "画布内容已变化，未覆盖；请回读当前画布后重新核对", err)
+		}
+		if errors.Is(err, model.ErrCanvasPromptConflict) {
+			return UserDataSummary{}, WrapAppError(409, "提示词已有保存版本，旧画布不能覆盖；请回读最新提示词后再同步", err)
+		}
 		return UserDataSummary{}, err
 	}
 	if existingErr != nil || existing.PayloadJSON != project.PayloadJSON || existing.Title != project.Title {
 		s.recordActivity(userID, "canvas", 1)
 	}
-	return UserDataSummary{ID: project.ID, Title: project.Title, CreatedAt: project.CreatedAt, UpdatedAt: project.UpdatedAt}, nil
+	return UserDataSummary{ID: project.ID, Title: project.Title, CreatedAt: project.CreatedAt, UpdatedAt: project.UpdatedAt, ContentHash: model.CanvasContentHash([]byte(project.PayloadJSON))}, nil
 }
 
 func (s *Service) DeleteUserCanvasProject(userID string, id string) error {
@@ -253,6 +282,9 @@ func (s *Service) ReplaceUserCanvasProjects(userID string, req CanvasProjectsSyn
 		return nil, err
 	}
 	if err := s.repo.ReplaceCanvasProjects(userID, projects); err != nil {
+		if errors.Is(err, model.ErrCanvasPromptConflict) {
+			return nil, WrapAppError(409, "整批同步包含过期提示词；请回读最新画布后重试", err)
+		}
 		return nil, err
 	}
 	if len(projects) > 0 {
