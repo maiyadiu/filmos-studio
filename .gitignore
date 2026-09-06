@@ -41,6 +41,7 @@ assets/prototypes/.*.drawio.bkp
 .claude/settings.local.json
 .cursor/
 .playwright-mcp/
+/.playwright-cli/
 /output/playwright/
 /services/filmos-chatgpt-app/generated/widget-runtime.ts
 .serena/

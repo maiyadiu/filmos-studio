@@ -29,6 +29,7 @@ def test_source_suite_has_real_diff_and_fixture_contracts_without_app_or_user_da
         "architecture-current-diff", "review-bus-governance", "external-read-runner-contract",
         "known-dependency-security", "portrait-image-compatibility",
         "project-script-persistence", "project-script-tools", "project-script-broker",
+        "creative-agent-build", "creative-persistence-contracts", "creative-browser-contracts",
     } <= ids
     assert not {"desktop-release-build", "desktop-runtime", "desktop-review-vertical-canary"} & ids
     for check in checks:
@@ -36,6 +37,22 @@ def test_source_suite_has_real_diff_and_fixture_contracts_without_app_or_user_da
         assert "install-local-app" not in command
         assert "test-filmos-source-host" not in command
         assert "test-filmos-source-lifecycle" not in command
+
+
+def test_creative_source_checks_cover_native_contracts_without_live_provider_fixtures() -> None:
+    checks = {check.check_id: check for check in runner.selected_checks("source")}
+    browser = checks["creative-browser-contracts"].command
+    assert {"test/canvas-prompts.test.ts", "test/canvas-sync-baseline.test.ts", "test/ai-message-markdown.test.tsx",
+            "test/agent-session-observation.test.ts", "test/canvas-agent-workflow.test.ts"} <= set(browser)
+    broker = checks["project-script-broker"].command
+    assert {"test/agent-session-grant-recovery.test.ts", "test/codex-app-server-adapter.test.ts",
+            "test/local-runtime-public-error.test.ts", "test/project-prompt-contract.test.ts"} <= set(broker)
+    persistence = checks["creative-persistence-contracts"].command
+    assert {"./internal/model", "./internal/repository", "./internal/service", "./internal/handler"} <= set(persistence)
+    for command in (browser, broker, persistence):
+        assert "creative-agent-fixture" not in " ".join(command)
+        assert "FILMOS_SCRIPT_BROWSER_FIXTURE" not in " ".join(command)
+        assert "TestProjectScriptBrowserFixture" not in " ".join(command)
 
 
 @pytest.mark.parametrize("entry", ["scripts/test-filmos-source-host", "scripts/test-filmos-source-lifecycle", "acceptance/run_all"])
