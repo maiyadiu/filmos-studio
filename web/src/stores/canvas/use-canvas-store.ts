@@ -12,6 +12,8 @@ import type { TimelineProject } from "@/types/timeline";
 
 export type CanvasProject = {
     id: string;
+    /** Version guard for native row deletion; not an authentication credential. */
+    promptWriteToken?: string;
     projectId?: string;
     title: string;
     createdAt: string;
@@ -36,7 +38,7 @@ type CanvasStore = {
     renameProject: (id: string, title: string) => void;
     deleteProjects: (ids: string[]) => void;
     replaceProjects: (projects: CanvasProject[]) => void;
-    updateProject: (id: string, patch: Partial<Pick<CanvasProject, "projectId" | "nodes" | "connections" | "chatSessions" | "activeChatId" | "backgroundMode" | "showImageInfo" | "viewport" | "directorScenes" | "timeline">>) => void;
+    updateProject: (id: string, patch: Partial<Pick<CanvasProject, "projectId" | "promptWriteToken" | "nodes" | "connections" | "chatSessions" | "activeChatId" | "backgroundMode" | "showImageInfo" | "viewport" | "directorScenes" | "timeline">>) => void;
 };
 
 const initialViewport: ViewportTransform = { x: 0, y: 0, k: 1 };
@@ -444,7 +446,9 @@ export const useCanvasStore = create<CanvasStore>()(
                     title: source.title || "导入画布",
                     createdAt: source.createdAt || now,
                     updatedAt: now,
-                    nodes: source.nodes || [],
+                    // Imported text is a copy, not proof of history in this new
+                    // canvas. Keep content/bindings but drop foreign revisions.
+                    nodes: (source.nodes || []).map(node => !node.metadata?.storyboard ? node : { ...node, metadata: { ...node.metadata, storyboard: { ...node.metadata.storyboard, rows: node.metadata.storyboard.rows.map(row => ({ ...row, promptDrafts: undefined })) } } }),
                     connections: source.connections || [],
                     chatSessions: source.chatSessions || [],
                     activeChatId: source.activeChatId || null,

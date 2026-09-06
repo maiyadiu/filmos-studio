@@ -88,7 +88,7 @@ export function AppWorkspaceShell({ children }: { children: ReactNode }) {
 
                 <WorkspaceCommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
             </div>
-            <ModelSetupGuide hidden={pathname === "/login" || pathname === "/register" || pathname.startsWith("/admin")} />
+            <ModelSetupGuide hidden={hideChrome || pathname === "/login" || pathname === "/register"} />
         </>
     );
 }

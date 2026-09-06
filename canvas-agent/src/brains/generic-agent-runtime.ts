@@ -61,7 +61,10 @@ export class GenericAgentRuntime {
     readonly broker: CanonicalAgentToolBroker;
     private readonly hydratedSessions = new Set<string>();
     private readonly sessionHydrations = new Map<string, Promise<BrainSession>>();
+    private readonly resumingSessions = new Set<string>();
     private readonly activeTurns = new Map<string, string>();
+    private readonly turnControllers = new Map<string, AbortController>();
+    private readonly cancelledTurns = new Set<string>();
     private readonly confirmationWaiters = new Map<string, ConfirmationWaiter>();
     private readonly actorId: string;
     private readonly featureFlags: AgentFeatureFlags;
@@ -104,6 +107,11 @@ export class GenericAgentRuntime {
             manifest: this.tools,
             canvas: options.canvasToolExecutor,
             snapshot: this.snapshot,
+            bindContextRead: async (session, snapshot) => {
+                const captured = this.contexts.capture(session, snapshot);
+                await this.manager.bindContextReceipt(session.id, captured.receipt.receiptId);
+                return { contextReceiptId: captured.receipt.receiptId, contextExpiresAt: captured.receipt.expiresAt };
+            },
             browserRuntime: options.browserRuntime,
         });
         this.manager = new AgentSessionManager(this.registry, this.store, this.grants, this.confirmations, this.contexts, () => new Date(), this.tools, audit);
@@ -115,6 +123,28 @@ export class GenericAgentRuntime {
         return await probeConnectionList(this.registry);
     }
 
+    // Persisted status can outlive a process. Observe the existing live turn and
+    // confirmation maps; this read never resumes a provider or renews a grant.
+    sessionView(session: BrainSession) {
+        return { ...session, execution: {
+            activeTurnId: this.activeTurns.get(session.id) ?? null,
+            resuming: this.resumingSessions.has(session.id),
+            pendingConfirmations: this.confirmations.pendingForSession(session.id),
+        } };
+    }
+
+    async readSessionHistory(sessionId: string) {
+        const session = await this.store.getSession(sessionId);
+        if (!session) throw new Error("BRAIN_SESSION_NOT_FOUND");
+        contextSnapshotForSession(session, this.snapshot);
+        const adapter = this.registry.getAdapter(session.brainProfileId);
+        const available = this.hydratedSessions.has(sessionId) && Boolean(adapter.readHistory);
+        const history = available ? await adapter.readHistory!(session) : [];
+        return { session: this.sessionView(session), history, historyStatus: available
+            ? historyStatus(session.brainProfileId, true)
+            : { source: "not_persisted" as const, complete: false, limitation: "本机尚未载入该会话历史；空结果不表示没有历史，请在空闲时恢复原会话。" } };
+    }
+
     async createSession(input: Parameters<AgentSessionManager["createSession"]>[0]) {
         if (!this.registry.hasAdapter(input.brainProfileId)) throw new Error(`BRAIN_ADAPTER_UNAVAILABLE:${input.brainProfileId}`);
         const session = await this.manager.createSession(input);
@@ -123,19 +153,23 @@ export class GenericAgentRuntime {
     }
 
     async resumeSession(sessionId: string, actorId: string) {
-        const previous = await this.store.getSession(sessionId);
-        if (!previous) throw new Error(`Unknown brain session: ${sessionId}`);
-        const session = await this.manager.resumeSession(sessionId, actorId);
-        this.hydratedSessions.add(sessionId);
-        const captured = await this.captureContext(sessionId);
-        this.emitRecoveredHostState(previous, captured.session);
-        const adapter = this.registry.getAdapter(captured.session.brainProfileId);
-        const history = adapter.readHistory ? await adapter.readHistory(captured.session) : [];
-        return {
-            ...captured,
-            history,
-            historyStatus: historyStatus(captured.session.brainProfileId, Boolean(adapter.readHistory)),
-        };
+        if (this.activeTurns.has(sessionId) || this.resumingSessions.has(sessionId)) throw new Error("AGENT_SESSION_TURN_ALREADY_RUNNING");
+        this.resumingSessions.add(sessionId);
+        try {
+            const previous = await this.store.getSession(sessionId);
+            if (!previous) throw new Error(`Unknown brain session: ${sessionId}`);
+            const session = await this.manager.resumeSession(sessionId, actorId);
+            this.hydratedSessions.add(sessionId);
+            const captured = await this.captureContext(sessionId);
+            this.emitRecoveredHostState(previous, captured.session);
+            const adapter = this.registry.getAdapter(captured.session.brainProfileId);
+            const history = adapter.readHistory ? await adapter.readHistory(captured.session) : [];
+            return {
+                ...captured,
+                history,
+                historyStatus: historyStatus(captured.session.brainProfileId, Boolean(adapter.readHistory)),
+            };
+        } finally { this.resumingSessions.delete(sessionId); }
     }
 
     async captureContext(sessionId: string) {
@@ -147,21 +181,53 @@ export class GenericAgentRuntime {
     }
 
     async sendTurn(sessionId: string, input: { turnId: string; prompt: string; localImagePaths?: string[]; localSkills?: Array<{ type: "skill"; name: string; path: string }> }, emit: AgentEmit) {
-        await this.ensureSessionHydrated(sessionId);
-        const captured = await this.captureContext(sessionId);
+        if (this.activeTurns.has(sessionId) || this.resumingSessions.has(sessionId)) throw new Error("AGENT_SESSION_TURN_ALREADY_RUNNING");
+        if (this.cancelledTurns.has(`${sessionId}:${input.turnId}`)) throw new Error("AGENT_TURN_CANCELLED");
+        const controller = new AbortController();
         this.activeTurns.set(sessionId, input.turnId);
+        this.turnControllers.set(sessionId, controller);
         try {
+            await this.ensureSessionHydrated(sessionId);
+            const captured = await this.captureContext(sessionId);
+            controller.signal.throwIfAborted();
             const result = await this.manager.sendTurn(sessionId, {
                 turnId: input.turnId,
                 prompt: input.prompt,
                 context: captured.context,
+                signal: controller.signal,
                 ...(input.localImagePaths?.length ? { localImagePaths: [...input.localImagePaths] } : {}),
                 ...(input.localSkills?.length ? { localSkills: input.localSkills.map((skill) => ({ ...skill })) } : {}),
             }, async (event) => emit("agent_event", event));
+            controller.signal.throwIfAborted();
             return { session: await this.store.getSession(sessionId), contextReceiptId: captured.receipt.receiptId, result };
+        } catch (error) {
+            if (controller.signal.aborted) {
+                const current = await this.store.getSession(sessionId);
+                if (current && ["running", "awaiting_confirmation"].includes(current.status)) await this.store.updateSession(sessionId, { status: "interrupted", updatedAt: new Date().toISOString() });
+                throw new Error("AGENT_TURN_CANCELLED");
+            }
+            throw error;
         } finally {
+            this.turnControllers.delete(sessionId);
             this.activeTurns.delete(sessionId);
         }
+    }
+
+    async cancelTurn(sessionId: string, turnId: string) {
+        const session = await this.store.getSession(sessionId);
+        if (!session) throw new Error("BRAIN_SESSION_NOT_FOUND");
+        if (this.activeTurns.get(sessionId) !== turnId) throw new Error("AGENT_ACTIVE_TURN_MISMATCH");
+        this.cancelledTurns.add(`${sessionId}:${turnId}`);
+        this.turnControllers.get(sessionId)?.abort(new Error("AGENT_TURN_CANCELLED"));
+        this.confirmations.cancelTurn(sessionId, turnId);
+        for (const [id, waiter] of this.confirmationWaiters) {
+            if (waiter.sessionId !== sessionId || this.confirmations.get(id)?.turnId !== turnId) continue;
+            clearTimeout(waiter.timer);
+            this.confirmationWaiters.delete(id);
+            waiter.reject(new Error("AGENT_TURN_CANCELLED"));
+        }
+        await this.registry.getAdapter(session.brainProfileId).cancelTurn(sessionId);
+        return { sessionId, turnId, alreadyDispatchedWrites: "READBACK_REQUIRED" as const };
     }
 
     async requestTool(input: { sessionId: string; turnId?: string; toolName: string; toolInput: Record<string, unknown>; ordinaryConfirmationEnabled?: boolean }) {
@@ -169,6 +235,7 @@ export class GenericAgentRuntime {
         if (outcome.status === "completed") return outcome;
         const session = await this.store.getSession(input.sessionId);
         if (!session) throw new Error("BRAIN_SESSION_NOT_FOUND");
+        this.turnControllers.get(session.id)?.signal.throwIfAborted();
         return await new Promise<AgentBrokerOutcome>((resolve, reject) => {
             const timer = setTimeout(() => {
                 this.confirmationWaiters.delete(outcome.confirmation.id);
@@ -187,6 +254,10 @@ export class GenericAgentRuntime {
         const profile = this.registry.getProfile(session.brainProfileId);
         const turnId = input.turnId || this.activeTurns.get(session.id);
         if (!turnId) throw new Error("AGENT_ACTIVE_TURN_REQUIRED");
+        if (this.cancelledTurns.has(`${session.id}:${turnId}`)) throw new Error("AGENT_TURN_CANCELLED");
+        if (this.activeTurns.has(session.id) && this.activeTurns.get(session.id) !== turnId) throw new Error("AGENT_ACTIVE_TURN_MISMATCH");
+        const signal = this.turnControllers.get(session.id)?.signal;
+        signal?.throwIfAborted();
         const outcome = await this.broker.request({
             profile,
             session,
@@ -196,10 +267,15 @@ export class GenericAgentRuntime {
             contextReceiptId,
             currentContext: this.snapshot(),
             ordinaryConfirmationEnabled: input.ordinaryConfirmationEnabled,
+            signal,
         });
+        if (signal?.aborted && outcome.status === "confirmation_required") {
+            this.confirmations.cancelTurn(session.id, turnId);
+            signal.throwIfAborted();
+        }
         await this.emitBrokerOutcome(outcome, session.id, turnId);
         if (outcome.status === "completed") return outcome;
-        await this.store.updateSession(session.id, { status: "awaiting_confirmation", updatedAt: new Date().toISOString() });
+        if (this.activeTurns.has(session.id)) await this.store.updateSession(session.id, { status: "awaiting_confirmation", updatedAt: new Date().toISOString() });
         return outcome;
     }
 
@@ -223,12 +299,12 @@ export class GenericAgentRuntime {
             });
             await this.emitBrokerOutcome(outcome, session.id, this.activeTurns.get(session.id) || "confirmation");
             waiter?.resolve(outcome);
-            await this.store.updateSession(session.id, { status: "running", updatedAt: new Date().toISOString() });
+            if (this.activeTurns.has(session.id)) await this.store.updateSession(session.id, { status: "running", updatedAt: new Date().toISOString() });
             return outcome;
         } catch (error) {
             const failure = input.approved ? error : new Error("AGENT_TOOL_REJECTED_BY_HUMAN");
             waiter?.reject(failure instanceof Error ? failure : new Error(String(failure)));
-            await this.store.updateSession(session.id, { status: "running", updatedAt: new Date().toISOString() });
+            if (this.activeTurns.has(session.id)) await this.store.updateSession(session.id, { status: "running", updatedAt: new Date().toISOString() });
             if (input.approved) throw error;
             return { status: "rejected", confirmationId: input.confirmationId } as const;
         } finally {
@@ -379,6 +455,9 @@ export class GenericAgentRuntime {
         }
         this.confirmationWaiters.clear();
         this.activeTurns.clear();
+        for (const controller of this.turnControllers.values()) controller.abort(new Error("AGENT_RUNTIME_DISPOSED"));
+        this.turnControllers.clear();
+        this.cancelledTurns.clear();
         this.hydratedSessions.clear();
         this.sessionHydrations.clear();
     }

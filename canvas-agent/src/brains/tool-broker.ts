@@ -10,7 +10,7 @@ import type {
     BrainSession,
 } from "./contracts.js";
 import { agentAuditRecord, type AgentAuditSink } from "./agent-audit.js";
-import { AgentConfirmationStore } from "./confirmations.js";
+import { AgentConfirmationStore, projectToolConfirmationDetail } from "./confirmations.js";
 import type { WorkbenchContextSnapshot } from "./context-broker.js";
 import { AgentPermissionGrantStore } from "./permission-grants.js";
 import { AgentPolicyGateway } from "./policy-gateway.js";
@@ -52,6 +52,7 @@ type ProposalInput = {
     contextReceiptId: string;
     currentContext: Pick<WorkbenchContextSnapshot, "projectId" | "canvasId" | "canvasRevision" | "canvasStateHash" | "filmExpectedVersion" | "filmContentHash">;
     ordinaryConfirmationEnabled?: boolean;
+    signal?: AbortSignal;
 };
 
 type PendingProposal = ProposalInput & { request: AgentToolRequest; manifest: AgentToolManifest };
@@ -81,6 +82,7 @@ export class CanonicalAgentToolBroker {
     }
 
     async request(input: ProposalInput): Promise<AgentBrokerOutcome> {
+        input.signal?.throwIfAborted();
         this.instrumentation.brokerRequest();
         const manifest = this.manifest.get(input.toolName);
         const request: AgentToolRequest = {
@@ -102,6 +104,7 @@ export class CanonicalAgentToolBroker {
             throw error;
         }
         await this.audit.append(agentAuditRecord({ request, manifest, profile: input.profile, session: input.session, outcome: "proposed" }));
+        input.signal?.throwIfAborted();
         if (!this.policy.requiresConfirmation(manifest, input.ordinaryConfirmationEnabled ?? true)) {
             return await this.execute({ ...input, request, manifest });
         }
@@ -112,7 +115,7 @@ export class CanonicalAgentToolBroker {
             toolName: manifest.name,
             risk: manifest.risk as Exclude<AgentToolManifest["risk"], "read" | "draft">,
             title: manifest.title,
-            summary: manifest.description,
+            summary: [manifest.description, projectToolConfirmationDetail(manifest.name, request.input, input.session)].filter(Boolean).join("\n"),
             impact: [input.session.projectId, input.session.canvasId, manifest.name],
             contextReceiptId: input.contextReceiptId,
             ...(manifest.mayCreateCharges ? { costPreview: { note: "该动作可能产生额外 Provider/API 费用；执行前必须人工确认。" } } : {}),
@@ -164,6 +167,8 @@ export class CanonicalAgentToolBroker {
 
     private async execute(input: PendingProposal, confirmation?: AgentConfirmation): Promise<AgentBrokerOutcome> {
         try {
+            // Do not undo dispatched saves. Reconcile those by business readback.
+            input.signal?.throwIfAborted();
             if (this.consumedRequestIds.has(input.request.requestId)) throw new Error("AGENT_TOOL_REQUEST_REPLAYED");
             this.validate(input);
             const provider = this.providers.get(input.manifest.name);

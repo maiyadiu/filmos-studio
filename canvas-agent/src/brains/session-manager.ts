@@ -76,11 +76,33 @@ export class AgentSessionManager {
         if (["closed", "creating", "failed"].includes(session.status)) throw new Error(`BRAIN_SESSION_NOT_RUNNABLE:${session.status}`);
         if (input.context.contextReceiptId !== session.lastContextReceiptId) throw new Error("AGENT_CONTEXT_NOT_BOUND_TO_SESSION");
         this.grants.validate(session.permissionGrantId, { sessionId, connectionId: session.connectionId, projectId: session.projectId });
-        session = await this.store.updateSession(sessionId, { status: "running", updatedAt: this.now().toISOString() });
+        session = await this.store.updateSession(sessionId, { status: "running", latestPlan: null, updatedAt: this.now().toISOString() });
         const profile = this.registry.getProfile(session.brainProfileId);
         await this.audit?.append(brainTurnAuditRecord({ profile, session, turnId: input.turnId, contextReceiptId: input.context.contextReceiptId, prompt: input.prompt, outcome: "proposed" }));
+        let acceptingEvents = true;
+        let pendingEvents = Promise.resolve();
+        let eventFailure: unknown;
+        // app-server emits synchronously. Drain accepted events before closing the turn,
+        // so a late plan write cannot overwrite a newer turn or disappear on resume.
+        const scopedSink: AgentEventSink = (event) => {
+            if (!acceptingEvents || event.sessionId !== sessionId || ("turnId" in event && event.turnId !== input.turnId)) return Promise.resolve();
+            const snapshot = structuredClone(event);
+            pendingEvents = pendingEvents.then(async () => {
+                if (eventFailure) return;
+                if (snapshot.type === "turn.plan.updated") {
+                    if (snapshot.plan.turnId !== input.turnId) return;
+                    await this.store.updateSession(sessionId, { latestPlan: snapshot.plan, updatedAt: this.now().toISOString() });
+                }
+                await sink(snapshot);
+            }).catch((error) => { eventFailure = error; });
+            return pendingEvents;
+        };
         try {
-            const result = await this.registry.getAdapter(session.brainProfileId).sendTurn({ ...input, session }, sink);
+            const result = await this.registry.getAdapter(session.brainProfileId).sendTurn({ ...input, session }, scopedSink);
+            acceptingEvents = false;
+            await pendingEvents;
+            if (eventFailure) throw eventFailure;
+            input.signal?.throwIfAborted();
             const updatedAt = this.now().toISOString();
             const status = result.status === "handoff_pending" ? "waiting_host" : result.status;
             await this.store.updateSession(sessionId, {
@@ -95,7 +117,10 @@ export class AgentSessionManager {
             await this.audit?.append(brainTurnAuditRecord({ profile, session, turnId: input.turnId, contextReceiptId: input.context.contextReceiptId, prompt: input.prompt, outcome: "succeeded" }));
             return result;
         } catch (error) {
-            await this.store.updateSession(sessionId, { status: session.brainProfileId === "chatgpt.subscription.host" ? "waiting_host" : "failed", updatedAt: this.now().toISOString() });
+            acceptingEvents = false;
+            await pendingEvents;
+            const interrupted = input.signal?.aborted || (error instanceof Error && error.message === "AGENT_TURN_CANCELLED");
+            await this.store.updateSession(sessionId, { status: interrupted ? "interrupted" : session.brainProfileId === "chatgpt.subscription.host" ? "waiting_host" : "failed", updatedAt: this.now().toISOString() });
             await this.audit?.append(brainTurnAuditRecord({ profile, session, turnId: input.turnId, contextReceiptId: input.context.contextReceiptId, prompt: input.prompt, outcome: "failed", errorCode: error instanceof Error ? error.message.split(":", 1)[0] : "BRAIN_TURN_FAILED" }));
             throw error;
         }

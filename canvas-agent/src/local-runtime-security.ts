@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { CanvasToolApiError, CanvasPromptConflictError } from "@filmos/agent-contracts";
 
 import type { NextFunction, Request, RequestHandler, Response } from "express";
 
@@ -228,8 +229,26 @@ export function runtimeErrorHandler(
 }
 
 export function publicAgentRuntimeFailure(error: unknown) {
+    if (error instanceof CanvasToolApiError) return new LocalRuntimeSessionError(error.code, error.message, error.statusCode);
+    if (error instanceof CanvasPromptConflictError) return new LocalRuntimeSessionError(error.code, error.message, 409);
     if (!(error instanceof Error)) return undefined;
     const code = error.message.split(":", 1)[0];
+    if (code === "AGENT_TOOL_POSTCONDITION_FAILED" || code === "AGENT_TOOL_POSTCONDITION_REQUIRED") return new LocalRuntimeSessionError("agent_tool_result_unverified", "工具已执行，但结果核验未通过；可能已有保存，不代表零写入。请回读业务版本和原请求回执，暂停依赖步骤，不要盲目重发或重建对象", 409);
+    if (code === "CANVAS_CONTEXT_UNAVAILABLE") return new LocalRuntimeSessionError("canvas_context_unavailable", "浏览器画布上下文暂不可用；等待工作台重连后调用 workbench_get_context，再回读实际保存版本；不要自动重发写入", 503);
+    if (code === "AGENT_GRANT_NOT_FOUND" || code === "AGENT_GRANT_EXPIRED") return new LocalRuntimeSessionError("agent_grant_refresh_required", "会话授权已失效；恢复当前会话后回读实际结果，不要反复提交旧请求", 409);
+    if (code === "AGENT_CONTEXT_RECEIPT_EXPIRED" || code === "AGENT_CONTEXT_RECEIPT_NOT_FOUND") return new LocalRuntimeSessionError("agent_context_refresh_required", "上下文凭据已失效；先调用 workbench_get_context，再回读业务版本后继续；不要重复盲写", 409);
+    if (code === "AGENT_CONTEXT_CANVAS_STALE" || code === "AGENT_CONTEXT_FILM_STALE") return new LocalRuntimeSessionError("agent_context_stale", "上下文已变化；先调用 workbench_get_context，核对目标和业务版本后重新安排操作", 409);
+    if (code === "AGENT_CONTEXT_SCOPE_MISMATCH" || code === "AGENT_CONTEXT_DOMAIN_PROJECT_MISMATCH") return new LocalRuntimeSessionError("agent_context_scope_mismatch", "当前工作台不属于本会话的授权范围，已停止操作", 409);
+    if (code === "AGENT_TURN_CANCELLED") return new LocalRuntimeSessionError("agent_turn_cancelled", "本轮已停止；已保存内容保留，继续前请回读核对", 409);
+    if (["AGENT_CONFIRMATION_EXPIRED", "AGENT_CONFIRMATION_ALREADY_DECIDED", "AGENT_CONFIRMATION_NOT_APPROVED", "AGENT_CONFIRMATION_NOT_FOUND"].includes(code)) return new LocalRuntimeSessionError("agent_confirmation_unavailable", "该确认已失效或已处理；请回读本轮状态与实际版本，不要重复批准或自动重发保存", 409);
+    if (code === "AGENT_ACTIVE_TURN_MISMATCH") return new LocalRuntimeSessionError("agent_active_turn_mismatch", "请求不属于当前执行轮次，请刷新本轮状态", 409);
+    if (code === "AGENT_SESSION_TURN_ALREADY_RUNNING") return new LocalRuntimeSessionError("agent_turn_already_running", "当前会话仍在执行，请等待完成或停止本轮", 409);
+    if (code === "BRAIN_CONNECTION_QUOTA_LIMITED") {
+        return new LocalRuntimeSessionError("agent_subscription_quota_limited", "所选 AI 大脑的订阅额度已用尽，本次任务尚未发送；额度恢复后可重试，草稿已保留，不会自动切换模型 API", 429);
+    }
+    if (code === "CODEX_WORKBENCH_CONFIG_UNAVAILABLE" || code === "CODEX_WORKBENCH_TOOL_SCOPE_UNVERIFIED") {
+        return new LocalRuntimeSessionError("agent_tool_scope_unverified", "当前创作会话的工具隔离尚未通过核验，任务未启动；请检查本机运行时配置，不要改用其它项目或连接继续写入", 409);
+    }
     if (code === "BRAIN_CONNECTION_UNAVAILABLE" || code === "BRAIN_CONNECTION_NEEDS_AUTH" || code === "BRAIN_CONNECTION_ERROR") {
         return new LocalRuntimeSessionError("agent_profile_not_ready", "所选 AI 大脑尚未连接，请检查对应连接与授权", 409);
     }

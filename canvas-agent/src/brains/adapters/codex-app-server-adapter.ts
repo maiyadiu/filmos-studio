@@ -4,6 +4,7 @@ import type {
     AgentPermissionGrant,
     AgentRuntimeAdapter,
     AgentTurnInput,
+    AgentTurnPlan,
     BrainRuntimeStatus,
     BrainSession,
     CreateBrainSessionInput,
@@ -25,7 +26,7 @@ export class CodexSubscriptionAdapter implements AgentRuntimeAdapter {
     private readonly queuesByThread = new Map<string, Promise<unknown>>();
     private readonly clientsBySession = new Map<string, CodexAppServerClient>();
     private readonly grantsBySession = new Map<string, AgentPermissionGrant>();
-    private readonly activeTurnsBySession = new Map<string, { client: CodexAppServerClient; threadId: string; turnId: string }>();
+    private readonly activeTurnsBySession = new Map<string, { client: CodexAppServerClient; threadId: string; turnId: string; cancelRequested: boolean }>();
 
     constructor(
         private readonly processManager: CodexAppServerProcessManager,
@@ -60,7 +61,7 @@ export class CodexSubscriptionAdapter implements AgentRuntimeAdapter {
     }
 
     async createSession(input: CreateBrainSessionInput, grant: AgentPermissionGrant): Promise<Partial<BrainSession>> {
-        const client = await this.processManager.client();
+        const client = await this.processManager.client(grant.sessionId);
         const workspace = input.workspacePath ?? this.workspaceForCanvas(input.canvasId);
         const policy = executionPolicy(input.executionProfile);
         const binding = this.binding(input.brainProfileId, grant.sessionId, () => undefined);
@@ -74,10 +75,11 @@ export class CodexSubscriptionAdapter implements AgentRuntimeAdapter {
     }
 
     async resumeSession(input: ResumeBrainSessionInput): Promise<Partial<BrainSession>> {
+        if (this.activeTurnsBySession.has(input.sessionId)) throw new Error("AGENT_SESSION_TURN_ALREADY_RUNNING");
         const threadId = input.providerThreadId || this.threadsBySession.get(input.sessionId);
         const grant = input.grant || this.grantsBySession.get(input.sessionId);
         if (!threadId || !grant) throw new Error("CODEX_SESSION_RESUME_CONTEXT_MISSING");
-        const client = await this.processManager.client();
+        const client = await this.processManager.client(input.sessionId, true);
         const workspace = input.workspacePath ?? (input.canvasId ? this.workspaceForCanvas(input.canvasId) : undefined);
         const config = executionConfig(this.configForGrant(grant), input.executionProfile);
         const binding = this.binding(this.profileId, input.sessionId, () => undefined);
@@ -102,19 +104,33 @@ export class CodexSubscriptionAdapter implements AgentRuntimeAdapter {
         const grant = this.grantsBySession.get(sessionId);
         if (!threadId || !grant) throw new Error("CODEX_SESSION_THREAD_MISSING");
         const run = async () => {
+            input.signal?.throwIfAborted();
             const client = await this.ensureClient(input.session, grant, sink);
-            await sink({ type: "turn.started", sessionId, turnId: input.turnId, at: new Date().toISOString() });
+            input.signal?.throwIfAborted();
+            const active = { client, threadId, turnId: "", cancelRequested: false };
+            this.activeTurnsBySession.set(sessionId, active);
+            const interrupt = () => {
+                void this.cancelTurn(sessionId).catch(error => sink({ type: "turn.failed", sessionId, turnId: input.turnId, code: "CODEX_INTERRUPT_FAILED", message: String(error), at: new Date().toISOString() }));
+            };
+            input.signal?.addEventListener("abort", interrupt, { once: true });
             try {
+                await sink({ type: "turn.started", sessionId, turnId: input.turnId, at: new Date().toISOString() });
+                input.signal?.throwIfAborted();
                 await client.startTurn(
                     threadId,
                     turnPrompt(input),
                     input.localImagePaths || [],
                     input.localSkills || [],
                     this.binding(this.profileId, sessionId, normalizedEmit(sessionId, input.turnId, sink)),
-                    (turnId) => this.activeTurnsBySession.set(sessionId, { client, threadId, turnId }),
+                    (turnId) => {
+                        active.turnId = turnId;
+                        if (active.cancelRequested) interrupt();
+                    },
                     executionPolicy(input.session.executionProfile),
                 );
+                if (active.cancelRequested) throw new Error("AGENT_TURN_CANCELLED");
             } finally {
+                input.signal?.removeEventListener("abort", interrupt);
                 this.activeTurnsBySession.delete(sessionId);
             }
             await sink({ type: "turn.completed", sessionId, turnId: input.turnId, at: new Date().toISOString() });
@@ -133,13 +149,14 @@ export class CodexSubscriptionAdapter implements AgentRuntimeAdapter {
     async cancelTurn(sessionId: string) {
         const active = this.activeTurnsBySession.get(sessionId);
         if (!active) return;
-        await active.client.interruptTurn(active.threadId, active.turnId);
+        active.cancelRequested = true;
+        if (active.turnId) await active.client.interruptTurn(active.threadId, active.turnId);
     }
 
     async readHistory(session: BrainSession): Promise<AgentHistoryMessage[]> {
         const threadId = session.providerThreadId || this.threadsBySession.get(session.id);
         if (!threadId) throw new Error("CODEX_SESSION_THREAD_MISSING");
-        const client = await this.processManager.client();
+        const client = await this.processManager.client(session.id);
         const result = await client.readThread(threadId, true);
         return codexThreadHistory(field(result, "thread") || result);
     }
@@ -152,10 +169,11 @@ export class CodexSubscriptionAdapter implements AgentRuntimeAdapter {
         this.clientsBySession.delete(sessionId);
         this.grantsBySession.delete(sessionId);
         this.activeTurnsBySession.delete(sessionId);
+        await this.processManager.releaseSession(sessionId);
     }
 
     private async ensureClient(session: BrainSession, grant: AgentPermissionGrant, sink: AgentEventSink) {
-        const client = await this.processManager.client();
+        const client = await this.processManager.client(session.id);
         if (this.clientsBySession.get(session.id) === client) return client;
         const threadId = session.providerThreadId || this.threadsBySession.get(session.id);
         if (!threadId) throw new Error("CODEX_SESSION_THREAD_MISSING");
@@ -182,17 +200,37 @@ export class CodexSubscriptionAdapter implements AgentRuntimeAdapter {
 function executionPolicy(profile?: BrainSession["executionProfile"]): CodexExecutionPolicy {
     return profile === "review_coordinator"
         ? { approvalPolicy: "never", sandbox: "workspace-write" }
-        : { approvalPolicy: "on-request", sandbox: "read-only" };
+        : { approvalPolicy: "on-request", sandbox: "read-only", isolateWorkbenchTools: true };
 }
 
 function executionConfig(config: Record<string, unknown>, profile?: BrainSession["executionProfile"]) {
     return profile === "review_coordinator"
         ? { ...config, "sandbox_workspace_write.network_access": true }
-        : config;
+        : { ...config, "features.memories": false, "features.shell_tool": false,
+            "features.apps": false, "features.plugins": false, "features.remote_plugin": false,
+            "web_search": "disabled", "mcp_servers.yingce.enabled": true, "mcp_servers.yingce.required": true };
 }
 
 async function preflightWorkbenchMcp(client: CodexAppServerClient, threadId: string) {
     await client.callMcpTool(threadId, "yingce", "workbench_get_context");
+    let cursor: string | undefined;
+    const seen = new Set<string>();
+    let workbenchListed = false;
+    do {
+        const inventory = record(await client.listMcpServerStatus(threadId, cursor));
+        if (!Array.isArray(inventory.data)) throw new Error("CODEX_WORKBENCH_TOOL_SCOPE_UNVERIFIED");
+        for (const value of inventory.data) {
+            const server = record(value);
+            if (server.name === "yingce") workbenchListed = true;
+            if (server.name !== "yingce" && (server.runtimeStatus !== "disabled" || Object.keys(record(server.tools)).length > 0)) {
+                throw new Error(`CODEX_WORKBENCH_TOOL_SCOPE_UNVERIFIED:${String(server.name)}:${String(server.runtimeStatus)}`);
+            }
+        }
+        cursor = typeof inventory.nextCursor === "string" && inventory.nextCursor ? inventory.nextCursor : undefined;
+        if (cursor && seen.has(cursor)) throw new Error("CODEX_WORKBENCH_TOOL_SCOPE_UNVERIFIED");
+        if (cursor) seen.add(cursor);
+    } while (cursor);
+    if (!workbenchListed) throw new Error("CODEX_WORKBENCH_TOOL_SCOPE_UNVERIFIED");
 }
 
 function turnPrompt(input: AgentTurnInput) {
@@ -202,6 +240,8 @@ function turnPrompt(input: AgentTurnInput) {
             : "FilmOS 当前上下文由系统生成；不得猜测 ID、版本或哈希。需要更多事实时先调用 workbench_get_context 或精确读取工具。",
         `Context Receipt: ${input.context.contextReceiptId}`,
         JSON.stringify(input.context),
+        "项目业务工具 project_* 的 projectId 使用 project.domainProjectId（workbench_get_context 中的 domainProjectId），不是画布 projectId/canvasId；也可省略 projectId 由当前授权绑定提供。章节使用当前 contentUnitId 或读取到的真实 unitId。",
+        "多步骤创作要求先列出有序步骤，说明修改范围、依赖和回读成功标准，并随实际进展更新。原生 update_plan 可用时使用该工具；不可用则用文字明确标注进度，不声称已写入结构化计划。工具失败时先回读已有成果；不得把依赖失败的后续步骤标为完成。计划是进度说明，不是保存凭证；最终只报告已回读匹配的业务结果和仍未完成项。简单单步要求不必建计划。",
         "",
         `用户请求：${input.prompt}`,
     ].join("\n");
@@ -213,9 +253,18 @@ function normalizedEmit(sessionId: string, turnId: string, sink: AgentEventSink)
         const value = record(payload);
         const eventType = String(value.type || "");
         const now = new Date().toISOString();
-        if (eventType === "item.updated") {
-            const delta = String(value.delta || record(value.item).text || "");
-            if (delta) void sink({ type: "message.delta", sessionId, turnId, delta, at: now });
+        const item = record(value.item);
+        const streamId = codexMessageStreamId(String(value.providerTurnId || turnId), String(item.id || "message"));
+        if (eventType === "turn.plan.updated") {
+            const steps = providerPlanSteps(value.plan);
+            if (steps) void sink({ type: "turn.plan.updated", sessionId, turnId, plan: { source: "provider", turnId, steps, ...(typeof value.explanation === "string" ? { explanation: value.explanation } : {}), updatedAt: now }, at: now });
+        }
+        if (eventType === "item.updated" && item.type === "agent_message") {
+            const delta = typeof value.delta === "string" ? value.delta : "";
+            if (delta || typeof item.text === "string") void sink({ type: "message.delta", sessionId, turnId, delta, streamId, ...(typeof item.text === "string" ? { text: item.text } : {}), at: now });
+        }
+        if (eventType === "item.completed" && item.type === "agent_message" && typeof item.text === "string") {
+            void sink({ type: "message.completed", sessionId, turnId, streamId, text: item.text, at: now });
         }
         if (eventType === "item.completed" && String(record(value.item).type || "") === "mcp_tool_call") {
             const item = record(value.item);
@@ -247,6 +296,21 @@ function requiredThreadId(value: unknown) {
     return id;
 }
 
+function codexMessageStreamId(providerTurnId: string, itemId: string) {
+    return JSON.stringify([providerTurnId, itemId]);
+}
+
+function providerPlanSteps(value: unknown): AgentTurnPlan["steps"] | null {
+    if (!Array.isArray(value) || value.length > 100) return null;
+    const steps: AgentTurnPlan["steps"] = [];
+    for (const entry of value) {
+        const { step, status } = record(entry);
+        if (typeof step !== "string" || !step.trim() || step.length > 2000 || !["pending", "inProgress", "completed"].includes(String(status))) return null;
+        steps.push({ step, status: status as AgentTurnPlan["steps"][number]["status"] });
+    }
+    return steps;
+}
+
 function record(value: unknown): Record<string, unknown> {
     return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
@@ -266,8 +330,8 @@ export function codexThreadHistory(thread: unknown): AgentHistoryMessage[] {
                 if (text) messages.push({ id, role: "user", text, source: "provider" });
             }
             if (type === "agentMessage") {
-                const text = String(field(item, "text") || "").trim();
-                if (text) messages.push({ id, role: "assistant", title: "Codex", text, streamId: id, source: "provider" });
+                const text = String(field(item, "text") || "");
+                if (text) messages.push({ id, role: "assistant", title: "Codex", text, streamId: codexMessageStreamId(String(field(turn, "id") || turnIndex), id), source: "provider" });
             }
             if (type === "mcpToolCall") {
                 const tool = String(field(item, "tool") || "工具调用");

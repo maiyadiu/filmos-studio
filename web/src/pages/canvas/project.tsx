@@ -53,7 +53,7 @@ import { getProject } from "@/services/api/projects";
 import { CanvasZoomControls } from "@/components/canvas/canvas-zoom-controls";
 import { CanvasShareModal } from "@/components/canvas/canvas-share-modal";
 import { CanvasScriptEditor, CanvasScriptNodeContent } from "@/components/canvas/canvas-script-node";
-import { STORYBOARD_HEADER_HEIGHT, STORYBOARD_ROW_HEIGHT, storyboardMinNodeHeight, storyboardTableHeight } from "@/lib/canvas/canvas-storyboard-layout";
+import { STORYBOARD_COMPOSER_MIN_HEIGHT, STORYBOARD_HEADER_HEIGHT, STORYBOARD_ROW_HEIGHT, storyboardMinNodeHeight, storyboardTableHeight } from "@/lib/canvas/canvas-storyboard-layout";
 import { CanvasDirectorNodePanel } from "@/components/canvas/director/canvas-director-node-panel";
 import { CanvasVersionCompareModal } from "@/components/canvas/canvas-version-compare-modal";
 import { useFocusMode } from "@/hooks/use-focus-mode";
@@ -1777,7 +1777,8 @@ function InfiniteCanvasPage() {
                         onShotCountChange={(count: StoryboardShotCount) => handleConfigNodeChange(contentNode.id, { storyboardShotCount: count })}
                         workspaceMode={workspaceMode}
                         onComposerHeightChange={(height) => {
-                            if (contentNode.metadata?.storyboardComposerHeight === height) return;
+                            // Mounting the editor must not turn its implicit default into a concurrent canvas edit.
+                            if ((contentNode.metadata?.storyboardComposerHeight || STORYBOARD_COMPOSER_MIN_HEIGHT) === height) return;
                             handleConfigNodeChange(contentNode.id, { storyboardComposerHeight: height });
                             const minHeight = storyboardMinNodeHeight(height);
                             if (contentNode.height < minHeight) handleNodeResize(contentNode.id, contentNode.width, minHeight);
@@ -2584,6 +2585,7 @@ function InfiniteCanvasPage() {
                     ) : null}
 
                     <CanvasScriptEditor
+                        canvasId={projectId}
                         node={activeScriptNode}
                         nodes={nodes}
                         open={Boolean(activeScriptNode)}

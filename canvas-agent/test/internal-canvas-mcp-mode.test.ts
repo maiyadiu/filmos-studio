@@ -153,6 +153,18 @@ test("canvas-only MCP posts Canvas tools to the URL supplied by its loaded Runti
     }
 });
 
+test("MCP preserves sanitized runtime code and recovery message, and rejects non-success HTTP", async () => {
+    let handler: ((input: unknown) => Promise<unknown>) | undefined;
+    mcpServerModule.registerMcpTools({ registerTool(name: string, _definition: unknown, callback: typeof handler) { if (name === "canvas_get_state") handler = callback; } } as never, config, { canvasOnly: true });
+    const original = globalThis.fetch;
+    try {
+        globalThis.fetch = async () => new Response(JSON.stringify({ ok: false, code: "agent_context_refresh_required", message: "先调用 workbench_get_context" }), { status: 409 });
+        await assert.rejects(handler!({}), /agent_context_refresh_required: 先调用 workbench_get_context/);
+        globalThis.fetch = async () => new Response(JSON.stringify({ ok: true, result: { forged: true } }), { status: 500 });
+        await assert.rejects(handler!({}), /tool call failed/);
+    } finally { globalThis.fetch = original; }
+});
+
 test("canvas-only MCP registration exposes Canvas generation tools but not dreamina_cli", () => {
     const register = (mcpServerModule as unknown as { registerMcpTools?: RegisterMcpTools }).registerMcpTools;
     assert.equal(typeof register, "function");

@@ -10,13 +10,24 @@ const require = createRequire(import.meta.url);
 
 export class CodexAppServerProcessManager {
     private clientPromise?: Promise<CodexAppServerClient>;
+    private readonly sessionProcesses = new Map<string, CodexAppServerProcessManager>();
 
     constructor(
         private readonly processEmit: AgentEmit = () => undefined,
         private readonly startClient: (options: Parameters<typeof CodexAppServerClient.start>[0]) => Promise<CodexAppServerClient> = CodexAppServerClient.start,
     ) {}
 
-    async client() {
+    async client(sessionId?: string, replaceSession = false): Promise<CodexAppServerClient> {
+        if (sessionId) {
+            let scoped = this.sessionProcesses.get(sessionId);
+            if (!scoped) {
+                scoped = new CodexAppServerProcessManager(this.processEmit, this.startClient);
+                this.sessionProcesses.set(sessionId, scoped);
+            }
+            // Loaded provider threads retain their original MCP environment.
+            // Grant rotation replaces only this session's process, not peers.
+            return replaceSession ? await scoped.restart() : await scoped.client();
+        }
         if (!this.clientPromise) {
             const invocation = codexInvocation();
             this.clientPromise = this.startClient({
@@ -55,9 +66,18 @@ export class CodexAppServerProcessManager {
     }
 
     async dispose() {
+        const sessions = [...this.sessionProcesses.values()];
+        this.sessionProcesses.clear();
+        await Promise.all(sessions.map(session => session.dispose()));
         const existing = this.clientPromise ? await this.clientPromise.catch(() => undefined) : undefined;
         this.clientPromise = undefined;
         await existing?.dispose();
+    }
+
+    async releaseSession(sessionId: string) {
+        const scoped = this.sessionProcesses.get(sessionId);
+        this.sessionProcesses.delete(sessionId);
+        await scoped?.dispose();
     }
 }
 

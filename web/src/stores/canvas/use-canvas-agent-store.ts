@@ -2,10 +2,11 @@ import { create } from "zustand";
 
 import type { CanvasAgentOp } from "@/lib/canvas/canvas-agent-ops";
 import type { CanvasAssistantSession } from "@/types/canvas";
+import type { AgentTurnPlan } from "@/film/agent/agent-client";
 
 export type AgentChatRole = "user" | "assistant" | "system" | "tool" | "error";
 export type AgentAttachment = { id: string; name: string; type: string; size: number; url: string; dataUrl: string };
-export type AgentChatItem = { id: string; role: AgentChatRole; title?: string; text: string; meta?: string; detail?: unknown; attachments?: AgentAttachment[]; streamId?: string };
+export type AgentChatItem = { id: string; role: AgentChatRole; title?: string; text: string; meta?: string; detail?: unknown; attachments?: AgentAttachment[]; streamId?: string; streamMode?: "append" | "snapshot" | "complete" };
 export type AgentEventLog = { id: string; time: string; title: string; text: string; raw?: unknown };
 export type AgentPendingToolCall = {
     requestId: string;
@@ -38,6 +39,8 @@ type CanvasAgentStore = {
     eventLogs: AgentEventLog[];
     threads: AgentThreadSummary[];
     activeThreadId: string;
+    sessionScopeKey: string;
+    latestPlan: AgentTurnPlan | null;
     workspacePath: string;
     loadingThreads: boolean;
     activeTab: AgentPanelTab;
@@ -81,7 +84,7 @@ export function canvasAgentConnectionStartingPatch() {
 }
 
 export function canvasAgentTransientDisconnectPatch(activity: string, connectError: string) {
-    return { enabled: true, connected: false, activity, connectError, waiting: false, sending: false };
+    return { enabled: true, connected: false, activity, connectError };
 }
 
 export function canvasAgentConnectionStatusText({ enabled, connected, activity, connectError }: Pick<CanvasAgentStore, "enabled" | "connected" | "activity" | "connectError">) {
@@ -105,6 +108,8 @@ export const useCanvasAgentStore = create<CanvasAgentStore>((set) => ({
     eventLogs: [],
     threads: [],
     activeThreadId: "",
+    sessionScopeKey: "",
+    latestPlan: null,
     workspacePath: "",
     loadingThreads: false,
     activeTab: "chat",

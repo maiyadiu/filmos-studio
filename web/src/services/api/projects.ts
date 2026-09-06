@@ -42,6 +42,7 @@ export type ProjectUnit = {
     title: string;
     sourceText: string;
     revision: number;
+    shotRevision: number;
     status: "draft" | "ready" | "completed" | string;
     position: number;
     createdAt: string;
@@ -134,8 +135,45 @@ export type ProjectShot = {
     position: number;
     durationMs: number;
     status: string;
+    revision: number;
+    sourceRevision: number;
+    sourceHash: string;
+    content: ProjectShotContent;
     createdAt: string;
     updatedAt: string;
+};
+
+export type ProjectShotContent = {
+    sourceReferences: Array<{ paragraphId: string; quote: string }> | null;
+    scene: string;
+    characters: string[] | null;
+    dialogue: Array<{ speaker: string; text: string; paragraphId: string }> | null;
+    action: string;
+    camera: string;
+};
+export type ProjectShotWrite = Pick<ProjectShot, "title" | "description" | "position" | "durationMs" | "content"> & { id?: string; expectedRevision: number };
+export type ProjectShotBatchInput = {
+    requestId: string;
+    sourceParagraphIds: string[];
+    expectedShotRevision: number;
+    sourceRevision: number;
+    sourceHash: string;
+    shots: ProjectShotWrite[];
+};
+export type ProjectShotBatchReceipt = {
+    id: string; projectId: string; unitId: string; requestId: string; requestHash: string;
+    sourceParagraphIds: string[];
+    shotRevision: number; sourceRevision: number; sourceHash: string;
+    shots: ProjectShot[]; createdBy: string; createdAt: string;
+};
+export type ProjectShotRevision = {
+    id: string; projectId: string; unitId: string; shotId: string; revision: number;
+    shot: ProjectShot; contentHash: string; requestId: string; createdBy: string; createdAt: string;
+};
+export type ProjectShotContext = {
+    unit: ProjectUnit; sourceHash: string; paragraphs: Array<{ id: string; text: string; dialogue?: { speaker: string; text: string; paragraphId: string } }>;
+    shots: ProjectShot[]; staleShotIds: string[];
+    coverage: { coveredParagraphIds: string[]; missingParagraphIds: string[]; dialogueMatches: boolean; chapterComplete: boolean };
 };
 
 export type ShotAssetReference = {
@@ -347,12 +385,24 @@ export function createUnitWorkflow(projectId: string, unitId: string) {
     return request<{ workflow: ProjectWorkflow }>(api.post(`/projects/${encodeURIComponent(projectId)}/workflows`, { unitId }));
 }
 
-export function saveProjectShot(projectId: string, input: { id?: string; unitId?: string; title: string; description?: string; position?: number; durationMs?: number; status?: string }) {
+export function saveProjectShot(projectId: string, input: { id?: string; unitId?: string; title: string; description?: string; position?: number; durationMs?: number; status?: string; expectedRevision: number }) {
     return request<{ shot: ProjectShot }>(api.post(`/projects/${encodeURIComponent(projectId)}/shots`, input));
 }
 
-export function replaceProjectUnitShots(projectId: string, unitId: string, shots: Array<{ title: string; description: string; durationMs: number }>) {
-    return request<{ shots: ProjectShot[] }>(api.put(`/projects/${encodeURIComponent(projectId)}/units/${encodeURIComponent(unitId)}/shots`, { shots }));
+export function saveProjectUnitShots(projectId: string, unitId: string, input: ProjectShotBatchInput) {
+    return request<{ receipt: ProjectShotBatchReceipt; replayed: boolean }>(api.put(`/projects/${encodeURIComponent(projectId)}/units/${encodeURIComponent(unitId)}/shots`, input));
+}
+
+export function getProjectShotContext(projectId: string, unitId: string) {
+    return request<ProjectShotContext>(api.get(`/projects/${encodeURIComponent(projectId)}/units/${encodeURIComponent(unitId)}/shots`));
+}
+
+export function getProjectShotBatch(projectId: string, unitId: string, requestId: string) {
+    return request<{ receipt: ProjectShotBatchReceipt }>(api.get(`/projects/${encodeURIComponent(projectId)}/units/${encodeURIComponent(unitId)}/shot-batches/${encodeURIComponent(requestId)}`));
+}
+
+export function getProjectShotRevisions(projectId: string, shotId: string) {
+    return request<{ revisions: ProjectShotRevision[] }>(api.get(`/projects/${encodeURIComponent(projectId)}/shots/${encodeURIComponent(shotId)}/revisions`));
 }
 
 export function linkShotAsset(projectId: string, shotId: string, input: { assetVersionId: string; role: ShotAssetReference["role"] }) {

@@ -6,7 +6,7 @@ import type { ProjectUnit, ProjectScriptRevision, ProjectScriptUpdate } from "..
 const source = "<p>场景：客厅</p><p>林夏：我不走。</p><p>动作：门关上。</p>";
 const input = { unitId: "unit", expectedRevision: 1, requestId: "edit-one", note: "只改对白", edits: [{ oldText: "我不走。", newText: "我陪你。" }] };
 async function fixture() {
-    let unit: ProjectUnit = { id: "unit", projectId: "project", kind: "chapter", title: "第一场", sourceText: source, revision: 1, status: "draft", position: 0, createdAt: "2026-01-01", updatedAt: "2026-01-01" };
+    let unit: ProjectUnit = { id: "unit", projectId: "project", kind: "chapter", title: "第一场", sourceText: source, revision: 1, shotRevision: 0, status: "draft", position: 0, createdAt: "2026-01-01", updatedAt: "2026-01-01" };
     const original: ProjectScriptRevision = { ...unit, unitId: unit.id, sourceHash: await hashScriptContent(source), requestId: "", note: "", createdBy: "" };
     const rows = new Map([[1, original]]);
     let writes = 0;

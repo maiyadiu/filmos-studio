@@ -1,5 +1,13 @@
 import type { LocalRuntimeSessionClient } from "@/services/local-runtime-session";
 import { getLocalRuntimeSessionClient } from "@/stores/use-local-runtime-store";
+import type { AgentTurnPlan } from "../../../../packages/filmos-agent-contracts/src/index";
+export type { AgentTurnPlan };
+
+export type AgentExecutionView = {
+    activeTurnId: string | null;
+    resuming: boolean;
+    pendingConfirmations: Array<{ id: string; sessionId: string; turnId: string; requestId: string; toolName: string; summary: string; impact: string[]; expiresAt: string }>;
+};
 
 export type BrainSessionView = {
     id: string;
@@ -7,9 +15,13 @@ export type BrainSessionView = {
     brainProfileId: string;
     projectId: string;
     canvasId: string;
+    domainProjectId?: string;
+    contentUnitId?: string;
     providerThreadId?: string;
     status: string;
     updatedAt: string;
+    latestPlan?: AgentTurnPlan | null;
+    execution?: AgentExecutionView;
 };
 
 export type AgentHistoryMessageView = {
@@ -67,6 +79,14 @@ export class AgentSessionClient {
         return this.post<{ session: BrainSessionView; contextReceiptId?: string; history: AgentHistoryMessageView[]; historyStatus: AgentHistoryStatus }>(`/agent/sessions/${segment(sessionId)}/resume`, {}, signal);
     }
 
+    getSession(sessionId: string, signal?: AbortSignal) {
+        return this.json<{ session: BrainSessionView }>(`/agent/sessions/${segment(sessionId)}`, { method: "GET", signal });
+    }
+
+    readHistory(sessionId: string, signal?: AbortSignal) {
+        return this.json<{ session: BrainSessionView; history: AgentHistoryMessageView[]; historyStatus: AgentHistoryStatus }>(`/agent/sessions/${segment(sessionId)}/history`, { method: "GET", signal });
+    }
+
     sendTurn(sessionId: string, input: { prompt: string; turnId?: string; attachments?: Array<{ name?: string; type?: string; dataUrl?: string }>; skills?: Array<{ skillId?: string; name: string; description?: string; instruction: string }> }, signal?: AbortSignal) {
         return this.post<{ session: BrainSessionView; contextReceiptId: string; result: unknown }>(`/agent/sessions/${segment(sessionId)}/turns`, input, signal);
     }
@@ -98,7 +118,7 @@ export class AgentSessionClient {
     private async json<T>(path: string, init: RequestInit) {
         const response = await this.runtime.request(path, init);
         const value = await response.json().catch(() => ({})) as { ok?: boolean; code?: string; message?: string } & T;
-        if (!response.ok || value.ok !== true) throw new Error(value.code || value.message || `AGENT_RUNTIME_REQUEST_FAILED:${response.status}`);
+        if (!response.ok || value.ok !== true) throw new Error([value.code, value.message].filter(Boolean).join(": ") || `AGENT_RUNTIME_REQUEST_FAILED:${response.status}`);
         return value;
     }
 }

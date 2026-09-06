@@ -1,14 +1,31 @@
 import { describe, expect, it } from "bun:test";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 
 import { buildCanvasWorkflowOps, looksLikeWorkflowRequest } from "@/lib/canvas/canvas-agent-workflow";
 import { applyCanvasAgentOps, canvasAgentPostconditionMessage, verifyCanvasAgentOps, type CanvasAgentSnapshot } from "@/lib/canvas/canvas-agent-ops";
-import { extractCanvasAgentQuickActions } from "@/components/canvas/canvas-agent-chat-ui";
+import { AgentToolCard, extractCanvasAgentQuickActions, toolCardState } from "@/components/canvas/canvas-agent-chat-ui";
+import { canvasThemes } from "@/lib/canvas-theme";
 import { CanvasNodeType } from "@/types/canvas";
 
 const config = { imageModel: "image-model", videoModel: "video-model", audioModel: "audio-model" } as never;
 const snapshot: CanvasAgentSnapshot = { projectId: "p", title: "空画布", nodes: [], connections: [], selectedNodeIds: [], viewport: { x: 0, y: 0, k: 1 } };
 
 describe("canvas agent workflow builder", () => {
+    it("a partial saved result is not displayed as completed even with an old success title", () => {
+        for (const result of [{ ok: false }, { ok: true, data: { verification: { ok: false, persisted: true } } }]) {
+            const state = toolCardState("同步分镜完成", "已完成", { name: "project_sync_storyboard", result });
+            expect(state.label).toBe("结果待核对");
+            expect(state.isError).toBe(true);
+        }
+        expect(toolCardState("同步分镜完成", "已完成", { result: { ok: true, data: { verification: { ok: true } } } }).label).toBe("执行完成");
+        const html = renderToStaticMarkup(createElement(AgentToolCard, { title: "同步分镜完成", text: "已完成", theme: canvasThemes.light, detail: { result: { ok: false, message: "已保存，但来源尚未核对" } } }));
+        const summary = html.split("</summary>")[0];
+        expect(summary).toContain("结果待核对");
+        expect(summary).toContain("已保存，但来源尚未核对");
+        expect(summary).not.toContain("执行完成");
+        expect(summary).not.toContain("已完成");
+    });
     it("creates semantic media nodes, non-overlapping layout and real edges", () => {
         const ops = buildCanvasWorkflowOps({
             title: "搞笑修仙小说流水线",
@@ -39,6 +56,7 @@ describe("canvas agent workflow builder", () => {
             { label: "调整布局", prompt: "调整布局" },
         ]);
         expect(extractCanvasAgentQuickActions("```json\n1. not an action\n```")).toEqual([]);
+        expect(extractCanvasAgentQuickActions("计划更新：\n1. **已完成**：核对项目。\n2. **进行中**：读取提示词。\n3. **待开始**：核验版本。")).toEqual([]);
     });
 
     it("rejects workflow-shaped text batches", () => {

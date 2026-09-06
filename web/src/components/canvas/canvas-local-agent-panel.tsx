@@ -5,6 +5,7 @@ import { Copy, FolderOpen, History, LoaderCircle, LogIn, LogOut, MessageSquareTe
 import { motion } from "motion/react";
 
 import { canvasThemes } from "@/lib/canvas-theme";
+import { agentTextEvent, appendAgentChatMessage, scopedAgentStreamId } from "@/lib/canvas/agent-message-stream";
 import { consumeLocalRuntimeEventStream, postCanvasRuntimeState, prepareCanvasRuntimeConnection, waitForCanvasRuntimeReconnect, type LocalRuntimeEvent } from "@/lib/canvas/local-runtime-connection";
 import { createClientId } from "@/lib/client-id";
 import { getLocalRuntimeSessionClient, useLocalRuntimeStore } from "@/stores/use-local-runtime-store";
@@ -25,13 +26,16 @@ import {
 import { canvasAgentPostconditionMessage, hashCanvasAgentSnapshot, previewCanvasAgentOps, summarizeCanvasAgentOps, verifyCanvasAgentOps, type CanvasAgentOp, type CanvasAgentSnapshot } from "@/lib/canvas/canvas-agent-ops";
 import { buildCanvasAgentContext, findCanvasAgentNodes, getCanvasAgentConnection, getCanvasAgentGenerationTasks, getCanvasAgentNode, getCanvasAgentResources, validateCanvasAgentOps } from "@/lib/canvas/canvas-agent-context";
 import { buildCanvasResourceReferences } from "@/lib/canvas/canvas-resource-references";
+import { canvasToolFailure } from "@/lib/canvas/canvas-tool-failure";
+import { agentCreativeResult, creativeToolTargetSummary } from "@/lib/canvas/agent-creative-results";
+import { AgentCreativeResultAction } from "./agent-creative-result";
 import { resolveSkillMentions } from "@/lib/canvas/canvas-skill-mentions";
 import { listAddedSkills, type Skill } from "@/services/api/skills";
 import { isProjectAgentReadTool, isProjectAgentToolName, runProjectAgentTool } from "@/services/api/project-agent-tools";
-import { AgentChatComposer, AgentChatMessage, AgentPendingToolCard, AgentWorkingMessage, type CanvasAgentChatAttachment } from "./canvas-agent-chat-ui";
+import { AgentChatComposer, AgentChatMessage, AgentPendingToolCard, AgentPlanCard, AgentWorkingMessage, type CanvasAgentChatAttachment } from "./canvas-agent-chat-ui";
 import { VoiceRecordingButton } from "@/components/conversation/voice-recording-button";
 import { AgentChatEmptyState } from "./canvas-agent-panel-chrome";
-import { AgentSessionClient, type AgentHistoryMessageView, type BrainSessionView } from "@/film/agent/agent-client";
+import { AgentSessionClient, type AgentHistoryMessageView, type BrainSessionView, type AgentTurnPlan } from "@/film/agent/agent-client";
 import { dispatchBrowserRuntimeRequest, type BrowserRuntimeRequest } from "@/film/agent/browser-runtime-bridge";
 import { chatGPTHostReadiness } from "@/film/agent/chatgpt-host-readiness";
 import type { FilmOSDesktopChatGPTHostStatus } from "@/film/agent/workbench-context";
@@ -59,6 +63,11 @@ type AgentEventPayload = {
     message?: string;
     usage?: Record<string, unknown>;
     delta?: string;
+    text?: string;
+    sessionId?: string;
+    turnId?: string;
+    streamId?: string;
+    plan?: AgentTurnPlan;
     handoff?: {
         handoffId?: string;
         hostSessionId?: string;
@@ -122,6 +131,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
         sending,
         waiting,
         messages,
+        latestPlan,
         eventLogs,
         threads,
         activeThreadId,
@@ -133,13 +143,22 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
         connectError,
         pendingTool,
         setAgentState,
-        addMessage: pushMessage,
         addEventLog: pushEventLog,
         clearEventLogs,
     } = useCanvasAgentStore();
     const [resizing, setResizing] = useState(false);
     const [accountStatus, setAccountStatus] = useState<CodexAccountStatus | null>(null);
     const [accountBusy, setAccountBusy] = useState(false);
+    const [activeTurn, updateActiveTurn] = useState<{ sessionId: string; turnId: string } | null>(null);
+    const activeTurnRef = useRef(activeTurn);
+    const executionEpochRef = useRef(0);
+    const unacknowledgedTurnRef = useRef<string | null>(null);
+    const [executionKnown, setExecutionKnown] = useState(false);
+    const setActiveTurn = useCallback((turn: typeof activeTurn) => { activeTurnRef.current = turn; updateActiveTurn(turn); }, []);
+    const sessionScopeKey = JSON.stringify([user?.id, brainProfileId, snapshot.projectId, snapshot.domainProjectId, snapshot.contentUnitId]);
+    const sessionScopeRef = useRef(sessionScopeKey);
+    sessionScopeRef.current = sessionScopeKey;
+    const [cancelling, setCancelling] = useState(false);
     const chatGPTHostProfile = brainProfileId === "chatgpt.subscription.host";
     const [chatGPTHostStatus, setChatGPTHostStatus] = useState<FilmOSDesktopChatGPTHostStatus | null>(() => typeof window === "undefined" ? null : window.filmOSChatGPTHostStatus ?? null);
     const [chatGPTHostClock, setChatGPTHostClock] = useState(() => Date.now());
@@ -181,6 +200,29 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
     const connectionControllerRef = useRef<AbortController | null>(null);
     const activeToolRequestIdsRef = useRef(new Set<string>());
     const recoveredToolResultIdsRef = useRef(new Set<string>());
+    const observeExecution = useCallback(async () => {
+        const scopeKey = sessionScopeKey;
+        const sessionId = useCanvasAgentStore.getState().activeThreadId;
+        if (!genericRuntime || !sessionId) return;
+        const epoch = executionEpochRef.current;
+        const { session } = await agentSessionClient.getSession(sessionId);
+        const current = useCanvasAgentStore.getState();
+        const scope = snapshotRef.current;
+        if (!current.connected || sessionScopeRef.current !== scopeKey || current.activeThreadId !== sessionId || epoch !== executionEpochRef.current) return;
+        if (session.id !== sessionId || session.canvasId !== scope.projectId || session.domainProjectId !== scope.domainProjectId || session.contentUnitId !== scope.contentUnitId || session.brainProfileId !== brainProfileId) return;
+        const execution = session.execution;
+        if (!execution) return; // An older Runtime cannot prove a turn has stopped.
+        if (unacknowledgedTurnRef.current && execution.activeTurnId !== unacknowledgedTurnRef.current) return;
+        if (execution.activeTurnId) unacknowledgedTurnRef.current = null;
+        setExecutionKnown(true);
+        const confirmation = execution.pendingConfirmations.find(item => item.sessionId === sessionId && (!execution.activeTurnId || item.turnId === execution.activeTurnId));
+        const pending: AgentPendingToolCall | null = confirmation ? { requestId: confirmation.requestId, name: confirmation.toolName, canonicalConfirmation: { id: confirmation.id, sessionId, summary: confirmation.summary, impact: confirmation.impact } } : null;
+        setActiveTurn(execution.activeTurnId ? { sessionId, turnId: execution.activeTurnId } : null);
+        pendingToolRef.current = pending;
+        const busy = Boolean(execution.activeTurnId) || execution.resuming;
+        setAgentState({ sending: busy, waiting: busy && !pending, pendingTool: pending,
+            ...(pending ? { activity: "等待确认" } : busy ? { activity: "执行中" } : current.sending || current.waiting || current.pendingTool ? { activity: "本轮已结束，请核对结果" } : {}) });
+    }, [agentSessionClient, brainProfileId, genericRuntime, sessionScopeKey, setActiveTurn, setAgentState]);
     const syncState = useCallback(
         (clientId: string, nextSnapshot: CanvasAgentSnapshot) => {
             const stateHash = hashCanvasAgentSnapshot(nextSnapshot);
@@ -214,19 +256,27 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
         [pushEventLog],
     );
     const loadThreads = useCallback(async () => {
+        const scopeKey = sessionScopeKey;
+        if (sessionScopeRef.current !== scopeKey) return;
+        const planBeforeRequest = useCanvasAgentStore.getState().latestPlan;
+        const activeBeforeRequest = useCanvasAgentStore.getState().activeThreadId;
         const projectId = snapshotRef.current.projectId;
         if ((!connectedRef.current && !useCanvasAgentStore.getState().connected) || !projectId) return;
         setAgentState({ loadingThreads: true });
         try {
             if (genericRuntime) {
                 const data = await agentSessionClient.listSessions({ projectId, brainProfileId });
-                const sessions = data.sessions.filter((item) => item.status !== "closed");
+                if (sessionScopeRef.current !== scopeKey) return;
+                const scope = snapshotRef.current;
+                const sessions = data.sessions.filter((item) => item.status !== "closed" && item.canvasId === scope.projectId && item.domainProjectId === scope.domainProjectId && item.contentUnitId === scope.contentUnitId);
                 const current = useCanvasAgentStore.getState();
+                if (current.activeThreadId !== activeBeforeRequest) return;
                 const activeSessionId = sessions.some((item) => item.id === current.activeThreadId) ? current.activeThreadId : sessions[0]?.id || "";
                 setAgentState({
                     threads: sessions.map(brainSessionThread),
                     activeThreadId: activeSessionId,
                     workspacePath: "FilmOS BrainSession · 项目隔离",
+                    ...(current.latestPlan === planBeforeRequest || activeSessionId !== current.activeThreadId ? { latestPlan: sessions.find((item) => item.id === activeSessionId)?.latestPlan ?? null } : {}),
                     ...(activeSessionId === current.activeThreadId ? {} : { messages: [] }),
                 });
                 return;
@@ -248,7 +298,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
         } finally {
             setAgentState({ loadingThreads: false });
         }
-    }, [agentSessionClient, brainProfileId, genericRuntime, setAgentState]);
+    }, [agentSessionClient, brainProfileId, genericRuntime, sessionScopeKey, setAgentState]);
     const loadAccountStatus = useCallback(async () => {
         if (!connectedRef.current && !useCanvasAgentStore.getState().connected) return;
         try {
@@ -397,10 +447,42 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
     }, [brainProfileId, connected, loadAccountStatus, loadThreads, snapshot.projectId]);
 
     useEffect(() => {
+        if (!genericRuntime || !connected || !activeThreadId) return;
+        let stopped = false;
+        let timer: ReturnType<typeof setTimeout>;
+        const poll = async () => {
+            try { await observeExecution(); }
+            catch { /* A lost observation is not proof that execution stopped. */ }
+            const current = useCanvasAgentStore.getState();
+            if (!stopped) timer = setTimeout(poll, current.sending || current.waiting || current.pendingTool ? 3_000 : 15_000);
+        };
+        void poll();
+        return () => { stopped = true; clearTimeout(timer); setExecutionKnown(false); };
+    }, [activeThreadId, connected, genericRuntime, observeExecution]);
+
+    useEffect(() => {
+        if (!genericRuntime || !connected || !activeThreadId || useCanvasAgentStore.getState().messages.length) return;
+        const scopeKey = sessionScopeKey;
+        let stopped = false;
+        void agentSessionClient.readHistory(activeThreadId).then(data => {
+            if (stopped || sessionScopeRef.current !== scopeKey || useCanvasAgentStore.getState().activeThreadId !== activeThreadId) return;
+            const history = normalizeGenericHistory(data.history, activeThreadId);
+            const live = useCanvasAgentStore.getState().messages;
+            setAgentState({ messages: live.reduce((items, item) => appendAgentChatMessage(items, item), history) });
+        }).catch(() => { /* Keep the live conversation; idle history can be resumed explicitly. */ });
+        return () => { stopped = true; };
+    }, [activeThreadId, agentSessionClient, connected, genericRuntime, sessionScopeKey, setAgentState]);
+
+    useEffect(() => {
         if (!genericRuntime) return;
-        setAgentState({ activeThreadId: "", threads: [], messages: [], pendingTool: null, activity: "就绪" });
-        if (connected) void loadThreads();
-    }, [brainProfileId, connected, genericRuntime, loadThreads, setAgentState]);
+        if (useCanvasAgentStore.getState().sessionScopeKey === sessionScopeKey) return;
+        pendingToolRef.current = null;
+        executionEpochRef.current++;
+        unacknowledgedTurnRef.current = null;
+        setExecutionKnown(false);
+        setActiveTurn(null);
+        setAgentState({ sessionScopeKey, activeThreadId: "", threads: [], messages: [], latestPlan: null, pendingTool: null, sending: false, waiting: false, activity: "就绪" });
+    }, [genericRuntime, sessionScopeKey, setAgentState]);
 
     useEffect(() => {
         if (activeTab === "history" && connected) void loadThreads();
@@ -417,7 +499,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
         const files = attachments;
         const mentionedSkills = resolveSkillMentions(text, composerSkills);
         const requestPrompt = promptWithAttachments(text, files);
-        if (!connected || !requestPrompt || sending || waiting) return;
+        if (!connected || !requestPrompt || sending || waiting || pendingTool || activeTurnRef.current || (genericRuntime && activeThreadId && !executionKnown)) return;
         if (chatGPTHostProfile && !chatGPTHost.handoffReady) {
             addMessage({ role: "error", title: "ChatGPT Host 未就绪", text: `${chatGPTHost.message}。请打开“ChatGPT 连接”完成当前项目授权后再发送。` });
             return;
@@ -427,6 +509,8 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
             return;
         }
         setAgentState({ activity: "发送中", sending: true, waiting: true });
+        const requestScope = sessionScopeKey;
+        let dispatchedTurn: { sessionId: string; turnId: string } | null = null;
         addMessage({ role: "user", text: text || "发送了图片", attachments: files });
         addEventLog("用户发送", { text, attachments: files.map(({ name, type, size }) => ({ name, type, size })) });
         try {
@@ -434,10 +518,18 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
                 let sessionId = useCanvasAgentStore.getState().activeThreadId;
                 if (!sessionId) {
                     const created = await agentSessionClient.createSession({ conversationId: createId(), brainProfileId });
+                    if (sessionScopeRef.current !== requestScope) return;
                     sessionId = created.session.id;
                     setAgentState({ activeThreadId: sessionId });
                 }
+                const turnId = createId();
+                executionEpochRef.current++;
+                unacknowledgedTurnRef.current = turnId;
+                dispatchedTurn = { sessionId, turnId };
+                setAgentState({ latestPlan: null });
+                setActiveTurn({ sessionId, turnId });
                 await agentSessionClient.sendTurn(sessionId, {
+                    turnId,
                     prompt: requestPrompt,
                     attachments: files.map(({ name, type, dataUrl }) => ({ name, type, dataUrl })),
                     skills: mentionedSkills.map((skill) => ({ skillId: skill.skill_id, name: skill.skill_name, description: skill.description, instruction: skill.instruction || skill.description })),
@@ -456,6 +548,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
                 });
                 if (data.threadId) setAgentState({ activeThreadId: data.threadId });
             }
+            if (sessionScopeRef.current !== requestScope || (dispatchedTurn && useCanvasAgentStore.getState().activeThreadId !== dispatchedTurn.sessionId)) return;
             addEventLog("本地 Agent 已接收", { accepted: true });
             files.forEach((item) => {
                 URL.revokeObjectURL(item.url);
@@ -463,11 +556,24 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
             });
             setAgentState({ prompt: "", attachments: [] });
         } catch (error) {
-            setAgentState({ activity: "发送失败", waiting: false });
-            addMessage({ role: "error", title: "发送失败", text: error instanceof Error ? error.message : "发送失败" });
-            addEventLog("发送失败", error);
+            if (sessionScopeRef.current !== requestScope || (dispatchedTurn && useCanvasAgentStore.getState().activeThreadId !== dispatchedTurn.sessionId)) return;
+            const cancelled = error instanceof Error && error.message.toUpperCase().includes("AGENT_TURN_CANCELLED");
+            setAgentState({ activity: cancelled ? "已停止" : genericRuntime && dispatchedTurn ? "正在核对执行状态" : "发送失败", ...(!genericRuntime || !dispatchedTurn ? { waiting: false } : {}) });
+            addMessage({ role: cancelled ? "system" : "error", title: cancelled ? "已停止" : "发送失败", text: cancelled ? "本轮已停止，已保存的内容保留。可以先核对章节版本再继续。" : error instanceof Error ? error.message : "发送失败" });
+            addEventLog(cancelled ? "已停止" : "发送失败", error);
         } finally {
-            setAgentState({ sending: false });
+            if (genericRuntime) {
+                if (sessionScopeRef.current === requestScope && (!dispatchedTurn || useCanvasAgentStore.getState().activeThreadId === dispatchedTurn.sessionId)) {
+                    if (unacknowledgedTurnRef.current === dispatchedTurn?.turnId) unacknowledgedTurnRef.current = null;
+                    // Session creation can fail before any turn is dispatched.
+                    // There is then no running turn to observe or keep busy.
+                    if (!dispatchedTurn) setAgentState({ sending: false, waiting: false });
+                    else await observeExecution().catch(() => undefined);
+                }
+            } else {
+                setActiveTurn(null);
+                setAgentState({ sending: false });
+            }
         }
     };
 
@@ -606,23 +712,26 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
                                     });
                                 })()
                             : projectToolName
-                              ? await runProjectAgentTool(projectToolName, input, snapshotRef.current.domainProjectId)
+                              ? await runProjectAgentTool(projectToolName, input, snapshotRef.current.domainProjectId, snapshotRef.current.projectId)
                               : snapshotRef.current;
             await postToolResult(clientIdRef.current, { requestId: payload.requestId, result });
             if (payload.name === "canvas_apply_ops") syncState(clientIdRef.current, (result as { snapshot?: CanvasAgentSnapshot }).snapshot || snapshotRef.current);
-            setAgentState({ activity: "工具完成", waiting: true });
-            addEventLog(`${toolName(payload.name)}完成`, result, result);
+            const toolResult = result as { ok?: boolean; message?: string; data?: { verification?: { ok?: boolean } } } | null;
+            const unverified = toolResult?.ok === false || toolResult?.data?.verification?.ok === false;
+            const outcomeTitle = `${toolName(payload.name)}${unverified ? "结果待核对" : "完成"}`;
+            setAgentState({ activity: unverified ? "结果待核对" : "工具完成", waiting: true });
+            addEventLog(outcomeTitle, result, result);
             addMessage({
                 role: "tool",
-                title: `${toolName(payload.name)}完成`,
-                text: payload.name === "canvas_apply_ops" ? (result as { message?: string }).message || summarizeCanvasAgentOps((input.ops || []) as CanvasAgentOp[]) || "画布操作" : payload.name === "project_revise_script" ? (result as { message: string }).message : "已完成",
+                title: outcomeTitle,
+                text: unverified ? toolResult?.message || "工具返回结果尚未通过核验；请回读，不要重复写入" : payload.name === "canvas_apply_ops" ? (result as { message?: string }).message || summarizeCanvasAgentOps((input.ops || []) as CanvasAgentOp[]) || "画布操作" : payload.name === "project_revise_script" ? (result as { message: string }).message : "已完成",
                 detail: { requestId: payload.requestId, name: payload.name, input, result },
             });
         } catch (error) {
             const message = error instanceof Error ? error.message : "画布操作失败";
             setAgentState({ activity: "工具失败", waiting: false });
             addMessage({ role: "tool", title: "工具失败", text: message, detail: payload });
-            await postToolResult(clientIdRef.current, { requestId: payload.requestId, error: message });
+            await postToolResult(clientIdRef.current, { requestId: payload.requestId, ...canvasToolFailure(error) });
         } finally {
             activeToolRequestIdsRef.current.delete(payload.requestId);
         }
@@ -641,6 +750,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
 
     const rejectPendingTool = async () => {
         if (!pendingTool) return;
+        executionEpochRef.current++;
         if (pendingTool.canonicalConfirmation) {
             await agentSessionClient.decideConfirmation(pendingTool.canonicalConfirmation.id, { sessionId: pendingTool.canonicalConfirmation.sessionId, approved: false });
         } else {
@@ -654,12 +764,15 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
 
     const approvePendingTool = async () => {
         if (!pendingTool) return;
+        executionEpochRef.current++;
         const tool = pendingTool;
         pendingToolRef.current = null;
         setAgentState({ pendingTool: null });
         if (tool.canonicalConfirmation) {
             setAgentState({ activity: "执行已批准工具", waiting: true });
-            await agentSessionClient.decideConfirmation(tool.canonicalConfirmation.id, { sessionId: tool.canonicalConfirmation.sessionId, approved: true });
+            try { await agentSessionClient.decideConfirmation(tool.canonicalConfirmation.id, { sessionId: tool.canonicalConfirmation.sessionId, approved: true }); }
+            catch (error) { addMessage({ role: "error", title: "工具未确认完成", text: error instanceof Error ? error.message : "请回读状态，不重复保存" }); }
+            finally { await observeExecution().catch(() => undefined); }
             return;
         }
         await runToolCall(tool);
@@ -719,14 +832,30 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
         void toggleAgentConnection();
     }, [autoConnect, connected, enabled]);
 
+    const cancelActiveTurn = async () => {
+        if (!activeTurn || cancelling) return;
+        executionEpochRef.current++;
+        setCancelling(true);
+        try {
+            await agentSessionClient.cancelTurn(activeTurn.sessionId, activeTurn.turnId);
+            pendingToolRef.current = null;
+            setAgentState({ pendingTool: null, activity: "正在停止" });
+            addMessage({ role: "system", text: "已请求停止本轮，待执行的工具已取消。已发出的保存可能已完成；继续时先回读现有版本，不自动撤销或重复保存。" });
+        } catch (error) {
+            message.error(error instanceof Error ? error.message : "停止失败，请检查本轮状态");
+        } finally {
+            setCancelling(false);
+        }
+    };
+
     const startNewThread = async () => {
         const projectId = snapshotRef.current.projectId;
-        if (!connected || !projectId) return;
+        if (!connected || !projectId || sending || waiting || pendingTool || (genericRuntime && activeThreadId && !executionKnown)) return;
         setAgentState({ loadingThreads: true });
         try {
             if (genericRuntime) {
                 const data = await agentSessionClient.createSession({ conversationId: createId(), brainProfileId });
-                setAgentState({ activeThreadId: data.session.id, messages: [], activeTab: "chat", activity: "新对话" });
+                setAgentState({ activeThreadId: data.session.id, messages: [], latestPlan: null, activeTab: "chat", activity: "新对话" });
                 await loadThreads();
                 return;
             }
@@ -743,14 +872,14 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
 
     const resumeThread = async (threadId: string) => {
         const projectId = snapshotRef.current.projectId;
-        if (!connected || !projectId || !threadId) return;
+        if (!connected || !projectId || !threadId || sending || waiting || pendingTool || (genericRuntime && activeThreadId && !executionKnown)) return;
         setAgentState({ loadingThreads: true });
         try {
             if (genericRuntime) {
                 const data = await agentSessionClient.resumeSession(threadId);
-                const history = normalizeGenericHistory(data.history);
+                const history = normalizeGenericHistory(data.history, threadId);
                 if (!history.length && data.historyStatus.limitation) history.push({ id: `history-limit-${threadId}`, role: "system", text: data.historyStatus.limitation });
-                setAgentState({ activeThreadId: threadId, messages: history, activeTab: "chat", activity: "已恢复会话" });
+                setAgentState({ activeThreadId: threadId, messages: history, latestPlan: data.session.latestPlan ?? null, activeTab: "chat", activity: "已恢复会话" });
                 await loadThreads();
                 return;
             }
@@ -830,25 +959,11 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
     };
 
     const addMessage = (item: Omit<AgentChatItem, "id">) => {
-        const text = normalizeText(item.text);
-        if (!text && !item.attachments?.length) return;
+        const text = item.role === "assistant" ? item.text : normalizeText(item.text);
+        if (!text && !item.streamId && !item.attachments?.length) return;
         const next = { ...item, id: `${Date.now()}-${Math.random()}`, text };
         const currentMessages = useCanvasAgentStore.getState().messages;
-        if (next.streamId) {
-            const index = currentMessages.findIndex((message) => message.streamId === next.streamId);
-            if (index >= 0) {
-                setAgentState({ messages: currentMessages.map((message, i) => (i === index ? { ...message, ...next, id: message.id, text: next.text || message.text } : message)) });
-                return;
-            }
-        }
-        const last = currentMessages.at(-1);
-        if (last?.role === "assistant" && next.role === "assistant" && last.title === next.title) {
-            const merged = mergeAgentText(last.text, next.text);
-            if (merged === last.text) return;
-            setAgentState({ messages: [...useCanvasAgentStore.getState().messages.slice(0, -1), { ...last, text: merged, meta: next.meta || last.meta }] });
-            return;
-        }
-        pushMessage(next);
+        setAgentState({ messages: appendAgentChatMessage(currentMessages, next) });
     };
 
     const addEventLog = (title: string, text: unknown, raw?: unknown) => {
@@ -856,11 +971,22 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
     };
 
     const handleAgentEvent = (event: AgentEventPayload) => {
+        if (genericRuntime && (!event.sessionId || event.sessionId !== useCanvasAgentStore.getState().activeThreadId)) return;
+        if (genericRuntime) {
+            if (activeTurnRef.current && event.turnId && event.turnId !== activeTurnRef.current.turnId) return;
+            executionEpochRef.current++;
+            if (event.type === "turn.started" && event.turnId && event.sessionId) {
+                unacknowledgedTurnRef.current = null;
+                setActiveTurn({ sessionId: event.sessionId, turnId: event.turnId });
+                setAgentState({ sending: true });
+            }
+        }
         if (shouldLogAgentEvent(event)) addEventLog(eventTitle(event), event, event);
         if (event.type === "thread.started" && event.thread_id) setAgentState({ activeThreadId: event.thread_id });
         const nextActivity = activityText(event);
         if (nextActivity) setAgentState({ activity: nextActivity });
-        if (event.type === "turn.started") setAgentState({ waiting: true });
+        if (event.type === "turn.started") setAgentState({ waiting: true, latestPlan: null });
+        if (event.type === "turn.plan.updated" && event.plan && event.plan.turnId === event.turnId) setAgentState({ latestPlan: event.plan });
         if (event.type === "confirmation.required" && event.confirmation?.id && event.confirmation.sessionId && event.confirmation.requestId && event.confirmation.toolName) {
             const pending: AgentPendingToolCall = {
                 requestId: event.confirmation.requestId,
@@ -876,15 +1002,16 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
             setAgentState({ pendingTool: pending, waiting: false, activity: "等待确认" });
         }
         if (["host.handoff.prepared", "host.observed", "host.proposal.received", "host.handoff.expired"].includes(event.type || "")) setAgentState({ waiting: false, sending: false });
-        if (event.type === "turn.completed" || event.type === "turn.failed" || event.type === "error") setAgentState({ waiting: false, sending: false });
+        if (!genericRuntime && (event.type === "turn.completed" || event.type === "turn.failed" || event.type === "error")) setAgentState({ waiting: false, sending: false });
         const item = formatAgentEvent(event);
         if (item) {
-            if (item.role === "error") setAgentState({ waiting: false, sending: false });
+            if (!genericRuntime && item.role === "error") setAgentState({ waiting: false, sending: false });
             addMessage(item);
         }
     };
 
     const profileConnectionHealthy = connected && (!chatGPTHostProfile || chatGPTHost.handoffReady);
+    const executionUncertain = genericRuntime && Boolean(activeThreadId) && !executionKnown;
     const profileConnectionText = !connected
         ? canvasAgentConnectionStatusText({ enabled, connected, activity, connectError })
         : chatGPTHostProfile
@@ -899,8 +1026,9 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
     const content = (
         <>
             <div className="flex min-h-8 shrink-0 items-center justify-end gap-1 px-3 pb-1">
+                {genericRuntime && activeTurn && (sending || waiting || pendingTool) ? <Button size="small" disabled={!connected || executionUncertain} loading={cancelling} onClick={() => void cancelActiveTurn()}>停止本轮</Button> : null}
                 <div className="mr-auto min-w-0 truncate px-1 text-[var(--fs-tiny)]" style={{ color: profileConnectionHealthy ? "#16a34a" : theme.node.muted }} title={profileConnectionText}>
-                    {profileConnectionText}
+                    {executionUncertain && connected ? "已连接 · 正在核对本轮状态" : profileConnectionText}
                 </div>
                 {connected && chatGPTHostProfile && !chatGPTHost.handoffReady ? <Button size="small" className="!h-7 !px-2.5" onClick={openChatGPTConnectionSettings}>连接设置</Button> : null}
                 {!connected ? (
@@ -909,12 +1037,12 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
                     </Button>
                 ) : null}
                 <Tooltip title={threads.length ? `历史会话 · ${threads.length}` : "历史会话"}>
-                    <Button type="text" className={`!h-7 !min-w-7 !px-1.5 ${activeTab === "history" ? "font-medium" : ""}`} style={{ color: activeTab === "history" ? theme.node.text : theme.node.muted, background: activeTab === "history" ? theme.spatial.surface : "transparent" }} icon={<History className="size-3.5" />} onClick={() => setAgentState({ activeTab: activeTab === "history" ? "chat" : "history" })} aria-label="打开历史会话">
+                    <Button type="text" disabled={sending || waiting || Boolean(pendingTool) || executionUncertain} className={`!h-7 !min-w-7 !px-1.5 ${activeTab === "history" ? "font-medium" : ""}`} style={{ color: activeTab === "history" ? theme.node.text : theme.node.muted, background: activeTab === "history" ? theme.spatial.surface : "transparent" }} icon={<History className="size-3.5" />} onClick={() => setAgentState({ activeTab: activeTab === "history" ? "chat" : "history" })} aria-label="打开历史会话">
                         {threads.length ? <span className="text-[var(--fs-tiny)] tabular-nums">{threads.length}</span> : null}
                     </Button>
                 </Tooltip>
                 <Tooltip title="新对话">
-                    <Button type="text" shape="circle" className="!h-7 !w-7 !min-w-7" disabled={!connected || loadingThreads} style={{ color: theme.node.muted }} icon={<Plus className="size-3.5" />} onClick={() => void startNewThread()} aria-label="新建对话" />
+                    <Button type="text" shape="circle" className="!h-7 !w-7 !min-w-7" disabled={!connected || loadingThreads || sending || waiting || Boolean(pendingTool) || executionUncertain} style={{ color: theme.node.muted }} icon={<Plus className="size-3.5" />} onClick={() => void startNewThread()} aria-label="新建对话" />
                 </Tooltip>
             </div>
             {connected && brainProfileId === "codex.subscription" ? (
@@ -954,12 +1082,16 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
                                 }}
                             />
                         ) : null}
-                        {messages.map((item) => (
+                        {latestPlan ? <AgentPlanCard plan={latestPlan} theme={theme} /> : null}
+                        {messages.map((item) => {
+                            const result = agentCreativeResult(item, snapshot);
+                            return (
                             <AgentChatMessage
                                 key={item.id}
                                 item={agentMessageToChatMessage(item)}
                                 theme={theme}
                                 user={user}
+                                resultAction={result ? <AgentCreativeResultAction key={JSON.stringify(result)} result={result} /> : undefined}
                                 isStreaming={(sending || waiting) && item.id === messages.at(-1)?.id && item.role === "assistant"}
                                 onQuickAction={(text) => void sendPrompt(text)}
                                 onOpenChatGPT={() => window.open("https://chatgpt.com/", "_blank", "noopener,noreferrer")}
@@ -967,10 +1099,10 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
                                     openChatGPTConnectionSettings();
                                 }}
                             />
-                        ))}
+                        ); })}
                         {pendingTool ? (
                             <AgentPendingToolCard
-                                summary={pendingTool.canonicalConfirmation?.summary || summarizeCanvasAgentOps(pendingTool.input?.ops || []) || toolName(pendingTool.name)}
+                                summary={[pendingTool.canonicalConfirmation?.summary || summarizeCanvasAgentOps(pendingTool.input?.ops || []) || toolName(pendingTool.name), creativeToolTargetSummary(pendingTool.name, pendingTool.input || {}, snapshot)].filter(Boolean).join("\n")}
                                 detail={{ requestId: pendingTool.requestId, name: pendingTool.name, input: pendingTool.input, impact: pendingTool.canonicalConfirmation?.impact || previewCanvasAgentOps(pendingTool.input?.ops || [], snapshot) }}
                                 theme={theme}
                                 onReject={rejectPendingTool}
@@ -982,8 +1114,8 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
                     <AgentChatComposer
                         prompt={prompt}
                         attachments={attachments.map(agentAttachmentToChatAttachment)}
-                        disabled={!connected || (chatGPTHostProfile && !chatGPTHost.handoffReady)}
-                        sending={sending || waiting}
+                        disabled={!connected || executionUncertain || (chatGPTHostProfile && !chatGPTHost.handoffReady)}
+                        sending={sending || waiting || Boolean(pendingTool)}
                         placeholder={chatGPTHostProfile && !chatGPTHost.handoffReady ? chatGPTHost.message : `询问 ${brainProfileLabel(brainProfileId)}，或让它操作画布`}
                         theme={theme}
                         references={composerReferences}
@@ -1310,7 +1442,7 @@ function AgentHistoryView({
     );
 }
 
-async function postToolResult(clientId: string, body: { requestId: string; result?: unknown; error?: string }) {
+async function postToolResult(clientId: string, body: { requestId: string; result?: unknown; error?: string; backendStatus?: number; localConflict?: string }) {
     const response = await getLocalRuntimeSessionClient().request(`/canvas/result?clientId=${encodeURIComponent(clientId)}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
     if (!response.ok) throw new Error("Canvas Agent 工具结果写回失败");
 }
@@ -1324,6 +1456,8 @@ function agentAttachmentToChatAttachment(item: AgentAttachment): CanvasAgentChat
 }
 
 function formatAgentEvent(event: AgentEventPayload): Omit<AgentChatItem, "id"> | null {
+    const textMessage = agentTextEvent(event);
+    if (textMessage) return { ...textMessage, meta: usageText(event) };
     const item = event.item;
     if (["host.handoff.prepared", "host.observed", "host.proposal.received", "host.handoff.expired"].includes(event.type || "") && event.handoff) {
         const status = event.type === "host.observed" ? "host_observed" : event.type === "host.proposal.received" ? "proposal_received" : event.type === "host.handoff.expired" ? "expired" : "waiting_host";
@@ -1335,10 +1469,7 @@ function formatAgentEvent(event: AgentEventPayload): Omit<AgentChatItem, "id"> |
         };
     }
     if (event.type === "item.completed" && item?.type === "error") return { role: "error", title: "错误", text: normalizeText(item.message), detail: item };
-    if ((event.type === "item.updated" || event.type === "item.completed") && item?.type === "agent_message") return { role: "assistant", title: "Codex", text: stringText(item.text), meta: usageText(event), streamId: item.id };
     if (event.type === "item.completed" && isMcpToolItem(item) && isReadTool(String(item?.tool || ""))) return { role: "tool", title: `${toolName(String(item?.tool || ""))}完成`, text: item?.error?.message || toolSummary(item), detail: toolDetail(item) };
-    const text = eventText(event);
-    if (text) return { role: "assistant", title: "Codex", text, meta: usageText(event) };
     return null;
 }
 
@@ -1374,11 +1505,6 @@ function formatLogJson(logs: AgentEventLog[], context: AgentLogContext) {
     return JSON.stringify({ context, logs: logs.map(({ time, title, text, raw }) => ({ time, title, text, raw })) }, null, 2);
 }
 
-function eventText(event: AgentEventPayload) {
-    if (event.type === "message.delta" && typeof event.delta === "string") return event.delta;
-    return event.type === "item.completed" && event.item?.type === "agent_message" ? stringText(event.item.text) : "";
-}
-
 function brainSessionThread(session: BrainSessionView): AgentThreadSummary {
     const timestamp = Date.parse(session.updatedAt) / 1000;
     return {
@@ -1390,14 +1516,14 @@ function brainSessionThread(session: BrainSessionView): AgentThreadSummary {
     };
 }
 
-function normalizeGenericHistory(history: AgentHistoryMessageView[]): AgentChatItem[] {
+function normalizeGenericHistory(history: AgentHistoryMessageView[], sessionId: string): AgentChatItem[] {
     return history.map((item) => ({
         id: item.id,
         role: item.role,
         text: item.text,
         ...(item.title ? { title: item.title } : {}),
         ...(item.detail !== undefined ? { detail: item.detail } : {}),
-        ...(item.streamId ? { streamId: item.streamId } : {}),
+        ...(item.streamId ? { streamId: scopedAgentStreamId(sessionId, item.streamId), streamMode: "complete" as const } : {}),
         ...(item.at ? { meta: new Date(item.at).toLocaleString() } : {}),
     }));
 }
@@ -1492,6 +1618,14 @@ function toolName(name: string) {
     if (name === "project_extract_asset_candidates") return "登记资产候选";
     if (name === "project_confirm_asset_candidate") return "确认资产候选";
     if (name === "project_create_or_update_shots") return "保存项目镜头";
+    if (name === "project_get_shots") return "读取分镜与脚本来源";
+    if (name === "project_sync_storyboard") return "同步分镜到当前画布并核验";
+    if (name === "project_get_prompt") return "读取镜头提示词与来源";
+    if (name === "project_save_prompt") return "保存并核验镜头提示词";
+    if (name === "project_get_prompt_revision") return "回读提示词历史版本";
+    if (name === "project_get_prompt_request") return "核对提示词原请求";
+    if (name === "project_get_shot_batch") return "回读镜头保存回执";
+    if (name === "project_get_shot_revisions") return "读取镜头修订历史";
     if (name === "project_link_shot_asset") return "关联镜头素材";
     if (name === "project_start_workflow_step") return "启动流程步骤";
     if (name === "project_link_asset") return "引用项目资产";
@@ -1560,17 +1694,6 @@ function objectField(value: unknown, key: string) {
 function numberField(value: unknown, key: string) {
     const field = objectField(value, key);
     return typeof field === "number" ? field : 0;
-}
-
-function mergeAgentText(prev: string, next: string) {
-    if (!next || prev === next || prev.endsWith(next)) return prev;
-    if (next.startsWith(prev)) return next;
-    for (let size = Math.min(prev.length, next.length); size > 0; size--) {
-        if (prev.endsWith(next.slice(0, size))) return `${prev}${next.slice(size)}`;
-    }
-    const half = Math.floor(prev.length / 2);
-    if (prev.length > 12 && next.length > 12 && prev.slice(half) === next.slice(0, prev.length - half)) return prev;
-    return `${prev}${next}`;
 }
 
 function promptWithAttachments(text: string, attachments: AgentAttachment[]) {

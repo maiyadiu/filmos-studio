@@ -4,7 +4,9 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArrowUpRight, BookOpenText, ChevronLeft, ChevronRight, Crosshair, FolderKanban, GripVertical, Images, LocateFixed, LoaderCircle, Palette, Plus, Search, Settings2, X } from "lucide-react";
 import { Link } from "react-router";
 
+import { AIMessageMarkdown } from "@/components/ai/ai-message-markdown";
 import { resolveProjectCanvasStyle } from "@/components/canvas/canvas-style-picker-modal";
+import { documentTextFromHtml } from "@/lib/document-text";
 import { getProject, getProjectUnit, type ProjectDetail, type ProjectUnit } from "@/services/api/projects";
 
 export const CANVAS_PROJECT_CHAPTER_DND_TYPE = "application/x-infinite-canvas-project-chapter";
@@ -284,24 +286,26 @@ function ChapterPreview({
     onAdd: () => void | Promise<void>;
     onClose: () => void;
 }) {
-    const text = htmlToPlainText(unit.sourceText);
+    const text = documentTextFromHtml(unit.sourceText || "");
     return (
         <section
-            className="absolute bottom-20 left-[calc(100%+8px)] top-14 z-[var(--z-panel-floating)] flex w-[var(--panel-width-compact)] flex-col overflow-hidden rounded-lg border border-border/85 bg-background/[.96] shadow-[0_18px_48px_rgba(0,0,0,.22)] backdrop-blur-xl"
+            className="canvas-chapter-preview absolute bottom-20 left-[calc(100%+8px)] top-14 z-[var(--z-panel-floating)] flex w-[var(--panel-width-compact)] flex-col overflow-hidden rounded-lg border border-border/85 bg-[var(--workspace-overlay-bg-strong)]"
             aria-label={`第 ${chapterNumber} 章预览`}
+            data-canvas-no-zoom
         >
             <header className="flex items-start gap-2 border-b border-border/70 px-3 py-2.5">
                 <div className="min-w-0 flex-1">
-                    <div className="text-[var(--fs-tiny)] tabular-nums text-foreground/38">第 {chapterNumber.toLocaleString("zh-CN")} 章</div>
+                    <div className="text-[var(--fs-caption)] tabular-nums text-muted-foreground">第 {chapterNumber.toLocaleString("zh-CN")} 章 · 易读预览</div>
                     <h2 className="mt-0.5 truncate text-sm font-semibold">{unit.title}</h2>
                 </div>
-                <button type="button" onClick={onClose} className="grid size-6 shrink-0 place-items-center rounded text-foreground/38 hover:bg-surface-hover hover:text-foreground" aria-label="关闭章节预览">
+                <button type="button" onClick={onClose} className="grid size-7 shrink-0 place-items-center rounded text-muted-foreground hover:bg-surface-hover hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2" aria-label="关闭章节预览">
                     <X className="size-3.5" />
                 </button>
             </header>
-            <div className="thin-scrollbar min-h-0 flex-1 overflow-y-auto px-3 py-3">
-                <p className="whitespace-pre-wrap text-xs leading-5 text-foreground/58">{loading ? "正在读取本章正文…" : loadError ? "正文读取失败，请稍后重试" : text || "本章还没有正文"}</p>
-                {!loading && !loadError ? <div className="mt-2 text-[var(--fs-tiny)] tabular-nums text-foreground/35">{text.length.toLocaleString("zh-CN")} 字</div> : null}
+            <div className="thin-scrollbar min-h-0 flex-1 overflow-y-auto px-4 py-4 text-[var(--fs-body)] leading-relaxed text-foreground" data-canvas-wheel-scroll>
+                {loading || loadError || !text
+                    ? <p role="status">{loading ? "正在读取本章正文…" : loadError ? "正文读取失败，请稍后重试" : "本章还没有正文"}</p>
+                    : <AIMessageMarkdown>{text}</AIMessageMarkdown>}
             </div>
             <footer className="flex shrink-0 items-center justify-between border-t border-border/70 px-2 py-2">
                 <button
@@ -319,12 +323,6 @@ function ChapterPreview({
             </footer>
         </section>
     );
-}
-
-function htmlToPlainText(value: string) {
-    if (!value) return "";
-    const documentNode = new DOMParser().parseFromString(value, "text/html");
-    return (documentNode.body.textContent || "").replace(/\u00a0/g, " ").trim();
 }
 
 function readStoredScroll(key: string) {

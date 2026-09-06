@@ -11,7 +11,7 @@ import { registerFilmAgentMcp, type FilmAgentMcpOptions } from "./film/mcp.js";
 import { registerDreaminaMcp } from "./modules/dreamina-mcp.js";
 import { toolDescriptions, toolInputSchemas, toolNames, type ToolName } from "./schemas.js";
 
-type CanvasAgentToolResponse = { ok?: boolean; result?: unknown; error?: string };
+type CanvasAgentToolResponse = { ok?: boolean; result?: unknown; error?: string; code?: string; message?: string };
 const canonicalMcpToolsByName: ReadonlyMap<string, (typeof canonicalMcpTools)[number]> = new Map(canonicalMcpTools.map((tool) => [tool.name, tool]));
 
 export async function startMcpServer(options: { canvasOnly?: boolean; surface?: AgentToolSurfaceId } = {}) {
@@ -136,7 +136,7 @@ async function postCanvasAgentTool(config: CanvasAgentConfig, name: string, inpu
     } : {};
     const res = await fetch(`${config.url}/api/tools`, { method: "POST", headers: { "content-type": "application/json", "x-canvas-agent-token": config.token, ...grantHeaders }, body: JSON.stringify({ name, input }) });
     const body = (await res.json()) as CanvasAgentToolResponse;
-    if (!body.ok) throw new Error(body.error || "tool call failed");
+    if (!res.ok || !body.ok) throw new Error(body.code ? `${body.code}: ${body.message || "tool call failed"}` : body.error || "tool call failed");
     return body.result;
 }
 

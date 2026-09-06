@@ -97,8 +97,19 @@ export type StoryboardCharacterReference = {
     characterImageNodeId?: string;
 };
 
+export type StoryboardPromptState = { revision: number; contentHash: string; dependencyHash: string };
+
 export type StoryboardRow = {
     id: string;
+    promptDrafts?: Partial<Record<"image" | "video", StoryboardPromptState>>;
+    // Read-only import provenance, not a second business Shot authority.
+    projectShotSource?: {
+        id: string;
+        revision: number;
+        sourceRevision: number;
+        sourceHash: string;
+        mappedFields: { durationSeconds: number; plotDescription: string; dialogue: string; performanceBlocking: string; camera: string };
+    };
     shotNumber: number;
     durationSeconds: number;
     plotDescription: string;

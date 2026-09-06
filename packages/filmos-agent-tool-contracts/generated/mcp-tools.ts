@@ -3706,11 +3706,20 @@ export const canonicalMcpTools = [
   },
   {
     "name": "project_create_or_update_shots",
-    "description": "创建或更新项目镜头业务数据，不把镜头状态写进画布 metadata。",
+    "description": "按真实脚本制作或局部修订业务分镜，整批原子保存并回读；不生图、不批准。先project_get_shots，sourceParagraphIds明确本次范围，全章任务包含全部段落，局部修改须保留目标镜头原有来源。引用合起来覆盖范围全文；使用返回paragraph.dialogue的speaker/text（含空格），不可遗漏、重复、改说话人或颠倒顺序，长句可分配到连续镜头但拼接必须逐字等于原文。带原sourceRevision/sourceHash和unit.shotRevision；新镜头不传id且expectedRevision=0，更新用原id/revision，只传需保存项，其余镜头/引用不删。导演以场景节拍为单位，不机械逐句切镜或预设镜数；content.camera交代镜头任务/触发、景别、机位方向/轴线、运动或固定、可见人物/背景、变镜理由；content.action交代动作归属、道具起止状态、目光/听者反应和结束状态；时长留足对白、呼吸与反应，不为平台时限强拆。人物和空间未确定时如实注明，不发明事实。稳定requestId，网络失败先回读原批次；勿换ID盲建。matchesCurrent=false或coverage.chapterComplete=false不可称全章已完成。",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
+        "expectedShotRevision": {
+          "minimum": 0,
+          "type": "integer"
+        },
         "projectId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "requestId": {
+          "maxLength": 100,
           "minLength": 1,
           "type": "string"
         },
@@ -3718,42 +3727,160 @@ export const canonicalMcpTools = [
           "items": {
             "additionalProperties": false,
             "properties": {
+              "content": {
+                "additionalProperties": false,
+                "properties": {
+                  "action": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "camera": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "characters": {
+                    "items": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "maxItems": 100,
+                    "type": "array"
+                  },
+                  "dialogue": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "paragraphId": {
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "speaker": {
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "text": {
+                          "minLength": 1,
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "speaker",
+                        "text",
+                        "paragraphId"
+                      ],
+                      "type": "object"
+                    },
+                    "maxItems": 200,
+                    "type": "array"
+                  },
+                  "scene": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "sourceReferences": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "paragraphId": {
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "quote": {
+                          "minLength": 1,
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "paragraphId",
+                        "quote"
+                      ],
+                      "type": "object"
+                    },
+                    "maxItems": 200,
+                    "minItems": 1,
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "sourceReferences",
+                  "scene",
+                  "characters",
+                  "dialogue",
+                  "action",
+                  "camera"
+                ],
+                "type": "object"
+              },
               "description": {
+                "minLength": 1,
                 "type": "string"
               },
               "durationMs": {
+                "exclusiveMinimum": 0,
+                "maximum": 3600000,
+                "type": "integer"
+              },
+              "expectedRevision": {
                 "minimum": 0,
                 "type": "integer"
               },
               "id": {
+                "minLength": 1,
                 "type": "string"
               },
               "position": {
                 "minimum": 0,
                 "type": "integer"
               },
-              "status": {
-                "type": "string"
-              },
               "title": {
+                "maxLength": 240,
                 "minLength": 1,
-                "type": "string"
-              },
-              "unitId": {
                 "type": "string"
               }
             },
             "required": [
-              "title"
+              "expectedRevision",
+              "title",
+              "description",
+              "position",
+              "durationMs",
+              "content"
             ],
             "type": "object"
           },
           "maxItems": 100,
           "minItems": 1,
           "type": "array"
+        },
+        "sourceHash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "sourceParagraphIds": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 20000,
+          "minItems": 1,
+          "type": "array"
+        },
+        "sourceRevision": {
+          "exclusiveMinimum": 0,
+          "type": "integer"
+        },
+        "unitId": {
+          "minLength": 1,
+          "type": "string"
         }
       },
       "required": [
+        "unitId",
+        "requestId",
+        "expectedShotRevision",
+        "sourceRevision",
+        "sourceHash",
+        "sourceParagraphIds",
         "shots"
       ],
       "type": "object"
@@ -3842,6 +3969,149 @@ export const canonicalMcpTools = [
     }
   },
   {
+    "name": "project_get_prompt",
+    "description": "读取当前授权画布的业务分镜行图片/视频提示词、state、真实项目/脚本修订/镜头/素材版本依赖、dependencyHash、过期标志和历史目录。先用canvas_get_context或canvas_get_node获取真实script nodeId和rowId；rowId为project-shot:业务镜头ID，禁止猜造。kind=image为静态首帧草稿，video为视频运动草稿。dependencies.guidance复用原生模板及用户定制，与全文来源一起作为编写依据；它不是已保存提示词，不代表模型参数已适配。素材/模板/用户定制变化会使旧稿过期。保存前必须读本工具；writeBlockers非空先修来源/同步分镜。localOverrides是画布手工调整，不擅自覆盖。素材元数据不代表看见像素。",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "canvasId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "image",
+            "video"
+          ],
+          "type": "string"
+        },
+        "nodeId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "projectId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "rowId": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "nodeId",
+        "rowId",
+        "kind"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "project_get_prompt_request",
+    "description": "按原requestId回读提示词保存回执，校验当前授权画布与目标行；用于丢响应/中断恢复。历史回执不是当前版本，继续编辑前project_get_prompt，禁止换requestId盲重写。",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "canvasId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "image",
+            "video"
+          ],
+          "type": "string"
+        },
+        "nodeId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "projectId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "requestId": {
+          "maxLength": 100,
+          "minLength": 1,
+          "type": "string"
+        },
+        "rowId": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "nodeId",
+        "rowId",
+        "kind",
+        "requestId"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "project_get_prompt_revision",
+    "description": "精确回读提示词历史版本；revision=0是首次纳管前原稿，可能没有来源证据，不能用当前素材补写旧版。历史只读，不自动恢复或生成。",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "canvasId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "image",
+            "video"
+          ],
+          "type": "string"
+        },
+        "nodeId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "projectId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "revision": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "rowId": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "nodeId",
+        "rowId",
+        "kind",
+        "revision"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
     "name": "project_get_script",
     "description": "读取当前项目一个章节的真实完整正文、修订号和哈希。修改剧本前必须读取，不能从章节摘要或画布节点标题推测正文。",
     "inputSchema": {
@@ -3890,6 +4160,93 @@ export const canonicalMcpTools = [
       "required": [
         "unitId",
         "revision"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "project_get_shot_batch",
+    "description": "用原requestId回读已持久化的镜头批次，供响应丢失/重试恢复。历史回执不是最新镜头；继续编辑前用project_get_shots回读当前状态。",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "projectId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "requestId": {
+          "maxLength": 100,
+          "minLength": 1,
+          "type": "string"
+        },
+        "unitId": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "unitId",
+        "requestId"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "project_get_shot_revisions",
+    "description": "读取指定真实业务镜头的追加修订历史；保留原ID、对白、来源及内容，不修改任何数据。",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "projectId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "shotId": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "shotId"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "project_get_shots",
+    "description": "读取指定章节完整脚本、段落ID/原文和识别出的精确dialogue、脚本revision/sourceHash、shotRevision、当前业务镜头、来源覆盖和过期ID。拆镜前必须读全文，不能凭摘要。段落ID只在该章该版本有效；coverage.chapterComplete只证明来源引用和标识对白覆盖，不证明空间/导演质量。",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "projectId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "unitId": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "unitId"
       ],
       "type": "object"
     },
@@ -4130,6 +4487,77 @@ export const canonicalMcpTools = [
     }
   },
   {
+    "name": "project_save_prompt",
+    "description": "将创作提示词逐字保存到当前画布业务分镜行并回读当前、历史和原请求；不生成、不上传、不正式批准。与普通原生编辑器共用保存路径。先project_get_prompt，用读取的state.revision/state.contentHash和当前dependencyHash；requestId稳定、同一请求重试不换ID。prompt只含对应镜头草稿，保留真实人物/动作/道具/空间和风格；无明确生成模型时是创作草稿，不冒充模型参数适配。版本冲突回读当前再核对，未知结果先project_get_prompt_request。verification不全通过不能报告当前完成。",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "canvasId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "dependencyHash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "expectedContentHash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "expectedRevision": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "kind": {
+          "enum": [
+            "image",
+            "video"
+          ],
+          "type": "string"
+        },
+        "nodeId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "projectId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "prompt": {
+          "maxLength": 65536,
+          "minLength": 1,
+          "type": "string"
+        },
+        "requestId": {
+          "maxLength": 100,
+          "minLength": 1,
+          "type": "string"
+        },
+        "rowId": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "nodeId",
+        "rowId",
+        "kind",
+        "requestId",
+        "expectedRevision",
+        "expectedContentHash",
+        "dependencyHash",
+        "prompt"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
     "name": "project_start_workflow_step",
     "description": "启动项目或章节制作流程中的一个步骤。",
     "inputSchema": {
@@ -4146,6 +4574,48 @@ export const canonicalMcpTools = [
       },
       "required": [
         "stepId"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "project_sync_storyboard",
+    "description": "将已保存且来源未过期的业务分镜同步到当前授权画布，复用原生分镜导入；不新建画布、不生成、不上传。先project_get_shots，以unit.shotRevision、unit.revision、sourceHash作为expectedShotRevision、sourceRevision、sourceHash。保留既有节点/行ID、手写提示词、素材、布局及连接；手工改动或版本冲突拒绝覆盖，不用canvas_apply_ops重建绕过。成功返回真实nodeId、rowId和shotId供project_get_prompt接续。verification必须全部通过才能继续依赖该映射；persisted=true但ok=false表示需要回读核对，不代表可以重建对象。",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "expectedShotRevision": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "projectId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "sourceHash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "sourceRevision": {
+          "exclusiveMinimum": 0,
+          "type": "integer"
+        },
+        "unitId": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "unitId",
+        "expectedShotRevision",
+        "sourceRevision",
+        "sourceHash"
       ],
       "type": "object"
     },

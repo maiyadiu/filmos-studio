@@ -19,6 +19,7 @@ function copyStoryboardRow(row: StoryboardRow, idMap: ReadonlyMap<string, string
     const hasCopiedOutput = Boolean(imageNodeId || videoNodeId);
     return {
         ...row,
+        promptDrafts: undefined,
         characters: (row.characters || []).map((character) => ({
             ...character,
             characterImageNodeId: remapReferenceId(character.characterImageNodeId, idMap),

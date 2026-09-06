@@ -128,6 +128,8 @@ test("Canvas Agent reconnect intent persists while transient disconnects preserv
     if (!connectionStartingPatch || !transientDisconnectPatch || !writeEnabled || !readEnabled) return;
 
     const durable = {
+        sending: true,
+        waiting: true,
         messages: [{ id: "message-1", role: "assistant", text: "kept" }],
         threads: [{ id: "thread-1", preview: "kept" }],
         activeThreadId: "thread-1",

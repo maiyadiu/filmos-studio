@@ -5,6 +5,7 @@ import { test } from "node:test";
 
 import { buildCanvasContext } from "../src/canvas-context.js";
 import { CanvasSession } from "../src/canvas-session.js";
+import { publicAgentRuntimeFailure } from "../src/local-runtime-security.js";
 import { createLocalRuntimeApp } from "../src/local-runtime.js";
 import { LocalRuntimeSessionManager } from "../src/local-runtime-session.js";
 import { createCanvasAgentHttpModule, trustedCreateSessionInput } from "../src/modules/canvas-agent-http.js";
@@ -76,6 +77,7 @@ test("complete feature set registers generic routes while preserving legacy Code
         assert.equal(module.routes.some((route) => route.path === "/agent/codex/turn"), true);
         assert.equal(module.routes.find((route) => route.path === "/agent/connections")?.legacy, undefined);
         assert.equal(module.routes.find((route) => route.path === "/agent/sessions/:sessionId/tools")?.scope, "agent:tools:execute");
+        assert.equal(module.routes.find((route) => route.path === "/agent/sessions/:sessionId/history")?.scope, "agent:sessions:read");
     } finally {
         await module.dispose?.();
     }
@@ -239,6 +241,66 @@ test("CanvasSession closes only streams owned by a revoked Runtime session", asy
     assert.deepEqual(session.health(), { ok: true, hasCanvas: false, clients: 2 });
     await assert.rejects(pending, /会话已撤销/);
     session.dispose();
+});
+
+test("Canvas tool bridge retains backend failures but never accepts invalid failure payloads as success", async () => {
+    const session = new CanvasSession();
+    const events = eventResponse();
+    session.openEvents(new URL("http://127.0.0.1/events?clientId=errors"), events.response as never);
+    session.updateState({ nodes: [] }, "errors");
+    try {
+        for (const status of [404, 409, 503, "404", 200]) {
+            const pending = session.callTool("canvas_apply_ops", { ops: [] });
+            const call = latestToolCall(events.writes());
+            session.resolveResult({ requestId: call.requestId, backendStatus: status, error: "SECRET backend details", result: { ok: true } });
+            await assert.rejects(pending, error => {
+                const failure = publicAgentRuntimeFailure(error);
+                if (typeof status === "number" && status >= 400) {
+                    assert.equal(failure?.statusCode, status);
+                    assert.doesNotMatch(failure!.message, /SECRET/);
+                } else assert.equal(failure, undefined);
+                return true;
+            });
+        }
+        for (const localConflict of ["canvas_local_prompt_conflict", "unknown", true]) {
+            const pending = session.callTool("canvas_apply_ops", { ops: [] });
+            const call = latestToolCall(events.writes());
+            session.resolveResult({ requestId: call.requestId, localConflict, error: "SECRET details", result: { ok: true } });
+            await assert.rejects(pending, error => {
+                const failure = publicAgentRuntimeFailure(error);
+                if (localConflict === "canvas_local_prompt_conflict") {
+                    assert.equal(failure?.code, localConflict);
+                    assert.equal(failure?.statusCode, 409);
+                    assert.doesNotMatch(failure!.message, /SECRET/);
+                } else assert.equal(failure, undefined);
+                return true;
+            });
+        }
+    } finally { session.dispose(); }
+});
+
+test("expired browser session clears context and exposes recoverable status until authenticated reconnect", () => {
+    const session = new CanvasSession();
+    const first = eventResponse(), second = eventResponse();
+    const state = { projectId: "canvas-fixture", domainProjectId: "project-fixture", contentUnitId: "unit-fixture", revision: 1, nodes: [], connections: [], selectedNodeIds: [] };
+    try {
+        session.openEvents(new URL("http://127.0.0.1/events?clientId=lease-fixture"), first.response as never, "old-lease");
+        session.updateState(state, "lease-fixture");
+        const before = session.agentContextSnapshot();
+        session.closeRuntimeSession("old-lease");
+        assert.equal(session.hasConnectedBrowser(), false);
+        assert.throws(() => session.agentContextSnapshot(), error => {
+            assert.equal(publicAgentRuntimeFailure(error)?.code, "canvas_context_unavailable");
+            assert.equal(publicAgentRuntimeFailure(error)?.statusCode, 503);
+            return true;
+        });
+        session.openEvents(new URL("http://127.0.0.1/events?clientId=lease-fixture"), second.response as never, "new-lease");
+        assert.throws(() => session.agentContextSnapshot(), /CANVAS_CONTEXT_UNAVAILABLE/);
+        session.updateState(state, "lease-fixture");
+        assert.deepEqual(session.agentContextSnapshot(), before);
+        assert.equal(session.hasConnectedBrowser(), true);
+        assert.equal(first.writes().concat(second.writes()).some(value => value.includes("event: tool_call")), false);
+    } finally { session.dispose(); }
 });
 
 test("Canvas generation tool continuation survives a browser stream reconnect until the same request is resolved", async () => {

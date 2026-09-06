@@ -62,8 +62,17 @@ export class ProjectToolProvider extends BrowserBackedToolProvider {}
 export class GenerationToolProvider extends BrowserBackedToolProvider {}
 
 export class WorkbenchContextToolProvider implements CanonicalAgentToolProvider {
-    constructor(private readonly snapshot: () => WorkbenchContextSnapshot) {}
-    async execute() { return { output: this.snapshot() }; }
+    constructor(
+        private readonly snapshot: () => WorkbenchContextSnapshot,
+        private readonly bindRead?: (session: BrainSession, snapshot: WorkbenchContextSnapshot) => Promise<{ contextReceiptId: string; contextExpiresAt: string }>,
+    ) {}
+    async execute({ session }: Parameters<CanonicalAgentToolProvider["execute"]>[0]) {
+        const snapshot = structuredClone(this.snapshot());
+        // Renew only on an explicit, authorized context read; bind exactly the
+        // snapshot returned to the model, never a later unseen canvas state.
+        const receipt = await this.bindRead?.(session, snapshot);
+        return { output: { ...snapshot, ...receipt } };
+    }
 }
 
 export class FilmCoreToolProvider implements CanonicalAgentToolProvider {
@@ -122,10 +131,11 @@ export function registerProductionToolProviders(input: {
     manifest: CanonicalAgentToolManifest;
     canvas: CanonicalCanvasToolExecutor;
     snapshot: () => WorkbenchContextSnapshot;
+    bindContextRead?: ConstructorParameters<typeof WorkbenchContextToolProvider>[1];
     browserRuntime: BrowserRuntimeTransport;
 }) {
     const providers = {
-        runtime: new WorkbenchContextToolProvider(input.snapshot),
+        runtime: new WorkbenchContextToolProvider(input.snapshot, input.bindContextRead),
         canvas: new CanvasToolProvider(input.canvas),
         host_project: new ProjectToolProvider(input.canvas),
         film_core: new FilmCoreToolProvider(input.snapshot),

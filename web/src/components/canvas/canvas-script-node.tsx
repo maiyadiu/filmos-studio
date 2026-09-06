@@ -5,6 +5,11 @@ import type { ColumnsType } from "antd/es/table";
 import { ChevronDown, ChevronUp, Clapperboard, Copy, Expand, Film, Grid3X3, Image as ImageIcon, ListTree, Merge, MoreHorizontal, Plus, RefreshCw, Send, Square, Trash2, Video } from "lucide-react";
 
 import { CanvasResourceMentionTextarea } from "@/components/canvas/canvas-resource-mention-textarea";
+import { CanvasPromptEditor } from "@/components/canvas/canvas-prompt-editor";
+import { AIMessageMarkdown } from "@/components/ai/ai-message-markdown";
+import { documentTextFromHtml } from "@/lib/document-text";
+import { useCanvasStore } from "@/stores/canvas/use-canvas-store";
+import type { CanvasPromptKind } from "@/services/api/canvas-prompts";
 import { StoryboardAssetsCell } from "@/components/canvas/storyboard-assets-cell";
 import { ModelPicker } from "@/components/model-picker";
 import { buildGenerationConfig } from "@/lib/canvas/canvas-project-generation";
@@ -39,6 +44,23 @@ const EMPTY_STORYBOARD_ROWS: StoryboardRow[] = [];
 const DEFAULT_STORYBOARD_COLUMNS: StoryboardColumn[] = ["shotNumber", "durationSeconds", "videoMotionPrompt", "dialogue", "assets"];
 const LEGACY_STORYBOARD_COLUMNS: StoryboardColumn[] = ["shotNumber", "durationSeconds", "plotDescription", "dialogue"];
 const PREVIOUS_DEFAULT_STORYBOARD_COLUMNS: StoryboardColumn[] = ["shotNumber", "plotDescription", "videoMotionPrompt", "dialogue"];
+
+function ShotSourceLabel({ row }: { row: StoryboardRow }) {
+    const source = row.projectShotSource;
+    if (!source) return null;
+    return <Tooltip title={`已导入业务镜头 v${source.revision} · 来源剧本 v${source.sourceRevision}；不是自动同步。ID：${source.id}`}><span className="block text-xs">v{source.revision}</span></Tooltip>;
+}
+
+function StoryboardPromptPreview({ row, kind, onOpen, disabled, borderColor }: { row: StoryboardRow; kind: CanvasPromptKind; onOpen: () => void; disabled?: boolean; borderColor?: string }) {
+    const prompt = kind === "image" ? row.imageGenerationPrompt : row.videoMotionPrompt;
+    const state = row.promptDrafts?.[kind];
+    return <div className="h-full min-w-0 overflow-hidden rounded border border-border px-3 py-2 text-xs leading-5" style={{ borderColor }}>
+        <button type="button" disabled={disabled} className="mb-1 w-full rounded text-left font-medium focus-visible:ring-2 disabled:opacity-60" onPointerDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); onOpen(); }} aria-label={`打开第 ${row.shotNumber} 镜${kind === "image" ? "图片" : "视频"}提示词编辑器`}>
+            {kind === "image" ? "图片" : "视频"}提示词 · {state ? `v${state.revision}` : "原稿"} · 编辑
+        </button>
+        <div className="line-clamp-3 break-words">{prompt ? <AIMessageMarkdown className="text-xs">{documentTextFromHtml(prompt)}</AIMessageMarkdown> : <span>查看来源并编写提示词</span>}</div>
+    </div>;
+}
 
 function resolveStoryboardVisibleColumns(columns?: StoryboardColumn[]) {
     const isLegacyDefault = columns?.length === LEGACY_STORYBOARD_COLUMNS.length && LEGACY_STORYBOARD_COLUMNS.every((column) => columns.includes(column));
@@ -333,6 +355,7 @@ export function CanvasScriptNodeContent({
                                         </button>
                                     </Dropdown>
                                 </div>
+                                <ShotSourceLabel row={row} />
                                 {batchItemByRowId.get(row.id) ? (
                                     <span className="max-w-14 truncate text-[var(--fs-micro)] leading-3" title={generationBatchItemLabel(batchItemByRowId.get(row.id)!)}>
                                         {generationBatchItemLabel(batchItemByRowId.get(row.id)!)}
@@ -340,7 +363,7 @@ export function CanvasScriptNodeContent({
                                 ) : null}
                             </div>
                             <CompactDurationInput value={row.durationSeconds} borderColor={theme.node.stroke} onChange={(durationSeconds) => onUpdateRow(row.id, { durationSeconds })} />
-                            <CompactInput value={row.videoMotionPrompt} placeholder="描述视频运动、镜头和动作" onChange={(value) => onUpdateRow(row.id, { videoMotionPrompt: value })} borderColor={theme.node.stroke} />
+                            {row.projectShotSource || row.promptDrafts ? <StoryboardPromptPreview row={row} kind="video" onOpen={onOpen} borderColor={theme.node.stroke} /> : <CompactInput value={row.videoMotionPrompt} placeholder="描述视频运动、镜头和动作" onChange={(value) => onUpdateRow(row.id, { videoMotionPrompt: value })} borderColor={theme.node.stroke} />}
                             <CompactInput value={row.dialogue} placeholder="台词或旁白" onChange={(value) => onUpdateRow(row.id, { dialogue: value })} borderColor={theme.node.stroke} />
                             <div className="flex h-full min-w-0 items-center px-3">
                                 <StoryboardAssetsCell bindings={row.assetBindings || []} nodes={nodes} />
@@ -597,6 +620,7 @@ function batchItemTone(item?: CanvasGenerationBatchItem): CanvasNodeStatus | und
 }
 
 export function CanvasScriptEditor({
+    canvasId,
     node,
     nodes,
     open,
@@ -607,6 +631,7 @@ export function CanvasScriptEditor({
     onGenerateVideos,
     onVideoInputModeChange,
 }: {
+    canvasId?: string;
     node: CanvasNodeData | null;
     nodes: CanvasNodeData[];
     open: boolean;
@@ -619,7 +644,11 @@ export function CanvasScriptEditor({
 }) {
     const [query, setQuery] = useState("");
     const [selectedIds, setSelectedIds] = useState<string[]>([]);
+    const [promptTarget, setPromptTarget] = useState<{ rowId: string; kind: CanvasPromptKind }>();
+    const domainProjectId = useCanvasStore(state => state.projects.find(project => project.id === canvasId)?.projectId);
     const rows = node?.metadata?.storyboard?.rows || EMPTY_STORYBOARD_ROWS;
+    const promptRow = rows.find(row => row.id === promptTarget?.rowId);
+    useEffect(() => { setPromptTarget(undefined); }, [canvasId, node?.id, open]);
     const visibleColumns = resolveStoryboardVisibleColumns(node?.metadata?.storyboard?.visibleColumns);
     const videoInputMode = node?.metadata?.storyboardVideoInputMode || "direct";
     const nodeById = useMemo(() => new Map(nodes.map((item) => [item.id, item])), [nodes]);
@@ -653,7 +682,7 @@ export function CanvasScriptEditor({
     const duplicateRow = (row: StoryboardRow) => {
         const index = rows.findIndex((item) => item.id === row.id);
         const next = [...rows];
-        next.splice(index + 1, 0, { ...row, id: `shot-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, imageNodeId: undefined, videoNodeId: undefined, status: "idle" });
+        next.splice(index + 1, 0, { ...row, id: `shot-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, projectShotSource: undefined, promptDrafts: undefined, imageNodeId: undefined, videoNodeId: undefined, status: "idle" });
         onUpdateRows(next.map((item, rowIndex) => ({ ...item, shotNumber: rowIndex + 1 })));
     };
     const removeRow = (rowId: string) => onUpdateRows(rows.filter((row) => row.id !== rowId).map((row, index) => ({ ...row, shotNumber: index + 1 })));
@@ -668,11 +697,13 @@ export function CanvasScriptEditor({
             fixed: option.value === "shotNumber" ? ("left" as const) : undefined,
             render: (_: unknown, row: StoryboardRow) =>
                 option.value === "shotNumber" ? (
-                    <span className="font-semibold">{row.shotNumber}</span>
+                    <div><span className="font-semibold">{row.shotNumber}</span><ShotSourceLabel row={row} /></div>
                 ) : option.value === "durationSeconds" ? (
                     <InputNumber min={1} max={60} value={row.durationSeconds} addonAfter="s" onChange={(value) => updateRow(row.id, { durationSeconds: Number(value) || 1 })} />
                 ) : option.value === "assets" ? (
                     <StoryboardAssetsCell bindings={row.assetBindings || []} nodes={nodes} />
+                ) : (option.value === "imageGenerationPrompt" || option.value === "videoMotionPrompt") && (row.projectShotSource || row.promptDrafts) ? (
+                    <StoryboardPromptPreview row={row} kind={option.value === "imageGenerationPrompt" ? "image" : "video"} disabled={!canvasId || !domainProjectId} onOpen={() => setPromptTarget({ rowId: row.id, kind: option.value === "imageGenerationPrompt" ? "image" : "video" })} />
                 ) : option.value === "shotSize" ? (
                     <Select
                         className="w-full"
@@ -694,9 +725,14 @@ export function CanvasScriptEditor({
         title: "操作",
         key: "actions",
         dataIndex: "shotNumber",
-        width: 150,
+        width: 210,
         fixed: "right" as const,
         render: (_: unknown, row: StoryboardRow) => (
+            <div className="space-y-2">
+            {(row.projectShotSource || row.promptDrafts) && <div className="flex flex-wrap gap-1">
+                <Button size="small" disabled={!canvasId || !domainProjectId} aria-label={`第 ${row.shotNumber} 镜图片提示词`} onClick={() => setPromptTarget({ rowId: row.id, kind: "image" })}>图片提示词</Button>
+                <Button size="small" disabled={!canvasId || !domainProjectId} aria-label={`第 ${row.shotNumber} 镜视频提示词`} onClick={() => setPromptTarget({ rowId: row.id, kind: "video" })}>视频提示词</Button>
+            </div>}
             <div className="flex gap-1">
                 <SmallButton title="上移" onClick={() => moveRow(row.id, -1)}>
                     <ChevronUp className="size-3.5" />
@@ -711,11 +747,12 @@ export function CanvasScriptEditor({
                     <Trash2 className="size-3.5" />
                 </SmallButton>
             </div>
+            </div>
         ),
     });
 
     return (
-        <Modal title={node?.title || "分镜脚本"} open={open} onCancel={onClose} footer={null} width="min(1480px, calc(100vw - 40px))" centered destroyOnHidden>
+        <><Modal title={node?.title || "分镜脚本"} open={open} onCancel={onClose} footer={null} width="min(1480px, calc(100vw - 40px))" centered destroyOnHidden>
             <div className="mb-3 flex flex-wrap items-center gap-2">
                 <Input.Search className="w-72" allowClear placeholder="筛选画面、台词或提示词" value={query} onChange={(event) => setQuery(event.target.value)} />
                 <Checkbox.Group className="script-column-picker" options={columnOptions} value={visibleColumns} onChange={(values) => onVisibleColumnsChange(values as StoryboardColumn[])} />
@@ -750,6 +787,8 @@ export function CanvasScriptEditor({
                 rowSelection={{ selectedRowKeys: selectedIds, onChange: (keys) => setSelectedIds(keys.map(String)) }}
             />
         </Modal>
+        {open && canvasId && domainProjectId && node && promptTarget && promptRow && <CanvasPromptEditor key={`${canvasId}:${node.id}:${promptTarget.rowId}:${promptTarget.kind}`} canvasId={canvasId} target={{ projectId: domainProjectId, nodeId: node.id, ...promptTarget }} shotNumber={promptRow.shotNumber} onClose={() => setPromptTarget(undefined)} />}
+        </>
     );
 }
 

@@ -7,10 +7,12 @@ export interface BrainSessionStore {
     saveSession(session: BrainSession): Promise<void>;
     getSession(sessionId: string): Promise<BrainSession | undefined>;
     listSessions(scope?: { projectId?: string; canvasId?: string; brainProfileId?: string; conversationId?: string }): Promise<BrainSession[]>;
-    updateSession(sessionId: string, patch: Partial<Pick<BrainSession, "providerThreadId" | "permissionGrantId" | "status" | "lastContextReceiptId" | "hostHandoff" | "hostHandoffTimeline" | "updatedAt" | "closedAt">>): Promise<BrainSession>;
+    updateSession(sessionId: string, patch: SessionPatch): Promise<BrainSession>;
     saveConversation(conversation: AgentConversation): Promise<void>;
     getConversation(conversationId: string): Promise<AgentConversation | undefined>;
 }
+
+type SessionPatch = Partial<Pick<BrainSession, "providerThreadId" | "permissionGrantId" | "status" | "lastContextReceiptId" | "latestPlan" | "hostHandoff" | "hostHandoffTimeline" | "updatedAt" | "closedAt">>;
 
 export class MemoryBrainSessionStore implements BrainSessionStore {
     private readonly sessions = new Map<string, BrainSession>();
@@ -38,7 +40,7 @@ export class MemoryBrainSessionStore implements BrainSessionStore {
             .map((session) => structuredClone(session));
     }
 
-    async updateSession(sessionId: string, patch: Partial<Pick<BrainSession, "providerThreadId" | "permissionGrantId" | "status" | "lastContextReceiptId" | "hostHandoff" | "hostHandoffTimeline" | "updatedAt" | "closedAt">>) {
+    async updateSession(sessionId: string, patch: SessionPatch) {
         const current = this.sessions.get(sessionId);
         if (!current) throw new Error(`Unknown brain session: ${sessionId}`);
         const next = { ...current, ...patch };
@@ -115,7 +117,7 @@ export class JsonBrainSessionStore implements BrainSessionStore {
         return await this.memory.listSessions(scope);
     }
 
-    async updateSession(sessionId: string, patch: Partial<Pick<BrainSession, "providerThreadId" | "permissionGrantId" | "status" | "lastContextReceiptId" | "hostHandoff" | "hostHandoffTimeline" | "updatedAt" | "closedAt">>) {
+    async updateSession(sessionId: string, patch: SessionPatch) {
         const session = await this.memory.updateSession(sessionId, patch);
         this.persist();
         return session;

@@ -2,6 +2,22 @@ import crypto from "node:crypto";
 
 import type { AgentConfirmation, AgentToolRisk } from "./contracts.js";
 
+// Canonical confirmations are emitted before the browser tool call exists.
+// Project only target IDs, base versions and counts, never source/prompt bodies.
+export function projectToolConfirmationDetail(name: string, input: Record<string, unknown>, scope: { domainProjectId?: string; canvasId: string }) {
+    if (!["project_revise_script", "project_create_or_update_shots", "project_sync_storyboard", "project_save_prompt"].includes(name)) return "";
+    const id = (value: unknown) => typeof value === "string" && /^[a-zA-Z0-9:_-]{1,100}$/.test(value) ? value : "（定位待核对）";
+    const version = (value: unknown) => typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? `v${value}` : "（版本待核对）";
+    const project = `项目：${id(scope.domainProjectId)}`;
+    if (name === "project_save_prompt") return `${project}；画布：${id(scope.canvasId)}；节点：${id(input.nodeId)}；分镜行：${id(input.rowId)}；${input.kind === "image" ? "图片" : input.kind === "video" ? "视频" : "类型待核对"}稿基版 ${version(input.expectedRevision)}。仅保存文字，不生成媒体，旧版保留。`;
+    const chapter = `${project}；章节：${id(input.unitId)}`;
+    if (name === "project_revise_script") return `${chapter}；正文基版 ${version(input.expectedRevision)}，${Array.isArray(input.edits) ? input.edits.length : 0} 处精确修订，原版本保留。`;
+    if (name === "project_sync_storyboard") return `${chapter}；同步分镜 ${version(input.expectedShotRevision)} 到当前画布 ${id(scope.canvasId)}，保留原节点和布局，不生成媒体。`;
+    const shots = Array.isArray(input.shots) ? input.shots : [];
+    const existing = shots.filter(shot => shot && typeof shot === "object" && typeof shot.id === "string" && shot.id.trim()).length;
+    return `${chapter}；分镜批次基版 ${version(input.expectedShotRevision)}，新增 ${shots.length - existing} 镜、修订 ${existing} 镜，未指定镜头保留。`;
+}
+
 export type CreateConfirmationInput = {
     sessionId: string;
     turnId: string;
@@ -48,6 +64,14 @@ export class AgentConfirmationStore {
         return structuredClone(confirmation);
     }
 
+    pendingForSession(sessionId: string, now = new Date()) {
+        return [...this.confirmations.values()].filter(confirmation => {
+            if (confirmation.sessionId !== sessionId) return false;
+            this.expireIfNeeded(confirmation, now);
+            return confirmation.status === "pending";
+        }).map(confirmation => structuredClone(confirmation));
+    }
+
     decide(confirmationId: string, input: { sessionId: string; actorId: string; approved: boolean; now?: Date }) {
         const confirmation = this.requireOwnedPending(confirmationId, input.sessionId, input.now);
         confirmation.status = input.approved ? "approved" : "rejected";
@@ -70,6 +94,12 @@ export class AgentConfirmationStore {
     cancelSession(sessionId: string) {
         for (const confirmation of this.confirmations.values()) {
             if (confirmation.sessionId === sessionId && ["pending", "approved"].includes(confirmation.status)) confirmation.status = "cancelled";
+        }
+    }
+
+    cancelTurn(sessionId: string, turnId: string) {
+        for (const confirmation of this.confirmations.values()) {
+            if (confirmation.sessionId === sessionId && confirmation.turnId === turnId && ["pending", "approved"].includes(confirmation.status)) confirmation.status = "cancelled";
         }
     }
 

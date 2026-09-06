@@ -8,7 +8,7 @@ export type CodexSkillInput = { type: "skill"; name: string; path: string };
 export type CodexServerRequest = { id: string | number; method: string; params: Json; threadId?: string; turnId?: string };
 export type CodexServerRequestHandler = (request: CodexServerRequest) => Promise<unknown>;
 export type CodexThreadBinding = { emit: AgentEmit; handleServerRequest?: CodexServerRequestHandler };
-export type CodexExecutionPolicy = { approvalPolicy: "on-request" | "never"; sandbox: "read-only" | "workspace-write" };
+export type CodexExecutionPolicy = { approvalPolicy: "on-request" | "never"; sandbox: "read-only" | "workspace-write"; isolateWorkbenchTools?: boolean };
 
 type ActiveTurn = PendingRequest & { emit: AgentEmit; threadId: string };
 
@@ -88,9 +88,10 @@ export class CodexAppServerClient {
     }
 
     async startThread(cwd: string | undefined, config: Json, binding?: CodexThreadBinding, policy: CodexExecutionPolicy = interactivePolicy) {
+        const threadConfig = policy.isolateWorkbenchTools ? await this.workbenchToolConfig(config, cwd) : config;
         const result = await this.request("thread/start", {
             ...policyParams(policy),
-            config,
+            config: threadConfig,
             ...(cwd ? { cwd } : {}),
             threadSource: "user",
         });
@@ -102,11 +103,12 @@ export class CodexAppServerClient {
     }
 
     async resumeThread(threadId: string, cwd: string | undefined, config: Json, binding?: CodexThreadBinding, policy: CodexExecutionPolicy = interactivePolicy) {
+        const threadConfig = policy.isolateWorkbenchTools ? await this.workbenchToolConfig(config, cwd) : config;
         if (binding) this.bindThread(threadId, binding);
         const result = await this.request("thread/resume", {
             threadId,
             ...policyParams(policy),
-            config,
+            config: threadConfig,
             ...(cwd ? { cwd } : {}),
         });
         const thread = field(result, "thread") as Json | undefined;
@@ -127,8 +129,24 @@ export class CodexAppServerClient {
         return this.request("thread/read", { threadId, includeTurns });
     }
 
-    listMcpServerStatus(threadId: string) {
-        return this.request("mcpServerStatus/list", { threadId, detail: "full" });
+    listMcpServerStatus(threadId: string, cursor?: string) {
+        return this.request("mcpServerStatus/list", { threadId, detail: "toolsAndAuthOnly", ...(cursor ? { cursor } : {}) });
+    }
+
+    private async workbenchToolConfig(config: Json, cwd?: string): Promise<Json> {
+        const effective = field(await this.request("config/read", { includeLayers: false, ...(cwd ? { cwd } : {}) }), "config");
+        if (!effective || typeof effective !== "object" || Array.isArray(effective)) throw new Error("CODEX_WORKBENCH_CONFIG_UNAVAILABLE");
+        const servers = field(effective, "mcp_servers");
+        if (servers != null && (typeof servers !== "object" || Array.isArray(servers))) throw new Error("CODEX_WORKBENCH_CONFIG_UNAVAILABLE");
+        const overrides: Json = { ...config };
+        // Thread-local overrides only; never rewrite the user's global config.
+        for (const name of Object.keys(servers || {})) {
+            if (name === "yingce" || field(field(servers, name), "enabled") === false) continue;
+            // RPC config paths are dotted keys, not TOML-quoted key expressions.
+            if (!/^[a-zA-Z0-9_-]+$/.test(name)) throw new Error("CODEX_WORKBENCH_CONFIG_UNAVAILABLE");
+            overrides[`mcp_servers.${name}.enabled`] = false;
+        }
+        return overrides;
     }
 
     callMcpTool(threadId: string, server: string, tool: string, args: Record<string, unknown> = {}) {
@@ -221,7 +239,8 @@ export class CodexAppServerClient {
         const event = normalizeCodexNotification(method, params);
         if (!event) return;
         if (event.type === "turn.completed") event.usage = this.lastUsageByThread.get(threadId) ?? null;
-        emit("agent_event", { agent: "codex", ...event });
+        emit("agent_event", { agent: "codex", providerTurnId: turnId, ...event });
+        if (method === "item/completed") this.textByItem.delete(`${turnId}\u0000${String(field(field(params, "item"), "id") || "")}`);
         if (event.type === "turn.completed") {
             const pending = this.activeTurns.get(turnId);
             const error = field(field(params, "turn"), "error");
@@ -233,6 +252,7 @@ export class CodexAppServerClient {
             }
             emit("agent_event", { agent: "codex", type: "stream.summary", delta_count: this.deltaCountByTurn.get(turnId) || 0 });
             this.deltaCountByTurn.delete(turnId);
+            for (const key of this.textByItem.keys()) if (key.startsWith(`${turnId}\u0000`)) this.textByItem.delete(key);
             emit("agent_done", { agent: "codex", usage: event.usage });
         }
     }
@@ -243,7 +263,7 @@ export class CodexAppServerClient {
         const text = `${this.textByItem.get(itemKey) || ""}${String(field(params, "delta") || "")}`;
         this.deltaCountByTurn.set(turnId, (this.deltaCountByTurn.get(turnId) || 0) + 1);
         this.textByItem.set(itemKey, text);
-        emit("agent_event", { agent: "codex", type: "item.updated", delta: String(field(params, "delta") || ""), item: { id, type: "agent_message", text } });
+        emit("agent_event", { agent: "codex", type: "item.updated", providerTurnId: turnId, delta: String(field(params, "delta") || ""), item: { id, type: "agent_message", text } });
     }
 
     private async answerServerRequest(message: Json) {
@@ -361,6 +381,7 @@ export function codexInput(prompt: string, images: string[], skills: CodexSkillI
 function normalizeCodexNotification(method: string, params: Json) {
     if (method === "thread/started") return { type: "thread.started", thread_id: field(field(params, "thread"), "id") };
     if (method === "turn/started") return { type: "turn.started" };
+    if (method === "turn/plan/updated") return { type: "turn.plan.updated", plan: field(params, "plan"), explanation: field(params, "explanation") };
     if (method === "turn/completed") return { type: "turn.completed", usage: null as unknown };
     if (method === "item/started") return { type: "item.started", item: normalizeItem(field(params, "item")) };
     if (method === "item/completed") return { type: "item.completed", item: normalizeItem(field(params, "item")) };

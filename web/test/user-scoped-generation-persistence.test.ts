@@ -4168,7 +4168,7 @@ test("canvas deletion removes the remote project before updating local state", a
             remoteProjects = remoteProjects.filter((item) => item.id !== project.id);
             return { data: { code: 0, data: { id: project.id }, msg: "" }, status: 200, statusText: "OK", headers: {}, config };
         }
-        const data = url.includes("user-data/snapshot") ? { projects: remoteProjects, assets: [] } : { projects: [] };
+        const data = url.includes("user-data/snapshot") ? { projects: remoteProjects, assets: [], projectContentHashes: Object.fromEntries(remoteProjects.map(project => [project.id, "a".repeat(64)])) } : { projects: [] };
         return { data: { code: 0, data, msg: "" }, status: 200, statusText: "OK", headers: {}, config };
     };
     Object.defineProperty(globalThis, "window", {

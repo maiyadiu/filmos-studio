@@ -11,6 +11,7 @@ import { CanvasResourceMentionTextarea } from "./canvas-resource-mention-textare
 import type { CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
 import type { Skill } from "@/services/api/skills";
 import type { CanvasAgentMode } from "@/film/agent/brain-profiles";
+import type { AgentTurnPlan } from "@/film/agent/agent-client";
 
 export type CanvasAgentChatAttachment = { id: string; name: string; url: string };
 export type { CanvasAgentMode };
@@ -28,11 +29,11 @@ export type CanvasAgentQuickAction = { label: string; prompt: string };
 
 /**
  * Turn the short numbered choices the Agent already emits into real UI actions.
- * This deliberately stays conservative: only assistant messages with 1–4
- * numbered lines are eligible, and code blocks are ignored.
+ * Only explicit choices are commands. Progress lists must not become duplicate
+ * clickable instructions that could accidentally submit another creative task.
  */
 export function extractCanvasAgentQuickActions(text: string): CanvasAgentQuickAction[] {
-    if (!text.trim() || text.includes("```")) return [];
+    if (!text.trim() || text.includes("```") || !/(?:请选择|选一个|选择(?:其中|一个|以下)|你想先|下一步你想|choose (?:one|an option)|which option)/iu.test(text)) return [];
     const actions: CanvasAgentQuickAction[] = [];
     const seen = new Set<string>();
     for (const line of text.split(/\r?\n/u)) {
@@ -49,7 +50,26 @@ export function extractCanvasAgentQuickActions(text: string): CanvasAgentQuickAc
 
 const WORKING_TEXT = "正在推演...";
 
-export function AgentChatMessage({ item, theme, user, isStreaming = false, onRejectTool, onApproveTool, onQuickAction, onOpenChatGPT, onOpenConnectionSettings }: { item: CanvasAgentChatMessage; theme: (typeof canvasThemes)[keyof typeof canvasThemes]; user: LocalUser | null; isStreaming?: boolean; onRejectTool?: (id: string) => void; onApproveTool?: (id: string) => void; onQuickAction?: (prompt: string) => void; onOpenChatGPT?: () => void; onOpenConnectionSettings?: () => void }) {
+export function AgentPlanCard({ plan, theme }: { plan: AgentTurnPlan; theme: (typeof canvasThemes)[keyof typeof canvasThemes] }) {
+    const completed = plan.steps.filter((step) => step.status === "completed").length;
+    const labels = { pending: "待执行", inProgress: "进行中", completed: "已报告完成" };
+    return (
+        <section aria-label="当前 Agent 计划" className="min-w-0 rounded-xl border p-4 text-sm" style={{ background: theme.node.panel, borderColor: theme.node.stroke, color: theme.node.text }}>
+            <div className="flex flex-wrap items-center justify-between gap-2 font-medium"><span>本轮计划</span><span>{completed} / {plan.steps.length}</span></div>
+            {plan.explanation ? <p className="mt-2 whitespace-pre-wrap break-words leading-relaxed">{plan.explanation}</p> : null}
+            <ol className="mt-3 space-y-2">
+                {plan.steps.map((item, index) => <li key={index} className="flex min-w-0 items-start gap-2" aria-current={item.status === "inProgress" ? "step" : undefined}>
+                    <span className="shrink-0 tabular-nums">{index + 1}.</span>
+                    <span className="min-w-0 flex-1 whitespace-pre-wrap break-words leading-relaxed">{item.step}</span>
+                    <span className="shrink-0 text-xs leading-6">{labels[item.status]}</span>
+                </li>)}
+            </ol>
+            <p className="mt-3 text-xs leading-relaxed" style={{ color: theme.node.muted }}>Agent 自报进度，不代表业务已保存。以实际版本回读为准；中断后先核对已保存结果。</p>
+        </section>
+    );
+}
+
+export function AgentChatMessage({ item, theme, user, isStreaming = false, resultAction, onRejectTool, onApproveTool, onQuickAction, onOpenChatGPT, onOpenConnectionSettings }: { item: CanvasAgentChatMessage; theme: (typeof canvasThemes)[keyof typeof canvasThemes]; user: LocalUser | null; isStreaming?: boolean; resultAction?: ReactNode; onRejectTool?: (id: string) => void; onApproveTool?: (id: string) => void; onQuickAction?: (prompt: string) => void; onOpenChatGPT?: () => void; onOpenConnectionSettings?: () => void }) {
     const isUser = item.role === "user";
     const isSystem = item.role === "system";
     const color = item.role === "error" ? "#dc2626" : item.role === "tool" ? "#2563eb" : theme.node.text;
@@ -72,7 +92,10 @@ export function AgentChatMessage({ item, theme, user, isStreaming = false, onRej
         return (
             <div className="flex items-start gap-2.5">
                 <AgentAvatar theme={theme} />
-                <AgentToolCard title={item.title || "工具调用"} text={item.text} detail={item.detail} theme={theme} />
+                <div className="min-w-0 flex-1">
+                    <AgentToolCard title={item.title || "工具调用"} text={item.text} detail={item.detail} theme={theme} />
+                    {resultAction}
+                </div>
             </div>
         );
     }
@@ -207,6 +230,8 @@ function agentImpactFromDetail(detail: unknown) {
 
 export function AgentToolCard({ title, text, detail, theme }: { title: string; text: string; detail?: unknown; theme: (typeof canvasThemes)[keyof typeof canvasThemes] }) {
     const state = toolCardState(title, text, detail);
+    const unverified = state.label === "结果待核对";
+    const displayText = unverified ? normalizeText(objectField(objectField(detail, "result"), "message")) || "工具返回结果尚未通过核验；请回读，不要重复写入" : text;
     return (
         <details className="min-w-0 flex-1 rounded-md px-3 py-3 text-left" style={{ background: theme.spatial.surface, color: theme.node.text }}>
             <summary className="cursor-pointer list-none">
@@ -216,14 +241,14 @@ export function AgentToolCard({ title, text, detail, theme }: { title: string; t
                     </span>
                     <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2 text-sm font-semibold leading-5">
-                            <span className="min-w-0 truncate">{title}</span>
+                            <span className="min-w-0 truncate">{unverified ? title.replace(/完成$/, "") : title}</span>
                             <span className="inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[var(--fs-label)] font-medium" style={{ color: state.color, background: state.softBg }}>
                                 {state.label}
                             </span>
                             {detail ? <span className="ml-auto text-xs font-normal" style={{ color: theme.node.muted }}>详情</span> : null}
                         </div>
                         <div className="mt-2 text-sm leading-6" style={{ color: state.isError ? state.color : theme.node.muted }}>
-                            {text}
+                            {displayText}
                         </div>
                     </div>
                 </div>
@@ -385,7 +410,7 @@ export function AgentChatComposer({
                             disabled={disabled}
                             onChange={handlePromptChange}
                             onSubmit={onSubmit}
-                            className="w-full resize-none border-0 bg-transparent px-1 py-1 text-sm leading-5 outline-none placeholder:opacity-45"
+                            className="w-full resize-none border-0 bg-transparent px-1 py-1 text-sm leading-5 outline-none placeholder:text-muted-foreground placeholder:opacity-100"
                             containerClassName="min-h-[60px]"
                             style={{ color: theme.node.text }}
                             placeholder={placeholder}
@@ -517,7 +542,10 @@ function AgentMessageAttachments({ attachments }: { attachments: CanvasAgentChat
     );
 }
 
-function toolCardState(title: string, text: string, detail?: unknown) {
+export function toolCardState(title: string, text: string, detail?: unknown) {
+    const result = objectField(detail, "result");
+    const verification = objectField(objectField(result, "data"), "verification");
+    if (objectField(result, "ok") === false || objectField(verification, "ok") === false) return { label: "结果待核对", color: "#d97706", softBg: "rgba(217,119,6,.04)", icon: <CircleAlert className="size-4" />, isError: true };
     const raw = `${title} ${text} ${normalizeText(objectField(detail, "error"))}`;
     const lower = raw.toLowerCase();
     const tool = String(objectField(detail, "name") || objectField(detail, "tool") || "");

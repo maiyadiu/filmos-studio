@@ -44,3 +44,26 @@ test("Codex app-server accepts an explicit native executable for packaged Deskto
         else process.env.FILMOS_CODEX_EXECUTABLE = previous;
     }
 });
+
+test("grant rotation replaces only its session process and disposal releases every owned client", async () => {
+    const started: Array<{ disposed: boolean; dispose(): Promise<void> }> = [];
+    const manager = new CodexAppServerProcessManager(() => undefined, async () => {
+        const client = { disposed: false, async dispose() { this.disposed = true; } };
+        started.push(client);
+        return client as never;
+    });
+    const account = await manager.client();
+    const a = await manager.client("session-a"), b = await manager.client("session-b");
+    assert.equal(await manager.client("session-a"), a);
+    const rotated = await manager.client("session-a", true);
+    assert.notEqual(rotated, a);
+    assert.equal(started[1].disposed, true);
+    assert.equal(await manager.client("session-b"), b);
+    assert.equal(await manager.client(), account);
+    assert.equal(started[0].disposed, false);
+    assert.equal(started[2].disposed, false);
+    await manager.releaseSession("session-a");
+    assert.equal(started[3].disposed, true);
+    await manager.dispose();
+    assert.equal(started.every(client => client.disposed), true);
+});

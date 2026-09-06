@@ -1,4 +1,5 @@
 export const AGENT_CONTRACT_SCHEMA_VERSION = "1" as const;
+export { CanvasToolApiError, canvasToolApiError, CanvasPromptConflictError } from "./canvas-tool-error.js";
 
 export type BrainProvider =
     | "openai.codex"
@@ -155,6 +156,8 @@ export interface BrainSession {
     permissionGrantId: string;
     status: BrainSessionStatus;
     lastContextReceiptId?: string;
+    /** Provider-reported progress only; business save receipts remain authoritative. */
+    latestPlan?: AgentTurnPlan | null;
     hostHandoff?: ChatGPTHandoffReceipt;
     hostHandoffTimeline?: ChatGPTHandoffTimelineEntry[];
     createdAt: string;
@@ -282,11 +285,20 @@ export interface AgentContextPackV1 {
     };
 }
 
+export interface AgentTurnPlan {
+    source: "provider";
+    turnId: string;
+    explanation?: string;
+    steps: Array<{ step: string; status: "pending" | "inProgress" | "completed" }>;
+    updatedAt: string;
+}
+
 export type NormalizedBrainEvent =
     | { type: "session.status"; sessionId: string; status: BrainSessionStatus; at: string; reason?: string }
     | { type: "turn.started"; sessionId: string; turnId: string; at: string }
-    | { type: "message.delta"; sessionId: string; turnId: string; delta: string; at: string }
-    | { type: "message.completed"; sessionId: string; turnId: string; text: string; at: string }
+    | { type: "turn.plan.updated"; sessionId: string; turnId: string; plan: AgentTurnPlan; at: string }
+    | { type: "message.delta"; sessionId: string; turnId: string; delta: string; streamId?: string; text?: string; at: string }
+    | { type: "message.completed"; sessionId: string; turnId: string; text: string; streamId?: string; at: string }
     | { type: "tool.proposed"; sessionId: string; turnId: string; request: AgentToolRequest; at: string }
     | { type: "confirmation.required"; sessionId: string; turnId: string; confirmation: AgentConfirmation; at: string }
     | { type: "tool.completed"; sessionId: string; turnId: string; result: AgentToolResult; at: string }
@@ -416,6 +428,8 @@ export interface AgentTurnInput {
     turnId: string;
     prompt: string;
     context: AgentContextPackV1;
+    /** Host-owned cancellation only; never serialized into the model prompt. */
+    signal?: AbortSignal;
     localImagePaths?: string[];
     localSkills?: Array<{ type: "skill"; name: string; path: string }>;
 }

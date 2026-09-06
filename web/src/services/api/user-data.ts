@@ -15,6 +15,7 @@ export type RemoteUserDataSummary = {
 export type RemoteUserDataSnapshot = {
     assets: Asset[];
     projects: CanvasProject[];
+    projectContentHashes: Record<string, string>;
 };
 
 export function getRemoteUserDataSnapshot() {
@@ -42,11 +43,11 @@ export function listRemoteCanvasProjects() {
 }
 
 export function getRemoteCanvasProject(id: string) {
-    return request<{ project: CanvasProject }>(api.get(`/canvas-projects/${encodeURIComponent(id)}`));
+    return request<{ project: CanvasProject; contentHash: string }>(api.get(`/canvas-projects/${encodeURIComponent(id)}`));
 }
 
-export function upsertRemoteCanvasProject(project: CanvasProject) {
-    return request<{ project: RemoteUserDataSummary }>(api.put(`/canvas-projects/${encodeURIComponent(project.id)}`, { project }));
+export function upsertRemoteCanvasProject(project: CanvasProject, expectedContentHash?: string) {
+    return request<{ project: RemoteUserDataSummary & { contentHash: string } }>(api.put(`/canvas-projects/${encodeURIComponent(project.id)}`, { project, ...(expectedContentHash !== undefined ? { expectedContentHash } : {}) }));
 }
 
 export function deleteRemoteCanvasProject(id: string) {

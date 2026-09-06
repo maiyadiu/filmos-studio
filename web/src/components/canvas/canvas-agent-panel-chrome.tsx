@@ -1,5 +1,5 @@
 import { Button, Select, Switch, Tooltip } from "antd";
-import { BookOpenCheck, BookOpenText, Bot, Clapperboard, Focus, History, LayoutTemplate, PanelRightClose, PanelsTopLeft, Plus, RotateCcw, Workflow } from "lucide-react";
+import { BookOpenCheck, BookOpenText, Bot, Bug, Clapperboard, Focus, History, LayoutTemplate, PanelRightClose, PanelsTopLeft, Plus, RotateCcw, Workflow } from "lucide-react";
 import { useNavigate } from "react-router";
 import type { ReactNode } from "react";
 
@@ -63,6 +63,9 @@ export function AgentPanelChrome({
                     </div>
                 </div>
                 <div className="ml-auto flex shrink-0 items-center gap-0.5">
+                    <Tooltip title="报告问题 / 提出调整">
+                        <Button type="text" shape="circle" className="!h-7 !w-7 !min-w-7" style={{ color: theme.node.text }} icon={<Bug className="size-3.5" />} onClick={() => window.filmOSReportIssue?.("agent")} aria-label="报告问题 / 提出调整" data-filmos-agent-issue-entry />
+                    </Tooltip>
                     <Tooltip title="技能库">
                         <Button type="text" shape="circle" className="!h-7 !w-7 !min-w-7" style={{ color: theme.node.muted }} icon={<BookOpenCheck className="size-3.5" />} onClick={() => navigate("/skills")} aria-label="打开技能库" />
                     </Tooltip>

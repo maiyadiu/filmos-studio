@@ -6,6 +6,7 @@ import { CANVAS_IMAGE_ASSET_DND_TYPE } from "@/components/canvas/canvas-asset-tr
 import type { InsertAssetPayload } from "@/components/canvas/asset-picker-modal";
 import { CANVAS_PROJECT_CHAPTER_DND_TYPE, type CanvasProjectChapterPayload } from "@/components/canvas/canvas-project-sidebar";
 import { NODE_DEFAULT_SIZE } from "@/constant/canvas";
+import { documentTextFromHtml } from "@/lib/document-text";
 import { getDataUrlByteSize, readImageMeta } from "@/lib/image-utils";
 import { audioMetadata, imageMetadata, videoMetadata } from "@/lib/canvas/canvas-generation-task-sync";
 import { createCanvasNode } from "@/lib/canvas/canvas-project-domain";
@@ -253,7 +254,7 @@ export function useCanvasUpload({
                 return;
             }
         }
-        const content = htmlToPlainText(sourceText);
+        const content = documentTextFromHtml(sourceText);
         const node = createCanvasNode(CanvasNodeType.Text, position || getCanvasCenter(), {
             content,
             prompt: content,
@@ -800,10 +801,4 @@ function parseProjectChapterPayload(value: string): CanvasProjectChapterPayload 
     } catch {
         return null;
     }
-}
-
-function htmlToPlainText(value: string) {
-    if (!value) return "";
-    const document = new DOMParser().parseFromString(value, "text/html");
-    return document.body.textContent?.trim() || "";
 }

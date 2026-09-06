@@ -6,20 +6,24 @@ import {
     linkProjectAsset,
     linkShotAsset,
     registerProjectTaskOutput,
-    saveProjectShot,
     updateWorkflowStep,
     type ProjectDetail,
     type ShotAssetReference,
 } from "./projects";
 import { projectScriptToolNames, runProjectScriptTool, type ProjectScriptToolName } from "./project-script-tools";
+import { projectShotToolNames, runProjectShotTool, type ProjectShotToolName } from "./project-shot-tools";
+import { projectPromptToolNames, runProjectPromptTool, type ProjectPromptToolName } from "./project-prompt-tools";
+import { runProjectStoryboardTool } from "./project-storyboard-tools";
 
 export const projectAgentToolNames = [
     ...projectScriptToolNames,
+    ...projectShotToolNames,
+    ...projectPromptToolNames,
+    "project_sync_storyboard",
     "project_get_context",
     "project_list_units",
     "project_extract_asset_candidates",
     "project_confirm_asset_candidate",
-    "project_create_or_update_shots",
     "project_link_shot_asset",
     "project_start_workflow_step",
     "project_link_asset",
@@ -34,13 +38,17 @@ export function isProjectAgentToolName(value: string): value is ProjectAgentTool
 }
 
 export function isProjectAgentReadTool(value: string) {
-    return value === "project_get_context" || value === "project_list_units" || value === "project_get_script" || value === "project_get_script_revision";
+    if ((projectPromptToolNames as readonly string[]).includes(value)) return value !== "project_save_prompt";
+    return value === "project_get_context" || value === "project_list_units" || value === "project_get_script" || value === "project_get_script_revision" || value === "project_get_shots" || value === "project_get_shot_batch" || value === "project_get_shot_revisions";
 }
 
-export async function runProjectAgentTool(name: ProjectAgentToolName, rawInput: Record<string, unknown>, fallbackProjectId?: string) {
+export async function runProjectAgentTool(name: ProjectAgentToolName, rawInput: Record<string, unknown>, fallbackProjectId?: string, boundCanvasId?: string) {
+    if (!fallbackProjectId || (rawInput.projectId !== undefined && rawInput.projectId !== fallbackProjectId)) throw new Error("项目工具必须绑定当前授权项目");
     if ((projectScriptToolNames as readonly string[]).includes(name)) return runProjectScriptTool(name as ProjectScriptToolName, rawInput, fallbackProjectId || "");
-    const projectId = String(rawInput.projectId || fallbackProjectId || "").trim();
-    if (!projectId) throw new Error("当前画布没有关联短剧项目");
+    if ((projectShotToolNames as readonly string[]).includes(name)) return runProjectShotTool(name as ProjectShotToolName, rawInput, fallbackProjectId);
+    if ((projectPromptToolNames as readonly string[]).includes(name)) return runProjectPromptTool(name as ProjectPromptToolName, rawInput, fallbackProjectId, boundCanvasId);
+    if (name === "project_sync_storyboard") return runProjectStoryboardTool(rawInput, fallbackProjectId, boundCanvasId);
+    const projectId = fallbackProjectId;
     if (name === "project_get_context") return getProject(projectId);
     if (name === "project_list_units") {
         const detail = await getProject(projectId);
@@ -54,15 +62,6 @@ export async function runProjectAgentTool(name: ProjectAgentToolName, rawInput: 
     }
     if (name === "project_confirm_asset_candidate") {
         return confirmProjectAssetCandidate(projectId, String(rawInput.candidateId || ""), String(rawInput.assetId || "") || undefined);
-    }
-    if (name === "project_create_or_update_shots") {
-        const shots = Array.isArray(rawInput.shots) ? rawInput.shots : [];
-        const result = [];
-        for (const shot of shots) {
-            if (!isShotInput(shot)) continue;
-            result.push((await saveProjectShot(projectId, shot)).shot);
-        }
-        return { shots: result };
     }
     if (name === "project_link_shot_asset") {
         return linkShotAsset(projectId, String(rawInput.shotId || ""), { assetVersionId: String(rawInput.assetVersionId || ""), role: String(rawInput.role || "reference") as ShotAssetReference["role"] });
@@ -86,12 +85,6 @@ function isCandidateInput(value: unknown): value is { unitId?: string; shotId?: 
     if (!value || typeof value !== "object") return false;
     const item = value as Record<string, unknown>;
     return typeof item.name === "string" && typeof item.category === "string";
-}
-
-function isShotInput(value: unknown): value is { id?: string; unitId?: string; title: string; description?: string; position?: number; durationMs?: number; status?: string } {
-    if (!value || typeof value !== "object") return false;
-    const item = value as Record<string, unknown>;
-    return typeof item.title === "string";
 }
 
 export type ProjectAgentContext = ProjectDetail;

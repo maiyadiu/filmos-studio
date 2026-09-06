@@ -4,7 +4,7 @@ import test from "node:test";
 import { codexConfig } from "../src/agents.js";
 import { CodexSubscriptionAdapter, codexThreadHistory } from "../src/brains/adapters/codex-app-server-adapter.js";
 import { declineServerRequest, type CodexThreadBinding } from "../src/brains/adapters/codex-app-server-client.js";
-import type { AgentContextPackV1, AgentPermissionGrant, BrainSession } from "../src/brains/contracts.js";
+import type { AgentContextPackV1, AgentPermissionGrant, BrainSession, NormalizedBrainEvent } from "../src/brains/contracts.js";
 
 const grant: AgentPermissionGrant = {
     id: "grant-1",
@@ -66,6 +66,41 @@ test("Codex server requests fail closed unless the matching FilmOS confirmation 
     assert.deepEqual(declineServerRequest("mcpServer/elicitation/request"), { action: "decline", content: null, _meta: null });
 });
 
+test("ordinary creative sessions do not inherit engineering shell or cross-project memories", async () => {
+    const fake = fakeClient();
+    const configs: Record<string, unknown>[] = [];
+    fake.startThread = async (...args: unknown[]) => { configs.push(args[1] as Record<string, unknown>); return { id: "thread-1" }; };
+    const adapter = new CodexSubscriptionAdapter({ client: async () => fake } as never, () => "/tmp/creative-fixture", () => ({ "mcp_servers.yingce.command": "fixture" }));
+    await adapter.createSession(sessionInput(), grant);
+    assert.equal(configs[0]["features.memories"], false);
+    assert.equal(configs[0]["features.shell_tool"], false);
+    assert.equal(configs[0]["features.apps"], false);
+    assert.equal(configs[0]["features.plugins"], false);
+    assert.equal(configs[0]["features.remote_plugin"], false);
+    assert.equal(configs[0]["web_search"], "disabled");
+    assert.equal(configs[0]["mcp_servers.yingce.required"], true);
+    assert.equal(configs[0]["mcp_servers.yingce.command"], "fixture");
+    await adapter.createSession({ ...sessionInput(), executionProfile: "review_coordinator", workspacePath: "/tmp/review-fixture" }, grant);
+    assert.equal(configs[1]["features.shell_tool"], undefined);
+    assert.equal(configs[1]["features.apps"], undefined);
+});
+
+test("workbench preflight rejects an inherited callable connector, including later inventory pages", async () => {
+    for (const paginated of [false, true]) {
+        const fake = fakeClient();
+        let reads = 0;
+        fake.listMcpServerStatus = (async () => {
+            reads++;
+            return paginated && reads === 1
+                ? { data: [{ name: "yingce", runtimeStatus: "connected", tools: {} }], nextCursor: "next" }
+                : { data: [{ name: "unrelated", runtimeStatus: "connected", tools: { external_write: {} } }] };
+        }) as typeof fake.listMcpServerStatus;
+        const adapter = new CodexSubscriptionAdapter({ client: async () => fake } as never, () => "/tmp/creative", () => ({}));
+        await assert.rejects(adapter.createSession(sessionInput(), grant), /CODEX_WORKBENCH_TOOL_SCOPE_UNVERIFIED/);
+        assert.equal(reads, paginated ? 2 : 1);
+    }
+});
+
 test("Codex turns serialize per thread, run independently across sessions, and support interrupt", async () => {
     const started: string[] = [];
     const releases: Array<() => void> = [];
@@ -86,6 +121,7 @@ test("Codex turns serialize per thread, run independently across sessions, and s
     const firstSession = { ...session(), ...firstPatch };
     const secondSession = { ...session(), id: "session-2", projectId: "project-2", canvasId: "canvas-2", permissionGrantId: "grant-2", ...secondPatch };
     const first = adapter.sendTurn(turnInput(firstSession), async () => undefined);
+    const firstCancelled = assert.rejects(first, /AGENT_TURN_CANCELLED/);
     const queued = adapter.sendTurn({ ...turnInput(firstSession), turnId: "turn-local-2" }, async () => undefined);
     const parallel = adapter.sendTurn({ ...turnInput(secondSession), turnId: "turn-local-3" }, async () => undefined);
     await tick();
@@ -96,7 +132,7 @@ test("Codex turns serialize per thread, run independently across sessions, and s
     await tick();
     assert.equal(started.length, 3);
     releases.splice(0).forEach((release) => release());
-    await Promise.all([first, queued, parallel]);
+    await Promise.all([firstCancelled, queued, parallel]);
 });
 
 test("review coordinator uses its isolated workspace without requiring a live canvas MCP preflight", async () => {
@@ -148,6 +184,20 @@ test("ordinary Codex sessions never replace a missing rollout silently", async (
     assert.equal(starts, 0);
 });
 
+test("resume uses a session-scoped replacement process with the new grant and the same provider thread", async () => {
+    const first = fakeClient(), second = fakeClient();
+    const calls: Array<{ sessionId?: string; replace?: boolean }> = [];
+    let active = first;
+    let received: Record<string, unknown> | undefined;
+    second.resumeThread = async (threadId: string, _cwd?: string, config?: Record<string, unknown>) => { received = config; return { id: threadId }; };
+    const adapter = new CodexSubscriptionAdapter({ client: async (sessionId?: string, replace?: boolean) => { calls.push({ sessionId, replace }); if (replace) active = second; return active; } } as never, () => "/tmp/fixture", g => ({ grantMarker: g.id }));
+    const created = await adapter.createSession(sessionInput(), grant);
+    const resumed = await adapter.resumeSession({ sessionId: grant.sessionId, providerThreadId: created.providerThreadId, projectId: grant.projectId, canvasId: "canvas-1", grant: { ...grant, id: "grant-2" } });
+    assert.equal(resumed.providerThreadId, created.providerThreadId);
+    assert.equal(received?.grantMarker, "grant-2");
+    assert.deepEqual(calls, [{ sessionId: grant.sessionId, replace: undefined }, { sessionId: grant.sessionId, replace: true }]);
+});
+
 test("Codex resume history is reconstructed from the real provider thread payload", () => {
     const history = codexThreadHistory({ turns: [{ items: [
         { id: "u1", type: "userMessage", content: [{ type: "text", text: "FilmOS context\n\n用户请求：恢复这次对话" }] },
@@ -161,6 +211,33 @@ test("Codex resume history is reconstructed from the real provider thread payloa
     ]);
 });
 
+test("native plan, exact deltas and completed messages retain identity through normalized events and history", async () => {
+    const text = "## 原稿\n\n哈哈\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n";
+    const fake = fakeClient(async binding => {
+        binding.emit("agent_event", { type: "turn.plan.updated", providerTurnId: "provider-turn", plan: [{ step: "读取并核验", status: "inProgress" }], explanation: "只修改目标章节；保存后回读版本" });
+        binding.emit("agent_event", { type: "turn.plan.updated", plan: [{ step: "不能猜状态", status: "invented" }] });
+        binding.emit("agent_event", { type: "item.updated", providerTurnId: "provider-turn", delta: "\n\n", item: { id: "a1", type: "agent_message", text: "## 原稿\n\n" } });
+        binding.emit("agent_event", { type: "item.completed", providerTurnId: "provider-turn", item: { id: "a1", type: "agent_message", text } });
+    });
+    const adapter = new CodexSubscriptionAdapter({ client: async () => fake } as never, () => "/tmp/fixture", () => ({}));
+    const patch = await adapter.createSession(sessionInput(), grant);
+    const events: NormalizedBrainEvent[] = [];
+    await adapter.sendTurn(turnInput({ ...session(), ...patch }), async event => { events.push(event); });
+    const plan = events.filter(event => event.type === "turn.plan.updated");
+    assert.equal(plan.length, 1);
+    assert.equal(plan[0].plan.source, "provider");
+    assert.equal(plan[0].plan.steps[0].status, "inProgress");
+    const delta = events.find(event => event.type === "message.delta");
+    assert.equal(delta?.delta, "\n\n");
+    assert.equal(delta?.text, "## 原稿\n\n");
+    const done = events.find(event => event.type === "message.completed");
+    assert.equal(done?.text, text);
+    assert.equal(done?.streamId, delta?.streamId);
+    const history = codexThreadHistory({ turns: [{ id: "provider-turn", items: [{ id: "a1", type: "agentMessage", text }] }] });
+    assert.equal(history[0].streamId, done?.streamId);
+    assert.equal(history[0].text, text);
+});
+
 function fakeClient(onTurn?: (binding: CodexThreadBinding, threadId: string, onTurnStarted?: (turnId: string) => void) => Promise<void>) {
     let threadNumber = 0;
     const interrupts: Array<{ threadId: string; turnId: string }> = [];
@@ -170,6 +247,7 @@ function fakeClient(onTurn?: (binding: CodexThreadBinding, threadId: string, onT
         preflights,
         startThread: async () => ({ id: `thread-${++threadNumber}` }),
         resumeThread: async (threadId: string) => ({ id: threadId }),
+        listMcpServerStatus: async () => ({ data: [{ name: "yingce", runtimeStatus: "connected", tools: {} }] }),
         callMcpTool: async (threadId: string, server: string, tool: string) => {
             preflights.push({ threadId, server, tool });
             return { content: [{ type: "text", text: "context" }] };

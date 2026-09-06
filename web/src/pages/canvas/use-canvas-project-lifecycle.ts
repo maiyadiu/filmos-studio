@@ -10,6 +10,9 @@ import { createCanvasProjectWithRemoteSync, deleteCanvasProjectsWithRemoteSync, 
 import { flushCanvasStorePersistence, useCanvasStore } from "@/stores/canvas/use-canvas-store";
 import type { CanvasAssistantSession, CanvasConnection, CanvasNodeData, CanvasNodeMetadata, ViewportTransform } from "@/types/canvas";
 import type { CanvasHistorySnapshot } from "./use-canvas-history";
+import { CANVAS_PROMPT_UPDATED_EVENT, mergeCanvasPromptContext, type CanvasPromptUpdatedEvent } from "@/lib/canvas/canvas-prompt-merge";
+import { getActiveUserScope } from "@/lib/user-scope";
+import { CANVAS_STORYBOARD_UPDATED_EVENT, mergeProjectStoryboardReadback, type CanvasStoryboardUpdatedEvent } from "@/lib/canvas/project-chapter-storyboard";
 
 type UseCanvasProjectLifecycleOptions = {
     projectId: string;
@@ -73,6 +76,36 @@ export function useCanvasProjectLifecycle({
     const currentProject = useCanvasStore((state) => state.projects.find((project) => project.id === projectId));
     const [addedSkills, setAddedSkills] = useState<Skill[]>([]);
     const viewportSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    useEffect(() => {
+        const applyStoryboard = (event: Event) => {
+            const detail = (event as CustomEvent<CanvasStoryboardUpdatedEvent>).detail;
+            if (!projectLoaded || detail?.canvasId !== projectId || detail.userScope !== getActiveUserScope()) return;
+            try {
+                const next = mergeProjectStoryboardReadback(nodesRef.current, detail.before, detail.after);
+                if (detail.phase === "apply") { nodesRef.current = next; setNodes(next); }
+            } catch { detail.rejected = true; }
+        };
+        window.addEventListener(CANVAS_STORYBOARD_UPDATED_EVENT, applyStoryboard);
+        return () => window.removeEventListener(CANVAS_STORYBOARD_UPDATED_EVENT, applyStoryboard);
+    }, [projectId, projectLoaded, nodesRef, setNodes]);
+
+    useEffect(() => {
+        const applyPrompt = (event: Event) => {
+            const detail = (event as CustomEvent<CanvasPromptUpdatedEvent>).detail;
+            if (!projectLoaded || detail?.canvasId !== projectId || detail.userScope !== getActiveUserScope()) return;
+            try {
+                const next = mergeCanvasPromptContext(nodesRef.current, detail.before, detail.context);
+                nodesRef.current = next;
+                setNodes(next);
+            } catch {
+                detail.rejected = true;
+                message.warning("提示词已在后端保存，但本地同一行发生变化，已保留本地内容；请打开提示词历史核对");
+            }
+        };
+        window.addEventListener(CANVAS_PROMPT_UPDATED_EVENT, applyPrompt);
+        return () => window.removeEventListener(CANVAS_PROMPT_UPDATED_EVENT, applyPrompt);
+    }, [projectId, projectLoaded, nodesRef, setNodes, message]);
 
     useEffect(() => {
         if (!hydrated) return;

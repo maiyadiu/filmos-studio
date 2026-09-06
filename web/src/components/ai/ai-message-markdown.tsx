@@ -1,7 +1,11 @@
-import { Streamdown, type Components } from "streamdown";
+import { Streamdown, defaultRemarkPlugins, type Components } from "streamdown";
 import { code as streamdownCode } from "@streamdown/code";
+import remarkCjkFriendly from "remark-cjk-friendly";
 
 import "streamdown/styles.css";
+
+// Run CJK emphasis before GFM; retain the existing table/list/link plugins.
+const remarkPlugins = [remarkCjkFriendly, ...Object.values(defaultRemarkPlugins)];
 
 type AIMessageMarkdownProps = {
     children: string;
@@ -40,6 +44,7 @@ export function AIMessageMarkdown({ children, isStreaming = false, className = "
             animated={isStreaming ? { animation: "fadeIn", duration: 140, sep: "word", stagger: 8 } : false}
             parseIncompleteMarkdown
             skipHtml
+            remarkPlugins={remarkPlugins}
             lineNumbers={false}
             plugins={{ code: streamdownCode }}
             components={components}

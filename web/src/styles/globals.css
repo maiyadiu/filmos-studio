@@ -9227,6 +9227,16 @@
 .project-chapter-readable .ai-message-markdown-heading-3 { margin-top: 1.35em; font-size: 1.15em; }
 .project-chapter-readable .ai-message-markdown-paragraph { margin: 0.75em 0; }
 
+.canvas-chapter-preview .ai-message-markdown {
+    font-size: var(--fs-body);
+    line-height: 1.8;
+}
+
+/* Agent 已提供面板内反馈入口；全局悬浮入口不能遮挡输入框和发送按钮。 */
+body:has([data-filmos-agent-issue-entry]) [data-filmos-issue-intake] {
+    display: none;
+}
+
 .project-chapter-editor p {
     margin: 0 0 1em;
 }

@@ -16,4 +16,14 @@ describe("chapter document dual view", () => {
         expect(parseChapterDocumentView("unknown")).toBe("readable");
         expect(parseChapterDocumentView(null)).toBe("readable");
     });
+
+    test("chapter previews preserve scene action and dialogue paragraph boundaries", () => {
+        const source = "<p>场景：渡口值班室。</p><p>动作：许照放下笔。</p><p>许照：我等。</p><p>沈禾：一起等。</p><p>动作：灯一直亮着。</p>";
+        const readable = documentTextFromHtml(source);
+        expect(readable.split("\n\n")).toEqual(["场景：渡口值班室。", "动作：许照放下笔。", "许照：我等。", "沈禾：一起等。", "动作：灯一直亮着。"]);
+        expect(readable).not.toContain("<p>");
+        expect(source).toContain("</p><p>");
+        const markdown = "## 渡口\n\n**场景：**夜。\n\n- 一盏灯\n- 一本账本\n\n沈禾：一起等。";
+        expect(documentTextFromHtml(markdown)).toBe(markdown);
+    });
 });

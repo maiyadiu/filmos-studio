@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { MemoryAgentAuditSink } from "../src/brains/agent-audit.js";
-import { AgentConfirmationStore } from "../src/brains/confirmations.js";
+import { AgentConfirmationStore, projectToolConfirmationDetail } from "../src/brains/confirmations.js";
 import { AgentContextBroker, type WorkbenchContextSnapshot } from "../src/brains/context-broker.js";
 import type { BrainProfile, BrainSession } from "../src/brains/contracts.js";
 import { AgentPermissionGrantStore } from "../src/brains/permission-grants.js";
@@ -141,10 +141,40 @@ test("script reads and revision writes use the existing project provider and con
     assert.equal(proposed.status, "confirmation_required");
     assert.deepEqual(calls, ["project_get_script"]);
     if (proposed.status !== "confirmation_required") return;
+    assert.match(proposed.confirmation.summary, /章节：unit；正文基版 v1，1 处精确修订/);
+    assert.doesNotMatch(proposed.confirmation.summary, /我不走|我陪你/);
     runtime.confirmations.decide(proposed.confirmation.id, { sessionId: runtime.session.id, actorId: "human-owner", approved: true });
     const result = await runtime.broker.executeConfirmed({ confirmationId: proposed.confirmation.id, profile: runtime.profile, session: runtime.session, currentContext: runtime.snapshot });
     assert.equal(result.status, "completed");
     assert.deepEqual(calls, ["project_get_script", "project_revise_script"]);
+});
+
+test("canonical creative target previews exclude body content and untrusted project identity", () => {
+    const scope = { domainProjectId: "owned", canvasId: "current" };
+    const common = { projectId: "spoofed", unitId: "u", expectedShotRevision: 2, expectedRevision: 1, sourceText: "PRIVATE", prompt: "PRIVATE" };
+    assert.match(projectToolConfirmationDetail("project_create_or_update_shots", { ...common, shots: [{ id: "s" }, {}] }, scope), /新增 1 镜、修订 1 镜/);
+    assert.match(projectToolConfirmationDetail("project_sync_storyboard", common, scope), /同步分镜 v2 到当前画布 current/);
+    const prompt = projectToolConfirmationDetail("project_save_prompt", { ...common, nodeId: "node", rowId: "project-shot:s", kind: "video" }, scope);
+    assert.match(prompt, /项目：owned；画布：current；节点：node；分镜行：project-shot:s；视频稿基版 v1/);
+    assert.doesNotMatch(prompt, /PRIVATE|spoofed/);
+    assert.equal(projectToolConfirmationDetail("canvas_generate_image", common, scope), "");
+    assert.doesNotMatch(projectToolConfirmationDetail("project_revise_script", { ...common, unitId: "private\n<script>" }, scope), /private|script/);
+});
+
+test("cancelled proposals cannot enter a provider, even after confirmation", async () => {
+    const runtime = setup("codex.subscription");
+    const controller = new AbortController();
+    let writes = 0;
+    runtime.broker.register("project_revise_script", { execute: async () => { writes++; return { output: {}, postcondition: { ok: true } }; } });
+    const input = { profile: runtime.profile, session: runtime.session, turnId: "cancel-save", toolName: "project_revise_script", input: {}, contextReceiptId: runtime.receiptId, currentContext: runtime.snapshot, signal: controller.signal };
+    const outcome = await runtime.broker.request(input);
+    assert.equal(outcome.status, "confirmation_required");
+    if (outcome.status !== "confirmation_required") return;
+    runtime.confirmations.decide(outcome.confirmation.id, { sessionId: runtime.session.id, actorId: "owner", approved: true });
+    controller.abort(new Error("AGENT_TURN_CANCELLED"));
+    await assert.rejects(runtime.broker.executeConfirmed({ confirmationId: outcome.confirmation.id, profile: runtime.profile, session: runtime.session, currentContext: runtime.snapshot }), /AGENT_TURN_CANCELLED/);
+    await assert.rejects(runtime.broker.request({ ...input, ordinaryConfirmationEnabled: false }), /AGENT_TURN_CANCELLED/);
+    assert.equal(writes, 0);
 });
 
 test("manifest is the single grant source for Workbench Canvas Project and Film tools", () => {

@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { canvasToolApiError, CanvasPromptConflictError } from "@filmos/agent-contracts";
 import type { ServerResponse } from "node:http";
 
 import { CANVAS_GENERATION_CONTINUATION_TIMEOUT_MS } from "./canvas-tool-timeouts.js";
@@ -22,7 +23,7 @@ export class CanvasSession implements BrowserRuntimeTransport {
     }
 
     workbenchContext() {
-        if (!this.canvasState) throw new Error("当前没有已连接画布");
+        if (!this.canvasState) throw new Error("CANVAS_CONTEXT_UNAVAILABLE");
         const state = this.canvasState;
         if (!state.projectId) throw new Error("当前画布缺少明确的 Host Project 映射");
         return {
@@ -131,11 +132,17 @@ export class CanvasSession implements BrowserRuntimeTransport {
         return { accepted: true, idempotent: Boolean(previousState && incomingRevision === currentRevision && actualHash === hashState(previousState)), revision, stateHash: actualHash };
     }
 
-    resolveResult(body: { requestId?: string; error?: string; result?: unknown }) {
+    resolveResult(body: { requestId?: string; error?: string; backendStatus?: unknown; localConflict?: unknown; result?: unknown }) {
         const item = body.requestId ? this.pending.get(body.requestId) : null;
         if (!item || !body.requestId) return;
         this.pending.delete(body.requestId);
-        body.error ? item.reject(new Error(body.error)) : item.resolve(body.result);
+        const failure = canvasToolApiError(body.backendStatus);
+        if (failure) item.reject(failure);
+        else if (body.backendStatus !== undefined) item.reject(new Error("INVALID_CANVAS_BACKEND_STATUS"));
+        else if (body.localConflict === "canvas_local_prompt_conflict") item.reject(new CanvasPromptConflictError());
+        else if (body.localConflict !== undefined) item.reject(new Error("INVALID_CANVAS_LOCAL_CONFLICT"));
+        else if (body.error) item.reject(new Error(body.error));
+        else item.resolve(body.result);
     }
 
     emitAll(type: string, payload: unknown) {
