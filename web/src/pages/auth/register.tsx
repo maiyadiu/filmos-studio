@@ -4,6 +4,7 @@ import { ArrowRight, Info, LockKeyhole, Mail, ShieldCheck, TriangleAlert, UserRo
 import { useNavigate, useSearchParams } from "react-router";
 
 import { applyUserSession } from "@/lib/user-session";
+import { safeAuthNext } from "@/lib/auth-next-path";
 import { getAuthSession, getAuthSettings, linuxDOLoginURL, register, sendRegistrationEmailCode } from "@/services/api/auth";
 import { LinuxDOIcon } from "./auth-scene";
 
@@ -23,7 +24,7 @@ export default function RegisterPage() {
     const [submitting, setSubmitting] = useState(false);
     const [sendingCode, setSendingCode] = useState(false);
     const [countdown, setCountdown] = useState(0);
-    const next = safeNext(params.get("next"));
+    const next = safeAuthNext(params.get("next"));
 
     useEffect(() => {
         let cancelled = false;
@@ -118,9 +119,4 @@ function AuthField({ label, children }: { label: string; children: ReactNode }) 
 
 function Notice({ icon, tone, children }: { icon: ReactNode; tone: "blue" | "amber"; children: ReactNode }) {
     return <div className={`flex items-start gap-2 rounded-lg border px-3 py-2.5 text-xs leading-5 ${tone === "blue" ? "border-blue-300/15 bg-blue-300/[0.06] text-blue-100/78" : "border-amber-300/15 bg-amber-300/[0.06] text-amber-100/78"}`}><span className="mt-0.5 shrink-0">{icon}</span>{children}</div>;
-}
-
-function safeNext(value: string | null) {
-    if (!value || !value.startsWith("/") || value.startsWith("//")) return "/create";
-    return value;
 }

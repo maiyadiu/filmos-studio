@@ -17,6 +17,7 @@ import { CanvasNodeType, type CanvasAssistantSession, type CanvasConnection, typ
 import { deleteAssetWithRemoteSync, deleteCanvasProjectsWithRemoteSync, installRemoteUserDataAutoSync, resetRemoteUserDataSync, saveRemoteUserDataNow, syncRemoteUserData, withRemoteUserDataSyncExclusive } from "../src/services/user-data-sync";
 import { apiClient } from "../src/services/api/request";
 import { useUserStore } from "../src/stores/use-user-store";
+import { defaultConfig, useConfigStore } from "../src/stores/use-config-store";
 
 test("creation recovery observes streaming text tasks after reload", () => {
     const conversations = [{
@@ -4387,6 +4388,54 @@ test("failed remote baseline cannot upload stale local cache", async () => {
     } finally {
         resetRemoteUserDataSync();
         useCanvasStore.setState({ projects: previousProjects });
+        apiClient.defaults.adapter = previousAdapter;
+        if (originalWindow === undefined) delete (globalThis as { window?: unknown }).window;
+        else Object.defineProperty(globalThis, "window", { configurable: true, value: originalWindow });
+    }
+});
+
+test("guest hydration skips private catalog and preserves prior account storage", async () => {
+    const originalWindow = (globalThis as { window?: unknown }).window;
+    const originalGetItem = localforage.getItem.bind(localforage);
+    const originalSetItem = localforage.setItem.bind(localforage);
+    const previousAdapter = apiClient.defaults.adapter;
+    const previousUser = useUserStore.getState();
+    const previousConfig = useConfigStore.getState().config;
+    const previousProjects = useCanvasStore.getState().projects;
+    const previousAssets = useAssetStore.getState().assets;
+    const previousScope = getActiveUserScope();
+    const values = new Map<string, string>();
+    const storage = new Map<string, string>();
+    let requests = 0;
+    Object.defineProperty(globalThis, "window", { configurable: true, value: {
+        setTimeout: () => 1, clearTimeout: () => undefined,
+        localStorage: { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => storage.set(key, value), removeItem: (key: string) => storage.delete(key) },
+    } });
+    localforage.getItem = (async (key: string) => values.get(key) ?? null) as typeof localforage.getItem;
+    localforage.setItem = (async (key: string, value: string) => { values.set(key, value); return value; }) as typeof localforage.setItem;
+    apiClient.defaults.adapter = async () => { requests++; throw new Error("guest must not request an account endpoint"); };
+    try {
+        resetRemoteUserDataSync();
+        setActiveUserScope("guest-switch-fixture");
+        useUserStore.setState({ user: { id: "guest-switch-fixture", username: "fixture", displayName: "Fixture", role: "admin", status: "active" } });
+        useConfigStore.getState().replaceConfig({ ...defaultConfig, apiKey: "fixture-private-value" });
+        await applyUserSession({ user: null, authMode: "account" });
+        expect(requests).toBe(0);
+        expect(useUserStore.getState().user).toBeNull();
+        expect(useUserStore.getState().hydrated).toBe(true);
+        expect(useUserStore.getState().authMode).toBe("account");
+        expect(useConfigStore.getState().config.apiKey).toBe("");
+        expect([...storage.values()].some((value) => value.includes("fixture-private-value"))).toBe(true);
+    } finally {
+        resetRemoteUserDataSync();
+        setActiveUserScope(previousScope);
+        useUserStore.setState(previousUser);
+        useConfigStore.getState().replaceConfig(previousConfig);
+        useCanvasStore.setState({ projects: previousProjects });
+        useAssetStore.setState({ assets: previousAssets });
+        await Promise.all([flushCanvasStorePersistence(), flushAssetStorePersistence()]);
+        localforage.getItem = originalGetItem;
+        localforage.setItem = originalSetItem;
         apiClient.defaults.adapter = previousAdapter;
         if (originalWindow === undefined) delete (globalThis as { window?: unknown }).window;
         else Object.defineProperty(globalThis, "window", { configurable: true, value: originalWindow });

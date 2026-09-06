@@ -4,6 +4,7 @@ import { ArrowRight, LockKeyhole, UserRound } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router";
 
 import { applyUserSession } from "@/lib/user-session";
+import { safeAuthNext } from "@/lib/auth-next-path";
 import { getAuthSession, getAuthSettings, linuxDOLoginURL, login } from "@/services/api/auth";
 import { useUserStore } from "@/stores/use-user-store";
 import { LinuxDOIcon } from "./auth-scene";
@@ -16,7 +17,7 @@ export default function LoginPage() {
     const [password, setPassword] = useState("");
     const [submitting, setSubmitting] = useState(false);
     const [linuxdoEnabled, setLinuxdoEnabled] = useState(false);
-    const next = safeNext(params.get("next"));
+    const next = safeAuthNext(params.get("next"));
     const user = useUserStore((state) => state.user);
     const hydrated = useUserStore((state) => state.hydrated);
 
@@ -60,9 +61,4 @@ export default function LoginPage() {
 
 function AuthField({ label, children }: { label: string; children: ReactNode }) {
     return <label className="block space-y-2"><span className="text-xs font-medium text-white/62">{label}</span>{children}</label>;
-}
-
-function safeNext(value: string | null) {
-    if (!value || !value.startsWith("/") || value.startsWith("//")) return "/create";
-    return value;
 }

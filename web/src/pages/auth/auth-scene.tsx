@@ -1,10 +1,12 @@
 import { motion, useReducedMotion } from "motion/react";
 import { ConfigProvider, Tabs } from "antd";
 import { ArrowLeft, Play } from "lucide-react";
-import { Link, Outlet, useLocation, useNavigate } from "react-router";
+import { Link, Navigate, Outlet, useLocation, useNavigate } from "react-router";
 
 import { aceternityMotion } from "@/lib/aceternity-motion";
 import { getAntThemeConfig } from "@/lib/app-theme";
+import { safeAuthNext } from "@/lib/auth-next-path";
+import { useUserStore } from "@/stores/use-user-store";
 
 const AUTH_VIDEO_URL = "https://boss-shjd.biliapi.net/updream/aniforge/video/video_bbcb00bd-650d-4249-9346-5cd21fd2484c_m1hc-u0-1pu13x-3v1s.mp4";
 const AUTH_VIDEO_POSTER = "https://i0.hdslb.com/bfs/aitool/aniforge/image/02933f26-5f1b-49ff-a811-b7f95ee5e5b8_m1hc-u0-sau.jpg";
@@ -43,8 +45,12 @@ export function AuthScene() {
     const location = useLocation();
     const navigate = useNavigate();
     const reducedMotion = useReducedMotion();
+    const user = useUserStore((state) => state.user);
     const activeTab = location.pathname === "/register" ? "register" : "login";
     const copy = activeTab === "register" ? authCopy.register : authCopy.login;
+
+    // 源码本机身份已由服务端建立时，不挂载公开登录外壳或其媒体资源。
+    if (user) return <Navigate to={safeAuthNext(new URLSearchParams(location.search).get("next"))} replace />;
 
     return (
         <main className="h-dvh min-h-0 overflow-y-auto bg-[#08090c] text-white lg:overflow-hidden">

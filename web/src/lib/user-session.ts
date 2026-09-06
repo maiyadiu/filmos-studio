@@ -40,6 +40,12 @@ export async function applyUserSession(payload: AuthSessionPayload) {
         // Zustand 在目标 scope 没有快照时会保留旧内存，必须显式恢复该 scope 的空状态。
         if (!persistedCanvas) useCanvasStore.setState({ projects: [] });
         if (!persistedAssets) useAssetStore.setState({ assets: [] });
+        if (!payload.user) {
+            // 游客不能请求账号模型目录或启动账号同步；也不能沿用上个账号的内存配置。
+            if (!persistedConfig) useConfigStore.getState().replaceConfig(normalizeConfigSnapshot({ config: { ...defaultConfig, channels: [] } }).config);
+            resetRemoteUserDataSync();
+            return;
+        }
         if (!persistedConfig) {
             // 只有首次配置缺失时才生成能力推荐；已有配置中的空数组代表用户明确清空。
             // 使用统一模型目录接口

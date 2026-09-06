@@ -3,7 +3,7 @@ import type { CreditLedgerEntry } from "@/services/api/wallet";
 import type { GenerationTask, TaskStatus } from "@/services/api/task-center";
 import type { CanvasDrawingEngineSetting } from "@/lib/canvas/canvas-drawing-engine";
 import type { FeatureAvailability } from "@/stores/use-user-store";
-import { apiClient, request } from "@/services/api/request";
+import { ApiError, apiClient, request } from "@/services/api/request";
 import type { PublicLogicalModel } from "@/services/api/logical-models";
 
 const api = apiClient;
@@ -356,12 +356,18 @@ export function linuxDOLoginURL(next: string) {
     return `${base}/auth/linuxdo/start?next=${encodeURIComponent(next)}`;
 }
 
-export function getAuthSession() {
+export function getAuthSession(options: { refresh?: boolean } = {}) {
+    if (options.refresh) invalidateAuthSessionCache();
     const now = Date.now();
     if (authSessionCache && authSessionCache.expiresAt > now) return Promise.resolve(authSessionCache.payload);
     if (authSessionRequest) return authSessionRequest;
-    authSessionRequest = request<AuthSessionPayload>(api.get("/auth/session"))
+    authSessionRequest = request<AuthSessionPayload>(api.get("/auth/session", { timeout: 15_000 }))
         .then((payload) => {
+            if (!payload || typeof payload !== "object" || payload.user === undefined
+                || (payload.user !== null && (typeof payload.user !== "object" || typeof payload.user?.id !== "string" || !payload.user.id.trim()))
+                || (payload.authMode === "desktop_local" && !payload.user)) {
+                throw new ApiError("工作台身份尚未建立，请重试连接", { status: 503 });
+            }
             authSessionCache = { payload, expiresAt: Date.now() + 5_000 };
             return payload;
         })

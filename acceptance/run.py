@@ -463,7 +463,7 @@ SOURCE_CHECKS = tuple(check for check in RC_LOCAL_CHECKS if check.check_id in SO
     Check(
         "creative-browser-contracts",
         "Native creative results, readable documents, exact prompt saves and cancellation UI contracts using fixtures",
-        ("bun", "test", "test/project-shot-tools.test.ts", "test/project-shot-review.test.ts",
+        ("bun", "test", "test/auth-session.test.ts", "test/project-shot-tools.test.ts", "test/project-shot-review.test.ts",
          "test/project-chapter-storyboard.test.ts", "test/canvas-prompts.test.ts", "test/canvas-sync-baseline.test.ts",
          "test/canvas-tool-failure.test.ts", "test/agent-creative-results.test.ts", "test/agent-message-stream.test.ts",
          "test/agent-session-observation.test.ts", "test/canvas-agent-workflow.test.ts", "test/ai-message-markdown.test.tsx",
