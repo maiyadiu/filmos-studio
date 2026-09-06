@@ -435,6 +435,13 @@ SOURCE_CHECKS = tuple(check for check in RC_LOCAL_CHECKS if check.check_id in SO
         ("03-project-ui", "08-agent", "13-qa"),
     ),
     Check(
+        "creative-agent-build",
+        "Canvas Agent and canonical contract TypeScript build without App packaging or live providers",
+        ("npm", "run", "build"),
+        ROOT / "canvas-agent",
+        ("08-agent", "13-qa"),
+    ),
+    Check(
         "project-script-broker",
         "Creative tools, scope isolation, session recovery and public failure contracts with mock providers",
         ("node_modules/.bin/tsx", "--test", "test/agent-tool-broker.test.ts", "test/agent-session-manager.test.ts",
@@ -442,13 +449,6 @@ SOURCE_CHECKS = tuple(check for check in RC_LOCAL_CHECKS if check.check_id in SO
          "test/codex-app-server-client.test.ts", "test/codex-app-server-adapter.test.ts",
          "test/codex-app-server-process-manager.test.ts", "test/internal-canvas-mcp-mode.test.ts",
          "test/local-runtime-public-error.test.ts", "test/project-shot-contract.test.ts", "test/project-prompt-contract.test.ts"),
-        ROOT / "canvas-agent",
-        ("08-agent", "13-qa"),
-    ),
-    Check(
-        "creative-agent-build",
-        "Canvas Agent and canonical contract TypeScript build without App packaging or live providers",
-        ("npm", "run", "build"),
         ROOT / "canvas-agent",
         ("08-agent", "13-qa"),
     ),

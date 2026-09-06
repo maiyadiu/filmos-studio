@@ -55,6 +55,17 @@ def test_creative_source_checks_cover_native_contracts_without_live_provider_fix
         assert "TestProjectScriptBrowserFixture" not in " ".join(command)
 
 
+def test_source_builds_agent_contracts_before_tests_that_import_their_package_exports() -> None:
+    checks = runner.selected_checks("source")
+    ids = [check.check_id for check in checks]
+    # A clean checkout has no ignored dist/. Local build leftovers must not
+    # decide whether the native module and public error tests can even load.
+    assert ids.index("creative-agent-build") < ids.index("project-script-broker")
+    build = checks[ids.index("creative-agent-build")]
+    assert build.command == ("npm", "run", "build")
+    assert build.cwd == ROOT / "canvas-agent"
+
+
 @pytest.mark.parametrize("entry", ["scripts/test-filmos-source-host", "scripts/test-filmos-source-lifecycle", "acceptance/run_all"])
 def test_unsafe_legacy_entry_fails_before_any_start_or_data_access(entry: str) -> None:
     result = subprocess.run(["sh", str(ROOT / entry)], capture_output=True, text=True, timeout=5)
