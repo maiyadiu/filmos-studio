@@ -66,6 +66,36 @@ def test_source_builds_agent_contracts_before_tests_that_import_their_package_ex
     assert build.cwd == ROOT / "canvas-agent"
 
 
+@pytest.mark.parametrize("stale", [False, True])
+def test_bootstrap_materializes_built_contracts_in_bun_file_consumers(tmp_path: Path, stale: bool) -> None:
+    bootstrap = (ROOT / "acceptance/bootstrap").read_text()
+    # Run the actual bounded materialization block on disposable package
+    # fixtures. No install, developer node_modules, credentials or services.
+    sync = bootstrap.split("# Bun materializes", 1)[1].split("generation_target=", 1)[0]
+    sync = sync[sync.index("for consumer "):]
+    consumers = [("web", "agent-tool-contracts"), ("canvas-agent", "agent-tool-contracts"), ("canvas-agent", "agent-contracts")]
+    for package in {package for _, package in consumers}:
+        dist = tmp_path / "packages" / f"filmos-{package}" / "dist"
+        dist.mkdir(parents=True)
+        (dist / "index.js").write_text(f'export const identity = "{package}-current";\n')
+        (dist / "index.d.ts").write_text("export declare const identity: string;\n")
+    for consumer, package in consumers:
+        target = tmp_path / consumer / "node_modules/@filmos" / package
+        target.mkdir(parents=True)
+        (target / "package.json").write_text(json.dumps({"type": "module", "exports": "./dist/index.js"}))
+        if stale:
+            (target / "dist").mkdir()
+            (target / "dist/index.js").write_text('export const identity = "stale";\n')
+    result = subprocess.run(["sh", "-eu", "-c", 'ROOT="$1"\n' + sync, "contract-fixture", str(tmp_path)], capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0, result.stdout + result.stderr
+    for consumer, package in consumers:
+        entry = tmp_path / consumer / "node_modules/@filmos" / package / "dist/index.js"
+        assert entry.read_bytes() == (tmp_path / "packages" / f"filmos-{package}" / "dist/index.js").read_bytes()
+        probe = subprocess.run(["node", "--input-type=module", "-e", f'import {{ identity }} from {json.dumps("@filmos/" + package)}; if (identity !== {json.dumps(package + "-current")}) process.exit(1);'], cwd=tmp_path / consumer, capture_output=True, text=True, timeout=10)
+        assert probe.returncode == 0, probe.stdout + probe.stderr
+    assert 'packages/filmos-agent-contracts" && npm run build' in bootstrap
+
+
 @pytest.mark.parametrize("entry", ["scripts/test-filmos-source-host", "scripts/test-filmos-source-lifecycle", "acceptance/run_all"])
 def test_unsafe_legacy_entry_fails_before_any_start_or_data_access(entry: str) -> None:
     result = subprocess.run(["sh", str(ROOT / entry)], capture_output=True, text=True, timeout=5)

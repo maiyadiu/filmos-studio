@@ -19,6 +19,10 @@ if ! "$VENV/bin/python" -c 'import fastapi,film_production_core,httpx,jsonschema
 fi
 (cd "$ROOT/web" && bun install --frozen-lockfile)
 (cd "$ROOT/canvas-agent" && bun install --frozen-lockfile)
+if [ ! -x "$ROOT/packages/filmos-agent-contracts/node_modules/.bin/tsc" ]; then
+    (cd "$ROOT/packages/filmos-agent-contracts" && npm ci --ignore-scripts)
+fi
+(cd "$ROOT/packages/filmos-agent-contracts" && npm run build)
 if [ ! -x "$ROOT/packages/filmos-agent-tool-contracts/node_modules/.bin/tsx" ]; then
     (cd "$ROOT/packages/filmos-agent-tool-contracts" && npm ci --ignore-scripts)
 fi
@@ -31,11 +35,13 @@ fi
 # the first install happens before the generated package has a dist/ directory,
 # so refresh the built runtime files in each consumer without relying on a
 # developer machine's historical node_modules contents.
-for consumer in "$ROOT/web" "$ROOT/canvas-agent"; do
-    target="$consumer/node_modules/@filmos/agent-tool-contracts/dist"
+for consumer in "web:agent-tool-contracts" "canvas-agent:agent-tool-contracts" "canvas-agent:agent-contracts"; do
+    package="${consumer#*:}"
+    consumer="${consumer%%:*}"
+    target="$ROOT/$consumer/node_modules/@filmos/$package/dist"
     mkdir -p "$target"
-    for artifact in "$ROOT/packages/filmos-agent-tool-contracts/dist/"*.js \
-        "$ROOT/packages/filmos-agent-tool-contracts/dist/"*.d.ts; do
+    for artifact in "$ROOT/packages/filmos-$package/dist/"*.js \
+        "$ROOT/packages/filmos-$package/dist/"*.d.ts; do
         filename=$(basename -- "$artifact")
         if [ ! -f "$target/$filename" ] || ! cmp -s "$artifact" "$target/$filename"; then
             cp "$artifact" "$target/$filename"
