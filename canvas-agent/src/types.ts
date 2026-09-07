@@ -4,11 +4,12 @@ export type CanvasNodeType = "image" | "text" | "script" | "config" | "video" | 
 export type CanvasNode = { id: string; type: CanvasNodeType; title?: string; position: Position; width: number; height: number; parentId?: string; metadata?: Record<string, unknown> };
 export type CanvasConnection = { id: string; fromNodeId: string; toNodeId: string; fromHandleId?: string; toHandleId?: string };
 export type CanvasSnapshot = {
-    contextKind?: "canvas" | "project";
+    contextKind?: "canvas" | "project" | "workspace";
+    workspaceId?: string;
     projectRevision?: number;
     contentUnitRevision?: number;
     blockers?: string[];
-    projectId?: string;
+    projectId?: string | null;
     domainProjectId?: string;
     contentUnitId?: string;
     sceneId?: string;

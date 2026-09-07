@@ -91,6 +91,7 @@ export class CanonicalAgentToolBroker {
             turnId: input.turnId,
             connectionId: input.session.connectionId,
             projectId: input.session.projectId,
+            ...(input.session.workspaceId ? { workspaceId: input.session.workspaceId } : {}),
             toolName: manifest.name,
             input: structuredClone(input.input),
             contextReceiptId: input.contextReceiptId,
@@ -116,7 +117,7 @@ export class CanonicalAgentToolBroker {
             risk: manifest.risk as Exclude<AgentToolManifest["risk"], "read" | "draft">,
             title: manifest.title,
             summary: [manifest.description, projectToolConfirmationDetail(manifest.name, request.input, input.session)].filter(Boolean).join("\n"),
-            impact: [input.session.projectId, ...(input.session.canvasId ? [input.session.canvasId] : []), manifest.name],
+            impact: [...(input.session.projectId ? [input.session.projectId] : []), ...(input.session.canvasId ? [input.session.canvasId] : []), manifest.name],
             contextReceiptId: input.contextReceiptId,
             ...(manifest.mayCreateCharges ? { costPreview: { note: "该动作可能产生额外 Provider/API 费用；执行前必须人工确认。" } } : {}),
         });

@@ -2,13 +2,13 @@ import { createHash } from "node:crypto";
 import path from "node:path";
 import { summarizeShotImage } from "@filmos/agent-contracts";
 
-import { CONFIG_DIR, ensureCanvasWorkspace, ensureProjectAgentWorkspace, type LocalRuntimeConfig } from "../config.js";
+import { CONFIG_DIR, ensureCanvasWorkspace, ensureProjectAgentWorkspace, ensureRuntimeAgentWorkspace, type LocalRuntimeConfig } from "../config.js";
 import { codexConfig, codexProcessManager } from "../agents.js";
 import type { AgentEmit } from "../types.js";
 import { CompositeAgentAuditSink, JsonlAgentAuditSink, MemoryAgentAuditSink } from "./agent-audit.js";
 import { CodexSubscriptionAdapter } from "./adapters/codex-app-server-adapter.js";
 import { AgentConfirmationStore } from "./confirmations.js";
-import { AgentContextBroker, type WorkbenchContextSnapshot } from "./context-broker.js";
+import { AgentContextBroker, assertSessionContextScope, type WorkbenchContextSnapshot } from "./context-broker.js";
 import { AgentPermissionGrantStore } from "./permission-grants.js";
 import { BrainProfileRegistry } from "./registry.js";
 import { AgentSessionManager } from "./session-manager.js";
@@ -90,7 +90,7 @@ export class GenericAgentRuntime {
         const adapterFactory = new BrainAdapterFactory({
             codex: new CodexSubscriptionAdapter(
                 codexProcessManager,
-                (id, kind) => kind === "project" ? ensureProjectAgentWorkspace(id) : ensureCanvasWorkspace(config, id).workspacePath,
+                (id, kind) => kind === "workspace" ? ensureRuntimeAgentWorkspace(config, id) : kind === "project" ? ensureProjectAgentWorkspace(id) : ensureCanvasWorkspace(config, id).workspacePath,
                 (grant) => codexConfig(CONFIG_DIR, grant),
                 requestConfirmation,
             ),
@@ -150,6 +150,7 @@ export class GenericAgentRuntime {
 
     async createSession(input: Parameters<AgentSessionManager["createSession"]>[0]) {
         if (!this.registry.hasAdapter(input.brainProfileId)) throw new Error(`BRAIN_ADAPTER_UNAVAILABLE:${input.brainProfileId}`);
+        if (input.executionProfile !== "review_coordinator") assertSessionContextScope(input, this.snapshot());
         const session = await this.manager.createSession(input);
         this.hydratedSessions.add(session.id);
         return await this.captureContext(session.id);
@@ -161,6 +162,7 @@ export class GenericAgentRuntime {
         try {
             const previous = await this.store.getSession(sessionId);
             if (!previous) throw new Error(`Unknown brain session: ${sessionId}`);
+            contextSnapshotForSession(previous, this.snapshot);
             const session = await this.manager.resumeSession(sessionId, actorId);
             this.hydratedSessions.add(sessionId);
             const captured = await this.captureContext(sessionId);
@@ -429,6 +431,7 @@ export class GenericAgentRuntime {
     private async hydrateSessionIfRequired(sessionId: string) {
         const session = await this.store.getSession(sessionId);
         if (!session) throw new Error(`Unknown brain session: ${sessionId}`);
+        contextSnapshotForSession(session, this.snapshot);
         let requiresResume = !this.hydratedSessions.has(sessionId);
         if (!requiresResume) {
             try {
@@ -436,6 +439,7 @@ export class GenericAgentRuntime {
                     sessionId,
                     connectionId: session.connectionId,
                     projectId: session.projectId,
+                    workspaceId: session.workspaceId,
                 });
             } catch (error) {
                 if (!isRecoverableGrantLoss(error)) throw error;
@@ -483,7 +487,12 @@ function isRecoverableGrantLoss(error: unknown) {
 }
 
 export function contextSnapshotForSession(session: BrainSession, liveSnapshot: () => WorkbenchContextSnapshot): WorkbenchContextSnapshot {
-    if (session.executionProfile !== "review_coordinator") return liveSnapshot();
+    if (session.executionProfile !== "review_coordinator") {
+        const snapshot = liveSnapshot();
+        assertSessionContextScope(session, snapshot);
+        return snapshot;
+    }
+    if (session.projectId === null) throw new Error("AGENT_WORKSPACE_PROFILE_DENIED");
     const canvasStateHash = createHash("sha256")
         .update(["filmos-review-context-v1", session.projectId, session.canvasId, session.workspacePath ?? ""].join("\n"))
         .digest("hex");

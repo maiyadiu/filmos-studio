@@ -20,16 +20,18 @@ export class AgentPolicyGateway {
     }) {
         const { profile, session, grant, request, manifest } = input;
         if (profile.id !== session.brainProfileId || session.connectionId !== profile.id) throw new Error("AGENT_PROFILE_SESSION_MISMATCH");
-        if (request.sessionId !== session.id || request.connectionId !== session.connectionId || request.projectId !== session.projectId) {
+        if (request.sessionId !== session.id || request.connectionId !== session.connectionId || request.projectId !== session.projectId || request.workspaceId !== session.workspaceId) {
             throw new Error("AGENT_TOOL_REQUEST_IDENTITY_MISMATCH");
         }
         if (!manifest.surfaces.includes(profile.toolSurface) || grant.toolSurface !== profile.toolSurface) throw new Error("AGENT_TOOL_SURFACE_DENIED");
+        if (session.projectId === null && manifest.name !== "workbench_get_context") throw new Error("AGENT_TOOL_REQUIRES_PROJECT_CONTEXT");
         if (session.canvasId === null && !isProjectPageTool(manifest.name)) throw new Error("AGENT_TOOL_REQUIRES_CANVAS_CONTEXT");
         if (session.canvasId === null && manifest.risk !== "read" && input.currentContext.blockers?.length) throw new Error("AGENT_PROJECT_PAGE_WRITE_BLOCKED");
         this.grants.validate(grant.id, {
             sessionId: session.id,
             connectionId: session.connectionId,
             projectId: session.projectId,
+            workspaceId: session.workspaceId,
             nonce: grant.nonce,
             toolName: manifest.name,
         });

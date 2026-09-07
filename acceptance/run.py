@@ -446,7 +446,7 @@ SOURCE_CHECKS = tuple(check for check in RC_LOCAL_CHECKS if check.check_id in SO
         "project-script-broker",
         "Creative tools, scope isolation, session recovery and public failure contracts with mock providers",
         ("node_modules/.bin/tsx", "--test", "test/agent-tool-broker.test.ts", "test/agent-session-manager.test.ts",
-         "test/workbench-context.test.ts", "test/agent-context-pack.test.ts", "test/chatgpt-hosted-adapter.test.ts",
+         "test/workbench-context.test.ts", "test/workspace-context.test.ts", "test/agent-context-pack.test.ts", "test/chatgpt-hosted-adapter.test.ts",
          "test/agent-session-grant-recovery.test.ts", "test/agent-confirmation.test.ts", "test/canvas-agent-module.test.ts",
          "test/script-creation-scope.test.ts", "test/skills.test.ts",
          "test/codex-app-server-client.test.ts", "test/codex-app-server-adapter.test.ts",

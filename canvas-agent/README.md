@@ -30,11 +30,19 @@ Connect token: xxxxxx
 
 ## 项目页上下文协议
 
-Generic Runtime 支持无画布的真实项目上下文：浏览器快照显式使用 `contextKind: "project"`，`projectId` 与业务 `domainProjectId` 相同，服务端会话与回执的 `canvasId` 为 `null`。不能填入上一张画布、临时 ID 或隐藏创建的画布；节点、连接、选区和可见节点必须为空。该协议基础已接入，项目页 UI 入口尚待接线与运行验收。
+Generic Runtime 支持无画布的真实项目上下文：浏览器快照显式使用 `contextKind: "project"`，`projectId` 与业务 `domainProjectId` 相同，服务端会话与回执的 `canvasId` 为 `null`。不能填入上一张画布、临时 ID 或隐藏创建的画布；节点、连接、选区和可见节点必须为空。项目/章节原生入口已接线并通过隔离浏览器检查，真实源码宿主更新与作品接续仍待验收。
 
 项目页复用现有 Session、Canonical Broker 和业务项目工具。创建、恢复均从唯一工具清单中按上下文依赖收窄授权；需要画布的同步、提示词、像素、生成和正式 Film 工具在项目页拒绝执行。模型新增工具不自动获得项目页权限，API 与 ChatGPT Host 的能力边界不扩大。上下文回执校验项目、章节、画布及版本；浏览器请求只发给发布当前项目上下文的客户端，不回退到另一个画布窗口。
 
 Codex 项目页执行临时目录使用 Runtime 下的 `project-workspaces/<projectId>`，不注册成画布，不是用户作品目录或第二源码库；会话与历史仍保存在原 Session 存储。页面接入继续复用 Host 贡献槽，影策升级必须以 FilmOS 组合回归验收，不能把本协议测试当作上游升级完成。
+
+## 无项目工作区协议
+
+全局页面的协议基础使用 `contextKind: "workspace"`、`projectId: null`、`canvasId: null`，不借用上次作品或创建虚拟画布。签名的 `GET /agent/workspace` 返回当前 Runtime 持久 owner 对应的 `workspaceId`；`POST /canvas/state` 从服务端绑定该身份，拒绝冒填身份、混入章节/画布/素材及设置原文。首批仅接收 `home/projects/canvases/assets/settings` 页面名称和空节点集合，不读取密钥。
+
+该模式只开放 Codex 的 `workbench_get_context`。Session、Conversation、Grant 签名、MCP 请求头、上下文回执和审计都保留独立 workspace 身份，创建/恢复/执行前核对当前范围；无项目不能取得项目写入、画布、生成、正式 Film 或工程权限，也不扩大 API/ChatGPT Host 路径。按 workspace 查询历史不得混入项目查询。恢复沿用原 provider thread，不自动发送轮次。
+
+执行临时目录为 Runtime 下的 `agent-workspaces/<workspaceId>`，只能匹配本 Runtime owner，不登记画布、不创建作品目录；使用原 Session 存储，不新增 Agent 服务。当前仅为底层与隔离测试交付，全局 UI、素材实际选择读取、导航与用户作品验收尚未完成，不能据此宣称全工作台可控。后续继续通过既有 Host 贡献槽接入，兼容验收以影策候选加当前 FilmOS 的组合为准。
 
 ## 章节脚本修订
 

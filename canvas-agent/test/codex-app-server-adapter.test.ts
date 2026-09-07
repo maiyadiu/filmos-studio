@@ -54,6 +54,23 @@ test("project-page create and resume use the real project workspace and original
     assert.equal(fake.preflights.length, 2);
 });
 
+test("workspace create and resume never substitute a project or change the provider thread", async () => {
+    const fake = fakeClient();
+    const paths: string[] = [];
+    const adapter = new CodexSubscriptionAdapter({ client: async () => fake } as never, (id, kind) => { paths.push(`${kind}:${id}`); return `/tmp/fixture-${id}`; }, () => ({}));
+    const workspaceGrant = { ...grant, projectId: null, workspaceId: "runtime-owner", allowedTools: ["workbench_get_context"] };
+    const input = { ...sessionInput(), projectId: null, canvasId: null, workspaceId: "runtime-owner" };
+    const created = await adapter.createSession(input, workspaceGrant);
+    const resumed = await adapter.resumeSession({ ...input, sessionId: grant.sessionId, providerThreadId: created.providerThreadId, grant: workspaceGrant });
+    assert.equal(resumed.providerThreadId, created.providerThreadId);
+    assert.deepEqual(paths, ["workspace:runtime-owner", "workspace:runtime-owner"]);
+    const env = codexConfig("/tmp/fixture", workspaceGrant)["mcp_servers.yingce.env"] as Record<string, string>;
+    assert.equal(env.FILMOS_AGENT_PROJECT_ID, "");
+    assert.equal(env.FILMOS_AGENT_WORKSPACE_ID, "runtime-owner");
+    await assert.rejects(adapter.createSession({ ...input, workspacePath: "/spoofed" }, workspaceGrant), /WORKSPACE_PROFILE_DENIED/);
+    assert.equal(fake.preflights.length, 2);
+});
+
 test("Codex server requests fail closed unless the matching FilmOS confirmation approves", async () => {
     const decisions: unknown[] = [];
     const fake = fakeClient(async (binding) => {

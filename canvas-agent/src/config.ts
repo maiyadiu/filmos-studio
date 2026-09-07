@@ -133,6 +133,13 @@ export function ensureProjectAgentWorkspace(projectId: string, runtimeDir = CONF
     return workspacePath;
 }
 
+export function ensureRuntimeAgentWorkspace(config: LocalRuntimeConfig, workspaceId: string, runtimeDir = CONFIG_DIR) {
+    if (!config.ownerId || workspaceId !== config.ownerId || !/^[A-Za-z0-9_-]{1,120}$/.test(workspaceId)) throw new Error("AGENT_CONTEXT_WORKSPACE_REQUIRED");
+    const workspacePath = path.join(runtimeDir, "agent-workspaces", workspaceId);
+    fs.mkdirSync(workspacePath, { recursive: true, mode: 0o700 });
+    return workspacePath;
+}
+
 export function ensureCanvasWorkspace(config: LocalRuntimeConfig, canvasId: string) {
     const id = safeSegment(canvasId || "default");
     config.canvases ||= {};

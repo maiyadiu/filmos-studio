@@ -3,10 +3,12 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
+type SessionFilter = { projectId?: string | null; workspaceId?: string; canvasId?: string; brainProfileId?: string; conversationId?: string };
+
 export interface BrainSessionStore {
     saveSession(session: BrainSession): Promise<void>;
     getSession(sessionId: string): Promise<BrainSession | undefined>;
-    listSessions(scope?: { projectId?: string; canvasId?: string; brainProfileId?: string; conversationId?: string }): Promise<BrainSession[]>;
+    listSessions(scope?: SessionFilter): Promise<BrainSession[]>;
     updateSession(sessionId: string, patch: SessionPatch): Promise<BrainSession>;
     saveConversation(conversation: AgentConversation): Promise<void>;
     getConversation(conversationId: string): Promise<AgentConversation | undefined>;
@@ -31,9 +33,10 @@ export class MemoryBrainSessionStore implements BrainSessionStore {
         return session ? structuredClone(session) : undefined;
     }
 
-    async listSessions(scope: { projectId?: string; canvasId?: string; brainProfileId?: string; conversationId?: string } = {}) {
+    async listSessions(scope: SessionFilter = {}) {
         return [...this.sessions.values()]
-            .filter((session) => !scope.projectId || session.projectId === scope.projectId)
+            .filter((session) => scope.projectId === undefined || session.projectId === scope.projectId)
+            .filter((session) => scope.workspaceId === undefined || session.workspaceId === scope.workspaceId)
             .filter((session) => !scope.canvasId || session.canvasId === scope.canvasId)
             .filter((session) => !scope.brainProfileId || session.brainProfileId === scope.brainProfileId)
             .filter((session) => !scope.conversationId || session.conversationId === scope.conversationId)
@@ -51,7 +54,7 @@ export class MemoryBrainSessionStore implements BrainSessionStore {
 
     async saveConversation(conversation: AgentConversation) {
         const existing = this.conversations.get(conversation.id);
-        if (existing && (existing.projectId !== conversation.projectId || existing.canvasId !== conversation.canvasId)) {
+        if (existing && (existing.projectId !== conversation.projectId || existing.canvasId !== conversation.canvasId || existing.workspaceId !== conversation.workspaceId)) {
             throw new Error(`Conversation scope is immutable: ${conversation.id}`);
         }
         this.conversations.set(conversation.id, structuredClone(conversation));
@@ -77,7 +80,7 @@ export class MemoryBrainSessionStore implements BrainSessionStore {
         }
         for (const conversation of snapshot.conversations) {
             const existing = this.conversations.get(conversation.id);
-            if (existing && (existing.projectId !== conversation.projectId || existing.canvasId !== conversation.canvasId)) throw new Error(`Conversation scope is immutable: ${conversation.id}`);
+            if (existing && (existing.projectId !== conversation.projectId || existing.canvasId !== conversation.canvasId || existing.workspaceId !== conversation.workspaceId)) throw new Error(`Conversation scope is immutable: ${conversation.id}`);
             this.conversations.set(conversation.id, structuredClone(conversation));
         }
     }
@@ -113,7 +116,7 @@ export class JsonBrainSessionStore implements BrainSessionStore {
         return await this.memory.getSession(sessionId);
     }
 
-    async listSessions(scope: { projectId?: string; canvasId?: string; brainProfileId?: string; conversationId?: string } = {}) {
+    async listSessions(scope: SessionFilter = {}) {
         return await this.memory.listSessions(scope);
     }
 
@@ -210,7 +213,7 @@ export class JsonBrainSessionStore implements BrainSessionStore {
         const values = current.map((conversation) => structuredClone(conversation));
         const known = new Set(values.map((conversation) => conversation.id));
         for (const session of sessions) if (!known.has(session.conversationId)) {
-            values.push({ id: session.conversationId, projectId: session.projectId, canvasId: session.canvasId, activeSessionId: session.id, sessionIds: [session.id], createdAt: session.createdAt, updatedAt: session.updatedAt });
+            values.push({ id: session.conversationId, projectId: session.projectId, ...(session.workspaceId ? { workspaceId: session.workspaceId } : {}), canvasId: session.canvasId, activeSessionId: session.id, sessionIds: [session.id], createdAt: session.createdAt, updatedAt: session.updatedAt });
             known.add(session.conversationId);
         }
         return values;
@@ -247,6 +250,6 @@ function assertValidTransition(from: BrainSessionStatus, to: BrainSessionStatus)
     if (!allowedTransitions[from].includes(to)) throw new Error(`Invalid brain session transition: ${from} -> ${to}`);
 }
 
-export function sessionScopeKey(session: Pick<BrainSession, "projectId" | "canvasId" | "brainProfileId">) {
-    return `${session.projectId}\u0000${session.canvasId}\u0000${session.brainProfileId}`;
+export function sessionScopeKey(session: Pick<BrainSession, "projectId" | "workspaceId" | "canvasId" | "brainProfileId">) {
+    return JSON.stringify([session.projectId, session.canvasId, session.brainProfileId, session.workspaceId]);
 }

@@ -65,6 +65,7 @@ export type CanvasContext = {
 
 export function buildCanvasContext(state: CanvasSnapshot | null): CanvasContext {
     if (!state) throw new Error("当前没有已连接画布");
+    if (state.projectId === null || state.contextKind === "workspace") throw new Error("AGENT_TOOL_REQUIRES_PROJECT_CONTEXT");
     const nodes = state.nodes || [];
     const nodeById = new Map(nodes.map((node) => [node.id, node]));
     const selectedIds = new Set(state.selectedNodeIds || []);
@@ -343,6 +344,7 @@ function isMediaNodeType(type: CanvasNode["type"] | undefined) {
 export function hashState(state: CanvasSnapshot) {
     return crypto.createHash("sha256").update(stableStringify({
         contextKind: state.contextKind,
+        workspaceId: state.workspaceId,
         projectRevision: state.projectRevision,
         contentUnitRevision: state.contentUnitRevision,
         blockers: state.blockers,

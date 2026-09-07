@@ -19,6 +19,29 @@ const endpoint = `http://${authority}`;
 const origin = "http://127.0.0.1:3001";
 const token = "legacy-canvas-token-fixture";
 
+test("workspace HTTP identity and snapshot use the Runtime owner without a browser project substitute", async () => {
+    const config = fixtureConfig();
+    config.agentFeatureFlags = Object.fromEntries(AGENT_FEATURE_FLAG_IDS.map(id => [id, true]));
+    const session = new CanvasSession();
+    const module = createCanvasAgentHttpModule(config, session, { brainSessionStore: new MemoryBrainSessionStore() });
+    const invoke = (routePath: string, body = {}, query = {}) => new Promise<Record<string, unknown>>((resolve, reject) => {
+        const route = module.routes.find(route => route.path === routePath)!;
+        route.handler({ body: Buffer.from(JSON.stringify(body)), query } as never, { json: resolve } as never, reject);
+    });
+    try {
+        const route = module.routes.find(route => route.path === "/agent/workspace")!;
+        assert.equal(route.scope, "agent:profiles:read");
+        assert.equal(route.legacy, undefined);
+        assert.deepEqual(await invoke("/agent/workspace"), { ok: true, workspaceId: config.ownerId });
+        const state = { contextKind: "workspace", projectId: null, activePanel: "assets", nodes: [], connections: [] };
+        assert.equal((await invoke("/canvas/state", state)).accepted, true);
+        assert.equal(session.agentContextSnapshot().workspaceId, config.ownerId);
+        await assert.rejects(invoke("/canvas/state", { ...state, workspaceId: "spoofed-workspace" }), /WORKSPACE_REQUIRED/);
+        assert.equal(session.agentContextSnapshot().workspaceId, config.ownerId);
+        await assert.rejects(invoke("/agent/sessions", {}, { workspaceId: config.ownerId, projectId: "old-project" }), /WORKSPACE_PROJECT_MIXED/);
+    } finally { await module.dispose?.(); }
+});
+
 test("MCP manifest exposes the semantic canvas read tools with schemas and descriptions", () => {
     const expected = [
         "canvas_get_context",

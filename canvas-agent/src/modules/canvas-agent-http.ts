@@ -95,7 +95,7 @@ export function createCanvasAgentHttpModule(
             );
         }, { queryKeys: ["clientId"], lastEventId: true }),
         canvasRoute("POST", "/canvas/state", (req, res) => {
-            const result = session.updateState(jsonBody(req), queryValue(req, "clientId") || undefined);
+            const result = session.updateState(jsonBody(req), queryValue(req, "clientId") || undefined, config.ownerId);
             if (!result) {
                 res.json({ ok: true });
                 return;
@@ -328,15 +328,21 @@ function requireBrowserRuntimeTransport(session: CanvasAgentSession): BrowserRun
 
 function createGenericAgentRoutes(generic: GenericAgentRuntime, config: LocalRuntimeConfig, session: CanvasAgentSession, emit: (type: string, payload: unknown) => void) {
     return [
+        agentRoute("GET", "/agent/workspace", "agent:profiles:read", async (_req, res) => {
+            if (!config.ownerId) throw new Error("AGENT_CONTEXT_WORKSPACE_REQUIRED");
+            res.json({ ok: true, workspaceId: config.ownerId });
+        }),
         agentRoute("GET", "/agent/connections", "agent:profiles:read", async (_req, res) => {
             res.json({ ok: true, connections: await generic.listConnections(), toolManifest: generic.tools.list() });
         }),
         agentRoute("GET", "/agent/sessions", "agent:sessions:read", async (req, res) => {
+            if (queryValue(req, "workspaceId") && (queryValue(req, "workspaceId") !== config.ownerId || queryValue(req, "projectId"))) throw new Error("AGENT_CONTEXT_WORKSPACE_PROJECT_MIXED");
             res.json({ ok: true, sessions: (await generic.store.listSessions({
                 ...(queryValue(req, "projectId") ? { projectId: queryValue(req, "projectId") } : {}),
+                ...(queryValue(req, "workspaceId") ? { workspaceId: queryValue(req, "workspaceId"), projectId: null } : {}),
                 ...(queryValue(req, "brainProfileId") ? { brainProfileId: queryValue(req, "brainProfileId") } : {}),
             })).map(item => generic.sessionView(item)) });
-        }, { queryKeys: ["projectId", "brainProfileId"] }),
+        }, { queryKeys: ["projectId", "workspaceId", "brainProfileId"] }),
         agentRoute("POST", "/agent/sessions", "agent:sessions:manage", async (req, res) => {
             const body = jsonRecord(req);
             const current = session.agentContextSnapshot();
@@ -436,7 +442,7 @@ function liveContextReceipt(session: CanvasAgentSession) {
     return `workbench:${String(context.canvasStateHash || context.stateHash || "unavailable")}:${String(context.canvasRevision || context.revision || 0)}`;
 }
 
-function validateAgentGrantHeaders(req: Request, grants: AgentPermissionGrantStore, toolName: string, required = false) {
+export function validateAgentGrantHeaders(req: Request, grants: AgentPermissionGrantStore, toolName: string, required = false) {
     const grantId = header(req, "x-filmos-agent-grant-id");
     if (!grantId) {
         if (required) throw new Error("AGENT_GRANT_REQUIRED");
@@ -445,7 +451,8 @@ function validateAgentGrantHeaders(req: Request, grants: AgentPermissionGrantSto
     return grants.validate(grantId, {
         sessionId: requiredHeader(req, "x-filmos-agent-session-id"),
         connectionId: requiredHeader(req, "x-filmos-agent-connection-id"),
-        projectId: requiredHeader(req, "x-filmos-agent-project-id"),
+        projectId: header(req, "x-filmos-agent-workspace-id") && !header(req, "x-filmos-agent-project-id") ? null : requiredHeader(req, "x-filmos-agent-project-id"),
+        ...(header(req, "x-filmos-agent-workspace-id") ? { workspaceId: header(req, "x-filmos-agent-workspace-id") } : {}),
         nonce: requiredHeader(req, "x-filmos-agent-grant-nonce"),
         signature: requiredHeader(req, "x-filmos-agent-grant-signature"),
         toolName,
@@ -536,6 +543,7 @@ export function trustedCreateSessionInput(
         conversationId: requiredBodyString(body, "conversationId"),
         brainProfileId: requiredBodyString(body, "brainProfileId"),
         projectId: current.projectId,
+        ...(current.workspaceId ? { workspaceId: current.workspaceId } : {}),
         ...(current.domainProjectId ? { domainProjectId: current.domainProjectId } : {}),
         canvasId: current.canvasId,
         ...(current.contentUnitId ? { contentUnitId: current.contentUnitId } : {}),

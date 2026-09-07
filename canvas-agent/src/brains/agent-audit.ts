@@ -13,7 +13,8 @@ export type AgentAuditRecord = {
     requestId: string;
     sessionId: string;
     turnId: string;
-    projectId: string;
+    projectId: string | null;
+    workspaceId?: string;
     connectionId: string;
     profileId: string;
     transport: BrainProfile["transport"];
@@ -82,6 +83,7 @@ export function agentAuditRecord(input: {
         sessionId: input.session.id,
         turnId: input.request.turnId,
         projectId: input.session.projectId,
+        ...(input.session.workspaceId ? { workspaceId: input.session.workspaceId } : {}),
         connectionId: input.session.connectionId,
         profileId: input.profile.id,
         transport: input.profile.transport,
@@ -115,6 +117,7 @@ export function brainTurnAuditRecord(input: {
         turnId: input.turnId,
         connectionId: input.session.connectionId,
         projectId: input.session.projectId,
+        ...(input.session.workspaceId ? { workspaceId: input.session.workspaceId } : {}),
         toolName: "__brain_turn__",
         input: { promptHash: sha256(input.prompt) },
         contextReceiptId: input.contextReceiptId,

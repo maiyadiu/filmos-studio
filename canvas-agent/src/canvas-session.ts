@@ -19,22 +19,23 @@ export class CanvasSession implements BrowserRuntimeTransport {
     private canvasState: CanvasSnapshot | null = null;
 
     health() {
-        return { ok: true, hasCanvas: Boolean(this.canvasState && this.canvasState.contextKind !== "project"), clients: this.clients.size };
+        return { ok: true, hasCanvas: Boolean(this.canvasState && this.canvasState.contextKind !== "project" && this.canvasState.contextKind !== "workspace"), clients: this.clients.size };
     }
 
     workbenchContext() {
         if (!this.canvasState) throw new Error("CANVAS_CONTEXT_UNAVAILABLE");
         const state = this.canvasState;
-        if (!state.projectId) throw new Error("当前画布缺少明确的 Host Project 映射");
+        if (!state.projectId && state.contextKind !== "workspace") throw new Error("当前画布缺少明确的 Host Project 映射");
         return {
             schemaVersion: "1" as const,
-            projectId: state.projectId,
+            projectId: state.contextKind === "workspace" ? null : state.projectId!,
+            ...(state.workspaceId ? { workspaceId: state.workspaceId } : {}),
             ...(state.domainProjectId ? { domainProjectId: state.domainProjectId } : {}),
             ...(state.contentUnitId ? { contentUnitId: state.contentUnitId } : {}),
             ...(state.sceneId ? { sceneId: state.sceneId } : {}),
             ...(state.directorUnitId ? { directorUnitId: state.directorUnitId } : {}),
             ...(state.shotId ? { shotId: state.shotId } : {}),
-            canvasId: state.contextKind === "project" ? null : state.projectId,
+            canvasId: state.contextKind === "project" || state.contextKind === "workspace" ? null : state.projectId!,
             title: state.title,
             selectedNodeIds: [...(state.selectedNodeIds || [])],
             visibleNodeIds: [...(state.visibleNodeIds || [])],
@@ -64,7 +65,8 @@ export class CanvasSession implements BrowserRuntimeTransport {
         }));
         return {
             projectId: context.projectId,
-            projectTitle: state.title,
+            ...(context.workspaceId ? { workspaceId: context.workspaceId } : {}),
+            ...(context.projectId !== null ? { projectTitle: state.title } : {}),
             blockers: [...(state.blockers || [])],
             ...(context.contentUnitId ? { currentUnit: { id: context.contentUnitId, type: "chapter", ...(state.contentUnitRevision !== undefined ? { version: state.contentUnitRevision } : {}) } } : {}),
             ...(context.domainProjectId ? { domainProjectId: context.domainProjectId } : {}),
@@ -118,9 +120,19 @@ export class CanvasSession implements BrowserRuntimeTransport {
         }
     }
 
-    updateState(body: unknown, clientId?: string) {
+    updateState(body: unknown, clientId?: string, runtimeWorkspaceId?: string) {
         const candidate = { ...((body && typeof body === "object" && !Array.isArray(body) ? body : {}) as Record<string, unknown>), clientId } as CanvasSnapshot;
-        if (candidate.contextKind !== undefined && candidate.contextKind !== "canvas" && candidate.contextKind !== "project") throw new Error("AGENT_CONTEXT_KIND_INVALID");
+        if (candidate.contextKind !== undefined && !["canvas", "project", "workspace"].includes(candidate.contextKind)) throw new Error("AGENT_CONTEXT_KIND_INVALID");
+        if (candidate.contextKind === "workspace") {
+            if (!runtimeWorkspaceId || (candidate.workspaceId !== undefined && candidate.workspaceId !== runtimeWorkspaceId)) throw new Error("AGENT_CONTEXT_WORKSPACE_REQUIRED");
+            candidate.workspaceId = runtimeWorkspaceId;
+            assertAgentWorkbenchScope({ ...candidate, projectId: candidate.projectId!, canvasId: null });
+            if (candidate.projectId !== null) throw new Error("AGENT_CONTEXT_WORKSPACE_REQUIRED");
+            const allowed = new Set(["contextKind", "workspaceId", "projectId", "clientId", "activePanel", "revision", "stateHash", "nodes", "connections", "selectedNodeIds", "visibleNodeIds", "assetVersionIds"]);
+            if (Object.entries(candidate).some(([key, value]) => !allowed.has(key) && value !== undefined)) throw new Error("AGENT_WORKSPACE_CONTEXT_HAS_PROJECT_DATA");
+            if ([candidate.nodes, candidate.connections, candidate.selectedNodeIds, candidate.visibleNodeIds, candidate.assetVersionIds].some(items => items !== undefined && (!Array.isArray(items) || items.length))) throw new Error("AGENT_WORKSPACE_CONTEXT_HAS_PROJECT_DATA");
+            if (!candidate.activePanel || !["home", "projects", "canvases", "assets", "settings"].includes(candidate.activePanel)) throw new Error("AGENT_CONTEXT_KIND_INVALID");
+        } else if (candidate.workspaceId !== undefined) throw new Error("AGENT_CONTEXT_WORKSPACE_PROJECT_MIXED");
         if (candidate.contextKind === "project") {
             assertAgentWorkbenchScope({ projectId: candidate.projectId!, domainProjectId: candidate.domainProjectId, canvasId: null });
             if ([candidate.nodes, candidate.connections, candidate.selectedNodeIds, candidate.visibleNodeIds].some((items) => items !== undefined && (!Array.isArray(items) || items.length > 0))) throw new Error("AGENT_PROJECT_CONTEXT_HAS_CANVAS_DATA");
@@ -182,6 +194,7 @@ export class CanvasSession implements BrowserRuntimeTransport {
 
     async callTool(name: unknown, rawInput: unknown, metadata?: CanonicalToolExecutionMetadata) {
         if (!isToolName(name)) throw new Error(`未知工具：${String(name)}`);
+        if (this.canvasState?.contextKind === "workspace") throw new Error("AGENT_TOOL_REQUIRES_PROJECT_CONTEXT");
         if (this.canvasState?.contextKind === "project" && !isProjectPageTool(name)) throw new Error("AGENT_TOOL_REQUIRES_CANVAS_CONTEXT");
         let tool: ToolName = name;
         let input = parseToolInput(tool, rawInput) as Record<string, unknown>;
@@ -317,7 +330,7 @@ export class CanvasSession implements BrowserRuntimeTransport {
         const stateClientId = this.canvasState?.clientId || "";
         const selected = this.clients.has(stateClientId)
             ? [stateClientId, this.clients.get(stateClientId)] as const
-            : this.canvasState?.contextKind === "project" ? undefined : this.clients.entries().next().value;
+            : this.canvasState?.contextKind === "project" || this.canvasState?.contextKind === "workspace" ? undefined : this.clients.entries().next().value;
         const clientId = selected?.[0];
         const client = selected?.[1]?.response;
         if (!clientId || !client) throw new Error("当前没有已连接画布");

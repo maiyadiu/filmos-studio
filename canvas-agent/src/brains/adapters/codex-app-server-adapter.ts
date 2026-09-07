@@ -1,4 +1,4 @@
-import { summarizeShotImageMcpResult } from "@filmos/agent-contracts";
+import { assertAgentWorkbenchScope, summarizeShotImageMcpResult } from "@filmos/agent-contracts";
 import type {
     AgentEventSink,
     AgentHistoryMessage,
@@ -31,7 +31,7 @@ export class CodexSubscriptionAdapter implements AgentRuntimeAdapter {
 
     constructor(
         private readonly processManager: CodexAppServerProcessManager,
-        private readonly workspaceForScope: (id: string, kind: "canvas" | "project") => string,
+        private readonly workspaceForScope: (id: string, kind: "canvas" | "project" | "workspace") => string,
         private readonly configForGrant: CodexConfigFactory,
         private readonly requestConfirmation?: (input: { sessionId: string; turnId: string; request: CodexServerRequest }) => Promise<CodexConfirmationDecision>,
     ) {}
@@ -62,8 +62,8 @@ export class CodexSubscriptionAdapter implements AgentRuntimeAdapter {
     }
 
     async createSession(input: CreateBrainSessionInput, grant: AgentPermissionGrant): Promise<Partial<BrainSession>> {
+        const workspace = this.executionWorkspace(input);
         const client = await this.processManager.client(grant.sessionId);
-        const workspace = input.workspacePath ?? this.workspaceForScope(input.canvasId ?? input.projectId, input.canvasId === null ? "project" : "canvas");
         const policy = executionPolicy(input.executionProfile);
         const binding = this.binding(input.brainProfileId, grant.sessionId, () => undefined);
         const thread = await client.startThread(workspace, executionConfig(this.configForGrant(grant), input.executionProfile), binding, policy);
@@ -80,9 +80,8 @@ export class CodexSubscriptionAdapter implements AgentRuntimeAdapter {
         const threadId = input.providerThreadId || this.threadsBySession.get(input.sessionId);
         const grant = input.grant || this.grantsBySession.get(input.sessionId);
         if (!threadId || !grant) throw new Error("CODEX_SESSION_RESUME_CONTEXT_MISSING");
+        const workspace = this.executionWorkspace(input);
         const client = await this.processManager.client(input.sessionId, true);
-        const scopeId = input.canvasId ?? input.projectId;
-        const workspace = input.workspacePath ?? (scopeId ? this.workspaceForScope(scopeId, input.canvasId === null ? "project" : "canvas") : undefined);
         const config = executionConfig(this.configForGrant(grant), input.executionProfile);
         const binding = this.binding(this.profileId, input.sessionId, () => undefined);
         const policy = executionPolicy(input.executionProfile);
@@ -179,11 +178,21 @@ export class CodexSubscriptionAdapter implements AgentRuntimeAdapter {
         if (this.clientsBySession.get(session.id) === client) return client;
         const threadId = session.providerThreadId || this.threadsBySession.get(session.id);
         if (!threadId) throw new Error("CODEX_SESSION_THREAD_MISSING");
-        const workspace = session.workspacePath ?? this.workspaceForScope(session.canvasId ?? session.projectId, session.canvasId === null ? "project" : "canvas");
+        const workspace = this.executionWorkspace(session);
         await client.resumeThread(threadId, workspace, executionConfig(this.configForGrant(grant), session.executionProfile), this.binding(this.profileId, session.id, normalizedEmit(session.id, "recovery", sink)), executionPolicy(session.executionProfile));
         if (session.executionProfile !== "review_coordinator") await preflightWorkbenchMcp(client, threadId);
         this.clientsBySession.set(session.id, client);
         return client;
+    }
+
+    private executionWorkspace(input: ResumeBrainSessionInput | CreateBrainSessionInput | BrainSession) {
+        if (input.projectId === null) {
+            assertAgentWorkbenchScope({ ...input, projectId: null, canvasId: input.canvasId ?? null });
+            if (input.canvasId !== null || input.workspacePath || input.executionProfile) throw new Error("AGENT_WORKSPACE_PROFILE_DENIED");
+            return this.workspaceForScope(input.workspaceId!, "workspace");
+        }
+        const scopeId = input.canvasId ?? input.projectId;
+        return input.workspacePath ?? (scopeId ? this.workspaceForScope(scopeId, input.canvasId === null ? "project" : "canvas") : undefined);
     }
 
     private binding(_profileId: string, sessionId: string, emit: AgentEmit) {

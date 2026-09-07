@@ -24,6 +24,7 @@ export class AgentSessionManager {
 
     async createSession(input: CreateBrainSessionInput) {
         assertAgentWorkbenchScope(input);
+        if (input.projectId === null && (input.brainProfileId !== "codex.subscription" || input.executionProfile || input.workspacePath)) throw new Error("AGENT_WORKSPACE_PROFILE_DENIED");
         const profile = this.registry.getProfile(input.brainProfileId);
         if (profile.availability === "disabled") throw new Error(`BRAIN_PROFILE_DISABLED:${profile.id}`);
         const status = await this.registry.probe(profile.id);
@@ -35,6 +36,7 @@ export class AgentSessionManager {
             connectionId: profile.id,
             actorId: input.actorId,
             projectId: input.projectId,
+            ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
             ...(input.domainProjectId ? { domainProjectId: input.domainProjectId } : {}),
             toolSurface: profile.toolSurface,
             allowedTools: toolsForWorkbenchScope(this.tools.names(profile.toolSurface), input),
@@ -45,6 +47,7 @@ export class AgentSessionManager {
             brainProfileId: profile.id,
             connectionId: profile.id,
             projectId: input.projectId,
+            ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
             ...(input.domainProjectId ? { domainProjectId: input.domainProjectId } : {}),
             canvasId: input.canvasId,
             ...(input.workspacePath ? { workspacePath: input.workspacePath } : {}),
@@ -77,7 +80,7 @@ export class AgentSessionManager {
         let session = await this.requireSession(sessionId);
         if (["closed", "creating", "failed"].includes(session.status)) throw new Error(`BRAIN_SESSION_NOT_RUNNABLE:${session.status}`);
         if (input.context.contextReceiptId !== session.lastContextReceiptId) throw new Error("AGENT_CONTEXT_NOT_BOUND_TO_SESSION");
-        this.grants.validate(session.permissionGrantId, { sessionId, connectionId: session.connectionId, projectId: session.projectId });
+        this.grants.validate(session.permissionGrantId, { sessionId, connectionId: session.connectionId, projectId: session.projectId, workspaceId: session.workspaceId });
         session = await this.store.updateSession(sessionId, { status: "running", latestPlan: null, updatedAt: this.now().toISOString() });
         const profile = this.registry.getProfile(session.brainProfileId);
         await this.audit?.append(brainTurnAuditRecord({ profile, session, turnId: input.turnId, contextReceiptId: input.context.contextReceiptId, prompt: input.prompt, outcome: "proposed" }));
@@ -131,6 +134,7 @@ export class AgentSessionManager {
     async resumeSession(sessionId: string, actorId: string) {
         const session = await this.requireSession(sessionId);
         assertAgentWorkbenchScope(session);
+        if (session.projectId === null && (session.brainProfileId !== "codex.subscription" || session.executionProfile || session.workspacePath)) throw new Error("AGENT_WORKSPACE_PROFILE_DENIED");
         if (session.status === "closed") throw new Error("BRAIN_SESSION_CLOSED");
         const profile = this.registry.getProfile(session.brainProfileId);
         const status = await this.registry.probe(profile.id);
@@ -143,6 +147,7 @@ export class AgentSessionManager {
             connectionId: session.connectionId,
             actorId,
             projectId: session.projectId,
+            ...(session.workspaceId ? { workspaceId: session.workspaceId } : {}),
             ...(session.domainProjectId ? { domainProjectId: session.domainProjectId } : {}),
             toolSurface: profile.toolSurface,
             allowedTools: toolsForWorkbenchScope(this.tools.names(profile.toolSurface), session),
@@ -152,6 +157,7 @@ export class AgentSessionManager {
                 sessionId,
                 ...(session.providerThreadId ? { providerThreadId: session.providerThreadId } : {}),
                 projectId: session.projectId,
+                ...(session.workspaceId ? { workspaceId: session.workspaceId } : {}),
                 ...(session.domainProjectId ? { domainProjectId: session.domainProjectId } : {}),
                 canvasId: session.canvasId,
                 ...(session.workspacePath ? { workspacePath: session.workspacePath } : {}),
@@ -205,12 +211,13 @@ export class AgentSessionManager {
         const conversation: AgentConversation = existing ?? {
             id: session.conversationId,
             projectId: session.projectId,
+            ...(session.workspaceId ? { workspaceId: session.workspaceId } : {}),
             canvasId: session.canvasId,
             sessionIds: [],
             createdAt: now,
             updatedAt: now,
         };
-        if (conversation.projectId !== session.projectId || conversation.canvasId !== session.canvasId) throw new Error("AGENT_CONVERSATION_SCOPE_MISMATCH");
+        if (conversation.projectId !== session.projectId || conversation.canvasId !== session.canvasId || conversation.workspaceId !== session.workspaceId) throw new Error("AGENT_CONVERSATION_SCOPE_MISMATCH");
         if (!conversation.sessionIds.includes(session.id)) conversation.sessionIds.push(session.id);
         conversation.activeSessionId = session.id;
         conversation.updatedAt = now;
@@ -227,7 +234,7 @@ function appendHandoffTimeline(current: BrainSession["hostHandoffTimeline"], han
 }
 
 function assertAdapterPatchScope(session: BrainSession, patch: Partial<BrainSession>) {
-    const immutable: Array<keyof BrainSession> = ["id", "conversationId", "brainProfileId", "connectionId", "projectId", "domainProjectId", "canvasId", "contentUnitId", "sceneId", "directorUnitId", "shotId", "permissionGrantId"];
+    const immutable: Array<keyof BrainSession> = ["id", "conversationId", "brainProfileId", "connectionId", "projectId", "workspaceId", "workspacePath", "executionProfile", "domainProjectId", "canvasId", "contentUnitId", "sceneId", "directorUnitId", "shotId", "permissionGrantId"];
     for (const key of immutable) {
         if (Object.prototype.hasOwnProperty.call(patch, key) && patch[key] !== session[key]) throw new Error(`Adapter attempted to change immutable session field: ${String(key)}`);
     }

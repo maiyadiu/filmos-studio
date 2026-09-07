@@ -9,6 +9,40 @@ import { AgentPermissionGrantStore } from "../src/brains/permission-grants.js";
 import { MemoryBrainSessionStore } from "../src/brains/session-store.js";
 import type { WorkbenchContextSnapshot } from "../src/brains/context-broker.js";
 import type { CanonicalCanvasToolExecutor } from "../src/brains/tool-providers.js";
+import { codexProcessManager } from "../src/agents.js";
+
+test("global native turn and recovery bind only the current workspace before calling a provider", async t => {
+    t.mock.method(codexProcessManager, "client", async () => { throw new Error("LIVE_CODEX_PROCESS_FORBIDDEN"); });
+    t.mock.method(codexProcessManager, "probe", async () => { throw new Error("LIVE_CODEX_PROBE_FORBIDDEN"); });
+    let snapshot: WorkbenchContextSnapshot = { projectId: null, workspaceId: "owner-grant-recovery", canvasId: null, activePanel: "settings", canvasRevision: 1, canvasStateHash: "global-page", nodes: [], connections: [], selectedNodeIds: [], visibleNodeIds: [], assets: [] };
+    const instance = runtime(new MemoryBrainSessionStore(), new AgentPermissionGrantStore(), { hasConnectedBrowser: () => true, request: async () => { throw new Error("MODEL_API_FORBIDDEN"); } }, () => snapshot, { callTool: async () => { throw new Error("BUSINESS_TOOL_FORBIDDEN"); } });
+    const adapter = instance.registry.getAdapter("codex.subscription");
+    let creates = 0, resumes = 0, turns = 0;
+    adapter.probe = async () => ({ profileId: "codex.subscription", status: "ready", checkedAt: new Date().toISOString() });
+    adapter.createSession = async () => { creates++; return { providerThreadId: "global-fixture-thread" }; };
+    adapter.resumeSession = async input => { resumes++; return { providerThreadId: input.providerThreadId }; };
+    adapter.readHistory = async () => [];
+    try {
+        const { session } = await instance.createSession({ conversationId: "global-conversation", brainProfileId: "codex.subscription", projectId: null, canvasId: null, workspaceId: snapshot.workspaceId, actorId: "owner-grant-recovery" });
+        adapter.sendTurn = async input => {
+            turns++;
+            assert.equal(input.context.project.id, null);
+            assert.equal(input.context.route.workspaceId, snapshot.workspaceId);
+            const read = await instance.proposeTool({ sessionId: session.id, toolName: "workbench_get_context", toolInput: {} });
+            assert.equal(read.status, "completed");
+            if (read.status === "completed") assert.equal((read.result.output as WorkbenchContextSnapshot).activePanel, "settings");
+            await assert.rejects(instance.proposeTool({ sessionId: session.id, toolName: "project_get_script", toolInput: { projectId: "old", unitId: "old" } }), /REQUIRES_PROJECT_CONTEXT/);
+            return { sessionId: session.id, turnId: input.turnId, status: "completed", text: "fixture" };
+        };
+        await instance.sendTurn(session.id, { turnId: "global-fixture-turn", prompt: "fixture" }, () => undefined);
+        const resumed = await instance.resumeSession(session.id, "owner-grant-recovery");
+        assert.equal(resumed.session.providerThreadId, session.providerThreadId);
+        snapshot = { ...snapshot, workspaceId: "other-workspace" };
+        await assert.rejects(instance.resumeSession(session.id, "owner-grant-recovery"), /SCOPE_MISMATCH/);
+        await assert.rejects(instance.sendTurn(session.id, { turnId: "blocked-turn", prompt: "fixture" }, () => undefined), /SCOPE_MISMATCH/);
+        assert.deepEqual({ creates, resumes, turns }, { creates: 1, resumes: 1, turns: 1 });
+    } finally { await instance.dispose(); }
+});
 
 test("native Codex project-page turn reuses canonical project tools and stops after a page scope switch", async () => {
     let snapshot: WorkbenchContextSnapshot = { projectId: "business-1", domainProjectId: "business-1", canvasId: null, contentUnitId: "unit-1", activePanel: "chapters", canvasRevision: 1, canvasStateHash: "project-page", nodes: [], connections: [], selectedNodeIds: [], visibleNodeIds: [], assets: [] };

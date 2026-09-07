@@ -1,11 +1,12 @@
 import crypto from "node:crypto";
-import { assertAgentWorkbenchScope } from "@filmos/agent-contracts";
+import { assertAgentWorkbenchScope, type AgentWorkbenchScope } from "@filmos/agent-contracts";
 
 import type { AgentContextPackV1, AgentContextReceipt, BrainSession, EntitySummary } from "./contracts.js";
 
 export type WorkbenchContextSnapshot = {
     workspace?: string;
-    projectId: string;
+    projectId: string | null;
+    workspaceId?: string;
     projectTitle?: string;
     projectStatus?: string;
     domainProjectId?: string;
@@ -34,19 +35,20 @@ export type WorkbenchContextSnapshot = {
 };
 
 type StoredReceipt = { receipt: AgentContextReceipt; sessionId: string };
-export type WorkbenchContextIdentity = Pick<WorkbenchContextSnapshot, "projectId" | "domainProjectId" | "canvasId" | "contentUnitId" | "sceneId" | "directorUnitId" | "shotId" | "canvasRevision" | "canvasStateHash" | "filmExpectedVersion" | "filmContentHash" | "blockers">;
+export type WorkbenchContextIdentity = Pick<WorkbenchContextSnapshot, "projectId" | "workspaceId" | "domainProjectId" | "canvasId" | "contentUnitId" | "sceneId" | "directorUnitId" | "shotId" | "canvasRevision" | "canvasStateHash" | "filmExpectedVersion" | "filmContentHash" | "blockers">;
 
 export class AgentContextBroker {
     private readonly receipts = new Map<string, StoredReceipt>();
 
     capture(session: BrainSession, snapshot: WorkbenchContextSnapshot, ttlMs = 5 * 60_000) {
-        assertScope(session, snapshot);
+        assertSessionContextScope(session, snapshot);
         if (!Number.isInteger(snapshot.canvasRevision) || snapshot.canvasRevision < 0) throw new Error("Canvas revision is invalid");
         if (!snapshot.canvasStateHash.trim()) throw new Error("Canvas state hash is required");
         const createdAt = new Date();
         const receipt: AgentContextReceipt = {
             receiptId: crypto.randomUUID(),
             projectId: snapshot.projectId,
+            ...(snapshot.workspaceId ? { workspaceId: snapshot.workspaceId } : {}),
             ...(snapshot.domainProjectId ? { domainProjectId: snapshot.domainProjectId } : {}),
             ...(snapshot.contentUnitId ? { contentUnitId: snapshot.contentUnitId } : {}),
             ...(snapshot.sceneId ? { sceneId: snapshot.sceneId } : {}),
@@ -72,6 +74,7 @@ export class AgentContextBroker {
             route: {
                 ...(snapshot.workspace ? { workspace: snapshot.workspace } : {}),
                 projectId: snapshot.projectId,
+                ...(snapshot.workspaceId ? { workspaceId: snapshot.workspaceId } : {}),
                 ...(snapshot.contentUnitId ? { contentUnitId: snapshot.contentUnitId, unitId: snapshot.contentUnitId } : {}),
                 ...(snapshot.sceneId ? { sceneId: snapshot.sceneId } : {}),
                 ...(snapshot.directorUnitId ? { directorUnitId: snapshot.directorUnitId } : {}),
@@ -103,7 +106,7 @@ export class AgentContextBroker {
             blockers: [...(snapshot.blockers ?? [])],
             ...(snapshot.visualContext ? { visualContext: structuredClone(snapshot.visualContext) } : {}),
             permissions: {
-                readableScopes: snapshot.canvasId === null ? ["project", "assets"] : ["project", "canvas", "selection", "assets"],
+                readableScopes: snapshot.projectId === null ? ["workspace"] : snapshot.canvasId === null ? ["project", "assets"] : ["project", "canvas", "selection", "assets"],
                 previewableScopes: snapshot.canvasId === null ? [] : ["canvas", "film"],
                 applyRequiresConfirmation: true,
             },
@@ -118,12 +121,15 @@ export class AgentContextBroker {
     }
 
     validate(receiptId: string, session: BrainSession, current: WorkbenchContextIdentity, now = new Date()) {
+        assertAgentWorkbenchScope(session);
+        assertAgentWorkbenchScope(current);
+        if (session.projectId !== current.projectId || session.canvasId !== current.canvasId || session.workspaceId !== current.workspaceId) throw new Error("AGENT_CONTEXT_SCOPE_MISMATCH");
         const stored = this.receipts.get(receiptId);
         if (!stored) throw new Error("AGENT_CONTEXT_RECEIPT_NOT_FOUND");
         if (stored.sessionId !== session.id) throw new Error("AGENT_CONTEXT_SESSION_MISMATCH");
         const receipt = stored.receipt;
         if (Date.parse(receipt.expiresAt) <= now.getTime()) throw new Error("AGENT_CONTEXT_RECEIPT_EXPIRED");
-        if (receipt.projectId !== current.projectId || receipt.canvasId !== current.canvasId) throw new Error("AGENT_CONTEXT_SCOPE_MISMATCH");
+        if (receipt.projectId !== current.projectId || receipt.canvasId !== current.canvasId || receipt.workspaceId !== current.workspaceId) throw new Error("AGENT_CONTEXT_SCOPE_MISMATCH");
         if (receipt.domainProjectId !== current.domainProjectId) throw new Error("AGENT_CONTEXT_DOMAIN_PROJECT_MISMATCH");
         if (["contentUnitId", "sceneId", "directorUnitId", "shotId"].some((key) => receipt[key as keyof AgentContextReceipt] !== current[key as keyof WorkbenchContextIdentity])) throw new Error("AGENT_CONTEXT_SCOPE_MISMATCH");
         if (receipt.canvasRevision !== current.canvasRevision || receipt.canvasStateHash !== current.canvasStateHash) throw new Error("AGENT_CONTEXT_CANVAS_STALE");
@@ -136,13 +142,14 @@ export class AgentContextBroker {
     }
 }
 
-function assertScope(session: BrainSession, snapshot: WorkbenchContextSnapshot) {
+export function assertSessionContextScope(session: AgentWorkbenchScope, snapshot: WorkbenchContextSnapshot) {
     assertAgentWorkbenchScope(session);
     assertAgentWorkbenchScope(snapshot);
-    if (session.projectId !== snapshot.projectId || session.canvasId !== snapshot.canvasId) throw new Error("AGENT_CONTEXT_SCOPE_MISMATCH");
+    if (session.projectId !== snapshot.projectId || session.canvasId !== snapshot.canvasId || session.workspaceId !== snapshot.workspaceId) throw new Error("AGENT_CONTEXT_SCOPE_MISMATCH");
     if (session.domainProjectId && snapshot.domainProjectId && session.domainProjectId !== snapshot.domainProjectId) throw new Error("AGENT_CONTEXT_DOMAIN_PROJECT_MISMATCH");
     if (snapshot.canvasId === null) {
         if (session.contentUnitId !== snapshot.contentUnitId) throw new Error("AGENT_CONTEXT_SCOPE_MISMATCH");
         if (snapshot.nodes.length || snapshot.connections.length || snapshot.selectedNodeIds.length || snapshot.visibleNodeIds.length) throw new Error("AGENT_PROJECT_CONTEXT_HAS_CANVAS_DATA");
     }
+    if (snapshot.projectId === null && (snapshot.assets.length || snapshot.activeTasks?.length || [snapshot.projectTitle, snapshot.projectStatus, snapshot.currentUnit, snapshot.currentScene, snapshot.currentDirectorUnit, snapshot.currentShot, snapshot.visualContext, snapshot.filmExpectedVersion, snapshot.filmContentHash].some(value => value !== undefined))) throw new Error("AGENT_WORKSPACE_CONTEXT_HAS_PROJECT_DATA");
 }

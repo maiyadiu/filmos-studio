@@ -145,7 +145,8 @@ export interface BrainSession {
     conversationId: string;
     brainProfileId: string;
     connectionId: string;
-    projectId: string;
+    projectId: string | null;
+    workspaceId?: string;
     domainProjectId?: string;
     canvasId: string | null;
     workspacePath?: string;
@@ -172,7 +173,8 @@ export type AgentSession = BrainSession;
 
 export interface AgentConversation {
     id: string;
-    projectId: string;
+    projectId: string | null;
+    workspaceId?: string;
     canvasId: string | null;
     title?: string;
     activeSessionId?: string;
@@ -184,7 +186,8 @@ export interface AgentConversation {
 export interface CreateBrainSessionInput {
     conversationId: string;
     brainProfileId: string;
-    projectId: string;
+    projectId: string | null;
+    workspaceId?: string;
     domainProjectId?: string;
     canvasId: string | null;
     workspacePath?: string;
@@ -199,7 +202,8 @@ export interface CreateBrainSessionInput {
 export interface ResumeBrainSessionInput {
     sessionId: string;
     providerThreadId?: string;
-    projectId?: string;
+    projectId?: string | null;
+    workspaceId?: string;
     domainProjectId?: string;
     canvasId?: string | null;
     workspacePath?: string;
@@ -220,7 +224,8 @@ export type EntitySummary = {
 
 export type AgentContextReceipt = {
     receiptId: string;
-    projectId: string;
+    projectId: string | null;
+    workspaceId?: string;
     domainProjectId?: string;
     contentUnitId?: string;
     sceneId?: string;
@@ -244,7 +249,8 @@ export interface AgentContextPackV1 {
     capturedAt: string;
     route: {
         workspace?: string;
-        projectId: string;
+        workspaceId?: string;
+        projectId: string | null;
         contentUnitId?: string;
         unitId?: string;
         sceneId?: string;
@@ -252,7 +258,7 @@ export interface AgentContextPackV1 {
         shotId?: string;
         activePanel?: string;
     };
-    project: { id: string; title?: string; status?: string; domainProjectId?: string };
+    project: { id: string | null; title?: string; status?: string; domainProjectId?: string };
     currentUnit?: EntitySummary;
     currentScene?: EntitySummary;
     currentDirectorUnit?: EntitySummary;
@@ -332,7 +338,8 @@ export interface AgentToolRequest {
     sessionId: string;
     turnId: string;
     connectionId: string;
-    projectId: string;
+    projectId: string | null;
+    workspaceId?: string;
     toolName: string;
     input: Record<string, unknown>;
     contextReceiptId: string;
@@ -377,7 +384,8 @@ export interface AgentPermissionGrant {
     sessionId: string;
     connectionId: string;
     actorId: string;
-    projectId: string;
+    projectId: string | null;
+    workspaceId?: string;
     domainProjectId?: string;
     toolSurface: AgentToolSurfaceId;
     allowedTools: string[];

@@ -6,7 +6,8 @@ export type IssuePermissionGrantInput = {
     sessionId: string;
     connectionId: string;
     actorId: string;
-    projectId: string;
+    projectId: string | null;
+    workspaceId?: string;
     domainProjectId?: string;
     toolSurface: AgentToolSurfaceId;
     allowedTools: string[];
@@ -19,6 +20,9 @@ export class AgentPermissionGrantStore {
     constructor(private readonly signingKey = crypto.randomBytes(32), private readonly now: () => Date = () => new Date()) {}
 
     issue(input: IssuePermissionGrantInput) {
+        if (input.projectId === null && (!input.workspaceId || !/^[A-Za-z0-9_-]{1,120}$/.test(input.workspaceId) || input.domainProjectId !== undefined)) throw new Error("AGENT_GRANT_WORKSPACE_REQUIRED");
+        if (input.projectId === null && (input.connectionId !== "codex.subscription" || input.allowedTools.some(name => name !== "workbench_get_context"))) throw new Error("AGENT_GRANT_WORKSPACE_TOOL_DENIED");
+        if (input.projectId !== null && input.workspaceId !== undefined) throw new Error("AGENT_GRANT_SCOPE_MISMATCH");
         const issuedAt = this.now();
         const expiresAt = new Date(issuedAt.getTime() + (input.ttlMs ?? 15 * 60_000));
         const unsigned: Omit<AgentPermissionGrant, "signature"> = {
@@ -26,7 +30,8 @@ export class AgentPermissionGrantStore {
             sessionId: required(input.sessionId, "sessionId"),
             connectionId: required(input.connectionId, "connectionId"),
             actorId: required(input.actorId, "actorId"),
-            projectId: required(input.projectId, "projectId"),
+            projectId: input.projectId === null ? null : required(input.projectId, "projectId"),
+            ...(input.workspaceId ? { workspaceId: required(input.workspaceId, "workspaceId") } : {}),
             ...(input.domainProjectId ? { domainProjectId: input.domainProjectId } : {}),
             toolSurface: input.toolSurface,
             allowedTools: [...new Set(input.allowedTools)].sort(),
@@ -45,11 +50,11 @@ export class AgentPermissionGrantStore {
         return grant && this.validSignature(grant) ? structuredClone(grant) : undefined;
     }
 
-    validate(grantId: string, input: { sessionId: string; connectionId: string; projectId: string; nonce?: string; signature?: string; toolName?: string; now?: Date }) {
+    validate(grantId: string, input: { sessionId: string; connectionId: string; projectId: string | null; workspaceId?: string; nonce?: string; signature?: string; toolName?: string; now?: Date }) {
         const grant = this.grants.get(grantId);
         if (!grant) throw new Error("AGENT_GRANT_NOT_FOUND");
         if (!this.validSignature(grant) || (input.signature !== undefined && !safeEqual(input.signature, grant.signature))) throw new Error("AGENT_GRANT_SIGNATURE_MISMATCH");
-        if (grant.sessionId !== input.sessionId || grant.connectionId !== input.connectionId || grant.projectId !== input.projectId) {
+        if (grant.sessionId !== input.sessionId || grant.connectionId !== input.connectionId || grant.projectId !== input.projectId || grant.workspaceId !== input.workspaceId) {
             throw new Error("AGENT_GRANT_SCOPE_MISMATCH");
         }
         if (input.nonce !== undefined && grant.nonce !== input.nonce) throw new Error("AGENT_GRANT_NONCE_MISMATCH");
@@ -72,7 +77,7 @@ export class AgentPermissionGrantStore {
     private sign(grant: Omit<AgentPermissionGrant, "signature">) {
         return crypto.createHmac("sha256", this.signingKey).update(JSON.stringify([
             grant.id, grant.sessionId, grant.connectionId, grant.actorId, grant.projectId,
-            grant.domainProjectId ?? "", grant.toolSurface, grant.allowedTools,
+            grant.domainProjectId ?? "", grant.workspaceId ?? "", grant.toolSurface, grant.allowedTools,
             grant.issuedAt, grant.expiresAt, grant.nonce, grant.keyId,
         ])).digest("base64url");
     }
