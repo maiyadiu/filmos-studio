@@ -20,6 +20,7 @@ import (
 )
 
 func RegisterAuthRoutes(r *gin.RouterGroup, svc *service.Service) {
+	registerRuntimeAccountRoutes(r, svc)
 	r.GET("/auth/settings", func(c *gin.Context) {
 		settings, err := svc.PublicAuthSettings()
 		if err != nil {

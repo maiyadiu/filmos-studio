@@ -30,6 +30,7 @@
 - [功能](content/docs/overview/features.mdx)
 - [作品目录](content/docs/overview/作品目录.mdx)：默认或自选位置、单层分类、内容投影和离线恢复边界。
 - [本地开发](content/docs/backend/local-development.mdx)
+- [本机账号证明](content/docs/backend/账号证明.mdx)：工作台登录到 Runtime 挑战的短时身份来源；会话与事件流接线的待验收边界。
 - [后端数据库](content/docs/backend/backend-database.mdx)
 - 代码地图：待补充
 - 待办：待补充

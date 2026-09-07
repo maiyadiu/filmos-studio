@@ -1,0 +1,31 @@
+---
+title: 本机账号证明
+description: 将工作台已认证账号绑定到 Local Runtime 挑战的短时证明与未完成接线边界
+---
+
+# 本机账号证明
+
+本协议只证明账号身份，不授予项目读取、工具、工程、模型或费用权限。它为全局 Agent 的账号隔离提供后端事实来源，不能单独证明会话历史、事件流或业务权限已经隔离。当前 Runtime 消费与浏览器接线仍待实现。
+
+## 获取与验证
+
+- `POST /api/auth/runtime-account/proof`：走现有 Cookie 登录；仅既有 loopback 开发者模式可使用稳定本地账号。请求体为下列挑战，`Origin` 必须与挑战的 `origin` 精确相同。不能提交 `userId` 或角色来选择身份。
+- `POST /api/auth/runtime-account/verify`：请求体为 `{ "proof": "…" }`。调用方持有短时证明即可校验最小身份，不需要也不能转发登录 Cookie。无效、过期、注销、被禁用或登录模式变化时拒绝；数据库不可用不降级成默认账号。
+
+挑战字段：`runtimeInstanceId`、`runtimeSessionId`、`keyId`、`nonce`、`origin`。前四项只能是16–128字节的字母、数字、下划线或连字符；`origin` 只接受 HTTPS 或 loopback HTTP 的精确 origin，不能含账号、路径、查询或片段。Runtime 消费方须自行生成 nonce，并核对已认证签名会话的全部字段，不能把浏览器自报的挑战当可信事实。
+
+获取结果为 `{ proof, expiresAt }`；验证结果为 `{ protocol, userId, authMode, challenge, issuedAt, expiresAt }`，协议名 `filmos-runtime-account-v1`，时间为 Unix 秒，有效期60秒。沿用业务响应 `{ code, data, msg }` 和真实 HTTP 状态。未知字段、多份 JSON、超大请求均拒绝，请求上限8 KiB；响应 `Cache-Control: no-store`。
+
+## 信任和保存边界
+
+证明以现有受限 `.settings-key` 派生的独立用途密钥签名，不把该密钥交给浏览器或 Runtime，不增加新的业务表。只有已认证的签发才可沿用现有密钥初始化流程；验证失败不会创建或替换密钥。证明正文不含登录 token、Cookie、密码、角色或模型密钥。它仍是短时敏感材料，只能通过请求体传送，不进入 URL、日志、模型上下文或任务历史。
+
+验证时重新读取原登录会话及用户状态；注销或原会话归属改变会使证明失效。错误登录 token 和错误 token 的注销请求不能删除同 ID 的有效会话。桌面本地模式仍受既有启动绑定地址限制，不因为证明接口扩大到公网免登录。
+
+Runtime 后续必须只向已受信的工作台 origin 请求验证，拒绝任意验证 URL、重定向及跨 origin 回退；检查协议、时间、nonce、签名连接身份和实际账号，再消费本次挑战。不能直接信任客户端解码出的 userId，也不能把验证成功当永久授权。后端验证本身不消费 nonce，挑战的一次性由 Runtime 管理。
+
+## 当前验证边界
+
+隔离 Go 测试覆盖两个真实 fixture 账号、精确挑战、伪造/错误签名、其他部署签名、过期/未来时间、注销/禁用/会话换绑、数据库故障、无效来源、开发者模式及响应脱敏。未访问真实用户数据库或密钥。
+
+仍须接通 Runtime 挑战及会话绑定、列表/详情/历史/恢复、状态发布/迟到请求/事件流，再复跑同 Runtime 换账号 UI 和既有作品历史回归；当前不能称串用缺陷已修复。

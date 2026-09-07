@@ -223,8 +223,18 @@ func (s *Service) Login(req LoginRequest) (*AuthSessionResult, error) {
 }
 
 func (s *Service) Logout(cookieValue string) error {
-	sessionID, _ := parseSessionCookie(cookieValue)
-	if sessionID == "" {
+	sessionID, token := parseSessionCookie(cookieValue)
+	if sessionID == "" || token == "" {
+		return nil
+	}
+	session, err := s.repo.AuthSession(sessionID)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if session.TokenHash != hashToken(token) {
 		return nil
 	}
 	return s.repo.DeleteAuthSession(sessionID)
@@ -245,10 +255,14 @@ func (s *Service) CurrentUser(cookieValue string) (*model.User, error) {
 		}
 		return nil, err
 	}
-	if time.Now().After(session.ExpiresAt) || session.TokenHash != hashToken(token) {
+	if time.Now().After(session.ExpiresAt) {
 		if cleanupErr := s.repo.DeleteAuthSession(sessionID); cleanupErr != nil {
 			log.Printf("expired auth session cleanup failed: session_id=%s error=%v", sessionID, cleanupErr)
 		}
+		return nil, Unauthorized("登录状态已失效")
+	}
+	// An invalid secret must not revoke a still-valid session whose ID is known.
+	if session.TokenHash != hashToken(token) {
 		return nil, Unauthorized("登录状态已失效")
 	}
 	user, err := s.repo.User(session.UserID)
