@@ -13,6 +13,7 @@ type DirectorySnapshot struct {
 	Project         model.Project
 	Units           []model.ProjectUnit
 	Scripts         []model.ProjectUnitRevision
+	ScriptBatches   []model.ProjectScriptBatch
 	Shots           []model.Shot
 	ShotHistory     []model.ShotRevision
 	Canvases        []model.CanvasProject
@@ -53,7 +54,7 @@ func (r *Repository) ProjectDirectorySnapshot(userID, projectID string) (Directo
 		if err := tx.Where("user_id = ? AND id = ?", userID, projectID).First(&out.Project).Error; err != nil {
 			return err
 		}
-		for _, target := range []any{&out.Units, &out.Scripts, &out.Shots, &out.ShotHistory} {
+		for _, target := range []any{&out.Units, &out.Scripts, &out.ScriptBatches, &out.Shots, &out.ShotHistory} {
 			if err := tx.Where("project_id = ?", projectID).Order("id").Find(target).Error; err != nil {
 				return err
 			}

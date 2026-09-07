@@ -370,7 +370,7 @@ function createGenericAgentRoutes(generic: GenericAgentRuntime, config: LocalRun
             let preparedSkills: Awaited<ReturnType<typeof writeSkillFiles>> = { directories: [], inputs: [] };
             try {
                 preparedSkills = await writeSkillFiles(parseAgentSkills(body.skills));
-                const result = await generic.sendTurn(routeParam(req.params.sessionId), { turnId, prompt: requiredBodyString(body, "prompt"), localImagePaths, localSkills: preparedSkills.inputs }, emit);
+                const result = await generic.sendTurn(routeParam(req.params.sessionId), { turnId, prompt: requiredBodyString(body, "prompt"), localImagePaths, localSkills: preparedSkills.inputs, ...(body.scriptCreation !== undefined ? { scriptCreation: body.scriptCreation } : {}) }, emit);
                 res.json({ ok: true, ...result });
             } finally {
                 await Promise.all([removeAttachmentFiles(localImagePaths), removeSkillDirectories(preparedSkills.directories)]);
@@ -553,18 +553,19 @@ function assertEmptyBody(req: Request) {
 
 export function parseAgentSkills(value: unknown) {
     if (!Array.isArray(value)) return [];
-    return value.slice(0, 8).flatMap((item) => {
-        if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+    if (value.length > 8) throw new Error("AGENT_SKILL_COUNT_EXCEEDED");
+    return value.map((item) => {
+        if (!item || typeof item !== "object" || Array.isArray(item)) throw new Error("AGENT_SKILL_INVALID");
         const input = item as Record<string, unknown>;
-        const name = typeof input.name === "string" ? input.name.trim().slice(0, 120) : "";
-        const instruction = typeof input.instruction === "string" ? input.instruction.trim().slice(0, 24_000) : "";
-        if (!name || !instruction) return [];
-        return [{
+        const name = typeof input.name === "string" ? input.name.trim() : "";
+        const instruction = typeof input.instruction === "string" ? input.instruction : "";
+        if (!name || name.length > 120 || !instruction.trim() || Buffer.byteLength(instruction, "utf8") > 128 * 1024 || (typeof input.skillId === "string" && input.skillId.length > 120)) throw new Error("AGENT_SKILL_INVALID_OR_TOO_LARGE");
+        return {
             ...(typeof input.skillId === "string" ? { skillId: input.skillId.trim().slice(0, 120) } : {}),
             name,
             ...(typeof input.description === "string" ? { description: input.description.trim().slice(0, 500) } : {}),
             instruction,
-        }];
+        };
     });
 }
 

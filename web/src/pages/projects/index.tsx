@@ -19,10 +19,15 @@ import { createProject, deleteProject, importProjectUnits, listProjects, type Pr
 import { modelDisplayName, useEffectiveConfig } from "@/stores/use-config-store";
 
 import { sourceTypeLabel } from "./detail/shared";
+import { createCanvasProjectWithRemoteSync } from "@/services/user-data-sync";
+import { saveScriptLaunch } from "@/services/script-creation-launch";
+import { listAddedSkills, type Skill } from "@/services/api/skills";
+import { isAgentFeatureEnabled } from "@/film/agent/feature-flags";
 
 type ProjectForm = { name: string; aspectRatio: string; sourceType: string };
 
 export default function ProjectsPage() {
+	const userId = useUserStore((state) => state.user?.id);
 	const localProjects = useUserStore((state) => state.authMode === "desktop_local");
 	const [projectLocation, setProjectLocation] = useState<DirectoryLocation>();
 	const createRequestId = useRef(crypto.randomUUID());
@@ -41,6 +46,18 @@ export default function ProjectsPage() {
     const [selectedStyle, setSelectedStyle] = useState<CanvasStylePreset | null>(null);
     const [stylePickerOpen, setStylePickerOpen] = useState(false);
     const [generateModel, setGenerateModel] = useState("");
+    const [creationRoute, setCreationRoute] = useState<"api" | "codex">("api");
+    const [creationSkills, setCreationSkills] = useState<Skill[]>([]);
+    const [writingSkillId, setWritingSkillId] = useState<string>();
+    const [polishingSkillId, setPolishingSkillId] = useState<string>();
+    const [polishRounds, setPolishRounds] = useState(1);
+    const launchBusy = useRef(false);
+    useEffect(() => {
+        let disposed = false;
+        setCreationSkills([]); setWritingSkillId(undefined); setPolishingSkillId(undefined);
+        if (userId) listAddedSkills().then(result => { if (!disposed) setCreationSkills(result.skills.filter(skill => skill.is_added)); }).catch(() => { if (!disposed) setCreationSkills([]); });
+        return () => { disposed = true; };
+    }, [userId]);
     const [generateChapterCount, setGenerateChapterCount] = useState("5");
     const [generateStructure, setGenerateStructure] = useState("单线推进");
     const [generateChapterLength, setGenerateChapterLength] = useState("中");
@@ -72,6 +89,7 @@ export default function ProjectsPage() {
     }, [createForm, createOpen, createSource, storyDraft]);
 
     const generateStory = async () => {
+        if (creationRoute === "codex") { await generateCodexStory(); return; }
         const story = storyDraft.trim();
         if (!story || generating) return;
         const textModel = generateModel || effectiveConfig.textModel;
@@ -118,6 +136,39 @@ export default function ProjectsPage() {
             setGenerationStatus("");
             setGenerationPreview("");
         }
+    };
+    const generateCodexStory = async () => {
+        if (!storyDraft.trim() || generating || launchBusy.current || !userId) return;
+        if (!isAgentFeatureEnabled("film.agent_generic_runtime") || !isAgentFeatureEnabled("film.agent_codex_subscription")) { message.error("当前构建未开启 Codex 订阅创作，请使用已启用该入口的源码工作台。尚未创建项目。"); return; }
+        const skillIds = [...new Set([writingSkillId, polishingSkillId].filter((id): id is string => !!id))];
+        if (skillIds.some(id => !creationSkills.some(skill => skill.skill_id === id))) { message.error("所选技能已不可用，请重新选择"); return; }
+        launchBusy.current = true;
+        setGenerating(true);
+        setGenerationStatus("正在准备Codex订阅创作…");
+        const id = crypto.randomUUID();
+        let recoveryProjectId = "";
+        try {
+            const result = await createUniqueProjectName(storyDraft, selectedStyle, localProjects ? { requestId: id, locationToken: projectLocation?.locationToken } : undefined);
+            recoveryProjectId = result.project.id;
+            const canvas = await createCanvasProjectWithRemoteSync(`${result.project.name} · 创作`, result.project.id, { nodes: [], connections: [] });
+            if (canvas.syncError) throw new Error("作品已创建，但创作画布尚未确认保存。请从项目列表打开原作品，不要重复创建。");
+            const rounds = polishingSkillId ? polishRounds : 0;
+            const prompt = [
+                "根据以下用户创意，从零创作完整短剧章节，并保存到当前授权业务项目。不要调用模型API或生成媒体，不操作其他作品、旧章节或正式审批。",
+                `创意：${storyDraft.trim()}`,
+                `要求：${generateChapterCount}章，每章约${generateWordCount}字；${generateStructure}，${generatePerspective}，${generateTone}，主要角色${generateCharacterScale}，篇幅${generateChapterLength}。`,
+                writingSkillId ? `编剧遵循选定技能 @[skill:${writingSkillId}]。` : "按用户创意完成可演出的剧本正文，不仅是大纲。",
+                `先读取workbench_get_context和project_get_context。用project_create_script整批保存这${generateChapterCount}个章节，requestId必须为script-${id}，expectedProjectRevision取刚读到的project.revision。正文使用HTML段落，完整保留场景、动作及对白。`,
+                rounds ? `初稿v1保存回读后，依照打磨技能 @[skill:${polishingSkillId}] 检查和打磨本批新章，最多${rounds}轮；有明确改进才用project_revise_script精确修订并回读，不为凑轮次修改。每轮说明发现和变化，保留全部旧版本。` : "本轮只生成和保存初稿，不自动打磨。",
+                "写入失败或结果不确定先读取原requestId回执和当前正文，不能换ID重复建章。全部回读通过才说已保存；最终报告章节ID/版本、已采用技能、未达标项，并提供工作台结果入口。不要把模型自评说成用户批准或成熟终稿。",
+            ].join("\n\n");
+            await saveScriptLaunch({ id, userId, projectId: result.project.id, canvasId: canvas.id, prompt, skillIds, chapterCount: Number(generateChapterCount), polishRounds: rounds, createdAt: Date.now(), claimed: false });
+            await queryClient.invalidateQueries({ queryKey: ["projects"] });
+            navigate(`/canvas/${canvas.id}?mode=recent&scriptLaunch=${id}`);
+        } catch (error) {
+            message.error(error instanceof Error ? error.message : "Codex创作准备失败");
+            if (recoveryProjectId) navigate(`/projects/${recoveryProjectId}/overview`);
+        } finally { launchBusy.current = false; setGenerating(false); setGenerationStatus(""); }
     };
     const loadMoreRef = useRef<HTMLDivElement>(null);
     const query = useInfiniteQuery({
@@ -195,7 +246,8 @@ export default function ProjectsPage() {
                         <button type="button" className="app-story-create-shortcut" onClick={() => openCreate("blank")}><FolderKanban className="size-4" />空白项目</button>
                         <button type="button" className="app-story-create-shortcut" onClick={() => openCreate("novel")}><FileText className="size-4" />导入小说</button>
                         <button type="button" className="app-story-create-shortcut" onClick={() => setStylePickerOpen(true)}><Palette className="size-4" />{selectedStyle ? "更换画风" : "选画风"}</button>
-                        <ModelPicker
+                        <Select aria-label="编剧方式" value={creationRoute} onChange={setCreationRoute} options={[{ label: "模型 API", value: "api" }, { label: "Codex 订阅", value: "codex" }]} />
+                        {creationRoute === "api" ? <ModelPicker
                             config={effectiveConfig}
                             value={generateModel || effectiveConfig.textModel}
                             onChange={setGenerateModel}
@@ -203,8 +255,8 @@ export default function ProjectsPage() {
                             variant="creation"
                             placeholder="选择文本模型"
                             showSelectedPrice={false}
-                        />
-                        <Button type="default" icon={<Sparkles className="size-3.5" />} disabled={!storyDraft.trim() || generating} loading={generating} onClick={() => void generateStory()}>AI 生成章节</Button>
+                        /> : null}
+                        <Button type="default" icon={<Sparkles className="size-3.5" />} disabled={!storyDraft.trim() || generating} loading={generating} onClick={() => void generateStory()}>{creationRoute === "codex" ? "Codex 编剧并保存" : "AI 生成章节"}</Button>
                         <Button type="primary" icon={<Plus className="size-3.5" />} onClick={() => openCreate(createSource)}>开始创作</Button>
                     </div>
                 </div>
@@ -223,6 +275,12 @@ export default function ProjectsPage() {
                     </button> : null}
                 </div>
                 <div className="app-story-create-controls">
+                    {creationRoute === "codex" ? <>
+                        <label><span>编剧技能</span><Select aria-label="编剧技能" className="min-w-40" allowClear placeholder="可选，使用已添加技能" value={writingSkillId} onChange={setWritingSkillId} options={creationSkills.map(skill => ({ label: skill.skill_name, value: skill.skill_id }))} /></label>
+                        <label><span>打磨技能</span><Select aria-label="打磨技能" className="min-w-40" allowClear placeholder="可选，初稿保存后打磨" value={polishingSkillId} onChange={setPolishingSkillId} options={creationSkills.map(skill => ({ label: skill.skill_name, value: skill.skill_id }))} /></label>
+                        {polishingSkillId ? <label><span>最多打磨</span><Select aria-label="最多打磨轮数" value={polishRounds} onChange={setPolishRounds} options={[1, 2, 3].map(value => ({ label: `${value}轮`, value }))} /></label> : null}
+                        <span className="w-full text-xs text-muted-foreground">使用 Codex 订阅；仅自动保存本次新章及所选打磨，随时可停止。不生成图片。</span>
+                    </> : null}
                     <label><span>章节数量</span><Select size="small" className="min-w-28" value={generateChapterCount} onChange={setGenerateChapterCount} options={[{ label: "3 章", value: "3" }, { label: "5 章", value: "5" }, { label: "8 章", value: "8" }, { label: "10 章", value: "10" }]} /></label>
                     <label><span>叙事结构</span><Select size="small" className="min-w-32" value={generateStructure} onChange={setGenerateStructure} options={[{ label: "单线推进", value: "单线推进" }, { label: "双线并行", value: "双线并行" }, { label: "群像多线", value: "群像多线" }, { label: "反转嵌套", value: "反转嵌套" }]} /></label>
                     <label><span>章节篇幅</span><Select size="small" className="min-w-28" value={generateChapterLength} onChange={setGenerateChapterLength} options={[{ label: "精炼", value: "短" }, { label: "均衡", value: "中" }, { label: "丰满", value: "长" }]} /></label>

@@ -45,6 +45,7 @@ import { resolveStoryboardGenerationContext } from "@/lib/canvas/canvas-storyboa
 import { buildSkillMentionReferences } from "@/lib/canvas/canvas-skill-mentions";
 import { buildCanvasWorkflowOps, looksLikeWorkflowRequest, type CanvasWorkflowInput } from "@/lib/canvas/canvas-agent-workflow";
 import { listAddedSkills, type Skill } from "@/services/api/skills";
+import type { ScriptLaunch } from "@/services/script-creation-launch";
 
 export const CANVAS_AGENT_PANEL_MOTION_MS = 500;
 const PANEL_MOTION_SECONDS = CANVAS_AGENT_PANEL_MOTION_MS / 1000;
@@ -76,6 +77,7 @@ type CanvasAssistantPanelProps = {
     agentMode: CanvasAgentMode;
     onAgentModeChange: (mode: CanvasAgentMode) => void;
     autoConnectLocal?: boolean;
+    scriptLaunch?: ScriptLaunch;
     closing: boolean;
     onCollapse: () => void;
     cinematicEntry?: boolean;
@@ -167,6 +169,7 @@ export function CanvasAssistantPanel({
     agentMode,
     onAgentModeChange,
     autoConnectLocal,
+    scriptLaunch,
     closing,
     onCollapse,
     cinematicEntry = false,
@@ -1104,7 +1107,7 @@ export function CanvasAssistantPanel({
                 nativeBrainSelectorEnabled={nativeBrainSelectorEnabled}
             />
             {genericAgentRuntimeEnabled
-                ? <CanvasLocalAgentPanel embedded genericRuntime brainProfileId={activeProfile} snapshot={snapshot} canUndoOps={canUndoOps} undoOpsCount={undoOpsCount} onApplyOps={onApplyOps} onUndoOps={onUndoOps} autoConnect={autoConnectLocal} />
+                ? <CanvasLocalAgentPanel embedded genericRuntime brainProfileId={activeProfile} snapshot={snapshot} canUndoOps={canUndoOps} undoOpsCount={undoOpsCount} onApplyOps={onApplyOps} onUndoOps={onUndoOps} autoConnect={autoConnectLocal} scriptLaunch={scriptLaunch} />
                 : activeProfile === "codex.subscription"
                   ? <CanvasLocalAgentPanel embedded snapshot={snapshot} canUndoOps={canUndoOps} undoOpsCount={undoOpsCount} onApplyOps={onApplyOps} onUndoOps={onUndoOps} autoConnect={autoConnectLocal} />
                   : activeProfile === "chatgpt.subscription.host"

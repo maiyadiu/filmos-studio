@@ -256,7 +256,11 @@ FilmOS 的普通创作会话复用上述 app-server 和 Canonical Tool Broker；
 
 侧边栏上传或粘贴的图片会先发到本机 Canvas Agent，再由 Canvas Agent 临时写入本机文件并作为 app-server `localImage` 输入传给 Codex；前端会提示附件体积，单次请求体限制为 30MB。
 
-侧边栏 Composer 中显式提及的网页技能不会被拼接进用户 Prompt。网页把技能 bundle 传给本机 Runtime，Runtime 为当前 turn 临时生成受限的 `SKILL.md`，并通过 Codex app-server 的原生 `skill` 输入项加载；技能不会被复制进文本输入，也不会添加 `$skill-name` 伪标记，turn 完成后删除临时文件。未被用户提及的技能不会进入该 turn。
+侧边栏Composer中显式选中的网页技能通过bundle传给本机Runtime，当前turn临时生成受限的`SKILL.md`。按官方app-server合同，文本携带真实`$skill-name`调用标记，同时提供对应原生`skill`输入项；不能只传路径而未触发加载，也不能仅加文字标记冒充已注入技能。技能正文不拼接进聊天Prompt、不静默截断，最多8个、每个128KiB，超限明确失败；turn结束删除临时文件。未被用户选中的技能不自动加入。
+
+原生桥接先通过进程内`skills/extraRoots/set`注册本轮临时目录，再`skills/list`核对名称、enabled与真实路径；`skill`输入使用相同realpath，避免macOS `/var`与`/private/var`别名造成正文未加载。结束清除进程目录，不写全局skills配置；不支持此协议或核验失败时明确停止本次模型请求。共享的旧会话进程不允许同时更换在用技能目录。
+
+“Codex编剧并保存”从项目创建入口发起，订阅会话先用`project_create_script`在同一业务项目整批保存新章及v1历史，`project_get_script_batch`按稳定requestId回读。仅本次turn可免重复确认创建指定批次和打磨其真实新章（最多所选1–3轮）；旧章、跨项目、媒体、删除及正式批准仍走原权限。取消或结束即失效，刷新导航不会自动重发不确定请求。原API编剧入口保留，ChatGPT订阅从零编剧按用户要求暂缓。
 
 ## Claude Code
 

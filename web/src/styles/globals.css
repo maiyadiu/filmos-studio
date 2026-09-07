@@ -12903,8 +12903,8 @@ html:not(.dark) .creation-history-drawer-root {
     display: inline-flex;
     align-items: center;
     gap: 8px;
-    color: color-mix(in srgb, var(--foreground) 42%, transparent);
-    font-size: var(--fs-tiny);
+    color: var(--muted-foreground);
+    font-size: var(--fs-caption);
 }
 
 .app-story-create-controls .ant-select {

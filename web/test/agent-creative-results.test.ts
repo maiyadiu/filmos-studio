@@ -14,6 +14,20 @@ function scope(): CanvasAgentSnapshot {
         nodes: [node] };
 }
 const item = (name: string, result: unknown) => ({ role: "tool", detail: { name, result } });
+test("script batch navigation requires persisted scoped distinct chapters, including historical initial receipts", () => {
+    const snapshot = scope(); delete snapshot.contentUnitId;
+    const output = { ok: true, data: { receipt: { projectId: "p", unitIds: ["a", "b"] }, verification: { ok: true, persisted: true, matchesCurrent: false } } };
+    expect(agentCreativeResult(item("project_create_script", output), snapshot)).toEqual({ kind: "script-batch", projectId: "p", unitIds: ["a", "b"] });
+    expect(agentCreativeResult(item("project_get_script_batch", output), snapshot)).toMatchObject({ kind: "script-batch" });
+    for (const ids of [[], ["a", "a"], [""], Array(51).fill("a")]) {
+        expect(agentCreativeResult(item("project_create_script", { ...output, data: { ...output.data, receipt: { projectId: "p", unitIds: ids } } }), snapshot)).toBeNull();
+    }
+    expect(agentCreativeResult(item("project_create_script", output), scope())).toBeNull();
+    output.data.receipt.projectId = "foreign";
+    expect(agentCreativeResult(item("project_create_script", output), snapshot)).toBeNull();
+    output.data.receipt.projectId = "p"; output.data.verification.persisted = false;
+    expect(agentCreativeResult(item("project_create_script", output), snapshot)).toBeNull();
+});
 function prompt() {
     const context = { canvasId: "c", projectId: "p", nodeId: "n", rowId: "project-shot:s", kind: "image", state: { revision: 2 },
         dependencies: { project: { id: "p" }, source: { unitId: "u" }, shot: { id: "s", projectId: "p", unitId: "u", position: 0 } } };

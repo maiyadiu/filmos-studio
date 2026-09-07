@@ -234,6 +234,10 @@ export function publicAgentRuntimeFailure(error: unknown) {
     if (error instanceof CanvasPromptConflictError) return new LocalRuntimeSessionError(error.code, error.message, 409);
     if (!(error instanceof Error)) return undefined;
     const code = error.message.split(":", 1)[0];
+    if (["CODEX_SKILL_CATALOG_UNAVAILABLE", "CODEX_SKILL_NOT_LOADED", "CODEX_SKILL_WORKSPACE_UNAVAILABLE", "CODEX_SKILL_FILE_UNAVAILABLE", "CODEX_SKILL_NAME_INVALID"].includes(code)) return new LocalRuntimeSessionError("agent_skill_unavailable", "所选技能未被原生Codex完整加载，本次模型任务未启动。请检查技能正文及本机Codex版本；不会用技能简介或模型API代替", 409);
+    if (["AGENT_SKILL_INVALID", "AGENT_SKILL_INVALID_OR_TOO_LARGE", "AGENT_SKILL_COUNT_EXCEEDED", "AGENT_SKILL_TOO_LARGE"].includes(code)) return new LocalRuntimeSessionError("agent_skill_invalid", "技能正文无效或超限：最多8个技能、每个128KiB。任务未启动，请检查所选技能，草稿保留", 400);
+    if (code === "CODEX_SKILL_SESSION_BUSY") return new LocalRuntimeSessionError("agent_skill_session_busy", "当前原生进程仍有技能任务执行中，请待其完成后继续；本次任务未启动", 409);
+    if (code === "CODEX_SKILL_CLEANUP_UNCONFIRMED") return new LocalRuntimeSessionError("agent_skill_cleanup_unconfirmed", "技能临时状态清理未确认，已关闭本轮原生进程；已保存内容可能存在，请恢复原会话并回读结果，不要重复建章", 409);
     if (code === "AGENT_TOOL_POSTCONDITION_FAILED" || code === "AGENT_TOOL_POSTCONDITION_REQUIRED") return new LocalRuntimeSessionError("agent_tool_result_unverified", "工具已执行，但结果核验未通过；可能已有保存，不代表零写入。请回读业务版本和原请求回执，暂停依赖步骤，不要盲目重发或重建对象", 409);
     if (code === "CANVAS_CONTEXT_UNAVAILABLE") return new LocalRuntimeSessionError("canvas_context_unavailable", "浏览器画布上下文暂不可用；等待工作台重连后调用 workbench_get_context，再回读实际保存版本；不要自动重发写入", 503);
     if (code === "AGENT_GRANT_NOT_FOUND" || code === "AGENT_GRANT_EXPIRED") return new LocalRuntimeSessionError("agent_grant_refresh_required", "会话授权已失效；恢复当前会话后回读实际结果，不要反复提交旧请求", 409);

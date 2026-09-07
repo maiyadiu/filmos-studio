@@ -17,6 +17,14 @@ test("classified backend errors preserve exact status with safe recovery guidanc
 });
 
 test("public Agent failures expose stable actionable codes without leaking adapter details", () => {
+    for (const code of ["CODEX_SKILL_CATALOG_UNAVAILABLE", "CODEX_SKILL_NOT_LOADED", "CODEX_SKILL_FILE_UNAVAILABLE"]) {
+        const failure = publicAgentRuntimeFailure(new Error(`${code}:private-path`));
+        assert.equal(failure?.code, "agent_skill_unavailable");
+        assert.match(failure?.message || "", /未启动/);
+        assert.doesNotMatch(failure?.message || "", /private-path/);
+    }
+    assert.equal(publicAgentRuntimeFailure(new Error("AGENT_SKILL_TOO_LARGE"))?.statusCode, 400);
+    assert.equal(publicAgentRuntimeFailure(new Error("CODEX_SKILL_SESSION_BUSY"))?.statusCode, 409);
     for (const code of ["AGENT_TOOL_POSTCONDITION_FAILED", "AGENT_TOOL_POSTCONDITION_REQUIRED"]) {
         const failure = publicAgentRuntimeFailure(new Error(`${code}:private detail`));
         assert.equal(failure?.code, "agent_tool_result_unverified");

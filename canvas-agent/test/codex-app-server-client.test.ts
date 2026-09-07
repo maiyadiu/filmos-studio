@@ -2,7 +2,45 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { EventEmitter } from "node:events";
 import { PassThrough, Writable } from "node:stream";
+import fs from "node:fs/promises";
+import { writeSkillFiles } from "../src/agents.js";
 import { CodexAppServerClient } from "../src/brains/adapters/codex-app-server-client.js";
+
+test("native skill preflight registers only temporary roots and requires exact enabled catalog paths", async () => {
+    const prepared = await writeSkillFiles([{ skillId: "native-test", name: "验收", instruction: "正文末尾不能丢失" }]);
+    const selected = prepared.inputs[0], canonical = await fs.realpath(selected.path);
+    const stdout = new PassThrough();
+    const requests: Array<{ method: string; params: any }> = [];
+    let recognized = false;
+    const child = Object.assign(new EventEmitter(), { stdout, stderr: new PassThrough(), exitCode: 0,
+        stdin: new Writable({ write(chunk, _encoding, callback) {
+            const request = JSON.parse(String(chunk)); requests.push(request);
+            let result: unknown = {};
+            if (request.method === "thread/start") result = { thread: { id: "skill-thread" } };
+            if (request.method === "skills/list") result = { data: [{ cwd: "/tmp/skill-test", skills: recognized ? [{ name: selected.name, enabled: true, path: canonical }] : [] }] };
+            if (request.method === "turn/start") result = { turn: { id: "skill-turn" } };
+            if (request.id) queueMicrotask(() => {
+                stdout.write(JSON.stringify({ id: request.id, result }) + "\n");
+                if (request.method === "turn/start") stdout.write(JSON.stringify({ method: "turn/completed", params: { threadId: "skill-thread", turn: { id: "skill-turn", status: "completed" } } }) + "\n");
+            });
+            callback();
+        } }),
+    });
+    const client = await CodexAppServerClient.start({ command: "unused", args: [], version: "test", emit: () => undefined, spawnProcess: (() => child) as never });
+    try {
+        await client.startThread("/tmp/skill-test", {});
+        await assert.rejects(client.startTurn("skill-thread", "test", [], [selected]), /CODEX_SKILL_NOT_LOADED/);
+        assert.equal(requests.filter(r => r.method === "turn/start").length, 0);
+        assert.deepEqual(requests.at(-1)?.params, { extraRoots: [] });
+        recognized = true;
+        await client.startTurn("skill-thread", "test", [], [selected]);
+        const turn = requests.find(r => r.method === "turn/start")!;
+        assert.deepEqual(turn.params.input.at(-1), { ...selected, path: canonical });
+        assert.equal(turn.params.input[0].text, `$${selected.name}\n\ntest`);
+        assert.deepEqual(requests.at(-1)?.params, { extraRoots: [] });
+        assert.equal(requests.some(r => r.method.includes("config/write") || r.method === "config/batchWrite"), false);
+    } finally { await client.dispose(); await Promise.all(prepared.directories.map(directory => fs.rm(directory, { recursive: true, force: true }))); }
+});
 
 test("workbench start and resume disable inherited MCP servers only in thread config", async () => {
     const stdout = new PassThrough();

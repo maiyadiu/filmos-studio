@@ -1,4 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import fs from "node:fs/promises";
+import path from "node:path";
 
 import type { AgentEmit } from "../../types.js";
 
@@ -22,6 +24,10 @@ export class CodexAppServerClient {
     private activeTurns = new Map<string, ActiveTurn>();
     private completedTurns = new Map<string, Error | null>();
     private threadBindings = new Map<string, CodexThreadBinding>();
+    private threadCwds = new Map<string, string>();
+    private skillTurnThread?: string;
+    private readonly turnStarts = new Set<symbol>();
+    private skillRootsRegistered = false;
     private disposed = false;
 
     private constructor(
@@ -98,6 +104,7 @@ export class CodexAppServerClient {
         const thread = field(result, "thread") as Json | undefined;
         const id = String(field(thread, "id") || "");
         if (!id) throw new Error("Codex app-server 没有返回 thread id");
+        if (cwd) this.threadCwds.set(id, cwd);
         if (binding) this.bindThread(id, binding);
         return thread || {};
     }
@@ -114,6 +121,7 @@ export class CodexAppServerClient {
         const thread = field(result, "thread") as Json | undefined;
         const id = String(field(thread, "id") || "");
         if (!id) throw new Error("Codex app-server 没有返回 thread id");
+        if (cwd) this.threadCwds.set(id, cwd);
         if (binding && id !== threadId) {
             this.unbindThread(threadId);
             this.bindThread(id, binding);
@@ -159,24 +167,71 @@ export class CodexAppServerClient {
     }
 
     async startTurn(threadId: string, prompt: string, images: string[], skills: CodexSkillInput[] = [], binding?: CodexThreadBinding, onTurnStarted?: (turnId: string) => void, policy: CodexExecutionPolicy = interactivePolicy) {
-        if (binding) this.bindThread(threadId, binding);
-        const result = await this.request("turn/start", {
-            threadId,
-            input: codexInput(prompt, images, skills),
-            ...policyParams(policy),
-        });
-        const turnId = String(field(field(result, "turn"), "id") || "");
-        if (!turnId) throw new Error("Codex app-server 没有返回 turn id");
-        onTurnStarted?.(turnId);
-        const completed = this.completedTurns.get(turnId);
-        if (this.completedTurns.has(turnId)) {
-            this.completedTurns.delete(turnId);
-            if (completed) throw completed;
+        // Generic workbench sessions have dedicated processes. Legacy callers
+        // sharing a process must not replace another live turn's skill catalog.
+        if (this.skillTurnThread || (skills.length && (this.activeTurns.size || this.turnStarts.size))) throw new Error("CODEX_SKILL_SESSION_BUSY");
+        const starting = Symbol(threadId);
+        this.turnStarts.add(starting);
+        if (skills.length) this.skillTurnThread = threadId;
+        try {
+            if (binding) this.bindThread(threadId, binding);
+            const nativeSkills = skills.length ? await this.prepareTurnSkills(threadId, skills) : [];
+            const result = await this.request("turn/start", {
+                threadId,
+                input: codexInput(prompt, images, nativeSkills),
+                ...policyParams(policy),
+            });
+            this.turnStarts.delete(starting);
+            const turnId = String(field(field(result, "turn"), "id") || "");
+            if (!turnId) throw new Error("Codex app-server 没有返回 turn id");
+            onTurnStarted?.(turnId);
+            const completed = this.completedTurns.get(turnId);
+            if (this.completedTurns.has(turnId)) {
+                this.completedTurns.delete(turnId);
+                if (completed) throw completed;
+                return { turnId };
+            }
+            const emit = binding?.emit ?? this.threadBindings.get(threadId)?.emit ?? this.processEmit;
+            await new Promise((resolve, reject) => this.activeTurns.set(turnId, { resolve, reject, emit, threadId }));
             return { turnId };
+        } finally {
+            this.turnStarts.delete(starting);
+            if (skills.length) {
+                try {
+                    if (this.skillRootsRegistered) await this.request("skills/extraRoots/set", { extraRoots: [] });
+                } catch {
+                    await this.dispose();
+                    throw new Error("CODEX_SKILL_CLEANUP_UNCONFIRMED");
+                } finally { this.skillTurnThread = undefined; this.skillRootsRegistered = false; }
+            }
         }
-        const emit = binding?.emit ?? this.threadBindings.get(threadId)?.emit ?? this.processEmit;
-        await new Promise((resolve, reject) => this.activeTurns.set(turnId, { resolve, reject, emit, threadId }));
-        return { turnId };
+    }
+
+    private async prepareTurnSkills(threadId: string, skills: CodexSkillInput[]) {
+        const cwd = this.threadCwds.get(threadId);
+        if (!cwd) throw new Error("CODEX_SKILL_WORKSPACE_UNAVAILABLE");
+        const paths = await Promise.all(skills.map(skill => fs.realpath(skill.path).catch(() => { throw new Error("CODEX_SKILL_FILE_UNAVAILABLE"); })));
+        // App-server processes are session-scoped. These roots are ephemeral,
+        // not user settings. Use the installed protocol, then verify exact paths:
+        // unsupported per-cwd fields can otherwise be silently ignored.
+        await this.request("skills/extraRoots/set", { extraRoots: [...new Set(paths.map(file => path.dirname(path.dirname(file))))] }).catch(() => { throw new Error("CODEX_SKILL_CATALOG_UNAVAILABLE"); });
+        this.skillRootsRegistered = true;
+        const result = await this.request("skills/list", { cwds: [cwd], forceReload: true }).catch(() => { throw new Error("CODEX_SKILL_CATALOG_UNAVAILABLE"); });
+        const data = field(result, "data");
+        const entry = Array.isArray(data) ? data.find(item => field(item, "cwd") === cwd) : undefined;
+        const available = field(entry, "skills");
+        if (!Array.isArray(available)) throw new Error("CODEX_SKILL_CATALOG_UNAVAILABLE");
+        for (let index = 0; index < skills.length; index++) {
+            const matches = available.filter(item => field(item, "name") === skills[index].name && field(item, "enabled") === true);
+            const recognized = await Promise.all(matches.map(async item => {
+                const file = field(item, "path");
+                return typeof file === "string" && await fs.realpath(file).catch(() => "") === paths[index];
+            }));
+            if (!recognized.includes(true)) throw new Error(`CODEX_SKILL_NOT_LOADED:${skills[index].name}`);
+        }
+        // Native explicit selection matches catalog paths literally (/var and
+        // /private/var can name the same macOS file but not the same skill key).
+        return skills.map((skill, index) => ({ ...skill, path: paths[index] }));
     }
 
     interruptTurn(threadId: string, turnId: string) {
@@ -371,8 +426,15 @@ export function acceptServerRequest(method: string, content: Record<string, unkn
 }
 
 export function codexInput(prompt: string, images: string[], skills: CodexSkillInput[]) {
+    // App-server requires the explicit skill-name marker together with the
+    // native skill item to inject its full instructions. A path alone can be
+    // silently ignored; never replace the native item with pasted instructions.
+    const markers = skills.map(skill => {
+        if (!/^[a-zA-Z0-9_-]+$/.test(skill.name)) throw new Error("CODEX_SKILL_NAME_INVALID");
+        return `$${skill.name}`;
+    });
     return [
-        { type: "text", text: prompt, text_elements: [] },
+        { type: "text", text: markers.length ? `${markers.join(" ")}\n\n${prompt}` : prompt, text_elements: [] },
         ...images.map((file) => ({ type: "localImage", path: file })),
         ...skills,
     ];

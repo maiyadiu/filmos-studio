@@ -32,6 +32,7 @@ import { agentCreativeResult, creativeToolTargetSummary } from "@/lib/canvas/age
 import { AgentCreativeResultAction } from "./agent-creative-result";
 import { resolveSkillMentions } from "@/lib/canvas/canvas-skill-mentions";
 import { listAddedSkills, type Skill } from "@/services/api/skills";
+import { claimScriptLaunch, matchesScriptLaunch, type ScriptLaunch } from "@/services/script-creation-launch";
 import { isProjectAgentReadTool, isProjectAgentToolName, runProjectAgentTool } from "@/services/api/project-agent-tools";
 import { AgentChatComposer, AgentChatMessage, AgentPendingToolCard, AgentPlanCard, AgentWorkingMessage, type CanvasAgentChatAttachment } from "./canvas-agent-chat-ui";
 import { VoiceRecordingButton } from "@/components/conversation/voice-recording-button";
@@ -103,6 +104,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
     genericRuntime = false,
     brainProfileId = "codex.subscription",
     autoConnect,
+    scriptLaunch,
     onApplyOps,
     onUndoOps,
 }: {
@@ -115,6 +117,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
     genericRuntime?: boolean;
     brainProfileId?: string;
     autoConnect?: boolean;
+    scriptLaunch?: ScriptLaunch;
     onApplyOps: (ops: CanvasAgentOp[], context?: { conversationId?: string; messageId?: string; source?: "online" | "local" }) => Promise<CanvasAgentSnapshot>;
     onUndoOps: () => CanvasAgentSnapshot | null;
 }) {
@@ -172,19 +175,23 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
     // 供 Agent 输入框「@」插入的画布节点引用候选（active 标记为可用，供「@」菜单列出），与「/」弹出的已加入技能候选
     const composerReferences = useMemo(() => buildCanvasResourceReferences(snapshot.nodes, snapshot.connections).map((item) => ({ ...item, active: true })), [snapshot]);
     const [composerSkills, setComposerSkills] = useState<Skill[]>([]);
+    const [skillsReady, setSkillsReady] = useState(false);
+    const launchAttemptedRef = useRef<string | null>(null);
     useEffect(() => {
         let cancelled = false;
+        setSkillsReady(false);
+        setComposerSkills([]);
         listAddedSkills()
             .then((result) => {
-                if (!cancelled) setComposerSkills(result?.skills ?? []);
+                if (!cancelled) { setComposerSkills(result?.skills ?? []); setSkillsReady(true); }
             })
             .catch(() => {
-                // 技能列表加载失败只影响「/」菜单，不影响输入主功能
+                if (!cancelled) setSkillsReady(true);
             });
         return () => {
             cancelled = true;
         };
-    }, []);
+    }, [user?.id]);
     const snapshotRef = useRef(snapshot);
     const confirmToolsRef = useRef(confirmTools);
     const pendingToolRef = useRef<AgentPendingToolCall | null>(null);
@@ -495,9 +502,9 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
         return () => clearTimeout(timer);
     }, [connected, snapshot, syncState]);
 
-    const sendPrompt = async (overrideText?: string) => {
+    const sendPrompt = async (overrideText?: string, creation?: ScriptLaunch) => {
         const text = (overrideText ?? prompt).trim();
-        const files = attachments;
+        const files = creation ? [] : attachments;
         const mentionedSkills = resolveSkillMentions(text, composerSkills);
         const requestPrompt = promptWithAttachments(text, files);
         if (!connected || !requestPrompt || sending || waiting || pendingTool || activeTurnRef.current || (genericRuntime && activeThreadId && !executionKnown)) return;
@@ -515,6 +522,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
         addMessage({ role: "user", text: text || "发送了图片", attachments: files });
         addEventLog("用户发送", { text, attachments: files.map(({ name, type, size }) => ({ name, type, size })) });
         try {
+            if (mentionedSkills.some(skill => !skill.instruction?.trim())) throw new Error("所选技能缺少完整正文，任务未发送；请在技能库补齐，不会用技能简介代替。");
             if (genericRuntime) {
                 let sessionId = useCanvasAgentStore.getState().activeThreadId;
                 if (!sessionId) {
@@ -533,7 +541,8 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
                     turnId,
                     prompt: requestPrompt,
                     attachments: files.map(({ name, type, dataUrl }) => ({ name, type, dataUrl })),
-                    skills: mentionedSkills.map((skill) => ({ skillId: skill.skill_id, name: skill.skill_name, description: skill.description, instruction: skill.instruction || skill.description })),
+                    skills: mentionedSkills.map((skill) => ({ skillId: skill.skill_id, name: skill.skill_name, description: skill.description, instruction: skill.instruction! })),
+                    ...(creation ? { scriptCreation: { requestId: `script-${creation.id}`, chapterCount: creation.chapterCount, polishRounds: creation.polishRounds } } : {}),
                 });
             } else {
                 const data = await fetchAgentJson<{ threadId?: string }>("/agent/codex/turn", {
@@ -544,7 +553,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
                         canvasId: snapshotRef.current.projectId,
                         threadId: useCanvasAgentStore.getState().activeThreadId || undefined,
                         attachments: files.map(({ name, type, dataUrl }) => ({ name, type, dataUrl })),
-                        skills: mentionedSkills.map((skill) => ({ skillId: skill.skill_id, name: skill.skill_name, description: skill.description, instruction: skill.instruction || skill.description })),
+                        skills: mentionedSkills.map((skill) => ({ skillId: skill.skill_id, name: skill.skill_name, description: skill.description, instruction: skill.instruction! })),
                     }),
                 });
                 if (data.threadId) setAgentState({ activeThreadId: data.threadId });
@@ -577,6 +586,25 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
             }
         }
     };
+
+    useEffect(() => {
+        if (!scriptLaunch || !genericRuntime || brainProfileId !== "codex.subscription" || !skillsReady || !connected || sending || waiting || pendingTool || activeTurnRef.current || launchAttemptedRef.current === scriptLaunch.id) return;
+        if (!matchesScriptLaunch(scriptLaunch, user?.id || "", snapshot.projectId, snapshot.domainProjectId || "")) return;
+        launchAttemptedRef.current = scriptLaunch.id;
+        if (scriptLaunch.claimed || activeThreadId) {
+            addMessage({ role: "system", title: "创作恢复", text: "此创作草稿已发起过，或当前已有会话；未自动重复发送。请在历史中恢复原会话并回读已保存章节。" });
+            return;
+        }
+        setAgentState({ prompt: scriptLaunch.prompt });
+        if (scriptLaunch.skillIds.some(id => !composerSkills.some(skill => skill.is_added && skill.skill_id === id))) {
+            addMessage({ role: "error", title: "所选技能不可用", text: "未发送创作任务，请重新选择技能。创意草稿与项目已保留。" });
+            return;
+        }
+        const scope = sessionScopeKey;
+        void claimScriptLaunch(scriptLaunch).then(claimed => {
+            if (claimed && sessionScopeRef.current === scope) return sendPrompt(scriptLaunch.prompt, scriptLaunch);
+        }).catch(error => addMessage({ role: "error", title: "未自动发送", text: error instanceof Error ? error.message : "请检查原会话，勿重复创建项目" }));
+    }, [scriptLaunch, genericRuntime, brainProfileId, skillsReady, connected, sending, waiting, pendingTool, activeThreadId, composerSkills, sessionScopeKey, user?.id, snapshot.projectId, snapshot.domainProjectId]);
 
     const addAttachments = async (files: FileList | File[] | null) => {
         if (!files) return;
@@ -1613,6 +1641,8 @@ function toolName(name: string) {
     if (name === "canvas_set_viewport") return "调整视口";
     if (name === "canvas_run_generation") return "触发生成";
     if (name === "project_get_context") return "读取项目上下文";
+    if (name === "project_create_script") return "创建章节并核验保存";
+    if (name === "project_get_script_batch") return "回读初稿批次";
     if (name === "project_get_script") return "读取完整剧本";
     if (name === "project_get_script_revision") return "回读剧本修订";
     if (name === "project_revise_script") return "修订剧本并核验保存";

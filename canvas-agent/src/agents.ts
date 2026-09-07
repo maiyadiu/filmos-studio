@@ -316,15 +316,20 @@ export async function writeSkillFiles(skills: AgentSkillReference[]) {
     const inputs: CodexSkillInput[] = [];
     const usedNames = new Set<string>();
     try {
-        for (const skill of skills.slice(0, 8)) {
-            const instruction = String(skill.instruction || "").trim().slice(0, 24_000);
-            if (!instruction) continue;
+        if (skills.length > 8) throw new Error("AGENT_SKILL_COUNT_EXCEEDED");
+        for (const skill of skills) {
+            const instruction = String(skill.instruction || "");
+            if (!instruction.trim()) continue;
+            if (Buffer.byteLength(instruction, "utf8") > 128 * 1024) throw new Error("AGENT_SKILL_TOO_LARGE");
             const baseName = `canvas-${safeSkillSegment(skill.skillId || skill.name)}`;
             const name = uniqueSkillName(baseName, usedNames);
             usedNames.add(name);
             const directory = await fs.mkdtemp(path.join(os.tmpdir(), "infinite-canvas-skill-"));
             directories.push(directory);
-            const file = path.join(directory, "SKILL.md");
+            // Native catalogs scan a root's child skill directories.
+            const skillDirectory = path.join(directory, name);
+            await fs.mkdir(skillDirectory, { mode: 0o700 });
+            const file = path.join(skillDirectory, "SKILL.md");
             const description = String(skill.description || skill.name).trim().slice(0, 500).replace(/[\r\n]+/g, " ");
             const body = [`---`, `name: ${name}`, `description: ${JSON.stringify(description)}`, `---`, ``, `# ${skill.name}`, ``, instruction, ``].join("\n");
             await fs.writeFile(file, body, "utf8");

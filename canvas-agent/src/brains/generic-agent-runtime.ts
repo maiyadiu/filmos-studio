@@ -27,6 +27,7 @@ import { CanonicalAgentToolBroker, type AgentBrokerOutcome } from "./tool-broker
 import { AgentRuntimeInstrumentation } from "./instrumentation.js";
 import { registerProductionToolProviders, type CanonicalCanvasToolExecutor } from "./tool-providers.js";
 import type { BrainSession } from "./contracts.js";
+import { ScriptCreationScope } from "./script-creation-scope.js";
 import { HttpReviewBusCoordinator, ReviewCodexCoordinator, reviewConversationId, reviewTurnId } from "./review-codex-coordinator.js";
 import { ReviewWorktreeManager } from "./review-worktree-manager.js";
 
@@ -64,6 +65,7 @@ export class GenericAgentRuntime {
     private readonly sessionHydrations = new Map<string, Promise<BrainSession>>();
     private readonly resumingSessions = new Set<string>();
     private readonly activeTurns = new Map<string, string>();
+    private readonly scriptCreationScopes = new Map<string, ScriptCreationScope>();
     private readonly turnControllers = new Map<string, AbortController>();
     private readonly cancelledTurns = new Set<string>();
     private readonly confirmationWaiters = new Map<string, ConfirmationWaiter>();
@@ -181,7 +183,7 @@ export class GenericAgentRuntime {
         return { session: next, context: captured.pack, receipt: captured.receipt };
     }
 
-    async sendTurn(sessionId: string, input: { turnId: string; prompt: string; localImagePaths?: string[]; localSkills?: Array<{ type: "skill"; name: string; path: string }> }, emit: AgentEmit) {
+    async sendTurn(sessionId: string, input: { turnId: string; prompt: string; localImagePaths?: string[]; localSkills?: Array<{ type: "skill"; name: string; path: string }>; scriptCreation?: unknown }, emit: AgentEmit) {
         if (this.activeTurns.has(sessionId) || this.resumingSessions.has(sessionId)) throw new Error("AGENT_SESSION_TURN_ALREADY_RUNNING");
         if (this.cancelledTurns.has(`${sessionId}:${input.turnId}`)) throw new Error("AGENT_TURN_CANCELLED");
         const controller = new AbortController();
@@ -190,6 +192,10 @@ export class GenericAgentRuntime {
         try {
             await this.ensureSessionHydrated(sessionId);
             const captured = await this.captureContext(sessionId);
+            if (input.scriptCreation !== undefined) {
+                if (captured.session.brainProfileId !== "codex.subscription") throw new Error("SCRIPT_CREATION_CODEX_SUBSCRIPTION_REQUIRED");
+                this.scriptCreationScopes.set(sessionId, new ScriptCreationScope(captured.session.domainProjectId || "", input.scriptCreation));
+            }
             controller.signal.throwIfAborted();
             const result = await this.manager.sendTurn(sessionId, {
                 turnId: input.turnId,
@@ -211,6 +217,7 @@ export class GenericAgentRuntime {
         } finally {
             this.turnControllers.delete(sessionId);
             this.activeTurns.delete(sessionId);
+            this.scriptCreationScopes.delete(sessionId);
         }
     }
 
@@ -267,7 +274,9 @@ export class GenericAgentRuntime {
             input: input.toolInput,
             contextReceiptId,
             currentContext: this.snapshot(),
-            ordinaryConfirmationEnabled: input.ordinaryConfirmationEnabled,
+            ordinaryConfirmationEnabled: this.scriptCreationScopes.has(session.id)
+                ? !this.scriptCreationScopes.get(session.id)!.allows(input.toolName, input.toolInput)
+                : input.ordinaryConfirmationEnabled,
             signal,
         });
         if (signal?.aborted && outcome.status === "confirmation_required") {
@@ -275,6 +284,9 @@ export class GenericAgentRuntime {
             signal.throwIfAborted();
         }
         await this.emitBrokerOutcome(outcome, session.id, turnId);
+        if (outcome.status === "completed" && input.toolName === "project_create_script" && outcome.result.outcome === "succeeded") {
+            this.scriptCreationScopes.get(session.id)?.observeCreation(outcome.result.output);
+        }
         if (outcome.status === "completed") return outcome;
         if (this.activeTurns.has(session.id)) await this.store.updateSession(session.id, { status: "awaiting_confirmation", updatedAt: new Date().toISOString() });
         return outcome;

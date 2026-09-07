@@ -8,6 +8,48 @@ import { GenericAgentRuntime } from "../src/brains/generic-agent-runtime.js";
 import { AgentPermissionGrantStore } from "../src/brains/permission-grants.js";
 import { MemoryBrainSessionStore } from "../src/brains/session-store.js";
 import type { WorkbenchContextSnapshot } from "../src/brains/context-broker.js";
+import type { CanonicalCanvasToolExecutor } from "../src/brains/tool-providers.js";
+
+test("one-click script scope authorizes only verified new units in its active Codex turn and expires on success or cancel", async () => {
+    const store = new MemoryBrainSessionStore();
+    const snapshot: WorkbenchContextSnapshot = { projectId: "project-grant-recovery", canvasId: "canvas-grant-recovery", domainProjectId: "domain-script", canvasRevision: 1, canvasStateHash: "a".repeat(64), nodes: [], connections: [], selectedNodeIds: [], visibleNodeIds: [], assets: [] };
+    const calls: string[] = [];
+    const instance = runtime(store, new AgentPermissionGrantStore(), { hasConnectedBrowser: () => true, request: async () => { throw new Error("MODEL_API_FORBIDDEN"); } }, () => snapshot, {
+        callTool: async name => {
+            calls.push(String(name));
+            return { ok: true, data: { receipt: { projectId: "domain-script", requestId: "script-fixture", unitIds: ["new-a", "new-b"] }, verification: { ok: true, persisted: true, matchesCurrent: true } } };
+        },
+    });
+    const adapter = instance.registry.getAdapter("codex.subscription");
+    adapter.probe = async () => ({ profileId: "codex.subscription", status: "ready", checkedAt: new Date().toISOString() });
+    adapter.createSession = async () => ({ providerThreadId: "fixture-only" });
+    let release!: () => void;
+    adapter.cancelTurn = async () => { release?.(); };
+    try {
+        const { session } = await instance.createSession({ conversationId: "script-scope", brainProfileId: "codex.subscription", projectId: snapshot.projectId, canvasId: snapshot.canvasId, domainProjectId: snapshot.domainProjectId, actorId: "owner-grant-recovery" });
+        const create = { sessionId: session.id, toolName: "project_create_script", toolInput: { requestId: "script-fixture", expectedProjectRevision: 1, note: "fixture", chapters: [{ title: "a", sourceText: "<p>a</p>" }, { title: "b", sourceText: "<p>b</p>" }] } };
+        const revise = { sessionId: session.id, toolName: "project_revise_script", toolInput: { unitId: "new-a", expectedRevision: 1, requestId: "revise-fixture", note: "fixture", edits: [{ oldText: "a", newText: "a2" }] } };
+        adapter.sendTurn = async input => {
+            assert.equal((await instance.proposeTool(revise)).status, "confirmation_required");
+            assert.equal((await instance.proposeTool(create)).status, "completed");
+            assert.equal((await instance.proposeTool(revise)).status, "completed");
+            assert.equal((await instance.proposeTool({ ...revise, toolInput: { ...revise.toolInput, unitId: "old-unit" }, ordinaryConfirmationEnabled: false })).status, "confirmation_required");
+            assert.equal((await instance.proposeTool({ ...revise, toolInput: { ...revise.toolInput, expectedRevision: 2 } })).status, "confirmation_required");
+            await assert.rejects(instance.proposeTool({ ...create, turnId: "other-turn" }), /TURN_MISMATCH/);
+            return { sessionId: session.id, turnId: input.turnId, status: "completed", text: "fixture" };
+        };
+        const scriptCreation = { requestId: "script-fixture", chapterCount: 2, polishRounds: 1 };
+        await instance.sendTurn(session.id, { turnId: "create-turn", prompt: "fixture", scriptCreation }, () => undefined);
+        assert.deepEqual(calls, ["project_create_script", "project_revise_script"]);
+        assert.equal((await instance.proposeTool({ ...revise, turnId: "later-proposal" })).status, "confirmation_required");
+        let began!: () => void; const started = new Promise<void>(resolve => { began = resolve; });
+        adapter.sendTurn = async input => { await new Promise<void>(resolve => { release = resolve; began(); }); return { sessionId: session.id, turnId: input.turnId, status: "completed", text: "fixture" }; };
+        const cancelled = assert.rejects(instance.sendTurn(session.id, { turnId: "cancel-scope", prompt: "fixture", scriptCreation }, () => undefined), /TURN_CANCELLED/);
+        await started;
+        await instance.cancelTurn(session.id, "cancel-scope"); await cancelled;
+        assert.equal((await instance.proposeTool({ ...create, turnId: "after-cancel" })).status, "confirmation_required");
+    } finally { release?.(); await instance.dispose(); }
+});
 
 test("generic runtime rotates a missing grant for a hydrated and a persisted session", async () => {
     const requests: BrowserRuntimeRequest[] = [];
@@ -188,7 +230,7 @@ test("explicit context read renews expired receipts without bypassing stale writ
     } finally { await instance.dispose(); }
 });
 
-function runtime(store: MemoryBrainSessionStore, grants: AgentPermissionGrantStore, browserRuntime: BrowserRuntimeTransport, snapshot?: () => WorkbenchContextSnapshot) {
+function runtime(store: MemoryBrainSessionStore, grants: AgentPermissionGrantStore, browserRuntime: BrowserRuntimeTransport, snapshot?: () => WorkbenchContextSnapshot, canvasToolExecutor: CanonicalCanvasToolExecutor = { callTool: async () => ({ ok: true }) }) {
     return new GenericAgentRuntime(
         config(),
         () => undefined,
@@ -211,6 +253,7 @@ function runtime(store: MemoryBrainSessionStore, grants: AgentPermissionGrantSto
                 "film.agent_canonical_tool_manifest": true,
                 "film.agent_canonical_tool_broker": true,
                 "film.agent_model_api_profiles": true,
+                "film.agent_codex_subscription": true,
                 "film.agent_no_silent_api_fallback": true,
                 "film.agent_request_scoped_identity": true,
             }, {}),
@@ -218,7 +261,7 @@ function runtime(store: MemoryBrainSessionStore, grants: AgentPermissionGrantSto
             store,
             grants,
             persistentAudit: false,
-            canvasToolExecutor: { callTool: async () => ({ ok: true }) },
+            canvasToolExecutor,
         },
     );
 }

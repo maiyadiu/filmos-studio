@@ -17,6 +17,10 @@ description: 影策后端核心持久化表与状态边界
 
 ### 正文与修订
 
+本机目录同步同时输出批次回执为`历史/建章-<批次ID>.json`，与正文和逐版历史一起进入既有内容包；文件是可核对的投影，不作为另一个可编辑库或自动恢复入口。
+
+从零编剧新增 `project_script_batches`：项目/request_id联合唯一，保存请求哈希、创建后项目版本、章节ID列表、创建者与时间；不复制可编辑正文。`POST /api/projects/:id/script-batches` 接收 `expectedProjectRevision/requestId/note/chapters[{title,sourceText}]`，一次1–50章、整批正文最多2MiB。项目版本CAS、章节、初稿v1历史与批次回执同事务保存；同请求重放不覆盖后续修订，异内容复用ID或陈旧项目版本返回409。`GET /api/projects/:id/script-batches/:requestId`只读原批次及v1历史，当前正文须另读章节；已删章节不能借原请求重建。回执随项目删除清理，均检查登录及项目归属。关联本机目录仍沿用业务写前检查/写后同步，不宣称数据库与文件系统是原子事务。
+
 `project_units.source_text` 仍是章节编辑器的当前正文（HTML）；`revision` 为非空整数，新增及迁移前的章节从 1 开始。`project_unit_revisions` 在同一业务数据库保存追加式修订：项目/章节 ID、修订号、标题、完整正文、SHA-256、章节状态、请求 ID/请求哈希、说明、操作用户和时间。首次修改会同时保存修改前的原始版本；历史记录不被后续编辑覆盖，随所属章节/项目的既有删除事务清理。
 
 - `GET /api/projects/:id/units/:unitId/script-revisions`：最近 50 个修订元数据，不携带正文；更早版本仍可按修订号读取。

@@ -2,6 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRe
 import type { MouseEvent as ReactMouseEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams, useSearchParams } from "react-router";
+import { readScriptLaunch, type ScriptLaunch } from "@/services/script-creation-launch";
 import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import { uploadMediaFile } from "@/services/file-storage";
 import { readLocalRuntimeBootstrapState } from "@/services/local-runtime-bootstrap";
@@ -235,6 +236,9 @@ function InfiniteCanvasPage() {
     const [versionCompareRootId, setVersionCompareRootId] = useState<string | null>(null);
     const [libTVImportOpen, setLibTVImportOpen] = useState(false);
     const codexAutoConnect = shouldAutoConnectCanvasRuntime(searchParams);
+    const scriptLaunchId = searchParams.get("scriptLaunch");
+    const scriptLaunchUserId = useUserStore((state) => state.user?.id);
+    const [scriptLaunch, setScriptLaunch] = useState<ScriptLaunch | null>(null);
     const codexCompactAgent = codexAutoConnect && readLocalRuntimeBootstrapState().legacyDeepLinkRejected;
     const [titleEditing, setTitleEditing] = useState(false);
     const [titleDraft, setTitleDraft] = useState("");
@@ -399,8 +403,23 @@ function InfiniteCanvasPage() {
         [saveCanvasProject, setConnections, setNodes],
     );
     const linkedProjectId = shortDramaEnabled ? currentProject?.projectId || "" : "";
+    useEffect(() => {
+        let disposed = false;
+        setScriptLaunch(null);
+        if (scriptLaunchId && scriptLaunchUserId && linkedProjectId) {
+            readScriptLaunch(scriptLaunchId, scriptLaunchUserId, projectId, linkedProjectId).then(value => { if (!disposed) setScriptLaunch(value); }).catch(() => { if (!disposed) message.error("创作草稿无法读取；未自动发送，请从原作品继续"); });
+        }
+        return () => { disposed = true; };
+    }, [scriptLaunchId, scriptLaunchUserId, projectId, linkedProjectId, message]);
     const linkedProjectQuery = useQuery({ queryKey: ["project", linkedProjectId], queryFn: () => getProject(linkedProjectId), enabled: Boolean(linkedProjectId) });
     const refetchLinkedProject = linkedProjectQuery.refetch;
+    useEffect(() => {
+        const refreshScript = (event: Event) => {
+            if ((event as CustomEvent<{ projectId?: string }>).detail?.projectId === linkedProjectId) void refetchLinkedProject();
+        };
+        window.addEventListener("filmos:script-revised", refreshScript);
+        return () => window.removeEventListener("filmos:script-revised", refreshScript);
+    }, [linkedProjectId, refetchLinkedProject]);
     const archiveNodesToLinkedFolder = useCallback((folder: CanvasNodeData, droppedNodes: CanvasNodeData[]) => {
         const folderId = folder.metadata?.folder?.assetFolderId;
         const domainProjectId = folder.metadata?.folder?.projectId || linkedProjectId;
@@ -2222,6 +2241,7 @@ function InfiniteCanvasPage() {
                                             agentMode={agentMode}
                                             onAgentModeChange={setAgentMode}
                                             autoConnectLocal={codexAutoConnect}
+                                            scriptLaunch={scriptLaunch ?? undefined}
                                             closing={assistantClosing}
                                             onCollapse={closeAgent}
                                             cinematicEntry={cinematicAgentEntry}

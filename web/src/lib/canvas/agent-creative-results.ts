@@ -5,6 +5,7 @@ import { SHOT_IMAGE_SCHEMA, SHOT_IMAGE_MAX_BYTES, SHOT_IMAGE_TTL_MS, type ShotIm
 export type ShotImageSnapshot = Omit<ShotImageEvidence, "bytesBase64">;
 
 export type AgentCreativeResult =
+    | { kind: "script-batch"; projectId: string; unitIds: string[] }
     | { kind: "script"; projectId: string; unitId: string; revision: number }
     | { kind: "shots"; projectId: string; unitId: string }
     | { kind: "prompt"; projectId: string; canvasId: string; nodeId: string; rowId: string; promptKind: "image" | "video"; revision: number; shotNumber: number }
@@ -33,6 +34,12 @@ export function agentCreativeResult(item: { role: string; detail?: unknown }, sn
     if (output.ok === false || output.isError === true) return null;
     const data = record(output.data), verification = record(data.verification);
     const inScope = (projectId: unknown, unitId: unknown) => projectId === snapshot.domainProjectId && text(unitId) && (!snapshot.contentUnitId || snapshot.contentUnitId === unitId);
+    if (name === "project_create_script" || name === "project_get_script_batch") {
+        const receipt = record(data.receipt);
+        if (output.ok !== true || verification.ok !== true || verification.persisted !== true || receipt.projectId !== snapshot.domainProjectId || !Array.isArray(receipt.unitIds)
+            || !receipt.unitIds.length || receipt.unitIds.length > 50 || new Set(receipt.unitIds).size !== receipt.unitIds.length || !receipt.unitIds.every(id => inScope(receipt.projectId, id))) return null;
+        return { kind: "script-batch", projectId: snapshot.domainProjectId, unitIds: receipt.unitIds as string[] };
+    }
     if (name === "project_read_shot_image") {
         const binding = record(output.binding), image = record(output.image), constraints = record(output.constraints), shot = record(constraints.shot);
         const hex = (value: unknown) => typeof value === "string" && /^[a-f0-9]{64}$/.test(value);

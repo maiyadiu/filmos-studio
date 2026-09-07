@@ -11,6 +11,7 @@ import {
     type ShotAssetReference,
 } from "./projects";
 import { projectScriptToolNames, runProjectScriptTool, type ProjectScriptToolName } from "./project-script-tools";
+import { projectScriptCreationToolNames, runProjectScriptCreationTool } from "./project-script-creation";
 import { projectShotToolNames, runProjectShotTool, type ProjectShotToolName } from "./project-shot-tools";
 import { projectPromptToolNames, runProjectPromptTool, type ProjectPromptToolName } from "./project-prompt-tools";
 import { runProjectStoryboardTool } from "./project-storyboard-tools";
@@ -18,6 +19,7 @@ import type { CanvasAgentSnapshot } from "@/lib/canvas/canvas-agent-ops";
 
 export const projectAgentToolNames = [
     ...projectScriptToolNames,
+    ...projectScriptCreationToolNames,
     ...projectShotToolNames,
     ...projectPromptToolNames,
     "project_sync_storyboard",
@@ -40,6 +42,7 @@ export function isProjectAgentToolName(value: string): value is ProjectAgentTool
 }
 
 export function isProjectAgentReadTool(value: string) {
+    if (value === "project_get_script_batch") return true;
     if (value === "project_read_shot_image") return true;
     if ((projectPromptToolNames as readonly string[]).includes(value)) return value !== "project_save_prompt";
     return value === "project_get_context" || value === "project_list_units" || value === "project_get_script" || value === "project_get_script_revision" || value === "project_get_shots" || value === "project_get_shot_batch" || value === "project_get_shot_revisions";
@@ -47,6 +50,7 @@ export function isProjectAgentReadTool(value: string) {
 
 export async function runProjectAgentTool(name: ProjectAgentToolName, rawInput: Record<string, unknown>, fallbackProjectId?: string, boundCanvasId?: string, currentCanvas?: () => CanvasAgentSnapshot) {
     if (!fallbackProjectId || (rawInput.projectId !== undefined && rawInput.projectId !== fallbackProjectId)) throw new Error("项目工具必须绑定当前授权项目");
+    if (name === "project_create_script" || name === "project_get_script_batch") return runProjectScriptCreationTool(name, rawInput, fallbackProjectId);
     if (name === "project_read_shot_image") {
         if (!currentCanvas) throw new Error("图片工具缺少当前画布，不读取历史快照作为当前来源");
         return (await import("./project-shot-image")).readProjectShotImage(rawInput, fallbackProjectId, boundCanvasId, currentCanvas);

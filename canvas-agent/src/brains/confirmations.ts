@@ -5,10 +5,11 @@ import type { AgentConfirmation, AgentToolRisk } from "./contracts.js";
 // Canonical confirmations are emitted before the browser tool call exists.
 // Project only target IDs, base versions and counts, never source/prompt bodies.
 export function projectToolConfirmationDetail(name: string, input: Record<string, unknown>, scope: { domainProjectId?: string; canvasId: string }) {
-    if (!["project_revise_script", "project_create_or_update_shots", "project_sync_storyboard", "project_save_prompt"].includes(name)) return "";
+    if (!["project_create_script", "project_revise_script", "project_create_or_update_shots", "project_sync_storyboard", "project_save_prompt"].includes(name)) return "";
     const id = (value: unknown) => typeof value === "string" && /^[a-zA-Z0-9:_-]{1,100}$/.test(value) ? value : "（定位待核对）";
     const version = (value: unknown) => typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? `v${value}` : "（版本待核对）";
     const project = `项目：${id(scope.domainProjectId)}`;
+    if (name === "project_create_script") return `${project}；项目基版 ${version(input.expectedProjectRevision)}，新增 ${Array.isArray(input.chapters) ? input.chapters.length : 0} 个章节初稿，保留已有章节；不生成媒体。`;
     if (name === "project_save_prompt") return `${project}；画布：${id(scope.canvasId)}；节点：${id(input.nodeId)}；分镜行：${id(input.rowId)}；${input.kind === "image" ? "图片" : input.kind === "video" ? "视频" : "类型待核对"}稿基版 ${version(input.expectedRevision)}。仅保存文字，不生成媒体，旧版保留。`;
     const chapter = `${project}；章节：${id(input.unitId)}`;
     if (name === "project_revise_script") return `${chapter}；正文基版 ${version(input.expectedRevision)}，${Array.isArray(input.edits) ? input.edits.length : 0} 处精确修订，原版本保留。`;

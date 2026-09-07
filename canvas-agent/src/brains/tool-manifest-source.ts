@@ -9,6 +9,7 @@ const readCanvasTools = new Set([
     "canvas_get_generation_tasks", "canvas_get_resources", "canvas_get_selection", "canvas_export_snapshot",
     "project_get_context", "project_list_units",
     "project_get_script", "project_get_script_revision",
+    "project_get_script_batch",
     "project_get_shots", "project_get_shot_batch", "project_get_shot_revisions",
     "project_get_prompt", "project_get_prompt_revision", "project_get_prompt_request",
     "project_read_shot_image",

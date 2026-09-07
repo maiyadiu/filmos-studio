@@ -59,6 +59,7 @@ func Models() []any {
 		&model.StyleProfile{},
 		&model.ProjectUnit{},
 		&model.ProjectUnitRevision{},
+		&model.ProjectScriptBatch{},
 		&model.CanvasUnitLink{},
 		&model.ProductionCanvasGuard{},
 		&model.Shot{},

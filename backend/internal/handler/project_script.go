@@ -9,6 +9,38 @@ import (
 )
 
 func registerProjectScriptRoutes(r *gin.RouterGroup, svc *service.Service) {
+	r.POST("/projects/:id/script-batches", func(c *gin.Context) {
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 3<<20)
+		var req service.CreateProjectScriptBatchRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			failService(c, service.BadAuthRequest("剧本批次参数无效或超限"))
+			return
+		}
+		result, err := svc.CreateProjectScriptBatch(user.ID, c.Param("id"), req)
+		if err != nil {
+			failProjectScript(c, err)
+			return
+		}
+		ok(c, result)
+	})
+	r.GET("/projects/:id/script-batches/:requestId", func(c *gin.Context) {
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		result, err := svc.GetProjectScriptBatch(user.ID, c.Param("id"), c.Param("requestId"))
+		if err != nil {
+			failProjectScript(c, err)
+			return
+		}
+		ok(c, result)
+	})
 	r.GET("/projects/:id/units/:unitId/script-revisions", func(c *gin.Context) {
 		user, err := currentUser(c, svc)
 		if err != nil {

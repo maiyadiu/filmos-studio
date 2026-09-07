@@ -64,6 +64,11 @@ func (s *Service) projectDirectoryFiles(userID, projectID string) (map[string]pr
 			return nil, "", err
 		}
 	}
+	for _, row := range snapshot.ScriptBatches {
+		if err = put("历史/建章-"+safeDirectoryID(row.ID)+".json", row); err != nil {
+			return nil, "", err
+		}
+	}
 	for _, row := range snapshot.Shots {
 		if err = put("分镜/"+safeDirectoryID(row.ID)+".json", row); err != nil {
 			return nil, "", err

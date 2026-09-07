@@ -1125,7 +1125,7 @@ func (r *Repository) DeleteProject(userID string, id string, canvasUpdates []mod
 		if err := tx.Where("project_id = ?", id).Delete(&model.Shot{}).Error; err != nil {
 			return err
 		}
-		for _, history := range []any{&model.ShotRevision{}, &model.ShotBatchReceipt{}} {
+		for _, history := range []any{&model.ShotRevision{}, &model.ShotBatchReceipt{}, &model.ProjectScriptBatch{}} {
 			if err := tx.Where("project_id = ?", id).Delete(history).Error; err != nil {
 				return err
 			}

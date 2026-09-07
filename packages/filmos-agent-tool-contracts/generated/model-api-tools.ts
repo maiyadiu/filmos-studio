@@ -3896,6 +3896,72 @@ export const canonicalModelApiToolManifest = [
     "tool": {
       "type": "function",
       "function": {
+        "name": "project_create_script",
+        "description": "将已创作的1–50个完整章节追加到当前授权项目，不是调用模型API。先project_get_context读取project.revision作为expectedProjectRevision；使用稳定requestId及创作说明note。正文sourceText使用工作台HTML段落格式，保留完整对白/场景/动作。整批原子保存v1历史并回读，不覆盖已有章节，不生成素材。丢回执先project_get_script_batch，确认同一请求后方可原参数重试，不能换ID重复建章。保存后打磨用project_get_script及project_revise_script，保留v1；verification.matchesCurrent=false时已有后续修改，须读最新正文。",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "chapters": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "sourceText": {
+                    "maxLength": 2097152,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "title": {
+                    "maxLength": 240,
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "title",
+                  "sourceText"
+                ],
+                "type": "object"
+              },
+              "maxItems": 50,
+              "minItems": 1,
+              "type": "array"
+            },
+            "expectedProjectRevision": {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            "note": {
+              "maxLength": 1000,
+              "minLength": 1,
+              "type": "string"
+            },
+            "projectId": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "requestId": {
+              "maxLength": 100,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "expectedProjectRevision",
+            "requestId",
+            "note",
+            "chapters"
+          ],
+          "type": "object"
+        },
+        "strict": true
+      }
+    }
+  },
+  {
+    "risk": "write",
+    "tool": {
+      "type": "function",
+      "function": {
         "name": "project_extract_asset_candidates",
         "description": "将分镜识别出的角色、场景、服饰、道具或武器需求登记为待确认资产候选。",
         "parameters": {
@@ -4136,6 +4202,35 @@ export const canonicalModelApiToolManifest = [
           },
           "required": [
             "unitId"
+          ],
+          "type": "object"
+        },
+        "strict": true
+      }
+    }
+  },
+  {
+    "risk": "read",
+    "tool": {
+      "type": "function",
+      "function": {
+        "name": "project_get_script_batch",
+        "description": "按原requestId回读建章批次及v1正文/哈希，比较当前章节是否仍匹配。只读恢复，不续建、不调用模型；旧初稿回执不是最新正文。",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "projectId": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "requestId": {
+              "maxLength": 100,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "requestId"
           ],
           "type": "object"
         },
