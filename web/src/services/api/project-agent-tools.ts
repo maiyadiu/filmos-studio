@@ -16,6 +16,7 @@ import { projectShotToolNames, runProjectShotTool, type ProjectShotToolName } fr
 import { projectPromptToolNames, runProjectPromptTool, type ProjectPromptToolName } from "./project-prompt-tools";
 import { runProjectStoryboardTool } from "./project-storyboard-tools";
 import type { CanvasAgentSnapshot } from "@/lib/canvas/canvas-agent-ops";
+import { isProjectPageTool } from "../../../../packages/filmos-agent-contracts/src/workbench-scope";
 
 export const projectAgentToolNames = [
     ...projectScriptToolNames,
@@ -50,6 +51,12 @@ export function isProjectAgentReadTool(value: string) {
 
 export async function runProjectAgentTool(name: ProjectAgentToolName, rawInput: Record<string, unknown>, fallbackProjectId?: string, boundCanvasId?: string, currentCanvas?: () => CanvasAgentSnapshot) {
     if (!fallbackProjectId || (rawInput.projectId !== undefined && rawInput.projectId !== fallbackProjectId)) throw new Error("项目工具必须绑定当前授权项目");
+    const context = currentCanvas?.();
+    if (context?.contextKind === "project") {
+        if (boundCanvasId || context.projectId !== fallbackProjectId || context.domainProjectId !== fallbackProjectId) throw new Error("项目页面身份已变化，未执行操作");
+        if (!isProjectPageTool(name)) throw new Error("该操作需要真实画布，不能从项目页面使用旧画布执行");
+        if (!isProjectAgentReadTool(name) && context.blockers?.length) throw new Error(context.blockers.join("；"));
+    }
     if (name === "project_create_script" || name === "project_get_script_batch") return runProjectScriptCreationTool(name, rawInput, fallbackProjectId);
     if (name === "project_read_shot_image") {
         if (!currentCanvas) throw new Error("图片工具缺少当前画布，不读取历史快照作为当前来源");

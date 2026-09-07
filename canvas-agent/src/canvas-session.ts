@@ -64,6 +64,9 @@ export class CanvasSession implements BrowserRuntimeTransport {
         }));
         return {
             projectId: context.projectId,
+            projectTitle: state.title,
+            blockers: [...(state.blockers || [])],
+            ...(context.contentUnitId ? { currentUnit: { id: context.contentUnitId, type: "chapter", ...(state.contentUnitRevision !== undefined ? { version: state.contentUnitRevision } : {}) } } : {}),
             ...(context.domainProjectId ? { domainProjectId: context.domainProjectId } : {}),
             ...(context.contentUnitId ? { contentUnitId: context.contentUnitId } : {}),
             ...(context.sceneId ? { sceneId: context.sceneId } : {}),
@@ -121,6 +124,7 @@ export class CanvasSession implements BrowserRuntimeTransport {
         if (candidate.contextKind === "project") {
             assertAgentWorkbenchScope({ projectId: candidate.projectId!, domainProjectId: candidate.domainProjectId, canvasId: null });
             if ([candidate.nodes, candidate.connections, candidate.selectedNodeIds, candidate.visibleNodeIds].some((items) => items !== undefined && (!Array.isArray(items) || items.length > 0))) throw new Error("AGENT_PROJECT_CONTEXT_HAS_CANVAS_DATA");
+            if (candidate.blockers !== undefined && (!Array.isArray(candidate.blockers) || candidate.blockers.length > 8 || candidate.blockers.some(item => typeof item !== "string" || item.length > 300))) throw new Error("AGENT_CONTEXT_KIND_INVALID");
         }
         const incomingRevision = typeof candidate.revision === "number" && Number.isInteger(candidate.revision) && candidate.revision >= 0 ? candidate.revision : undefined;
         const actualHash = hashState(candidate);

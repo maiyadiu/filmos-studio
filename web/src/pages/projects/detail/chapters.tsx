@@ -1,4 +1,4 @@
-import { useDeferredValue, useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from "react";
+import { useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { App, Button, Dropdown, Form, Input, InputNumber, Modal, Popconfirm, Tooltip } from "antd";
@@ -50,7 +50,7 @@ import { ChapterShotReview } from "./shot-review";
 const CHAPTER_ROW_HEIGHT = 52;
 const MAX_NOVEL_IMPORT_CHAPTERS = 2500;
 
-export default function ProjectChaptersView({ detail, refreshProject, onOpenChapterCanvas, openingChapterCanvasId, onChapterDirtyChange }: ProjectDetailViewProps & { onOpenChapterCanvas: (unitId: string, importShots?: boolean) => Promise<void> }) {
+export default function ProjectChaptersView({ detail, refreshProject, onOpenChapterCanvas, openingChapterCanvasId, onChapterDirtyChange, onChapterContextChange }: ProjectDetailViewProps & { onOpenChapterCanvas: (unitId: string, importShots?: boolean) => Promise<void> }) {
     const { message } = App.useApp();
     const navigate = useNavigate();
     const queryClient = useQueryClient();
@@ -86,6 +86,11 @@ export default function ProjectChaptersView({ detail, refreshProject, onOpenChap
         enabled: Boolean(selectedId),
     });
     const selectedUnit = selectedUnitQuery.data?.unit || selectedUnitSummary;
+    const confirmedUnit = selectedUnitQuery.isSuccess && selectedUnitQuery.data.unit.id === selectedId && selectedUnitQuery.data.unit.projectId === detail.project.id ? selectedUnitQuery.data.unit : undefined;
+    useLayoutEffect(() => {
+        onChapterContextChange?.({ projectId: detail.project.id, unitId: selectedId, revision: confirmedUnit?.revision, ready: Boolean(confirmedUnit), dirty });
+        return () => onChapterContextChange?.(null);
+    }, [detail.project.id, selectedId, confirmedUnit?.revision, Boolean(confirmedUnit), dirty, onChapterContextChange]);
     const selectedUnitShots = useMemo(() => detail.shots.filter((shot) => shot.unitId === selectedUnit?.id), [detail.shots, selectedUnit?.id]);
     const chapterNumberById = useMemo(() => new Map(orderedUnits.map((unit, index) => [unit.id, index + 1])), [orderedUnits]);
     const canvasCountByUnitId = useMemo(() => detail.canvasUnitLinks.reduce<Map<string, number>>((result, link) => result.set(link.unitId, (result.get(link.unitId) || 0) + 1), new Map()), [detail.canvasUnitLinks]);

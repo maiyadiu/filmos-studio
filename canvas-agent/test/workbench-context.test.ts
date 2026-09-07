@@ -90,6 +90,18 @@ test("project tools route only to the exact page client, never another open canv
     } finally { session.dispose(); }
 });
 
+test("project context carries draft blockers and chapter revisions into canonical model context", () => {
+    const session = new CanvasSession();
+    const state = { contextKind: "project", projectId: "project-1", domainProjectId: "project-1", contentUnitId: "unit-1", contentUnitRevision: 3, projectRevision: 2, title: "隔离作品", blockers: ["未保存草稿"], nodes: [], connections: [] };
+    session.updateState(state);
+    assert.deepEqual(session.agentContextSnapshot().blockers, ["未保存草稿"]);
+    assert.deepEqual(session.agentContextSnapshot().currentUnit, { id: "unit-1", type: "chapter", version: 3 });
+    assert.equal(session.agentContextSnapshot().projectTitle, "隔离作品");
+    for (const patch of [{ blockers: [] }, { contentUnitRevision: 4 }, { projectRevision: 3 }]) assert.notEqual(hashState(state as never), hashState({ ...state, ...patch } as never));
+    for (const blockers of ["bad", [null], ["x".repeat(301)], Array(9).fill("x")]) assert.throws(() => session.updateState({ ...state, blockers }), /AGENT_CONTEXT_KIND_INVALID/);
+    session.dispose();
+});
+
 test("project scratch workspace never creates canvas configuration or aliases unsafe IDs", t => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "project-scope-"));
     t.after(() => fs.rmSync(root, { recursive: true, force: true }));

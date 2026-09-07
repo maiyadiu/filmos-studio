@@ -9,6 +9,8 @@ import { getProject } from "@/services/api/projects";
 import { WorkspacePage } from "@/components/layout/workspace-page";
 import { WorkspaceErrorState, WorkspaceLoadingState } from "@/components/layout/workspace-state";
 import { ProjectDirectoryStatus } from "./project-directory-status";
+import { ProjectAgentPanel } from "@/film/agent/project-agent-panel";
+import type { ProjectChapterContext } from "@/film/agent/project-agent-context";
 
 import ProjectAssetsView from "./detail/assets";
 import ProjectCanvasesView from "./detail/canvases";
@@ -37,6 +39,7 @@ export default function ProjectDetailPage() {
     const refreshProject = () => { void queryClient.invalidateQueries({ queryKey: ["project", projectId] }); void queryClient.invalidateQueries({ queryKey: ["projects"] }); };
     const { openChapterCanvas, openingUnitId } = useChapterCanvas(projectId, refreshProject);
     const [chapterDirty, setChapterDirty] = useState(false);
+    const [chapterContext, setChapterContext] = useState<ProjectChapterContext | null>(null);
     const createCanvas = () => {
         const activeChapterId = chapterId || sessionStorage.getItem(`project-active-chapter:${projectId}`) || "";
         const unit = activeView === "chapters"
@@ -81,6 +84,7 @@ export default function ProjectDetailPage() {
                         <nav className="thin-scrollbar order-last mt-1 flex h-11 w-full min-w-0 items-center gap-0.5 overflow-x-auto lg:order-none lg:mt-0 lg:h-16 lg:flex-1 lg:pl-3" aria-label="项目导航">
                             {views.map((item) => { const Icon = item.icon; const active = item.key === activeView; const href = item.key === "chapters" ? chapterHref : `/projects/${projectId}/${item.key}`; return <Link key={item.key} to={href} className={`relative flex h-11 shrink-0 items-center gap-2 rounded-md px-2.5 text-[var(--fs-body)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:px-3 ${active ? "bg-[var(--workspace-accent-soft)] font-medium text-foreground lg:after:absolute lg:after:inset-x-3 lg:after:bottom-0 lg:after:h-0.5 lg:after:rounded-full lg:after:bg-[var(--workspace-accent)]" : "text-foreground/52 hover:bg-surface-hover hover:text-foreground"}`} aria-current={active ? "page" : undefined}><Icon className={`size-4 shrink-0 ${active ? "text-[var(--workspace-accent)]" : "text-foreground/45"}`} /><span className="sm:hidden">{item.shortLabel}</span><span className="hidden sm:inline">{item.label}</span></Link>; })}
                         </nav>
+                        <ProjectAgentPanel detail={detail.data} activePanel={activeView} chapter={chapterContext} />
                         <Tooltip title={activeView === "chapters" && detail.data.units.length ? "打开当前章节唯一画布；尚未绑定时创建" : "新建项目画布"}><Button size="small" className="!h-9 !shrink-0 !px-2 sm:!px-3" icon={activeView === "chapters" && detail.data.units.length ? <LayoutGrid className="size-4" /> : <Plus className="size-4" />} loading={Boolean(openingUnitId)} disabled={activeView === "chapters" && chapterDirty} onClick={createCanvas} aria-label={activeView === "chapters" && detail.data.units.length ? "打开章节画布" : "新建项目画布"}><span className="hidden sm:inline">{activeView === "chapters" && detail.data.units.length ? "打开章节画布" : "新建画布"}</span></Button></Tooltip>
                     </div>
                 </header>
@@ -90,7 +94,7 @@ export default function ProjectDetailPage() {
                     <div className={activeView === "chapters" ? "min-h-0 flex-1" : "thin-scrollbar min-h-0 flex-1 overflow-y-auto px-3 py-5 sm:px-5 lg:px-8 lg:py-7"}>
                         <div className={activeView === "overview" ? "w-full" : activeView === "chapters" ? "h-full w-full" : "w-full"}>
                             {activeView === "overview" ? <ProjectOverviewView detail={detail.data} refreshProject={refreshProject} onCreateCanvas={createCanvas} /> : null}
-                            {activeView === "chapters" ? <ProjectChaptersView detail={detail.data} refreshProject={refreshProject} onCreateCanvas={createCanvas} onOpenChapterCanvas={openChapterCanvas} openingChapterCanvasId={openingUnitId} onChapterDirtyChange={setChapterDirty} /> : null}
+                            {activeView === "chapters" ? <ProjectChaptersView detail={detail.data} refreshProject={refreshProject} onCreateCanvas={createCanvas} onOpenChapterCanvas={openChapterCanvas} openingChapterCanvasId={openingUnitId} onChapterDirtyChange={setChapterDirty} onChapterContextChange={setChapterContext} /> : null}
                             {activeView === "canvases" ? <ProjectCanvasesView detail={detail.data} refreshProject={refreshProject} onCreateCanvas={createCanvas} /> : null}
                             {activeView === "assets" ? <ProjectAssetsView detail={detail.data} refreshProject={refreshProject} onCreateCanvas={createCanvas} /> : null}
                             {activeView === "settings" ? <ProjectSettingsView detail={detail.data} refreshProject={refreshProject} onCreateCanvas={createCanvas} /> : null}

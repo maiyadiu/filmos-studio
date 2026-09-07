@@ -25,6 +25,7 @@ export class AgentPolicyGateway {
         }
         if (!manifest.surfaces.includes(profile.toolSurface) || grant.toolSurface !== profile.toolSurface) throw new Error("AGENT_TOOL_SURFACE_DENIED");
         if (session.canvasId === null && !isProjectPageTool(manifest.name)) throw new Error("AGENT_TOOL_REQUIRES_CANVAS_CONTEXT");
+        if (session.canvasId === null && manifest.risk !== "read" && input.currentContext.blockers?.length) throw new Error("AGENT_PROJECT_PAGE_WRITE_BLOCKED");
         this.grants.validate(grant.id, {
             sessionId: session.id,
             connectionId: session.connectionId,

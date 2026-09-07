@@ -5,6 +5,9 @@ export type CanvasNode = { id: string; type: CanvasNodeType; title?: string; pos
 export type CanvasConnection = { id: string; fromNodeId: string; toNodeId: string; fromHandleId?: string; toHandleId?: string };
 export type CanvasSnapshot = {
     contextKind?: "canvas" | "project";
+    projectRevision?: number;
+    contentUnitRevision?: number;
+    blockers?: string[];
     projectId?: string;
     domainProjectId?: string;
     contentUnitId?: string;

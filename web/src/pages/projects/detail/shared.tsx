@@ -2,6 +2,7 @@ import { Tag } from "antd";
 import type { ReactNode } from "react";
 
 import type { ProjectDetail, ProjectUnit } from "@/services/api/projects";
+import type { ProjectChapterContext } from "@/film/agent/project-agent-context";
 
 export type ProjectDetailViewProps = {
     detail: ProjectDetail;
@@ -10,6 +11,7 @@ export type ProjectDetailViewProps = {
     onOpenChapterCanvas?: (unitId: string, importShots?: boolean) => Promise<void>;
     openingChapterCanvasId?: string;
     onChapterDirtyChange?: (dirty: boolean) => void;
+    onChapterContextChange?: (context: ProjectChapterContext | null) => void;
 };
 
 export const categoryLabels: Record<string, string> = {

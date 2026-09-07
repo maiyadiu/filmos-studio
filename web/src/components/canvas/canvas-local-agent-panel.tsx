@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { App, Button, Segmented, Tooltip } from "antd";
 import copyToClipboard from "copy-to-clipboard";
 import { Copy, FolderOpen, History, LoaderCircle, LogIn, LogOut, MessageSquareText, PlugZap, Plus, RefreshCw, RotateCcw, Terminal, Trash2 } from "lucide-react";
@@ -29,6 +29,8 @@ import { buildCanvasAgentContext, findCanvasAgentNodes, getCanvasAgentConnection
 import { buildCanvasResourceReferences } from "@/lib/canvas/canvas-resource-references";
 import { canvasToolFailure } from "@/lib/canvas/canvas-tool-failure";
 import { agentFailureGuidance, agentFailureText, recoverAgentSession } from "@/film/agent/agent-session-recovery";
+import { agentSnapshotCanvasId, matchesAgentSessionScope } from "@/film/agent/project-agent-context";
+import { isProjectPageTool } from "../../../../packages/filmos-agent-contracts/src/workbench-scope";
 import { agentCreativeResult, creativeToolTargetSummary } from "@/lib/canvas/agent-creative-results";
 import { AgentCreativeResultAction } from "./agent-creative-result";
 import { resolveSkillMentions } from "@/lib/canvas/canvas-skill-mentions";
@@ -108,6 +110,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
     scriptLaunch,
     onApplyOps,
     onUndoOps,
+    onProjectChanged,
 }: {
     snapshot: CanvasAgentSnapshot;
     canUndoOps: boolean;
@@ -121,6 +124,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
     scriptLaunch?: ScriptLaunch;
     onApplyOps: (ops: CanvasAgentOp[], context?: { conversationId?: string; messageId?: string; source?: "online" | "local" }) => Promise<CanvasAgentSnapshot>;
     onUndoOps: () => CanvasAgentSnapshot | null;
+    onProjectChanged?: () => void;
 }) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const user = useUserStore((state) => state.user);
@@ -160,7 +164,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
     const unacknowledgedTurnRef = useRef<string | null>(null);
     const [executionKnown, setExecutionKnown] = useState(false);
     const setActiveTurn = useCallback((turn: typeof activeTurn) => { activeTurnRef.current = turn; updateActiveTurn(turn); }, []);
-    const sessionScopeKey = JSON.stringify([user?.id, brainProfileId, snapshot.projectId, snapshot.domainProjectId, snapshot.contentUnitId]);
+    const sessionScopeKey = JSON.stringify([user?.id, brainProfileId, snapshot.contextKind || "canvas", snapshot.projectId, snapshot.domainProjectId, snapshot.contentUnitId]);
     const sessionScopeRef = useRef(sessionScopeKey);
     sessionScopeRef.current = sessionScopeKey;
     const [cancelling, setCancelling] = useState(false);
@@ -196,6 +200,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
         };
     }, [user?.id]);
     const snapshotRef = useRef(snapshot);
+    snapshotRef.current = snapshot;
     const confirmToolsRef = useRef(confirmTools);
     const pendingToolRef = useRef<AgentPendingToolCall | null>(null);
     const onApplyOpsRef = useRef(onApplyOps);
@@ -220,7 +225,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
         const current = useCanvasAgentStore.getState();
         const scope = snapshotRef.current;
         if (!current.connected || sessionScopeRef.current !== scopeKey || current.activeThreadId !== sessionId || epoch !== executionEpochRef.current) return;
-        if (session.id !== sessionId || session.canvasId !== scope.projectId || session.domainProjectId !== scope.domainProjectId || session.contentUnitId !== scope.contentUnitId || session.brainProfileId !== brainProfileId) return;
+        if (session.id !== sessionId || !matchesAgentSessionScope(session, scope, brainProfileId)) return;
         const execution = session.execution;
         if (!execution) return; // An older Runtime cannot prove a turn has stopped.
         if (unacknowledgedTurnRef.current && execution.activeTurnId !== unacknowledgedTurnRef.current) return;
@@ -279,7 +284,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
                 const data = await agentSessionClient.listSessions({ projectId, brainProfileId });
                 if (sessionScopeRef.current !== scopeKey) return;
                 const scope = snapshotRef.current;
-                const sessions = data.sessions.filter((item) => item.status !== "closed" && item.canvasId === scope.projectId && item.domainProjectId === scope.domainProjectId && item.contentUnitId === scope.contentUnitId);
+                const sessions = data.sessions.filter((item) => item.status !== "closed" && matchesAgentSessionScope(item, scope, brainProfileId));
                 const current = useCanvasAgentStore.getState();
                 if (current.activeThreadId !== activeBeforeRequest) return;
                 const activeSessionId = sessions.some((item) => item.id === current.activeThreadId) ? current.activeThreadId : sessions[0]?.id || "";
@@ -305,9 +310,9 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
                 setAgentState({ messages: normalizeHistoryMessages(thread.messages || []) });
             }
         } catch (error) {
-            addEventLog("读取历史失败", error);
+            if (sessionScopeRef.current === scopeKey) addEventLog("读取历史失败", error);
         } finally {
-            setAgentState({ loadingThreads: false });
+            if (sessionScopeRef.current === scopeKey) setAgentState({ loadingThreads: false });
         }
     }, [agentSessionClient, brainProfileId, genericRuntime, sessionScopeKey, setAgentState]);
     const loadAccountStatus = useCallback(async () => {
@@ -320,8 +325,9 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
     }, []);
 
     useEffect(() => {
-        snapshotRef.current = snapshot;
-    }, [snapshot]);
+        sessionScopeRef.current = sessionScopeKey;
+        return () => { if (sessionScopeRef.current === sessionScopeKey) sessionScopeRef.current = ""; };
+    }, [sessionScopeKey]);
     useEffect(() => {
         if (!chatGPTHostProfile) return;
         const update = (event: Event) => {
@@ -381,6 +387,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
         const clientId = clientIdRef.current;
         let lastEventId = "";
         const receive = (event: LocalRuntimeEvent) => {
+            if (controller.signal.aborted || sessionScopeRef.current !== sessionScopeKey) return;
             if (event.id) lastEventId = event.id;
             if (event.type === "hello") {
                 errorLoggedRef.current = false;
@@ -484,7 +491,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
         return () => { stopped = true; };
     }, [activeThreadId, agentSessionClient, connected, genericRuntime, sessionScopeKey, setAgentState]);
 
-    useEffect(() => {
+    useLayoutEffect(() => {
         if (!genericRuntime) return;
         if (useCanvasAgentStore.getState().sessionScopeKey === sessionScopeKey) return;
         pendingToolRef.current = null;
@@ -527,10 +534,13 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
         try {
             if (mentionedSkills.some(skill => !skill.instruction?.trim())) throw new Error("所选技能缺少完整正文，任务未发送；请在技能库补齐，不会用技能简介代替。");
             if (genericRuntime) {
+                if (!await syncState(clientIdRef.current, snapshotRef.current)) throw new Error("工作台上下文同步失败，未发送任务");
+                if (sessionScopeRef.current !== requestScope) return;
                 let sessionId = useCanvasAgentStore.getState().activeThreadId;
                 if (!sessionId) {
                     const created = await agentSessionClient.createSession({ conversationId: createId(), brainProfileId });
                     if (sessionScopeRef.current !== requestScope) return;
+                    if (!matchesAgentSessionScope(created.session, snapshotRef.current, brainProfileId)) throw new Error("返回的会话不属于当前作品，未发送任务");
                     sessionId = created.session.id;
                     setAgentState({ activeThreadId: sessionId });
                 }
@@ -648,6 +658,10 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
 
     const handleToolCall = async (payload: AgentPendingToolCall) => {
         const canonical = Boolean(payload.canonicalRequestId && payload.canonicalSessionId && payload.canonicalContextReceiptId);
+        if (sessionScopeRef.current !== sessionScopeKey || (snapshotRef.current.contextKind === "project" && !canonical)) {
+            await postToolResult(clientIdRef.current, { requestId: payload.requestId, error: "请求不属于当前页面的正式会话，未执行" });
+            return;
+        }
         if (!canonical && confirmToolsRef.current && (payload.name === "canvas_apply_ops" || (isProjectAgentToolName(payload.name) && !isProjectAgentReadTool(payload.name)))) {
             if (pendingToolRef.current) {
                 await postToolResult(clientIdRef.current, { requestId: payload.requestId, error: "仍有待确认的画布工具调用" });
@@ -662,8 +676,14 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
     };
 
     const runToolCall = async (payload: AgentPendingToolCall) => {
+        const requestClientId = clientIdRef.current;
         activeToolRequestIdsRef.current.add(payload.requestId);
         try {
+            if (sessionScopeRef.current !== sessionScopeKey) throw new Error("页面已切换，旧请求未执行");
+            if (snapshotRef.current.contextKind === "project") {
+                if (!payload.canonicalSessionId || payload.canonicalSessionId !== useCanvasAgentStore.getState().activeThreadId) throw new Error("请求不属于当前项目会话，未执行");
+                if (!isProjectPageTool(payload.name)) throw new Error("该操作需要进入真实画布，不会创建或使用旧画布");
+            }
             const input = (payload.input || {}) as Record<string, unknown>;
             const projectToolName = isProjectAgentToolName(payload.name) ? payload.name : null;
             setAgentState({ activity: payload.name === "canvas_apply_ops" ? "执行画布操作" : projectToolName ? "执行项目工具" : "读取画布", waiting: true });
@@ -744,9 +764,13 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
                                     });
                                 })()
                             : projectToolName
-                              ? await runProjectAgentTool(projectToolName, input, snapshotRef.current.domainProjectId, snapshotRef.current.projectId, () => snapshotRef.current)
+                              ? await runProjectAgentTool(projectToolName, input, snapshotRef.current.domainProjectId, agentSnapshotCanvasId(snapshotRef.current) ?? undefined, () => snapshotRef.current)
                               : snapshotRef.current;
-            await postToolResult(clientIdRef.current, { requestId: payload.requestId, result });
+            await postToolResult(requestClientId, { requestId: payload.requestId, result });
+            // Return the original receipt even after navigation, but never append
+            // an old operation's UI state to the newly selected work.
+            if (sessionScopeRef.current !== sessionScopeKey) return;
+            if (projectToolName && !isProjectAgentReadTool(projectToolName)) onProjectChanged?.();
             if (payload.name === "canvas_apply_ops") syncState(clientIdRef.current, (result as { snapshot?: CanvasAgentSnapshot }).snapshot || snapshotRef.current);
             const toolResult = result as { ok?: boolean; message?: string; data?: { verification?: { ok?: boolean } } } | null;
             const unverified = toolResult?.ok === false || toolResult?.data?.verification?.ok === false;
@@ -764,9 +788,11 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
             const message = error instanceof Error ? error.message : "画布操作失败";
             const failure = canvasToolFailure(error);
             const guidance = failure.backendStatus ? agentFailureGuidance(`canvas_backend_http_${failure.backendStatus}`) : "";
-            setAgentState({ activity: "工具失败", waiting: false });
-            addMessage({ role: "tool", title: "工具失败", text: guidance ? `${message}\n\n${guidance}` : message, detail: payload });
-            await postToolResult(clientIdRef.current, { requestId: payload.requestId, ...failure });
+            if (sessionScopeRef.current === sessionScopeKey) {
+                setAgentState({ activity: "工具失败", waiting: false });
+                addMessage({ role: "tool", title: "工具失败", text: guidance ? `${message}\n\n${guidance}` : message, detail: payload });
+            }
+            await postToolResult(requestClientId, { requestId: payload.requestId, ...failure });
         } finally {
             activeToolRequestIdsRef.current.delete(payload.requestId);
         }
@@ -887,9 +913,13 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
         const projectId = snapshotRef.current.projectId;
         if (!connected || !projectId || sending || waiting || pendingTool || recoveryInFlightRef.current || (genericRuntime && activeThreadId && !executionKnown)) return;
         setAgentState({ loadingThreads: true });
+        const scopeKey = sessionScopeKey;
         try {
             if (genericRuntime) {
+                if (!await syncState(clientIdRef.current, snapshotRef.current) || sessionScopeRef.current !== scopeKey) return;
                 const data = await agentSessionClient.createSession({ conversationId: createId(), brainProfileId });
+                if (sessionScopeRef.current !== scopeKey) return;
+                if (!matchesAgentSessionScope(data.session, snapshotRef.current, brainProfileId)) throw new Error("返回的会话不属于当前作品");
                 setAgentState({ activeThreadId: data.session.id, messages: [], latestPlan: null, activeTab: "chat", activity: "新对话" });
                 await loadThreads();
                 return;
@@ -898,10 +928,11 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
             setAgentState({ activeThreadId: data.thread?.id || data.workspace?.activeThreadId || "", messages: [], activeTab: "chat", activity: "新对话" });
             await loadThreads();
         } catch (error) {
+            if (sessionScopeRef.current !== scopeKey) return;
             addEventLog("新建对话失败", error);
             message.error(error instanceof Error ? error.message : "新建对话失败");
         } finally {
-            setAgentState({ loadingThreads: false });
+            if (sessionScopeRef.current === scopeKey) setAgentState({ loadingThreads: false });
         }
     };
 
@@ -917,7 +948,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
         try {
             if (genericRuntime) {
                 const data = await recoverAgentSession(agentSessionClient, {
-                    id: threadId, brainProfileId, projectId, canvasId: projectId,
+                    id: threadId, brainProfileId, projectId, canvasId: agentSnapshotCanvasId(snapshotRef.current),
                     domainProjectId: snapshotRef.current.domainProjectId, contentUnitId: snapshotRef.current.contentUnitId,
                 }, isCurrent, async () => Boolean(await syncState(clientIdRef.current, snapshotRef.current)));
                 if (!isCurrent()) return;
@@ -1132,6 +1163,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
                             <AgentChatEmptyState
                                 theme={theme}
                                 nodeCount={snapshot.nodes.length}
+                                projectPage={snapshot.contextKind === "project"}
                                 onSelect={(text) => {
                                     setAgentState({ prompt: text });
                                     void sendPrompt(text);
@@ -1172,7 +1204,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
                         attachments={attachments.map(agentAttachmentToChatAttachment)}
                         disabled={!connected || recoveringSession || executionUncertain || (chatGPTHostProfile && !chatGPTHost.handoffReady)}
                         sending={sending || waiting || Boolean(pendingTool)}
-                        placeholder={chatGPTHostProfile && !chatGPTHost.handoffReady ? chatGPTHost.message : `询问 ${brainProfileLabel(brainProfileId)}，或让它操作画布`}
+                        placeholder={chatGPTHostProfile && !chatGPTHost.handoffReady ? chatGPTHost.message : snapshot.contextKind === "project" ? "让 Codex 读取、编写或打磨当前作品" : `询问 ${brainProfileLabel(brainProfileId)}，或让它操作画布`}
                         theme={theme}
                         references={composerReferences}
                         slashSkills={composerSkills}

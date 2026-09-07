@@ -4,6 +4,7 @@ import { postDesktopHostMessage } from "@/film/adapters/yingce/desktop-rpc-clien
 
 export type WorkbenchContextV1 = {
     schemaVersion: "1";
+    contextKind?: "canvas" | "project";
     projectId: string;
     domainProjectId?: string;
     contentUnitId?: string;
@@ -11,7 +12,7 @@ export type WorkbenchContextV1 = {
     sceneId?: string;
     directorUnitId?: string;
     shotId?: string;
-    canvasId: string;
+    canvasId: string | null;
     title: string;
     selectedNodeIds: string[];
     visibleNodeIds: string[];
@@ -23,6 +24,7 @@ export type WorkbenchContextV1 = {
     filmExpectedVersion?: number;
     filmContentHash?: string;
     activePanel: string;
+    blockers?: string[];
 };
 
 export type WorkbenchContextInput = {
@@ -82,6 +84,16 @@ export function applyWorkbenchContext(snapshot: CanvasAgentSnapshot, context: Wo
     };
 }
 
+export function buildProjectWorkbenchContext(snapshot: CanvasAgentSnapshot): WorkbenchContextV1 {
+    if (snapshot.contextKind !== "project" || !snapshot.projectId || snapshot.projectId !== snapshot.domainProjectId) throw new Error("PROJECT_CONTEXT_REQUIRED");
+    return {
+        schemaVersion: "1", contextKind: "project", projectId: snapshot.projectId, domainProjectId: snapshot.domainProjectId,
+        ...(snapshot.contentUnitId ? { contentUnitId: snapshot.contentUnitId } : {}),
+        canvasId: null, title: snapshot.title, activePanel: snapshot.activePanel || "overview", blockers: [...snapshot.blockers || []],
+        selectedNodeIds: [], visibleNodeIds: [], visibleNodeSummaries: [], assetVersionIds: [], canvasRevision: snapshot.revision ?? 0,
+    };
+}
+
 export function publishWorkbenchContext(context: WorkbenchContextV1 | undefined) {
     if (typeof window === "undefined") return () => undefined;
     let active = true;
@@ -89,9 +101,9 @@ export function publishWorkbenchContext(context: WorkbenchContextV1 | undefined)
     const getter = () => published ? structuredClone(published) : null;
     window.filmOSGetWorkbenchContext = getter;
     window.dispatchEvent(new CustomEvent("filmos:workbench-context", { detail: getter() }));
-    if (!context || !context.domainProjectId) postDesktopHostMessage({ action: "workbenchContextChanged", projectId: "", canvasId: context?.canvasId || "", contextReceiptId: "", context: null });
-    if (context?.domainProjectId) void buildLiveWorkbenchContextDraft(context).then((liveContext) => {
-        if (!active) return;
+    if (!context || !context.domainProjectId || !context.canvasId) postDesktopHostMessage({ action: "workbenchContextChanged", projectId: "", canvasId: context?.canvasId || "", contextReceiptId: "", context: null });
+    if (context?.domainProjectId && context.canvasId) void buildLiveWorkbenchContextDraft(context).then((liveContext) => {
+        if (!active || window.filmOSGetWorkbenchContext !== getter) return;
         if (published) {
             published.canvasStateHash = liveContext.canvas_state_hash;
             published.contextReceiptId = liveContext.context_receipt_id;
@@ -100,14 +112,18 @@ export function publishWorkbenchContext(context: WorkbenchContextV1 | undefined)
         postDesktopHostMessage({
             action: "workbenchContextChanged",
             projectId: context.domainProjectId || "",
-            canvasId: context.canvasId,
+            canvasId: liveContext.canvas_id,
             contextReceiptId: liveContext.context_receipt_id,
             context: liveContext,
         });
     });
     return () => {
         active = false;
-        if (window.filmOSGetWorkbenchContext === getter) delete window.filmOSGetWorkbenchContext;
+        if (window.filmOSGetWorkbenchContext === getter) {
+            delete window.filmOSGetWorkbenchContext;
+            window.dispatchEvent(new CustomEvent("filmos:workbench-context", { detail: null }));
+            postDesktopHostMessage({ action: "workbenchContextChanged", projectId: "", canvasId: "", contextReceiptId: "", context: null });
+        }
     };
 }
 
@@ -131,6 +147,7 @@ export type LiveWorkbenchContextDraft = {
 
 export async function buildLiveWorkbenchContextDraft(context: WorkbenchContextV1): Promise<LiveWorkbenchContextDraft> {
     if (!context.domainProjectId) throw new Error("DOMAIN_PROJECT_REQUIRED");
+    if (!context.canvasId) throw new Error("LIVE_CANVAS_CONTEXT_REQUIRED");
     const projection = {
         schema_version: "filmos.live-workbench-context-draft/v1",
         project_id: context.domainProjectId,

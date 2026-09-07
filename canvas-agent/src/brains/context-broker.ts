@@ -34,7 +34,7 @@ export type WorkbenchContextSnapshot = {
 };
 
 type StoredReceipt = { receipt: AgentContextReceipt; sessionId: string };
-export type WorkbenchContextIdentity = Pick<WorkbenchContextSnapshot, "projectId" | "domainProjectId" | "canvasId" | "contentUnitId" | "sceneId" | "directorUnitId" | "shotId" | "canvasRevision" | "canvasStateHash" | "filmExpectedVersion" | "filmContentHash">;
+export type WorkbenchContextIdentity = Pick<WorkbenchContextSnapshot, "projectId" | "domainProjectId" | "canvasId" | "contentUnitId" | "sceneId" | "directorUnitId" | "shotId" | "canvasRevision" | "canvasStateHash" | "filmExpectedVersion" | "filmContentHash" | "blockers">;
 
 export class AgentContextBroker {
     private readonly receipts = new Map<string, StoredReceipt>();

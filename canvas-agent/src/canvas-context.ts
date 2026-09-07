@@ -343,6 +343,9 @@ function isMediaNodeType(type: CanvasNode["type"] | undefined) {
 export function hashState(state: CanvasSnapshot) {
     return crypto.createHash("sha256").update(stableStringify({
         contextKind: state.contextKind,
+        projectRevision: state.projectRevision,
+        contentUnitRevision: state.contentUnitRevision,
+        blockers: state.blockers,
         projectId: state.projectId,
         domainProjectId: state.domainProjectId,
         contentUnitId: state.contentUnitId,

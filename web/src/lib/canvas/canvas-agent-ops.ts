@@ -14,7 +14,11 @@ export type CanvasAgentOp =
     | { type: "run_generation"; nodeId: string; mode?: "text" | "image" | "video" | "audio"; prompt?: string; retry?: boolean };
 
 export type CanvasAgentSnapshot = {
+    contextKind?: "canvas" | "project";
     projectId: string;
+    projectRevision?: number;
+    contentUnitRevision?: number;
+    blockers?: string[];
     domainProjectId?: string;
     contentUnitId?: string;
     sceneId?: string;
@@ -382,7 +386,7 @@ export function applyCanvasAgentOps(snapshot: CanvasAgentSnapshot, ops?: CanvasA
 
 export function hashCanvasAgentSnapshot(snapshot: CanvasAgentSnapshot) {
     let hash = 2166136261;
-    const text = JSON.stringify({ projectId: snapshot.projectId, domainProjectId: snapshot.domainProjectId, title: snapshot.title, nodes: snapshot.nodes, connections: snapshot.connections, selectedNodeIds: snapshot.selectedNodeIds, viewport: snapshot.viewport });
+    const text = JSON.stringify({ contextKind: snapshot.contextKind, projectId: snapshot.projectId, domainProjectId: snapshot.domainProjectId, projectRevision: snapshot.projectRevision, contentUnitId: snapshot.contentUnitId, contentUnitRevision: snapshot.contentUnitRevision, sceneId: snapshot.sceneId, directorUnitId: snapshot.directorUnitId, shotId: snapshot.shotId, activePanel: snapshot.activePanel, blockers: snapshot.blockers, visibleNodeIds: snapshot.visibleNodeIds, assetVersionIds: snapshot.assetVersionIds, filmExpectedVersion: snapshot.filmExpectedVersion, filmContentHash: snapshot.filmContentHash, title: snapshot.title, nodes: snapshot.nodes, connections: snapshot.connections, selectedNodeIds: snapshot.selectedNodeIds, viewport: snapshot.viewport });
     for (let index = 0; index < text.length; index += 1) hash = Math.imul(hash ^ text.charCodeAt(index), 16777619);
     return (hash >>> 0).toString(16).padStart(8, "0");
 }

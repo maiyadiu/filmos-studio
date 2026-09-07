@@ -31,13 +31,17 @@ test("native Codex project-page turn reuses canonical project tools and stops af
             assert.equal(write.status, "confirmation_required");
             if (write.status !== "confirmation_required") throw new Error("write requires confirmation");
             await instance.decideConfirmation({ confirmationId: write.confirmation.id, sessionId: session.id, actorId: "owner-grant-recovery", approved: false });
+            snapshot = { ...snapshot, blockers: ["未保存草稿"], canvasRevision: 2, canvasStateHash: "dirty-project-page" };
+            assert.equal((await instance.proposeTool({ ...proposal, toolName: "workbench_get_context", toolInput: {} })).status, "completed");
+            assert.equal((await instance.proposeTool(proposal)).status, "completed");
+            await assert.rejects(instance.proposeTool({ ...proposal, toolName: "project_revise_script", toolInput: { unitId: "unit-1", expectedRevision: 1, requestId: "dirty-fixture", note: "fixture", edits: [{ oldText: "fixture", newText: "revised" }] } }), /AGENT_PROJECT_PAGE_WRITE_BLOCKED/);
             snapshot = { ...snapshot, projectId: "business-2", domainProjectId: "business-2", canvasRevision: 2, canvasStateHash: "other-project" };
             await assert.rejects(instance.proposeTool(proposal), /AGENT_CONTEXT_SCOPE_MISMATCH/);
             await assert.rejects(instance.proposeTool({ ...proposal, toolName: "workbench_get_context", toolInput: {} }), /AGENT_CONTEXT_SCOPE_MISMATCH/);
             return { sessionId: session.id, turnId: input.turnId, status: "completed", text: "fixture" };
         };
         await instance.sendTurn(session.id, { turnId: "project-page-turn", prompt: "fixture" }, () => undefined);
-        assert.deepEqual(calls, ["project_get_script"]);
+        assert.deepEqual(calls, ["project_get_script", "project_get_script"]);
     } finally { await instance.dispose(); }
 });
 
