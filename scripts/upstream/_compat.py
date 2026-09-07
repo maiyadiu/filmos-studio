@@ -712,9 +712,13 @@ def summary_markdown(
             "本报告仅做只读 Release/ref/diff/隔离 worktree 验证，不执行 merge、rebase、cherry-pick、push 或 release。",
             "`reference-tigerowo` 与 `reference-basket` 只列出 ref，不进入 Candidate 合并流程。",
             "",
-            "## 回滚锚点",
+            "## FilmOS 升级验收与恢复边界",
             "",
-            f"先运行 `scripts/upstream/rollback --dry-run`；确认工作树干净后，可显式切到固定提交 `{ctx.stable_commit}`。",
+            "本报告是上游差异分析；Candidate 原生验证不代表 Candidate＋FilmOS 的组合兼容通过。",
+            "组合回归、旧作品/历史/目录保留、数据迁移失败恢复均尚未由本报告验证。",
+            f"本报告的 FilmOS Dev 比较基线是 `{ctx.dev_commit}`，不是已批准的恢复点。",
+            "升级前须另行冻结实际 FilmOS Commit/Tree、作品安全副本及恢复证据；恢复到升级前 FilmOS，不能切回纯影策 Stable。",
+            "历史 `scripts/upstream/rollback` 已拒绝切换源码，包括 dry-run；本报告不授权更改分支或用户数据。",
         ]
     )
     return "\n".join(lines) + "\n"
@@ -744,6 +748,14 @@ def run_compat(ctx: StateContext, args: argparse.Namespace) -> dict[str, Any]:
         "states": ctx.public(),
         "checks": checks,
         "candidate_build": build,
+        "upgrade_acceptance": {
+            "status": "NOT_ASSESSED",
+            "combined_filmos_candidate": "NOT_RUN",
+            "existing_works_preserved": "NOT_VERIFIED",
+            "data_recovery": "NOT_REHEARSED",
+            "restore_target": None,
+            "required_restore_target": "PRE_UPGRADE_FILMOS_WITH_DATA_EVIDENCE",
+        },
         "thin_patch_count": len(thin_patch),
         "upstream_change_count": len(upstream_changes),
         "output": str(output),
@@ -789,40 +801,19 @@ def emit(result: dict[str, Any], json_mode: bool) -> None:
 def rollback(ctx: StateContext, args: argparse.Namespace) -> dict[str, Any]:
     result = base_result(ctx, "rollback", "candidate")
     dirty = bool(git(ctx.repo, "status", "--porcelain").stdout.strip())
-    stable_problems = [item for item in ctx.problems if item.startswith("stable")]
+    # Upstream Stable omits FilmOS changes and has no user-data recovery evidence.
+    # Keep the historical command observable, but never let it mutate the checkout.
     result.update(
-        target=ctx.stable_commit,
-        mode="branch" if args.branch else "detached",
-        branch=args.branch,
+        classification=D,
+        code="UPSTREAM_STABLE_IS_NOT_FILMOS_RESTORE_POINT",
+        target=None,
+        mode="refused",
         dirty_worktree=dirty,
         dry_run=args.dry_run,
+        executed=False,
+        required_restore_target="PRE_UPGRADE_FILMOS_WITH_DATA_EVIDENCE",
+        summary="rollback refused: freeze the pre-upgrade FilmOS source and data recovery evidence; upstream Stable is not a FilmOS restore point",
     )
-    if stable_problems:
-        result["summary"] = "; ".join(stable_problems)
-        return result
-    if args.dry_run:
-        result.update(
-            classification=A,
-            summary=(
-                "dry-run only; execution would refuse a dirty worktree"
-                if dirty
-                else "dry-run passed; fixed Stable target is ready"
-            ),
-        )
-        return result
-    if dirty:
-        result.update(classification=D, summary="rollback refused: worktree is not clean")
-        return result
-    assert ctx.stable_commit
-    if args.branch:
-        existing = git(ctx.repo, "show-ref", "--verify", f"refs/heads/{args.branch}", check=False)
-        if existing.returncode == 0:
-            result.update(classification=D, summary=f"rollback branch already exists: {args.branch}")
-            return result
-        git(ctx.repo, "switch", "-c", args.branch, ctx.stable_commit)
-    else:
-        git(ctx.repo, "switch", "--detach", ctx.stable_commit)
-    result.update(classification=A, summary="switched to fixed Stable without moving an existing branch")
     return result
 
 
@@ -856,10 +847,10 @@ def parser() -> argparse.ArgumentParser:
     compat.add_argument("--build-candidate", action="store_true", help="run native tests/builds in an isolated detached worktree")
     compat.add_argument("--build-timeout", type=int, default=1800, help="timeout in seconds for each candidate build command")
     compat.add_argument("--fail-on", choices=("never", A, B, C, D), default=D)
-    rollback_parser = subparsers.add_parser("rollback", help="safely switch a clean worktree to the fixed Stable commit")
+    rollback_parser = subparsers.add_parser("rollback", help="refuse legacy upstream-Stable checkout; FilmOS recovery requires its own source and data evidence")
     add_common(rollback_parser)
     rollback_parser.add_argument("--dry-run", action="store_true")
-    rollback_parser.add_argument("--branch", help="create this new branch at Stable instead of using detached HEAD")
+    rollback_parser.add_argument("--branch", help="historical option; execution is refused and no branch is created")
     return root
 
 

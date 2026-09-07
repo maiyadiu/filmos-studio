@@ -196,11 +196,40 @@ class UpstreamCompatTest(unittest.TestCase):
         self.assertTrue((output / "summary.md").is_file())
         self.assertIn("filmos.txt", (output / "thin-patch-manifest.tsv").read_text(encoding="utf-8"))
         self.assertIn("backend/internal/model/models.go", (output / "upstream-changes.tsv").read_text(encoding="utf-8"))
-        rollback_result = self.command("rollback", "--dry-run")
-        self.assertEqual(rollback_result["classification"], "A_AUTO_COMPATIBLE")
-        self.assertEqual(rollback_result["target"], self.stable)
-        unavailable_candidate = self.command("rollback", "--dry-run", "--candidate", "missing-candidate")
-        self.assertEqual(unavailable_candidate["classification"], "A_AUTO_COMPATIBLE")
+        self.assertEqual(result["upgrade_acceptance"]["status"], "NOT_ASSESSED")
+        self.assertEqual(result["upgrade_acceptance"]["combined_filmos_candidate"], "NOT_RUN")
+        self.assertIsNone(result["upgrade_acceptance"]["restore_target"])
+        report = (output / "summary.md").read_text(encoding="utf-8")
+        self.assertIn("不能切回纯影策 Stable", report)
+        self.assertNotIn("可显式切到固定提交", report)
+        rollback_result = self.command("rollback", "--dry-run", expected=2)
+        self.assertEqual(rollback_result["code"], "UPSTREAM_STABLE_IS_NOT_FILMOS_RESTORE_POINT")
+        self.assertIsNone(rollback_result["target"])
+        unavailable_candidate = self.command("rollback", "--dry-run", "--candidate", "missing-candidate", expected=2)
+        self.assertEqual(unavailable_candidate["classification"], "D_BLOCKED")
+
+    def test_legacy_rollback_never_changes_clean_or_dirty_filmos(self) -> None:
+        for dirty in (False, True):
+            if dirty:
+                self.write("filmos.txt", "uncommitted FilmOS repair\n")
+                self.write("user-material.txt", "user material\n")
+            for args in ((), ("--dry-run",), ("--branch", "restore-test")):
+                with self.subTest(dirty=dirty, args=args):
+                    before = {cmd: self.git(*cmd).stdout for cmd in (
+                        ("rev-parse", "HEAD"), ("symbolic-ref", "HEAD"),
+                        ("show-ref",), ("status", "--porcelain"), ("diff",),
+                    )}
+                    content = (self.repo / "filmos.txt").read_bytes()
+                    result = self.command("rollback", *args, expected=2)
+                    self.assertFalse(result["executed"])
+                    self.assertEqual(result["mode"], "refused")
+                    self.assertEqual(result["dirty_worktree"], dirty)
+                    self.assertIsNone(result["target"])
+                    for cmd, expected in before.items():
+                        self.assertEqual(self.git(*cmd).stdout, expected)
+                    self.assertEqual((self.repo / "filmos.txt").read_bytes(), content)
+                    if dirty:
+                        self.assertEqual((self.repo / "user-material.txt").read_text(), "user material\n")
 
 
 if __name__ == "__main__":
