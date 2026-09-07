@@ -25,7 +25,7 @@ func promptRepository(t *testing.T) (*Repository, *gorm.DB) {
 	}
 	conn, _ := db.DB()
 	t.Cleanup(func() { _ = conn.Close() })
-	if err := db.AutoMigrate(&model.CanvasProject{}, &model.CanvasPromptRevision{}, &model.CanvasPromptReceipt{}); err != nil {
+	if err := db.AutoMigrate(&model.ProjectUnit{}, &model.CanvasProject{}, &model.CanvasPromptRevision{}, &model.CanvasPromptReceipt{}); err != nil {
 		t.Fatal(err)
 	}
 	r := New(db)

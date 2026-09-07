@@ -1,13 +1,13 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 import { Alert, App, Button, Tooltip } from "antd";
 import { ArrowLeft, BookOpenText, Images, LayoutDashboard, LayoutGrid, Plus, Settings2, type LucideIcon } from "lucide-react";
 import { Link, Navigate, useNavigate, useParams } from "react-router";
 
 import { createCanvasProjectWithRemoteSync } from "@/services/user-data-sync";
-import { getProject, linkCanvasUnit } from "@/services/api/projects";
+import { getProject } from "@/services/api/projects";
 import { WorkspacePage } from "@/components/layout/workspace-page";
 import { WorkspaceErrorState, WorkspaceLoadingState } from "@/components/layout/workspace-state";
-import { upsertProjectChapterStoryboard } from "@/lib/canvas/project-chapter-storyboard";
 import { ProjectDirectoryStatus } from "./project-directory-status";
 
 import ProjectAssetsView from "./detail/assets";
@@ -15,6 +15,7 @@ import ProjectCanvasesView from "./detail/canvases";
 import ProjectChaptersView from "./detail/chapters";
 import ProjectOverviewView from "./detail/overview";
 import ProjectSettingsView from "./detail/settings";
+import { useChapterCanvas } from "./detail/use-chapter-canvas";
 
 type DetailView = "overview" | "chapters" | "canvases" | "assets" | "settings";
 
@@ -34,33 +35,28 @@ export default function ProjectDetailPage() {
     const activeView: DetailView = chapterId ? "chapters" : views.some((item) => item.key === view) ? view as DetailView : "overview";
     const detail = useQuery({ queryKey: ["project", projectId], queryFn: () => getProject(projectId), enabled: Boolean(projectId), refetchOnMount: "always" });
     const refreshProject = () => { void queryClient.invalidateQueries({ queryKey: ["project", projectId] }); void queryClient.invalidateQueries({ queryKey: ["projects"] }); };
+    const { openChapterCanvas, openingUnitId } = useChapterCanvas(projectId, refreshProject);
+    const [chapterDirty, setChapterDirty] = useState(false);
     const createCanvas = () => {
-        if (detail.data?.project.status === "archived") { message.warning("项目已归档，请先在项目设置中恢复"); return; }
         const activeChapterId = chapterId || sessionStorage.getItem(`project-active-chapter:${projectId}`) || "";
         const unit = activeView === "chapters"
             ? detail.data?.units.find((item) => item.id === activeChapterId) || detail.data?.units.slice().sort((left, right) => left.position - right.position)[0]
             : undefined;
-        const shots = unit ? detail.data?.shots.filter((shot) => shot.unitId === unit.id) || [] : [];
-        const seed = unit && shots.length ? upsertProjectChapterStoryboard([], [], { unit, shots }) : undefined;
-        const initialContent = seed ? { nodes: seed.nodes, connections: seed.connections } : undefined;
-        const title = unit ? `${unit.title} · ${shots.length ? "分镜画布" : "画布"}` : `${detail.data?.project.name || "项目"} · 新画布`;
-        void createCanvasProjectWithRemoteSync(title, projectId, initialContent).then(async ({ id, syncError }) => {
+        if (unit) {
+            if (chapterDirty) { message.warning("请先保存当前章节，再打开画布"); return; }
+            void openChapterCanvas(unit.id);
+            return;
+        }
+        if (detail.data?.project.status === "archived") { message.warning("项目已归档，请先在项目设置中恢复"); return; }
+        const title = `${detail.data?.project.name || "项目"} · 新画布`;
+        void createCanvasProjectWithRemoteSync(title, projectId).then(({ id, syncError }) => {
             if (syncError) {
                 message.warning(syncError instanceof Error ? `画布已保存在本地，项目关联稍后重试：${syncError.message}` : "画布已保存在本地，项目关联稍后重试");
                 navigate(`/canvas/${id}`);
                 return;
             }
-            if (unit) {
-                try {
-                    await linkCanvasUnit(projectId, { canvasId: id, unitId: unit.id, role: "storyboard" });
-                } catch (error) {
-                    refreshProject();
-                    message.error(error instanceof Error ? `画布已创建，但章节关联失败：${error.message}` : "画布已创建，但章节关联失败");
-                    return;
-                }
-            }
             refreshProject();
-            message.success(unit && shots.length ? `已创建章节画布并导入 ${shots.length} 个分镜` : unit ? "章节画布已创建并关联" : "项目画布已创建");
+            message.success("项目画布已创建");
             navigate(`/canvas/${id}`);
         }).catch((error) => message.error(error instanceof Error ? error.message : "画布创建失败"));
     };
@@ -85,7 +81,7 @@ export default function ProjectDetailPage() {
                         <nav className="thin-scrollbar order-last mt-1 flex h-11 w-full min-w-0 items-center gap-0.5 overflow-x-auto lg:order-none lg:mt-0 lg:h-16 lg:flex-1 lg:pl-3" aria-label="项目导航">
                             {views.map((item) => { const Icon = item.icon; const active = item.key === activeView; const href = item.key === "chapters" ? chapterHref : `/projects/${projectId}/${item.key}`; return <Link key={item.key} to={href} className={`relative flex h-11 shrink-0 items-center gap-2 rounded-md px-2.5 text-[var(--fs-body)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:px-3 ${active ? "bg-[var(--workspace-accent-soft)] font-medium text-foreground lg:after:absolute lg:after:inset-x-3 lg:after:bottom-0 lg:after:h-0.5 lg:after:rounded-full lg:after:bg-[var(--workspace-accent)]" : "text-foreground/52 hover:bg-surface-hover hover:text-foreground"}`} aria-current={active ? "page" : undefined}><Icon className={`size-4 shrink-0 ${active ? "text-[var(--workspace-accent)]" : "text-foreground/45"}`} /><span className="sm:hidden">{item.shortLabel}</span><span className="hidden sm:inline">{item.label}</span></Link>; })}
                         </nav>
-                        <Tooltip title={activeView === "chapters" && detail.data.units.length ? "新建当前章节画布" : "新建项目画布"}><Button size="small" className="!h-9 !shrink-0 !px-2 sm:!px-3" icon={<Plus className="size-4" />} onClick={createCanvas} aria-label={activeView === "chapters" && detail.data.units.length ? "新建当前章节画布" : "新建项目画布"}><span className="hidden sm:inline">新建画布</span></Button></Tooltip>
+                        <Tooltip title={activeView === "chapters" && detail.data.units.length ? "打开当前章节唯一画布；尚未绑定时创建" : "新建项目画布"}><Button size="small" className="!h-9 !shrink-0 !px-2 sm:!px-3" icon={activeView === "chapters" && detail.data.units.length ? <LayoutGrid className="size-4" /> : <Plus className="size-4" />} loading={Boolean(openingUnitId)} disabled={activeView === "chapters" && chapterDirty} onClick={createCanvas} aria-label={activeView === "chapters" && detail.data.units.length ? "打开章节画布" : "新建项目画布"}><span className="hidden sm:inline">{activeView === "chapters" && detail.data.units.length ? "打开章节画布" : "新建画布"}</span></Button></Tooltip>
                     </div>
                 </header>
                 <ProjectDirectoryStatus projectId={detail.data.project.id} revision={detail.data.project.revision} />
@@ -94,7 +90,7 @@ export default function ProjectDetailPage() {
                     <div className={activeView === "chapters" ? "min-h-0 flex-1" : "thin-scrollbar min-h-0 flex-1 overflow-y-auto px-3 py-5 sm:px-5 lg:px-8 lg:py-7"}>
                         <div className={activeView === "overview" ? "w-full" : activeView === "chapters" ? "h-full w-full" : "w-full"}>
                             {activeView === "overview" ? <ProjectOverviewView detail={detail.data} refreshProject={refreshProject} onCreateCanvas={createCanvas} /> : null}
-                            {activeView === "chapters" ? <ProjectChaptersView detail={detail.data} refreshProject={refreshProject} onCreateCanvas={createCanvas} /> : null}
+                            {activeView === "chapters" ? <ProjectChaptersView detail={detail.data} refreshProject={refreshProject} onCreateCanvas={createCanvas} onOpenChapterCanvas={openChapterCanvas} openingChapterCanvasId={openingUnitId} onChapterDirtyChange={setChapterDirty} /> : null}
                             {activeView === "canvases" ? <ProjectCanvasesView detail={detail.data} refreshProject={refreshProject} onCreateCanvas={createCanvas} /> : null}
                             {activeView === "assets" ? <ProjectAssetsView detail={detail.data} refreshProject={refreshProject} onCreateCanvas={createCanvas} /> : null}
                             {activeView === "settings" ? <ProjectSettingsView detail={detail.data} refreshProject={refreshProject} onCreateCanvas={createCanvas} /> : null}

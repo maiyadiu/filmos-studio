@@ -14,7 +14,7 @@ import { ApiError } from "@/services/api/request";
 import { CANVAS_PROMPT_UPDATED_EVENT, localCanvasPromptBaseline, mergeCanvasPromptContext, type CanvasPromptLocalBaseline, type CanvasPromptUpdatedEvent } from "@/lib/canvas/canvas-prompt-merge";
 import { requireCanvasContentHash, sameCanvasJSON, type CanvasSyncBaseline } from "@/lib/canvas/canvas-sync-baseline";
 import { assertProjectStoryboardContext, CANVAS_STORYBOARD_UPDATED_EVENT, mergeProjectStoryboardReadback, upsertProjectChapterStoryboard, type CanvasStoryboardUpdatedEvent, type ProjectStoryboardSyncInput } from "@/lib/canvas/project-chapter-storyboard";
-import { getProject, getProjectShotContext, linkCanvasUnit } from "@/services/api/projects";
+import { acquireChapterCanvas, getProject, getProjectUnit, getProjectShotContext, linkCanvasUnit } from "@/services/api/projects";
 
 let activeRemoteUserId = "";
 let remoteSessionRevision = 0;
@@ -271,6 +271,7 @@ export function syncSyncedProjectStoryboard(canvasId: string, input: ProjectStor
         };
         currentCanvas();
         const context = await getProjectShotContext(input.projectId, input.unitId);
+        if (context.unit.chapterCanvasId && context.unit.chapterCanvasId !== canvasId) throw new Error("本章已绑定另一个唯一画布，请从章节入口打开；未写入当前画布");
         assertProjectStoryboardContext(context, input);
         const source = currentCanvas();
         const merged = upsertProjectChapterStoryboard(source.nodes, source.connections, { unit: context.unit, shots: context.shots, newNodeId: `project-chapter:${input.unitId}` });
@@ -307,17 +308,21 @@ export function syncSyncedProjectStoryboard(canvasId: string, input: ProjectStor
             // not unrelated edits made while this network operation was pending.
             acknowledgedProjects.set(canvasId, { ...source, nodes: merged.nodes, updatedAt: applied.updatedAt });
             appliedLocally = true;
-            const result = await linkCanvasUnit(input.projectId, { canvasId, unitId: input.unitId, role: "storyboard" });
-            currentCanvas();
-            if (result.link.projectId !== input.projectId || result.link.canvasId !== canvasId || result.link.unitId !== input.unitId || result.link.role !== "storyboard") throw new Error("章节关联回执身份不一致");
+            const beforeLink = await getProject(input.projectId);
+            if (!beforeLink.canvasUnitLinks.some(link => link.canvasId === canvasId && link.unitId === input.unitId && ["storyboard", "production"].includes(link.role))) {
+                const result = await linkCanvasUnit(input.projectId, { canvasId, unitId: input.unitId, role: "storyboard" });
+                currentCanvas();
+                if (result.link.projectId !== input.projectId || result.link.canvasId !== canvasId || result.link.unitId !== input.unitId || result.link.role !== "storyboard") throw new Error("章节关联回执身份不一致");
+            }
             const detail = await getProject(input.projectId);
             currentCanvas();
-            linked = detail.project.id === input.projectId && detail.canvasUnitLinks.some(link => link.canvasId === canvasId && link.unitId === input.unitId && link.role === "storyboard");
+            linked = detail.project.id === input.projectId && detail.canvasUnitLinks.some(link => link.canvasId === canvasId && link.unitId === input.unitId && ["storyboard", "production"].includes(link.role));
             const latest = await getProjectShotContext(input.projectId, input.unitId);
             const finalLocal = currentCanvas();
             appliedLocally = sameCanvasJSON(finalLocal.nodes.find(node => node.id === after.id), after);
             if (!appliedLocally) throw new Error("关联核对期间本地分镜发生修改，已保留；请回读核对");
             assertProjectStoryboardContext(latest, input);
+            if (latest.unit.chapterCanvasId && latest.unit.chapterCanvasId !== canvasId) throw new Error("章节唯一画布已变化，请回读核对");
             sourceCurrent = sameCanvasJSON(latest.shots, context.shots);
         } catch (error) { issue = error instanceof Error ? error.message : "分镜保存后核对未完成"; }
         return { location, verification: { ok: appliedLocally && linked && sourceCurrent, persisted: true, appliedLocally, linked, sourceCurrent }, issue };
@@ -348,6 +353,38 @@ export async function createCanvasProjectWithRemoteSync(title: string, projectId
         scheduleRemoteUserDataSync();
         return { id, syncError };
     }
+}
+
+export function acquireSyncedChapterCanvas(projectId: string, unitId: string, preferredCanvasId?: string) {
+    return withRemoteUserDataSyncExclusive(async () => {
+        const assertCurrent = remoteSyncSession();
+        const result = await acquireChapterCanvas(projectId, unitId, preferredCanvasId);
+        assertCurrent();
+        if (result.disposition === "selection_required") {
+            if (!result.candidates?.length || result.candidates.some(canvas => !canvas.id || canvas.projectId !== projectId)) throw new Error("历史画布候选归属不一致");
+            return { ...result, localPending: false };
+        }
+        if (!result.canvas?.id || result.canvas.projectId !== projectId) throw new Error("章节画布回执身份不一致");
+        const canvasId = result.canvas.id;
+        const [remote, currentUnit] = await Promise.all([getRemoteCanvasProject(canvasId), getProjectUnit(projectId, unitId)]);
+        assertCurrent();
+        if (remote.project.id !== canvasId || remote.project.projectId !== projectId || currentUnit.unit.id !== unitId || currentUnit.unit.projectId !== projectId || currentUnit.unit.chapterCanvasId !== canvasId) throw new Error("章节画布回读不一致，未应用结果");
+        const contentHash = requireCanvasContentHash(remote.contentHash);
+        const local = useCanvasStore.getState().projects.find(canvas => canvas.id === canvasId);
+        if (local && local.projectId !== projectId) throw new Error("本地画布归属冲突，未覆盖本地内容");
+        // Opening is not permission to erase a draft or acknowledge unseen
+        // changes. Keep the dirty local object and its previous CAS baseline.
+        const localPending = Boolean(local && !sameCanvasJSON(local, acknowledgedProjects.get(canvasId)));
+        if (!localPending) {
+            acknowledgedProjects.set(canvasId, remote.project);
+            acknowledgedCanvasStates.set(canvasId, { project: remote.project, contentHash });
+            const projects = useCanvasStore.getState().projects;
+            useCanvasStore.getState().replaceProjects(local ? projects.map(canvas => canvas.id === canvasId ? remote.project : canvas) : [...projects, remote.project]);
+            await flushCanvasStorePersistence();
+            assertCurrent();
+        }
+        return { ...result, localPending };
+    });
 }
 
 export async function deleteAssetWithRemoteSync(id: string) {

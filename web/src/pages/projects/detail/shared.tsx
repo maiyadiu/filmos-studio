@@ -7,6 +7,9 @@ export type ProjectDetailViewProps = {
     detail: ProjectDetail;
     refreshProject: () => void;
     onCreateCanvas: () => void;
+    onOpenChapterCanvas?: (unitId: string, importShots?: boolean) => Promise<void>;
+    openingChapterCanvasId?: string;
+    onChapterDirtyChange?: (dirty: boolean) => void;
 };
 
 export const categoryLabels: Record<string, string> = {

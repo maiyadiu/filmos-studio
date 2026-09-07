@@ -23,6 +23,10 @@ description: 影策后端核心持久化表与状态边界
 
 `project_units.source_text` 仍是章节编辑器的当前正文（HTML）；`revision` 为非空整数，新增及迁移前的章节从 1 开始。`project_unit_revisions` 在同一业务数据库保存追加式修订：项目/章节 ID、修订号、标题、完整正文、SHA-256、章节状态、请求 ID/请求哈希、说明、操作用户和时间。首次修改会同时保存修改前的原始版本；历史记录不被后续编辑覆盖，随所属章节/项目的既有删除事务清理。
 
+`project_units.chapter_canvas_id` 是章节唯一默认画布的可空身份引用（API 为 `chapterCanvasId`），唯一索引 `idx_project_units_chapter_canvas` 防同一画布成为多章主画布。现有章节迁移时保持 NULL，不猜历史主画布、不改正文及修订号。普通章节取得/创建接口在项目行写锁事务内保存画布、原 `canvas_unit_links` 和该引用；只有单一历史关联时自动复用，多个历史关联返回待选择，所有旧内容保留。引用确立后通用解绑、跨项目改挂和批量同步不能替换它；显式删除原画布时同事务清空引用，之后允许新建。此字段不代表正式 Production Canvas 批准，也不取代其审计守卫。
+
+登录态 `POST /api/projects/:id/units/:unitId/chapter-canvas` 接受 `{}`，或历史选择用 `{ "canvasId": "候选ID" }`；返回 `disposition` 为 `created`、`adopted`、`reused` 时包含 `canvas` 摘要，`selection_required` 时仅包含 `candidates`，不创建画布。已有唯一绑定不能改选；同画布跨章主绑定、跨项目改挂等冲突返回409；归属不匹配返回404。普通创建遵守原存储配额，归档项目不新增/指定绑定。浏览器按回执 ID 回读单画布及章节身份，只接入该画布；不替换其他画布，不覆盖本地草稿或推进其旧 CAS 基线。导入业务分镜仍走既有版本校验、保存及回读，不重新分镜或调用模型。
+
 - `GET /api/projects/:id/units/:unitId/script-revisions`：最近 50 个修订元数据，不携带正文；更早版本仍可按修订号读取。
 - `GET /api/projects/:id/units/:unitId/script-revisions/:revision`：精确版本正文及哈希；未修改章节返回当前初始版本，不因读取写库。
 - `POST /api/projects/:id/units/:unitId/script-revisions`：Agent 草稿修订，仅允许 draft/ready，不更改完成/审批状态。

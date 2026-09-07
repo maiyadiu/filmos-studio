@@ -125,6 +125,11 @@ func (r *Repository) upsertCanvasProjectPreservingPrompts(project *model.CanvasP
 		if expectedContentHash != nil && *expectedContentHash != model.CanvasContentHash([]byte(current.PayloadJSON)) {
 			return model.ErrCanvasContentConflict
 		}
+		if current.ProjectID != project.ProjectID {
+			if err := rejectBoundChapterCanvas(tx, project.ID); err != nil {
+				return err
+			}
+		}
 		if err := model.ValidateCanvasPromptPreservation([]byte(current.PayloadJSON), []byte(project.PayloadJSON)); err != nil {
 			return err
 		}

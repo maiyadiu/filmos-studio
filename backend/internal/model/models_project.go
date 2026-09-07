@@ -181,18 +181,19 @@ type StyleProfile struct {
 }
 
 type ProjectUnit struct {
-	ID           string            `json:"id" gorm:"primaryKey;size:36"`
-	ProjectID    string            `json:"projectId" gorm:"index;size:36"`
-	ParentID     string            `json:"parentId,omitempty" gorm:"index;size:36"`
-	Kind         ProjectUnitKind   `json:"kind" gorm:"index;size:24"`
-	Title        string            `json:"title" gorm:"size:240"`
-	SourceText   string            `json:"sourceText" gorm:"type:text"`
-	Revision     int64             `json:"revision" gorm:"not null;default:1"`
-	ShotRevision int64             `json:"shotRevision" gorm:"not null;default:0"`
-	Status       ProjectUnitStatus `json:"status" gorm:"index;size:24"`
-	Position     int               `json:"position"`
-	CreatedAt    time.Time         `json:"createdAt"`
-	UpdatedAt    time.Time         `json:"updatedAt"`
+	ID              string            `json:"id" gorm:"primaryKey;size:36"`
+	ProjectID       string            `json:"projectId" gorm:"index;size:36"`
+	ParentID        string            `json:"parentId,omitempty" gorm:"index;size:36"`
+	Kind            ProjectUnitKind   `json:"kind" gorm:"index;size:24"`
+	Title           string            `json:"title" gorm:"size:240"`
+	SourceText      string            `json:"sourceText" gorm:"type:text"`
+	Revision        int64             `json:"revision" gorm:"not null;default:1"`
+	ShotRevision    int64             `json:"shotRevision" gorm:"not null;default:0"`
+	ChapterCanvasID *string           `json:"chapterCanvasId,omitempty" gorm:"size:80;uniqueIndex:idx_project_units_chapter_canvas"`
+	Status          ProjectUnitStatus `json:"status" gorm:"index;size:24"`
+	Position        int               `json:"position"`
+	CreatedAt       time.Time         `json:"createdAt"`
+	UpdatedAt       time.Time         `json:"updatedAt"`
 }
 
 type CanvasUnitLink struct {

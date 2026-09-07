@@ -495,19 +495,13 @@ func (s *Service) LinkCanvasUnit(userID string, projectID string, req LinkCanvas
 	if role == productionCanvasRole {
 		return model.CanvasUnitLink{}, BadAuthRequest("production 关联只能通过专用的 Human 确认与并发守卫端点创建")
 	}
-	if err := s.repo.AssignCanvasToProject(userID, canvasID, projectID); err != nil {
+	now := time.Now()
+	link := model.CanvasUnitLink{ID: newID(), ProjectID: projectID, CanvasID: canvasID, UnitID: unitID, Role: role, CreatedAt: now}
+	if err := s.repo.UpsertCanvasUnitLink(userID, &link); err != nil {
 		if errors.Is(err, model.ErrCanvasPromptConflict) {
 			return model.CanvasUnitLink{}, WrapAppError(409, "画布包含已绑定提示词，不能直接改挂到其他项目", err)
 		}
-		return model.CanvasUnitLink{}, err
-	}
-	now := time.Now()
-	link := model.CanvasUnitLink{ID: newID(), ProjectID: projectID, CanvasID: canvasID, UnitID: unitID, Role: role, CreatedAt: now}
-	if err := s.repo.UpsertCanvasUnitLink(&link); err != nil {
-		return model.CanvasUnitLink{}, err
-	}
-	if err := s.repo.BumpProjectRevision(projectID); err != nil {
-		return model.CanvasUnitLink{}, err
+		return model.CanvasUnitLink{}, chapterCanvasError(err)
 	}
 	return link, nil
 }
@@ -535,7 +529,7 @@ func (s *Service) UnlinkCanvasUnit(userID string, projectID string, canvasID str
 	if link.Role == productionCanvasRole {
 		return BadAuthRequest("production 关联不能通过通用解除端点删除")
 	}
-	return s.repo.DeleteCanvasUnitLink(projectID, canvas.ID, strings.TrimSpace(unitID))
+	return chapterCanvasError(s.repo.DeleteCanvasUnitLink(projectID, canvas.ID, strings.TrimSpace(unitID)))
 }
 
 func (s *Service) UnlinkCanvasProject(userID string, projectID string, canvasID string) (resultErr error) {
@@ -564,7 +558,7 @@ func (s *Service) UnlinkCanvasProject(userID string, projectID string, canvasID 
 	if errors.Is(err, model.ErrCanvasPromptConflict) {
 		return WrapAppError(409, "画布在解除项目关系前发生变化，请刷新后重试", err)
 	}
-	return err
+	return chapterCanvasError(err)
 }
 
 func canvasPayloadWithoutProject(payloadJSON string, updatedAt time.Time) (string, error) {

@@ -44,6 +44,7 @@ export type ProjectUnit = {
     sourceText: string;
     revision: number;
     shotRevision: number;
+    chapterCanvasId?: string | null;
     status: "draft" | "ready" | "completed" | string;
     position: number;
     createdAt: string;
@@ -308,6 +309,16 @@ export function deleteProjectUnit(projectId: string, unitId: string) {
 
 export function linkCanvasUnit(projectId: string, input: { canvasId: string; unitId: string; role?: string }) {
     return request<{ link: { id: string; projectId: string; canvasId: string; unitId: string; role: string } }>(api.post(`/projects/${encodeURIComponent(projectId)}/canvas-links`, input));
+}
+
+export type ChapterCanvasResult = {
+    canvas?: ProjectCanvas;
+    candidates?: ProjectCanvas[];
+    disposition: "created" | "adopted" | "reused" | "selection_required";
+};
+
+export function acquireChapterCanvas(projectId: string, unitId: string, canvasId?: string) {
+    return request<ChapterCanvasResult>(api.post(`/projects/${encodeURIComponent(projectId)}/units/${encodeURIComponent(unitId)}/chapter-canvas`, canvasId ? { canvasId } : {}));
 }
 
 export function unlinkCanvasUnit(projectId: string, canvasId: string, unitId: string) {

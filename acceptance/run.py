@@ -458,7 +458,7 @@ SOURCE_CHECKS = tuple(check for check in RC_LOCAL_CHECKS if check.check_id in SO
         "creative-persistence-contracts",
         "Shot coverage, atomic history, prompt lineage and whole-canvas concurrency with temporary databases",
         ("go", "test", "./internal/model", "./internal/repository", "./internal/service", "./internal/handler",
-         "-run", "TestShotBatch|TestShotCoverage|TestShotSource|TestCanvasPrompt|TestCanvasContent|TestProjectShotHTTP", "-count=1"),
+         "-run", "TestShotBatch|TestShotCoverage|TestShotSource|TestCanvasPrompt|TestCanvasContent|TestProjectShotHTTP|TestChapterCanvas", "-count=1"),
         ROOT / "backend",
         ("03-project-ui", "08-agent", "13-qa"),
     ),

@@ -270,7 +270,7 @@ func (s *Service) UpsertUserCanvasProject(userID string, raw json.RawMessage, ex
 		if errors.Is(err, model.ErrCanvasPromptConflict) {
 			return UserDataSummary{}, WrapAppError(409, "提示词已有保存版本，旧画布不能覆盖；请回读最新提示词后再同步", err)
 		}
-		return UserDataSummary{}, err
+		return UserDataSummary{}, chapterCanvasError(err)
 	}
 	if existingErr != nil || existing.PayloadJSON != project.PayloadJSON || existing.Title != project.Title {
 		s.recordActivity(userID, "canvas", 1)
@@ -339,7 +339,7 @@ func (s *Service) ReplaceUserCanvasProjects(userID string, req CanvasProjectsSyn
 		if errors.Is(err, model.ErrCanvasPromptConflict) {
 			return nil, WrapAppError(409, "整批同步包含过期提示词；请回读最新画布后重试", err)
 		}
-		return nil, err
+		return nil, chapterCanvasError(err)
 	}
 	if len(projects) > 0 {
 		s.recordActivity(userID, "canvas", 1)

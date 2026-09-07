@@ -3,7 +3,7 @@ import localforage from "localforage";
 import { apiClient } from "../src/services/api/request";
 import { hashScriptContent } from "../src/film/story/script-version";
 import { requireCanvasContentHash, sameCanvasJSON } from "../src/lib/canvas/canvas-sync-baseline";
-import { resetRemoteUserDataSync, saveRemoteUserDataNow, syncRemoteUserData, syncSyncedProjectStoryboard, loadSyncedCanvasPrompt, saveSyncedCanvasPrompt } from "../src/services/user-data-sync";
+import { resetRemoteUserDataSync, saveRemoteUserDataNow, syncRemoteUserData, syncSyncedProjectStoryboard, loadSyncedCanvasPrompt, saveSyncedCanvasPrompt, acquireSyncedChapterCanvas } from "../src/services/user-data-sync";
 import { flushCanvasStorePersistence, useCanvasStore, type CanvasProject } from "../src/stores/canvas/use-canvas-store";
 import { flushAssetStorePersistence, useAssetStore } from "../src/stores/use-asset-store";
 import { upsertProjectChapterStoryboard } from "../src/lib/canvas/project-chapter-storyboard";
@@ -159,11 +159,101 @@ function storyboardFixture(f: Fixture) {
             if (state.changeAfterLink) context.unit.revision++;
             return { link: { id: "link", projectId: "business", canvasId: "canvas-cas", unitId: "unit", role: "storyboard" } };
         }
-        if (method === "get" && url === "/projects/business") return { project: { id: "business" }, canvasUnitLinks: state.linked ? [{ canvasId: "canvas-cas", unitId: "unit", role: "storyboard" }] : [] };
+        if (method === "get" && url === "/projects/business") {
+            if (state.linked && state.changeAfterLink) { context.unit.revision++; state.changeAfterLink = false; }
+            return { project: { id: "business" }, canvasUnitLinks: state.linked ? [{ canvasId: "canvas-cas", unitId: "unit", role: "storyboard" }] : [] };
+        }
         return undefined;
     };
     return { input, context, state };
 }
+
+function chapterCanvasProtocol(f: Fixture) {
+    const state = { canvasId: "canvas-cas", unitCanvasId: "canvas-cas", selection: false, requests: [] as unknown[] };
+    f.protocol = (method, url, body) => {
+        if (method === "post" && url === "/projects/business/units/unit/chapter-canvas") {
+            state.requests.push(body);
+            return state.selection ? { disposition: "selection_required", candidates: [{ id: state.canvasId, projectId: "business", title: "历史画布" }] } : { disposition: "reused", canvas: { id: state.canvasId, projectId: "business" } };
+        }
+        if (method === "get" && url === "/projects/business/units/unit") return { unit: { id: "unit", projectId: "business", chapterCanvasId: state.unitCanvasId } };
+    };
+    return state;
+}
+
+test("chapter entry hydrates exactly the server canvas, preserves other drafts and reuses CAS", async () => fixture(async f => {
+    await syncRemoteUserData("fixture-user");
+    const other = { ...project(), id: "other-draft", title: "另一画布未保存内容" };
+    useCanvasStore.setState({ projects: [...useCanvasStore.getState().projects, other] });
+    const state = chapterCanvasProtocol(f);
+    f.remote.set("chapter-new", { ...project(), id: "chapter-new", title: "已有服务端画布" });
+    state.canvasId = state.unitCanvasId = "chapter-new";
+    for (let i = 0; i < 3; i++) {
+        const result = await acquireSyncedChapterCanvas("business", "unit");
+        expect(result.canvas?.id).toBe("chapter-new");
+        expect(result.localPending).toBe(false);
+    }
+    expect(useCanvasStore.getState().projects.filter(canvas => canvas.id === "chapter-new")).toHaveLength(1);
+    expect(useCanvasStore.getState().projects.find(canvas => canvas.id === other.id)).toEqual(other);
+    expect(f.writes).toHaveLength(0);
+    useCanvasStore.getState().renameProject("chapter-new", "后续普通编辑");
+    await saveRemoteUserDataNow();
+    expect(f.remote.get("chapter-new")?.title).toBe("后续普通编辑");
+}));
+
+test("opening a chapter never discards local edits or advances their previous CAS fence", async () => fixture(async f => {
+    await syncRemoteUserData("fixture-user");
+    chapterCanvasProtocol(f);
+    const previousHash = await hashScriptContent(JSON.stringify(f.remote.get("canvas-cas")));
+    useCanvasStore.getState().renameProject("canvas-cas", "本地待保存");
+    f.remote.get("canvas-cas")!.title = "他处新版";
+    expect((await acquireSyncedChapterCanvas("business", "unit")).localPending).toBe(true);
+    expect(useCanvasStore.getState().projects[0]?.title).toBe("本地待保存");
+    await expect(saveRemoteUserDataNow()).rejects.toThrow("画布内容已变化");
+    expect(f.writes[0]?.expectedContentHash).toBe(previousHash);
+    expect(f.remote.get("canvas-cas")?.title).toBe("他处新版");
+}));
+
+test("historical selection and mismatched chapter readback perform no canvas writes", async () => fixture(async f => {
+    await syncRemoteUserData("fixture-user");
+    const before = structuredClone(useCanvasStore.getState().projects);
+    const state = chapterCanvasProtocol(f);
+    state.selection = true;
+    expect((await acquireSyncedChapterCanvas("business", "unit")).disposition).toBe("selection_required");
+    expect(useCanvasStore.getState().projects).toEqual(before);
+    state.selection = false;
+    state.unitCanvasId = "wrong";
+    await expect(acquireSyncedChapterCanvas("business", "unit", "canvas-cas")).rejects.toThrow("回读不一致");
+    expect(state.requests).toEqual([{}, { canvasId: "canvas-cas" }]);
+    expect(useCanvasStore.getState().projects).toEqual(before);
+    expect(f.writes).toHaveLength(0);
+}));
+
+test("chapter open rejects a session switch during readback without hydration", async () => fixture(async f => {
+    await syncRemoteUserData("fixture-user");
+    chapterCanvasProtocol(f);
+    const before = structuredClone(useCanvasStore.getState().projects);
+    f.remote.get("canvas-cas")!.title = "不能跨会话应用";
+    f.options.onCanvasRead = () => resetRemoteUserDataSync();
+    await expect(acquireSyncedChapterCanvas("business", "unit")).rejects.toThrow("用户会话已改变");
+    expect(useCanvasStore.getState().projects).toEqual(before);
+    expect(f.writes).toHaveLength(0);
+}));
+
+test("storyboard rejects a different canonical canvas and preserves a production link", async () => fixture(async f => {
+    const s = storyboardFixture(f);
+    await syncRemoteUserData("fixture-user");
+    s.context.unit.chapterCanvasId = "other-canvas";
+    await expect(syncSyncedProjectStoryboard("canvas-cas", s.input)).rejects.toThrow("唯一画布");
+    expect(f.writes).toHaveLength(0);
+    s.context.unit.chapterCanvasId = "canvas-cas";
+    const protocol = f.protocol;
+    f.protocol = (method, url, body) => {
+        if (method === "get" && url === "/projects/business") return { project: { id: "business" }, canvasUnitLinks: [{ canvasId: "canvas-cas", unitId: "unit", role: "production" }] };
+        if (method === "post" && url === "/projects/business/canvas-links") throw new Error("不得改写 Production 关联");
+        return protocol?.(method, url, body);
+    };
+    expect((await syncSyncedProjectStoryboard("canvas-cas", s.input)).verification.ok).toBe(true);
+}));
 
 test("scoped storyboard sync uses native rows, preserves unrelated dirty canvas and repeats without another PUT", async () => fixture(async f => {
     const s = storyboardFixture(f);

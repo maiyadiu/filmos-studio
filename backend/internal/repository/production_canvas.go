@@ -103,6 +103,9 @@ func (r *Repository) acquireProductionCanvasOnce(input ProductionCanvasAcquireIn
 			return productionCanvasLinksConflict(links)
 		}
 		if len(links) == 1 {
+			if unit.ChapterCanvasID != nil && *unit.ChapterCanvasID != links[0].CanvasID {
+				return ErrProductionCanvasConflict
+			}
 			var canvas model.CanvasProject
 			if err := tx.Session(&gorm.Session{NewDB: true}).First(&canvas, "id = ? AND user_id = ? AND project_id = ?", links[0].CanvasID, input.UserID, input.ProjectID).Error; err != nil {
 				return ErrProductionCanvasConflict
@@ -115,6 +118,9 @@ func (r *Repository) acquireProductionCanvasOnce(input ProductionCanvasAcquireIn
 			return nil
 		}
 
+		if unit.ChapterCanvasID != nil {
+			return ErrProductionCanvasConflict
+		}
 		if project.Revision != input.ExpectedRevision {
 			return ErrProductionCanvasRevisionConflict
 		}
@@ -187,6 +193,9 @@ func (r *Repository) existingProductionCanvas(input ProductionCanvasAcquireInput
 			return ProductionCanvasAcquireResult{}, productionCanvasLinksConflict(links)
 		}
 		return ProductionCanvasAcquireResult{}, gorm.ErrRecordNotFound
+	}
+	if unit.ChapterCanvasID != nil && *unit.ChapterCanvasID != links[0].CanvasID {
+		return ProductionCanvasAcquireResult{}, ErrProductionCanvasConflict
 	}
 	var canvas model.CanvasProject
 	if err := r.db.First(&canvas, "id = ? AND user_id = ? AND project_id = ?", links[0].CanvasID, input.UserID, input.ProjectID).Error; err != nil {

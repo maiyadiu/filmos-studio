@@ -48,7 +48,9 @@ export default function ProjectCanvasesView({ detail, refreshProject }: ProjectD
                     {canvases.map((canvas) => {
                         const links = linksByCanvas[canvas.id] || [];
                         const linkedUnits = links.map((link) => detail.units.find((unit) => unit.id === link.unitId)).filter(Boolean);
-                        const unlinkedUnits = detail.units.filter((unit) => !links.some((link) => link.unitId === unit.id));
+                        const canonicalUnit = detail.units.find(unit => unit.chapterCanvasId === canvas.id);
+                        const protectedBinding = Boolean(canonicalUnit) || links.some(link => link.role === "production");
+                        const unlinkedUnits = detail.units.filter((unit) => !unit.chapterCanvasId && !links.some((link) => link.unitId === unit.id));
                         const project = toCanvasProject(canvas, detail.project.id, localCanvases.find((item) => item.id === canvas.id));
                         return (
                             <CanvasProjectCard
@@ -61,15 +63,15 @@ export default function ProjectCanvasesView({ detail, refreshProject }: ProjectD
                                         <div className="flex items-center justify-between"><span className="text-[var(--fs-tiny)] font-medium text-foreground/48">关联章节</span><span className="text-[var(--fs-micro)] tabular-nums text-foreground/38">{linkedUnits.length} 个</span></div>
                                         <div className="mt-1.5 flex min-h-6 max-h-12 flex-wrap gap-1 overflow-y-auto">
                                             {linkedUnits.length ? linkedUnits.map((unit) => (
-                                                <span key={unit!.id} className="inline-flex h-5 max-w-full items-center gap-1 rounded bg-[var(--workspace-accent-soft)] pl-1.5 pr-0.5 text-[var(--fs-micro)] text-[var(--workspace-accent)]"><span className="truncate">{String(unit!.position + 1).padStart(2, "0")} · {unit!.title}</span><Tooltip title="解除章节关联"><button type="button" className="grid size-4 shrink-0 place-items-center rounded hover:bg-surface-hover" aria-label={`解除${unit!.title}关联`} onClick={() => unlinkUnitMutation.mutate({ canvasId: canvas.id, unitId: unit!.id })}><X className="size-3" /></button></Tooltip></span>
+                                                <span key={unit!.id} className="inline-flex h-5 max-w-full items-center gap-1 rounded bg-[var(--workspace-accent-soft)] px-1.5 text-[var(--fs-micro)] text-[var(--workspace-accent)]"><span className="truncate">{String(unit!.position + 1).padStart(2, "0")} · {unit!.title}{unit!.chapterCanvasId === canvas.id ? " · 唯一画布" : unit!.chapterCanvasId ? " · 历史关联" : ""}</span>{!protectedBinding ? <Tooltip title="解除章节关联"><button type="button" className="grid size-4 shrink-0 place-items-center rounded hover:bg-surface-hover" aria-label={`解除${unit!.title}关联`} onClick={() => unlinkUnitMutation.mutate({ canvasId: canvas.id, unitId: unit!.id })}><X className="size-3" /></button></Tooltip> : null}</span>
                                             )) : <span className="py-0.5 text-[var(--fs-tiny)] text-foreground/38">尚未关联章节</span>}
                                         </div>
-                                        <div className="mt-1.5 flex items-center gap-1.5">
-                                            <Select size="small" className="min-w-0 flex-1" placeholder={unlinkedUnits.length ? "关联更多章节" : "全部章节已关联"} disabled={!unlinkedUnits.length} options={unlinkedUnits.map((unit) => ({ label: `${String(unit.position + 1).padStart(2, "0")} · ${unit.title}`, value: unit.id }))} onChange={(unitId) => { setLinkingCanvasId(canvas.id); linkMutation.mutate({ canvasId: canvas.id, unitId }); }} loading={linkMutation.isPending && linkingCanvasId === canvas.id} suffixIcon={<Link2 className="size-3.5" />} />
+                                        {protectedBinding ? <p className="mt-2 text-[var(--fs-tiny)] text-foreground/60">{canonicalUnit ? "章节入口始终打开此画布；仅删除画布后可重建。" : "正式生产画布关联受保护。"}</p> : <div className="mt-1.5 flex items-center gap-1.5">
+                                            <Select size="small" className="min-w-0 flex-1" placeholder={unlinkedUnits.length ? "关联更多章节" : "没有可关联的章节"} disabled={!unlinkedUnits.length} options={unlinkedUnits.map((unit) => ({ label: `${String(unit.position + 1).padStart(2, "0")} · ${unit.title}`, value: unit.id }))} onChange={(unitId) => { setLinkingCanvasId(canvas.id); linkMutation.mutate({ canvasId: canvas.id, unitId }); }} loading={linkMutation.isPending && linkingCanvasId === canvas.id} suffixIcon={<Link2 className="size-3.5" />} />
                                             <Popconfirm title="解除画布与项目的关系？" description="画布文档不会删除，之后仍可在“画布”中打开。" okText="解除关系" cancelText="取消" okButtonProps={{ danger: true, loading: unlinkProjectMutation.isPending }} onConfirm={() => unlinkProjectMutation.mutate(canvas.id)}>
                                                 <Tooltip title="解除项目关系"><Button size="small" type="text" danger icon={<Unlink className="size-3.5" />} aria-label="解除项目关系" /></Tooltip>
                                             </Popconfirm>
-                                        </div>
+                                        </div>}
                                     </div>
                                 }
                             />
