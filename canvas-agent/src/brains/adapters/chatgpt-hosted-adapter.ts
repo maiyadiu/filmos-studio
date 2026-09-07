@@ -112,6 +112,7 @@ export class ChatGPTHostedAdapter implements AgentRuntimeAdapter {
     }
 
     async createSession(input: CreateBrainSessionInput, grant: AgentPermissionGrant): Promise<Partial<BrainSession>> {
+        if (input.canvasId === null) throw new Error("CHATGPT_HOST_REAL_PROJECT_CONTEXT_REQUIRED");
         assertCreateScope(input, grant, this.profileId);
         const hostProjectId = input.domainProjectId || input.projectId;
         const prepared = await this.bridge.prepareSession({
@@ -218,7 +219,7 @@ export class ChatGPTHostedAdapter implements AgentRuntimeAdapter {
 
 function assertCreateScope(input: CreateBrainSessionInput, grant: AgentPermissionGrant, profileId: string) {
     if (input.brainProfileId !== profileId) throw new Error("CHATGPT_HOST_PROFILE_NOT_SELECTED");
-    if (!input.projectId.trim() || !input.canvasId.trim()) throw new Error("CHATGPT_HOST_REAL_PROJECT_CONTEXT_REQUIRED");
+    if (!input.projectId.trim() || !input.canvasId?.trim()) throw new Error("CHATGPT_HOST_REAL_PROJECT_CONTEXT_REQUIRED");
     if (grant.sessionId.trim() === "" || grant.connectionId !== profileId || grant.projectId !== input.projectId) {
         throw new Error("CHATGPT_HOST_GRANT_SCOPE_MISMATCH");
     }
@@ -275,7 +276,7 @@ function handoffTimelineText(entry: ChatGPTHandoffReceipt) {
     return `已准备 Handoff，等待 ChatGPT 接管。${receipt}`;
 }
 
-function requiredResumeField(value: string | undefined, field: string) {
+function requiredResumeField(value: string | null | undefined, field: string) {
     if (!value?.trim()) throw new Error(`CHATGPT_HOST_RESUME_SCOPE_REQUIRED:${field}`);
     return value.trim();
 }

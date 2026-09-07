@@ -1,5 +1,6 @@
 import type { AgentConfirmation, AgentPermissionGrant, AgentToolManifest, AgentToolRequest, BrainProfile, BrainSession } from "./contracts.js";
-import type { WorkbenchContextSnapshot } from "./context-broker.js";
+import { isProjectPageTool } from "@filmos/agent-contracts";
+import type { WorkbenchContextIdentity } from "./context-broker.js";
 import { AgentContextBroker } from "./context-broker.js";
 import { AgentPermissionGrantStore } from "./permission-grants.js";
 
@@ -15,7 +16,7 @@ export class AgentPolicyGateway {
         grant: AgentPermissionGrant;
         request: AgentToolRequest;
         manifest: AgentToolManifest;
-        currentContext: Pick<WorkbenchContextSnapshot, "projectId" | "canvasId" | "canvasRevision" | "canvasStateHash" | "filmExpectedVersion" | "filmContentHash">;
+        currentContext: WorkbenchContextIdentity;
     }) {
         const { profile, session, grant, request, manifest } = input;
         if (profile.id !== session.brainProfileId || session.connectionId !== profile.id) throw new Error("AGENT_PROFILE_SESSION_MISMATCH");
@@ -23,6 +24,7 @@ export class AgentPolicyGateway {
             throw new Error("AGENT_TOOL_REQUEST_IDENTITY_MISMATCH");
         }
         if (!manifest.surfaces.includes(profile.toolSurface) || grant.toolSurface !== profile.toolSurface) throw new Error("AGENT_TOOL_SURFACE_DENIED");
+        if (session.canvasId === null && !isProjectPageTool(manifest.name)) throw new Error("AGENT_TOOL_REQUIRES_CANVAS_CONTEXT");
         this.grants.validate(grant.id, {
             sessionId: session.id,
             connectionId: session.connectionId,

@@ -4,7 +4,7 @@ import type { AgentConfirmation, AgentToolRisk } from "./contracts.js";
 
 // Canonical confirmations are emitted before the browser tool call exists.
 // Project only target IDs, base versions and counts, never source/prompt bodies.
-export function projectToolConfirmationDetail(name: string, input: Record<string, unknown>, scope: { domainProjectId?: string; canvasId: string }) {
+export function projectToolConfirmationDetail(name: string, input: Record<string, unknown>, scope: { domainProjectId?: string; canvasId: string | null }) {
     if (!["project_create_script", "project_revise_script", "project_create_or_update_shots", "project_sync_storyboard", "project_save_prompt"].includes(name)) return "";
     const id = (value: unknown) => typeof value === "string" && /^[a-zA-Z0-9:_-]{1,100}$/.test(value) ? value : "（定位待核对）";
     const version = (value: unknown) => typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? `v${value}` : "（版本待核对）";

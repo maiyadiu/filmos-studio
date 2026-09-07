@@ -14,6 +14,50 @@ import type { AgentEventSink, AgentTurnPlan, NormalizedBrainEvent } from "../src
 import { MemoryAgentAuditSink } from "../src/brains/agent-audit.js";
 import { CanonicalAgentToolManifest } from "../src/brains/tool-manifest.js";
 import { adapter, profile } from "./brain-test-fixtures.js";
+import { isProjectPageTool } from "@filmos/agent-contracts";
+
+test("project page create and restart resume keep the same project scope and never gain canvas tools", async () => {
+    const registry = new BrainProfileRegistry();
+    registry.registerProfile(profile("codex.mock"));
+    const calls: string[] = [];
+    registry.registerAdapter(adapter("codex.mock", calls));
+    const store = new MemoryBrainSessionStore();
+    const grants = new AgentPermissionGrantStore();
+    const manager = new AgentSessionManager(registry, store, grants, new AgentConfirmationStore(), new AgentContextBroker());
+    const input = { conversationId: "project-conversation", brainProfileId: "codex.mock", projectId: "business-1", domainProjectId: "business-1", canvasId: null, contentUnitId: "unit-1", actorId: "owner" };
+    await assert.rejects(manager.createSession({ ...input, domainProjectId: "other" }), /DOMAIN_PROJECT_MISMATCH/);
+    assert.deepEqual(calls, []);
+    const created = await manager.createSession(input);
+    const before = grants.get(created.permissionGrantId)!;
+    assert.equal(created.canvasId, null);
+    assert.equal(before.allowedTools.length, 19);
+    assert.ok(before.allowedTools.every(isProjectPageTool));
+    assert.ok(before.allowedTools.includes("project_create_or_update_shots"));
+    assert.ok(!before.allowedTools.includes("project_sync_storyboard"));
+    assert.equal((await store.getConversation(input.conversationId))?.canvasId, null);
+    const resumed = await manager.resumeSession(created.id, "owner");
+    assert.equal(resumed.providerThreadId, created.providerThreadId);
+    assert.equal(resumed.canvasId, null);
+    assert.equal(resumed.domainProjectId, "business-1");
+    assert.equal(resumed.contentUnitId, "unit-1");
+    assert.deepEqual(grants.get(resumed.permissionGrantId)?.allowedTools, before.allowedTools);
+    assert.throws(() => grants.validate(before.id, { sessionId: created.id, projectId: "business-1", connectionId: "codex.mock" }), /AGENT_GRANT_NOT_FOUND/);
+});
+
+test("an adapter cannot erase a bound project or chapter with an explicit undefined patch", async () => {
+    for (const key of ["domainProjectId", "contentUnitId"]) {
+        const registry = new BrainProfileRegistry();
+        registry.registerProfile(profile("codex.mock"));
+        registry.registerAdapter({ ...adapter("codex.mock"), createSession: async () => ({ providerThreadId: "mock", [key]: undefined }) });
+        const store = new MemoryBrainSessionStore();
+        const manager = new AgentSessionManager(registry, store, new AgentPermissionGrantStore(), new AgentConfirmationStore(), new AgentContextBroker());
+        await assert.rejects(manager.createSession({ conversationId: "project-scope", brainProfileId: "codex.mock", projectId: "business-1", domainProjectId: "business-1", canvasId: null, contentUnitId: "unit-1", actorId: "owner" }), new RegExp(`immutable session field: ${key}`));
+        const failed = (await store.listSessions({ projectId: "business-1" }))[0];
+        assert.equal(failed.status, "failed");
+        assert.equal(failed.domainProjectId, "business-1");
+        assert.equal(failed.contentUnitId, "unit-1");
+    }
+});
 
 test("mock Codex, API and Hosted adapters create isolated sessions in one registry", async () => {
     const calls: string[] = [];

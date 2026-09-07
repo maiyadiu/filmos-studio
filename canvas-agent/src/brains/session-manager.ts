@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { assertAgentWorkbenchScope, toolsForWorkbenchScope } from "@filmos/agent-contracts";
 
 import type { AgentConversation, AgentEventSink, AgentTurnInput, BrainSession, ChatGPTHandoffReceipt, CreateBrainSessionInput } from "./contracts.js";
 import { AgentContextBroker } from "./context-broker.js";
@@ -22,6 +23,7 @@ export class AgentSessionManager {
     ) {}
 
     async createSession(input: CreateBrainSessionInput) {
+        assertAgentWorkbenchScope(input);
         const profile = this.registry.getProfile(input.brainProfileId);
         if (profile.availability === "disabled") throw new Error(`BRAIN_PROFILE_DISABLED:${profile.id}`);
         const status = await this.registry.probe(profile.id);
@@ -35,7 +37,7 @@ export class AgentSessionManager {
             projectId: input.projectId,
             ...(input.domainProjectId ? { domainProjectId: input.domainProjectId } : {}),
             toolSurface: profile.toolSurface,
-            allowedTools: this.tools.names(profile.toolSurface),
+            allowedTools: toolsForWorkbenchScope(this.tools.names(profile.toolSurface), input),
         });
         let session: BrainSession = {
             id: sessionId,
@@ -128,6 +130,7 @@ export class AgentSessionManager {
 
     async resumeSession(sessionId: string, actorId: string) {
         const session = await this.requireSession(sessionId);
+        assertAgentWorkbenchScope(session);
         if (session.status === "closed") throw new Error("BRAIN_SESSION_CLOSED");
         const profile = this.registry.getProfile(session.brainProfileId);
         const status = await this.registry.probe(profile.id);
@@ -142,7 +145,7 @@ export class AgentSessionManager {
             projectId: session.projectId,
             ...(session.domainProjectId ? { domainProjectId: session.domainProjectId } : {}),
             toolSurface: profile.toolSurface,
-            allowedTools: this.tools.names(profile.toolSurface),
+            allowedTools: toolsForWorkbenchScope(this.tools.names(profile.toolSurface), session),
         });
         try {
             const patch = await this.registry.getAdapter(profile.id).resumeSession({
@@ -224,8 +227,8 @@ function appendHandoffTimeline(current: BrainSession["hostHandoffTimeline"], han
 }
 
 function assertAdapterPatchScope(session: BrainSession, patch: Partial<BrainSession>) {
-    const immutable: Array<keyof BrainSession> = ["id", "conversationId", "brainProfileId", "connectionId", "projectId", "canvasId", "permissionGrantId"];
+    const immutable: Array<keyof BrainSession> = ["id", "conversationId", "brainProfileId", "connectionId", "projectId", "domainProjectId", "canvasId", "contentUnitId", "sceneId", "directorUnitId", "shotId", "permissionGrantId"];
     for (const key of immutable) {
-        if (patch[key] !== undefined && patch[key] !== session[key]) throw new Error(`Adapter attempted to change immutable session field: ${String(key)}`);
+        if (Object.prototype.hasOwnProperty.call(patch, key) && patch[key] !== session[key]) throw new Error(`Adapter attempted to change immutable session field: ${String(key)}`);
     }
 }

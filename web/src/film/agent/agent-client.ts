@@ -14,7 +14,7 @@ export type BrainSessionView = {
     conversationId: string;
     brainProfileId: string;
     projectId: string;
-    canvasId: string;
+    canvasId: string | null;
     domainProjectId?: string;
     contentUnitId?: string;
     providerThreadId?: string;

@@ -53,3 +53,20 @@ function session(id: string): BrainSession {
         updatedAt: new Date(0).toISOString(),
     };
 }
+
+test("project receipt cannot be reused across projects, pages, chapters or a canvas", () => {
+    const broker = new AgentContextBroker();
+    const current = { ...session("project-page"), domainProjectId: "project-1", canvasId: null, contentUnitId: "unit-1" };
+    const snapshot = { projectId: "project-1", domainProjectId: "project-1", canvasId: null, contentUnitId: "unit-1", canvasRevision: 1, canvasStateHash: "project-page-hash", nodes: [], connections: [], selectedNodeIds: [], visibleNodeIds: [], assets: [], activePanel: "chapters" };
+    const { pack, receipt } = broker.capture(current, snapshot);
+    assert.equal(pack.canvas.id, null);
+    assert.equal(pack.route.unitId, "unit-1");
+    assert.deepEqual(pack.permissions.readableScopes, ["project", "assets"]);
+    assert.deepEqual(pack.permissions.previewableScopes, []);
+    assert.equal(broker.validate(receipt.receiptId, current, snapshot).domainProjectId, "project-1");
+    for (const patch of [{ projectId: "other" }, { domainProjectId: undefined }, { contentUnitId: "other-unit" }, { contentUnitId: undefined }, { canvasId: "old-canvas" }, { canvasStateHash: "another-page" }]) {
+        assert.throws(() => broker.validate(receipt.receiptId, current, { ...snapshot, ...patch }), /AGENT_CONTEXT_/);
+    }
+    assert.throws(() => broker.capture(current, { ...snapshot, nodes: [{ id: "old-node", type: "text" }] }), /PROJECT_CONTEXT_HAS_CANVAS_DATA/);
+    assert.throws(() => broker.capture(current, { ...snapshot, contentUnitId: "other-unit" }), /SCOPE_MISMATCH/);
+});

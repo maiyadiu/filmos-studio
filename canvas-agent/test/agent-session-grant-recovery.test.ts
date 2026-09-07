@@ -10,6 +10,37 @@ import { MemoryBrainSessionStore } from "../src/brains/session-store.js";
 import type { WorkbenchContextSnapshot } from "../src/brains/context-broker.js";
 import type { CanonicalCanvasToolExecutor } from "../src/brains/tool-providers.js";
 
+test("native Codex project-page turn reuses canonical project tools and stops after a page scope switch", async () => {
+    let snapshot: WorkbenchContextSnapshot = { projectId: "business-1", domainProjectId: "business-1", canvasId: null, contentUnitId: "unit-1", activePanel: "chapters", canvasRevision: 1, canvasStateHash: "project-page", nodes: [], connections: [], selectedNodeIds: [], visibleNodeIds: [], assets: [] };
+    const calls: string[] = [];
+    const instance = runtime(new MemoryBrainSessionStore(), new AgentPermissionGrantStore(), { hasConnectedBrowser: () => true, request: async () => { throw new Error("MODEL_API_FORBIDDEN"); } }, () => snapshot, { callTool: async name => { calls.push(String(name)); return { projectId: "business-1", unitId: "unit-1", sourceText: "<p>fixture</p>" }; } });
+    const adapter = instance.registry.getAdapter("codex.subscription");
+    adapter.probe = async () => ({ profileId: "codex.subscription", status: "ready", checkedAt: new Date().toISOString() });
+    adapter.createSession = async () => ({ providerThreadId: "project-fixture-thread" });
+    try {
+        const { session } = await instance.createSession({ conversationId: "project-page-conversation", brainProfileId: "codex.subscription", projectId: snapshot.projectId, domainProjectId: snapshot.domainProjectId, canvasId: null, contentUnitId: "unit-1", actorId: "owner-grant-recovery" });
+        adapter.sendTurn = async input => {
+            assert.equal(input.context.canvas.id, null);
+            assert.equal(input.context.route.unitId, "unit-1");
+            const proposal = { sessionId: session.id, toolName: "project_get_script", toolInput: { unitId: "unit-1" } };
+            assert.equal((await instance.proposeTool(proposal)).status, "completed");
+            for (const toolName of ["canvas_get_state", "project_sync_storyboard", "film_command_apply"]) {
+                await assert.rejects(instance.proposeTool({ ...proposal, toolName, toolInput: {} }), /AGENT_TOOL_REQUIRES_CANVAS_CONTEXT/);
+            }
+            const write = await instance.proposeTool({ ...proposal, toolName: "project_revise_script", toolInput: { unitId: "unit-1", expectedRevision: 1, requestId: "revise-fixture", note: "fixture", edits: [{ oldText: "fixture", newText: "revised" }] } });
+            assert.equal(write.status, "confirmation_required");
+            if (write.status !== "confirmation_required") throw new Error("write requires confirmation");
+            await instance.decideConfirmation({ confirmationId: write.confirmation.id, sessionId: session.id, actorId: "owner-grant-recovery", approved: false });
+            snapshot = { ...snapshot, projectId: "business-2", domainProjectId: "business-2", canvasRevision: 2, canvasStateHash: "other-project" };
+            await assert.rejects(instance.proposeTool(proposal), /AGENT_CONTEXT_SCOPE_MISMATCH/);
+            await assert.rejects(instance.proposeTool({ ...proposal, toolName: "workbench_get_context", toolInput: {} }), /AGENT_CONTEXT_SCOPE_MISMATCH/);
+            return { sessionId: session.id, turnId: input.turnId, status: "completed", text: "fixture" };
+        };
+        await instance.sendTurn(session.id, { turnId: "project-page-turn", prompt: "fixture" }, () => undefined);
+        assert.deepEqual(calls, ["project_get_script"]);
+    } finally { await instance.dispose(); }
+});
+
 test("one-click script scope authorizes only verified new units in its active Codex turn and expires on success or cancel", async () => {
     const store = new MemoryBrainSessionStore();
     const snapshot: WorkbenchContextSnapshot = { projectId: "project-grant-recovery", canvasId: "canvas-grant-recovery", domainProjectId: "domain-script", canvasRevision: 1, canvasStateHash: "a".repeat(64), nodes: [], connections: [], selectedNodeIds: [], visibleNodeIds: [], assets: [] };

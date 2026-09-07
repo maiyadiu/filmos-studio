@@ -122,6 +122,17 @@ test("generic session input ignores model-supplied identity and uses the live wo
     });
 });
 
+test("generic project-page session keeps null canvas despite a caller supplying a canvas ID", () => {
+    const current = { projectId: "business-1", domainProjectId: "business-1", canvasId: null, contentUnitId: "unit-1", canvasRevision: 2, canvasStateHash: "project-page", nodes: [], connections: [], selectedNodeIds: [], visibleNodeIds: [], assets: [] };
+    const input = trustedCreateSessionInput({ conversationId: "conversation-1", brainProfileId: "codex.subscription", projectId: "other-project", canvasId: "old-canvas", contentUnitId: "other-unit", workspacePath: "/spoofed" }, current, "trusted-owner");
+    assert.equal(input.canvasId, null);
+    assert.equal(input.projectId, "business-1");
+    assert.equal(input.domainProjectId, "business-1");
+    assert.equal(input.contentUnitId, "unit-1");
+    assert.equal(input.workspacePath, undefined);
+    assert.equal(input.actorId, "trusted-owner");
+});
+
 test("Canvas legacy guard strips token before core handlers and rejects the wrong token", async () => {
     const calls: Array<{ name: string; value?: unknown }> = [];
     const session = sessionFixture(calls);

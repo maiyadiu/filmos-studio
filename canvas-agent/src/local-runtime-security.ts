@@ -244,6 +244,8 @@ export function publicAgentRuntimeFailure(error: unknown) {
     if (code === "AGENT_CONTEXT_RECEIPT_EXPIRED" || code === "AGENT_CONTEXT_RECEIPT_NOT_FOUND") return new LocalRuntimeSessionError("agent_context_refresh_required", "上下文凭据已失效；先调用 workbench_get_context，再回读业务版本后继续；不要重复盲写", 409);
     if (code === "AGENT_CONTEXT_CANVAS_STALE" || code === "AGENT_CONTEXT_FILM_STALE") return new LocalRuntimeSessionError("agent_context_stale", "上下文已变化；先调用 workbench_get_context，核对目标和业务版本后重新安排操作", 409);
     if (code === "AGENT_CONTEXT_SCOPE_MISMATCH" || code === "AGENT_CONTEXT_DOMAIN_PROJECT_MISMATCH") return new LocalRuntimeSessionError("agent_context_scope_mismatch", "当前工作台不属于本会话的授权范围，已停止操作", 409);
+    if (["AGENT_CONTEXT_PROJECT_REQUIRED", "AGENT_CONTEXT_CANVAS_REQUIRED", "AGENT_CONTEXT_KIND_INVALID", "AGENT_PROJECT_CONTEXT_HAS_CANVAS_DATA"].includes(code)) return new LocalRuntimeSessionError("agent_context_invalid", "当前页面身份或上下文无效，未切换会话。请重新读取真实项目和页面，不能使用旧画布补齐", 400);
+    if (code === "AGENT_TOOL_REQUIRES_CANVAS_CONTEXT") return new LocalRuntimeSessionError("agent_canvas_context_required", "当前是项目页面，未绑定活动画布；该操作需要进入真实画布后执行，不会自动创建或使用上一张画布", 409);
     if (code === "AGENT_TURN_CANCELLED") return new LocalRuntimeSessionError("agent_turn_cancelled", "本轮已停止；已保存内容保留，继续前请回读核对", 409);
     if (["AGENT_CONFIRMATION_EXPIRED", "AGENT_CONFIRMATION_ALREADY_DECIDED", "AGENT_CONFIRMATION_NOT_APPROVED", "AGENT_CONFIRMATION_NOT_FOUND"].includes(code)) return new LocalRuntimeSessionError("agent_confirmation_unavailable", "该确认已失效或已处理；请回读本轮状态与实际版本，不要重复批准或自动重发保存", 409);
     if (code === "AGENT_ACTIVE_TURN_MISMATCH") return new LocalRuntimeSessionError("agent_active_turn_mismatch", "请求不属于当前执行轮次，请刷新本轮状态", 409);

@@ -7,6 +7,14 @@ import {
 } from "../src/brains/adapters/chatgpt-hosted-adapter.js";
 import type { AgentContextPackV1, AgentPermissionGrant, BrainSession, NormalizedBrainEvent } from "../src/brains/contracts.js";
 
+test("project-page support does not enable the deferred ChatGPT Host path", async () => {
+    const calls: string[] = [];
+    const adapter = new ChatGPTHostedAdapter(bridge(calls));
+    await assert.rejects(adapter.createSession({ ...createInput("project-a", "canvas-a"), domainProjectId: "project-a", canvasId: null }, grant("session-a", "project-a")), /CHATGPT_HOST_REAL_PROJECT_CONTEXT_REQUIRED/);
+    await assert.rejects(adapter.resumeSession({ sessionId: "session-a", projectId: "project-a", canvasId: null }), /CHATGPT_HOST_RESUME_SCOPE_REQUIRED:canvasId/);
+    assert.deepEqual(calls, []);
+});
+
 test("ChatGPT Hosted adapter binds Track 14 sessions to project grants and never instantiates an API fallback", async () => {
     const calls: string[] = [];
     const adapter = new ChatGPTHostedAdapter(bridge(calls));

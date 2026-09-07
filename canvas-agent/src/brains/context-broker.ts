@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { assertAgentWorkbenchScope } from "@filmos/agent-contracts";
 
 import type { AgentContextPackV1, AgentContextReceipt, BrainSession, EntitySummary } from "./contracts.js";
 
@@ -12,7 +13,7 @@ export type WorkbenchContextSnapshot = {
     sceneId?: string;
     directorUnitId?: string;
     shotId?: string;
-    canvasId: string;
+    canvasId: string | null;
     canvasRevision: number;
     canvasStateHash: string;
     nodes: EntitySummary[];
@@ -33,6 +34,7 @@ export type WorkbenchContextSnapshot = {
 };
 
 type StoredReceipt = { receipt: AgentContextReceipt; sessionId: string };
+export type WorkbenchContextIdentity = Pick<WorkbenchContextSnapshot, "projectId" | "domainProjectId" | "canvasId" | "contentUnitId" | "sceneId" | "directorUnitId" | "shotId" | "canvasRevision" | "canvasStateHash" | "filmExpectedVersion" | "filmContentHash">;
 
 export class AgentContextBroker {
     private readonly receipts = new Map<string, StoredReceipt>();
@@ -45,6 +47,7 @@ export class AgentContextBroker {
         const receipt: AgentContextReceipt = {
             receiptId: crypto.randomUUID(),
             projectId: snapshot.projectId,
+            ...(snapshot.domainProjectId ? { domainProjectId: snapshot.domainProjectId } : {}),
             ...(snapshot.contentUnitId ? { contentUnitId: snapshot.contentUnitId } : {}),
             ...(snapshot.sceneId ? { sceneId: snapshot.sceneId } : {}),
             ...(snapshot.directorUnitId ? { directorUnitId: snapshot.directorUnitId } : {}),
@@ -100,8 +103,8 @@ export class AgentContextBroker {
             blockers: [...(snapshot.blockers ?? [])],
             ...(snapshot.visualContext ? { visualContext: structuredClone(snapshot.visualContext) } : {}),
             permissions: {
-                readableScopes: ["project", "canvas", "selection", "assets"],
-                previewableScopes: ["canvas", "film"],
+                readableScopes: snapshot.canvasId === null ? ["project", "assets"] : ["project", "canvas", "selection", "assets"],
+                previewableScopes: snapshot.canvasId === null ? [] : ["canvas", "film"],
                 applyRequiresConfirmation: true,
             },
             receipts: {
@@ -114,13 +117,15 @@ export class AgentContextBroker {
         return { pack, receipt: structuredClone(receipt) };
     }
 
-    validate(receiptId: string, session: BrainSession, current: Pick<WorkbenchContextSnapshot, "projectId" | "canvasId" | "canvasRevision" | "canvasStateHash" | "filmExpectedVersion" | "filmContentHash">, now = new Date()) {
+    validate(receiptId: string, session: BrainSession, current: WorkbenchContextIdentity, now = new Date()) {
         const stored = this.receipts.get(receiptId);
         if (!stored) throw new Error("AGENT_CONTEXT_RECEIPT_NOT_FOUND");
         if (stored.sessionId !== session.id) throw new Error("AGENT_CONTEXT_SESSION_MISMATCH");
         const receipt = stored.receipt;
         if (Date.parse(receipt.expiresAt) <= now.getTime()) throw new Error("AGENT_CONTEXT_RECEIPT_EXPIRED");
         if (receipt.projectId !== current.projectId || receipt.canvasId !== current.canvasId) throw new Error("AGENT_CONTEXT_SCOPE_MISMATCH");
+        if (receipt.domainProjectId !== current.domainProjectId) throw new Error("AGENT_CONTEXT_DOMAIN_PROJECT_MISMATCH");
+        if (["contentUnitId", "sceneId", "directorUnitId", "shotId"].some((key) => receipt[key as keyof AgentContextReceipt] !== current[key as keyof WorkbenchContextIdentity])) throw new Error("AGENT_CONTEXT_SCOPE_MISMATCH");
         if (receipt.canvasRevision !== current.canvasRevision || receipt.canvasStateHash !== current.canvasStateHash) throw new Error("AGENT_CONTEXT_CANVAS_STALE");
         if (receipt.filmExpectedVersion !== current.filmExpectedVersion || receipt.filmContentHash !== current.filmContentHash) throw new Error("AGENT_CONTEXT_FILM_STALE");
         return structuredClone(receipt);
@@ -132,7 +137,12 @@ export class AgentContextBroker {
 }
 
 function assertScope(session: BrainSession, snapshot: WorkbenchContextSnapshot) {
-    if (!snapshot.projectId || !snapshot.canvasId) throw new Error("Workbench projectId and canvasId are required");
+    assertAgentWorkbenchScope(session);
+    assertAgentWorkbenchScope(snapshot);
     if (session.projectId !== snapshot.projectId || session.canvasId !== snapshot.canvasId) throw new Error("AGENT_CONTEXT_SCOPE_MISMATCH");
     if (session.domainProjectId && snapshot.domainProjectId && session.domainProjectId !== snapshot.domainProjectId) throw new Error("AGENT_CONTEXT_DOMAIN_PROJECT_MISMATCH");
+    if (snapshot.canvasId === null) {
+        if (session.contentUnitId !== snapshot.contentUnitId) throw new Error("AGENT_CONTEXT_SCOPE_MISMATCH");
+        if (snapshot.nodes.length || snapshot.connections.length || snapshot.selectedNodeIds.length || snapshot.visibleNodeIds.length) throw new Error("AGENT_PROJECT_CONTEXT_HAS_CANVAS_DATA");
+    }
 }

@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import path from "node:path";
 import { summarizeShotImage } from "@filmos/agent-contracts";
 
-import { CONFIG_DIR, ensureCanvasWorkspace, type LocalRuntimeConfig } from "../config.js";
+import { CONFIG_DIR, ensureCanvasWorkspace, ensureProjectAgentWorkspace, type LocalRuntimeConfig } from "../config.js";
 import { codexConfig, codexProcessManager } from "../agents.js";
 import type { AgentEmit } from "../types.js";
 import { CompositeAgentAuditSink, JsonlAgentAuditSink, MemoryAgentAuditSink } from "./agent-audit.js";
@@ -90,7 +90,7 @@ export class GenericAgentRuntime {
         const adapterFactory = new BrainAdapterFactory({
             codex: new CodexSubscriptionAdapter(
                 codexProcessManager,
-                (canvasId) => ensureCanvasWorkspace(config, canvasId).workspacePath,
+                (id, kind) => kind === "project" ? ensureProjectAgentWorkspace(id) : ensureCanvasWorkspace(config, id).workspacePath,
                 (grant) => codexConfig(CONFIG_DIR, grant),
                 requestConfirmation,
             ),
@@ -392,7 +392,7 @@ export class GenericAgentRuntime {
         }, worktrees, () => {
             try {
                 const current = this.snapshot();
-                return { projectId: current.domainProjectId || current.projectId, canvasId: current.canvasId };
+                return { projectId: current.domainProjectId || current.projectId, ...(current.canvasId ? { canvasId: current.canvasId } : {}) };
             } catch {
                 return {};
             }

@@ -11,7 +11,7 @@ import type {
 } from "./contracts.js";
 import { agentAuditRecord, type AgentAuditSink } from "./agent-audit.js";
 import { AgentConfirmationStore, projectToolConfirmationDetail } from "./confirmations.js";
-import type { WorkbenchContextSnapshot } from "./context-broker.js";
+import type { WorkbenchContextIdentity } from "./context-broker.js";
 import { AgentPermissionGrantStore } from "./permission-grants.js";
 import { AgentPolicyGateway } from "./policy-gateway.js";
 import { CanonicalAgentToolManifest } from "./tool-manifest.js";
@@ -50,7 +50,7 @@ type ProposalInput = {
     toolName: string;
     input: Record<string, unknown>;
     contextReceiptId: string;
-    currentContext: Pick<WorkbenchContextSnapshot, "projectId" | "canvasId" | "canvasRevision" | "canvasStateHash" | "filmExpectedVersion" | "filmContentHash">;
+    currentContext: WorkbenchContextIdentity;
     ordinaryConfirmationEnabled?: boolean;
     signal?: AbortSignal;
 };
@@ -116,7 +116,7 @@ export class CanonicalAgentToolBroker {
             risk: manifest.risk as Exclude<AgentToolManifest["risk"], "read" | "draft">,
             title: manifest.title,
             summary: [manifest.description, projectToolConfirmationDetail(manifest.name, request.input, input.session)].filter(Boolean).join("\n"),
-            impact: [input.session.projectId, input.session.canvasId, manifest.name],
+            impact: [input.session.projectId, ...(input.session.canvasId ? [input.session.canvasId] : []), manifest.name],
             contextReceiptId: input.contextReceiptId,
             ...(manifest.mayCreateCharges ? { costPreview: { note: "该动作可能产生额外 Provider/API 费用；执行前必须人工确认。" } } : {}),
         });

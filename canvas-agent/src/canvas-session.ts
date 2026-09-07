@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { canvasToolApiError, CanvasPromptConflictError, shotImageReadError } from "@filmos/agent-contracts";
+import { assertAgentWorkbenchScope, canvasToolApiError, CanvasPromptConflictError, isProjectPageTool, shotImageReadError } from "@filmos/agent-contracts";
 import type { ServerResponse } from "node:http";
 
 import { CANVAS_GENERATION_CONTINUATION_TIMEOUT_MS } from "./canvas-tool-timeouts.js";
@@ -19,7 +19,7 @@ export class CanvasSession implements BrowserRuntimeTransport {
     private canvasState: CanvasSnapshot | null = null;
 
     health() {
-        return { ok: true, hasCanvas: Boolean(this.canvasState), clients: this.clients.size };
+        return { ok: true, hasCanvas: Boolean(this.canvasState && this.canvasState.contextKind !== "project"), clients: this.clients.size };
     }
 
     workbenchContext() {
@@ -34,7 +34,7 @@ export class CanvasSession implements BrowserRuntimeTransport {
             ...(state.sceneId ? { sceneId: state.sceneId } : {}),
             ...(state.directorUnitId ? { directorUnitId: state.directorUnitId } : {}),
             ...(state.shotId ? { shotId: state.shotId } : {}),
-            canvasId: state.projectId,
+            canvasId: state.contextKind === "project" ? null : state.projectId,
             title: state.title,
             selectedNodeIds: [...(state.selectedNodeIds || [])],
             visibleNodeIds: [...(state.visibleNodeIds || [])],
@@ -117,6 +117,11 @@ export class CanvasSession implements BrowserRuntimeTransport {
 
     updateState(body: unknown, clientId?: string) {
         const candidate = { ...((body && typeof body === "object" && !Array.isArray(body) ? body : {}) as Record<string, unknown>), clientId } as CanvasSnapshot;
+        if (candidate.contextKind !== undefined && candidate.contextKind !== "canvas" && candidate.contextKind !== "project") throw new Error("AGENT_CONTEXT_KIND_INVALID");
+        if (candidate.contextKind === "project") {
+            assertAgentWorkbenchScope({ projectId: candidate.projectId!, domainProjectId: candidate.domainProjectId, canvasId: null });
+            if ([candidate.nodes, candidate.connections, candidate.selectedNodeIds, candidate.visibleNodeIds].some((items) => items !== undefined && (!Array.isArray(items) || items.length > 0))) throw new Error("AGENT_PROJECT_CONTEXT_HAS_CANVAS_DATA");
+        }
         const incomingRevision = typeof candidate.revision === "number" && Number.isInteger(candidate.revision) && candidate.revision >= 0 ? candidate.revision : undefined;
         const actualHash = hashState(candidate);
         const suppliedHash = typeof (body as Record<string, unknown> | null)?.stateHash === "string" ? String((body as Record<string, unknown>).stateHash) : undefined;
@@ -173,12 +178,14 @@ export class CanvasSession implements BrowserRuntimeTransport {
 
     async callTool(name: unknown, rawInput: unknown, metadata?: CanonicalToolExecutionMetadata) {
         if (!isToolName(name)) throw new Error(`未知工具：${String(name)}`);
+        if (this.canvasState?.contextKind === "project" && !isProjectPageTool(name)) throw new Error("AGENT_TOOL_REQUIRES_CANVAS_CONTEXT");
         let tool: ToolName = name;
         let input = parseToolInput(tool, rawInput) as Record<string, unknown>;
         const projectTool = tool.startsWith("project_");
         if (projectTool) {
             if (!this.clients.size || !this.canvasState) throw new Error("当前没有已连接画布");
             if (!input.projectId && this.canvasState.domainProjectId) input.projectId = this.canvasState.domainProjectId;
+            if (this.canvasState.contextKind === "project" && input.projectId !== this.canvasState.domainProjectId) throw new Error("AGENT_CONTEXT_DOMAIN_PROJECT_MISMATCH");
             if (!input.projectId) throw new Error("当前画布没有关联短剧项目");
             return await this.requestCanvasTool(tool, input, metadata);
         }
@@ -306,7 +313,7 @@ export class CanvasSession implements BrowserRuntimeTransport {
         const stateClientId = this.canvasState?.clientId || "";
         const selected = this.clients.has(stateClientId)
             ? [stateClientId, this.clients.get(stateClientId)] as const
-            : this.clients.entries().next().value;
+            : this.canvasState?.contextKind === "project" ? undefined : this.clients.entries().next().value;
         const clientId = selected?.[0];
         const client = selected?.[1]?.response;
         if (!clientId || !client) throw new Error("当前没有已连接画布");

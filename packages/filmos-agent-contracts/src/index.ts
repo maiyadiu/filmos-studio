@@ -1,6 +1,7 @@
 export const AGENT_CONTRACT_SCHEMA_VERSION = "1" as const;
 export { CanvasToolApiError, canvasToolApiError, CanvasPromptConflictError } from "./canvas-tool-error.js";
 export * from "./shot-image.js";
+export * from "./workbench-scope.js";
 
 export type BrainProvider =
     | "openai.codex"
@@ -146,7 +147,7 @@ export interface BrainSession {
     connectionId: string;
     projectId: string;
     domainProjectId?: string;
-    canvasId: string;
+    canvasId: string | null;
     workspacePath?: string;
     executionProfile?: "interactive" | "review_coordinator";
     contentUnitId?: string;
@@ -172,7 +173,7 @@ export type AgentSession = BrainSession;
 export interface AgentConversation {
     id: string;
     projectId: string;
-    canvasId: string;
+    canvasId: string | null;
     title?: string;
     activeSessionId?: string;
     sessionIds: string[];
@@ -185,7 +186,7 @@ export interface CreateBrainSessionInput {
     brainProfileId: string;
     projectId: string;
     domainProjectId?: string;
-    canvasId: string;
+    canvasId: string | null;
     workspacePath?: string;
     executionProfile?: "interactive" | "review_coordinator";
     contentUnitId?: string;
@@ -200,7 +201,7 @@ export interface ResumeBrainSessionInput {
     providerThreadId?: string;
     projectId?: string;
     domainProjectId?: string;
-    canvasId?: string;
+    canvasId?: string | null;
     workspacePath?: string;
     executionProfile?: "interactive" | "review_coordinator";
     grant?: AgentPermissionGrant;
@@ -220,11 +221,12 @@ export type EntitySummary = {
 export type AgentContextReceipt = {
     receiptId: string;
     projectId: string;
+    domainProjectId?: string;
     contentUnitId?: string;
     sceneId?: string;
     directorUnitId?: string;
     shotId?: string;
-    canvasId: string;
+    canvasId: string | null;
     selectedNodeIds: string[];
     visibleNodeIds: string[];
     assetVersionIds: string[];
@@ -256,7 +258,7 @@ export interface AgentContextPackV1 {
     currentDirectorUnit?: EntitySummary;
     currentShot?: EntitySummary;
     canvas: {
-        id: string;
+        id: string | null;
         revision: number;
         stateHash: string;
         nodeCount: number;

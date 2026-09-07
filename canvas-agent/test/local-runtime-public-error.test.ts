@@ -4,6 +4,19 @@ import { canvasToolApiError, CanvasPromptConflictError } from "@filmos/agent-con
 
 import { publicAgentRuntimeFailure } from "../src/local-runtime-security.js";
 
+test("project-page context failures are actionable and do not disclose raw scope", () => {
+    for (const code of ["AGENT_CONTEXT_PROJECT_REQUIRED", "AGENT_CONTEXT_CANVAS_REQUIRED", "AGENT_CONTEXT_KIND_INVALID", "AGENT_PROJECT_CONTEXT_HAS_CANVAS_DATA"]) {
+        const failure = publicAgentRuntimeFailure(new Error(`${code}:private-scope`));
+        assert.equal(failure?.code, "agent_context_invalid");
+        assert.equal(failure?.statusCode, 400);
+        assert.doesNotMatch(failure?.message ?? "", /private-scope/);
+    }
+    const failure = publicAgentRuntimeFailure(new Error("AGENT_TOOL_REQUIRES_CANVAS_CONTEXT:private-scope"));
+    assert.equal(failure?.code, "agent_canvas_context_required");
+    assert.equal(failure?.statusCode, 409);
+    assert.match(failure?.message ?? "", /不会自动创建/);
+});
+
 test("classified backend errors preserve exact status with safe recovery guidance", () => {
     for (const status of [400, 401, 403, 404, 409, 422, 429, 500, 503]) {
         const failure = publicAgentRuntimeFailure(canvasToolApiError(status));

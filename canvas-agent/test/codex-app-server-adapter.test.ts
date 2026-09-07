@@ -43,6 +43,17 @@ test("Codex subscription probe reports managed ChatGPT auth and quota without an
     assert.equal(env.FILMOS_AGENT_GRANT_SIGNATURE, grant.signature);
 });
 
+test("project-page create and resume use the real project workspace and original provider thread", async () => {
+    const fake = fakeClient();
+    const paths: string[] = [];
+    const adapter = new CodexSubscriptionAdapter({ client: async () => fake } as never, (id, kind) => { paths.push(`${kind}:${id}`); return `/tmp/fixture-${id}`; }, () => ({}));
+    const created = await adapter.createSession({ ...sessionInput(), domainProjectId: "project-1", canvasId: null }, grant);
+    const resumed = await adapter.resumeSession({ sessionId: grant.sessionId, providerThreadId: created.providerThreadId, projectId: "project-1", domainProjectId: "project-1", canvasId: null, grant });
+    assert.equal(resumed.providerThreadId, created.providerThreadId);
+    assert.deepEqual(paths, ["project:project-1", "project:project-1"]);
+    assert.equal(fake.preflights.length, 2);
+});
+
 test("Codex server requests fail closed unless the matching FilmOS confirmation approves", async () => {
     const decisions: unknown[] = [];
     const fake = fakeClient(async (binding) => {

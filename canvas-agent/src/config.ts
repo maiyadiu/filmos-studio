@@ -125,6 +125,14 @@ export function saveConfig(config: LocalRuntimeConfig) {
     fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2));
 }
 
+// Execution scratch space only: no canvas registration or business project files.
+export function ensureProjectAgentWorkspace(projectId: string, runtimeDir = CONFIG_DIR) {
+    if (!/^[A-Za-z0-9_-]{1,120}$/.test(projectId)) throw new Error("AGENT_CONTEXT_PROJECT_REQUIRED");
+    const workspacePath = path.join(runtimeDir, "project-workspaces", projectId);
+    fs.mkdirSync(workspacePath, { recursive: true });
+    return workspacePath;
+}
+
 export function ensureCanvasWorkspace(config: LocalRuntimeConfig, canvasId: string) {
     const id = safeSegment(canvasId || "default");
     config.canvases ||= {};
