@@ -1,4 +1,5 @@
 import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { Suspense } from "react";
 import { Link, useLocation } from "react-router";
 
 import { SystemAnnouncementCenter } from "@/components/layout/system-announcement-center";
@@ -6,6 +7,7 @@ import { WorkspaceAccountMenu } from "@/components/layout/workspace-account-menu
 import { AnimatedThemeToggler } from "@/components/ui/animated-theme-toggler";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { useUserStore } from "@/stores/use-user-store";
+import { YingceWorkspaceAgentEntry } from "@/film/adapters/yingce/contributions/agent-panel";
 
 const PAGE_TITLES: Record<string, string> = {
     home: "首页",
@@ -42,6 +44,7 @@ export function WorkspaceTopBar({ sidebarOpen, onToggleSidebar }: { sidebarOpen:
             </div>
 
             <div className="flex shrink-0 items-center gap-1">
+                {user ? <Suspense fallback={null}><YingceWorkspaceAgentEntry /></Suspense> : null}
                 {user ? <SystemAnnouncementCenter userId={user.id} className="app-workspace-topbar-icon-button" /> : null}
                 <AnimatedThemeToggler className="app-workspace-topbar-icon-button" theme={theme} onThemeChange={setTheme} aria-label="切换主题" />
                 <WorkspaceAccountMenu />

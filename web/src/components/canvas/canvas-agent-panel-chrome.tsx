@@ -148,17 +148,22 @@ const projectStarterActions = [
     { label: "规划下一步创作", icon: Workflow },
 ];
 
-export function AgentChatEmptyState({ theme, nodeCount, projectPage = false, onSelect }: { theme: CanvasTheme; nodeCount: number; projectPage?: boolean; onSelect: (value: string) => void }) {
+const workspaceStarterActions = [
+    { label: "读取当前工作台页面身份", icon: Focus },
+    { label: "讨论下一步创作计划，不修改作品", icon: Workflow },
+];
+
+export function AgentChatEmptyState({ theme, nodeCount, projectPage = false, workspacePage = false, onSelect }: { theme: CanvasTheme; nodeCount: number; projectPage?: boolean; workspacePage?: boolean; onSelect: (value: string) => void }) {
     const shortDramaEnabled = useUserStore((state) => state.features.shortDramaEnabled);
-    const visibleStarterActions = projectPage ? projectStarterActions : shortDramaEnabled ? starterActions : starterActions.filter((item) => item.label !== "搭建短剧工作流");
+    const visibleStarterActions = workspacePage ? workspaceStarterActions : projectPage ? projectStarterActions : shortDramaEnabled ? starterActions : starterActions.filter((item) => item.label !== "搭建短剧工作流");
     return (
         <div className="flex h-full items-center px-5 py-8">
             <div className="mx-auto w-full max-w-[380px]">
                 <div className="flex items-center gap-2">
                     <span className="grid size-7 place-items-center rounded-md" style={{ background: theme.accent.primarySoft, color: theme.accent.primary }}><Bot className="size-3.5" /></span>
-                    <span className="text-[var(--fs-label)] font-medium" style={{ color: theme.node.muted }}>{projectPage ? "项目上下文已绑定" : `${nodeCount} 个节点已就绪`}</span>
+                    <span className="text-[var(--fs-label)] font-medium" style={{ color: theme.node.muted }}>{workspacePage ? "工作区已连接 · 尚未选中作品" : projectPage ? "项目上下文已绑定" : `${nodeCount} 个节点已就绪`}</span>
                 </div>
-                <h2 className="mt-3 text-[var(--fs-heading-lg)] font-semibold leading-6" style={{ color: theme.node.text }}>{projectPage ? "从当前作品开始" : "从当前画布开始"}</h2>
+                <h2 className="mt-3 text-[var(--fs-heading-lg)] font-semibold leading-6" style={{ color: theme.node.text }}>{workspacePage ? "从工作台开始" : projectPage ? "从当前作品开始" : "从当前画布开始"}</h2>
                 <div className="mt-4 grid grid-cols-1 gap-1">
                     {visibleStarterActions.map(({ label, icon: Icon }) => (
                         <button key={label} type="button" className="group flex min-h-11 min-w-0 items-center gap-2.5 rounded-md px-2.5 text-left text-xs font-medium transition-colors" style={{ color: theme.node.text }} onMouseEnter={(event) => { event.currentTarget.style.background = theme.spatial.surface; }} onMouseLeave={(event) => { event.currentTarget.style.background = "transparent"; }} onFocus={(event) => { event.currentTarget.style.background = theme.spatial.surface; }} onBlur={(event) => { event.currentTarget.style.background = "transparent"; }} onClick={() => onSelect(label)}>

@@ -1,6 +1,6 @@
 import { AgentRuntimeRequestError, type AgentSessionClient, type BrainSessionView } from "./agent-client";
 
-type RecoveryScope = Pick<BrainSessionView, "id" | "brainProfileId" | "projectId" | "canvasId" | "domainProjectId" | "contentUnitId">;
+type RecoveryScope = Pick<BrainSessionView, "id" | "brainProfileId" | "projectId" | "workspaceId" | "canvasId" | "domainProjectId" | "contentUnitId">;
 type RecoveryClient = Pick<AgentSessionClient, "getSession" | "resumeSession">;
 
 // Recovery rotates the local grant and reads history; it must never send a turn
@@ -32,6 +32,8 @@ export async function recoverAgentSession(client: RecoveryClient, scope: Recover
 
 export function agentFailureGuidance(code: string): string {
     switch (code) {
+        case "agent_project_context_required":
+            return "当前没有选中作品。请进入明确的项目或章节画布后操作；不会自动借用上一部作品。";
         case "agent_grant_refresh_required":
             return "这是 FilmOS 本地工具授权到期，不是 Codex 订阅掉线。轮次结束后可点“恢复当前会话”；恢复不会重发任务，继续前先回读原请求及当前版本。";
         case "agent_context_refresh_required": case "agent_context_stale":

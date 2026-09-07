@@ -1,6 +1,7 @@
 import type { CanvasAgentSnapshot } from "@/lib/canvas/canvas-agent-ops";
 import type { ProjectDetail } from "@/services/api/projects";
 import type { BrainSessionView } from "./agent-client";
+import { agentWorkspaceId, type AgentPageSnapshot } from "./workspace-agent-context";
 
 export type ProjectChapterContext = { projectId: string; unitId: string; revision?: number; ready: boolean; dirty: boolean };
 
@@ -20,11 +21,11 @@ export function buildProjectAgentSnapshot(detail: ProjectDetail, activePanel: st
     };
 }
 
-export function agentSnapshotCanvasId(snapshot: CanvasAgentSnapshot) {
-    return snapshot.contextKind === "project" ? null : snapshot.projectId;
+export function agentSnapshotCanvasId(snapshot: AgentPageSnapshot) {
+    return snapshot.contextKind === "project" || snapshot.contextKind === "workspace" ? null : snapshot.projectId;
 }
 
-export function matchesAgentSessionScope(session: BrainSessionView, snapshot: CanvasAgentSnapshot, profile: string) {
+export function matchesAgentSessionScope(session: BrainSessionView, snapshot: AgentPageSnapshot, profile: string) {
     return session.projectId === snapshot.projectId && session.canvasId === agentSnapshotCanvasId(snapshot)
-        && session.domainProjectId === snapshot.domainProjectId && session.contentUnitId === snapshot.contentUnitId && session.brainProfileId === profile;
+        && session.workspaceId === agentWorkspaceId(snapshot) && session.domainProjectId === snapshot.domainProjectId && session.contentUnitId === snapshot.contentUnitId && session.brainProfileId === profile;
 }

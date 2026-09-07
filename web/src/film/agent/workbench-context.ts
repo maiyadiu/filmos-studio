@@ -1,11 +1,13 @@
 import type { CanvasAgentSnapshot } from "@/lib/canvas/canvas-agent-ops";
+import type { WorkspaceAgentSnapshot } from "./workspace-agent-context";
 import type { CanvasNodeData, ViewportTransform } from "@/types/canvas";
 import { postDesktopHostMessage } from "@/film/adapters/yingce/desktop-rpc-client";
 
 export type WorkbenchContextV1 = {
     schemaVersion: "1";
-    contextKind?: "canvas" | "project";
-    projectId: string;
+    contextKind?: "canvas" | "project" | "workspace";
+    projectId: string | null;
+    workspaceId?: string;
     domainProjectId?: string;
     contentUnitId?: string;
     contentUnitKind?: "chapter" | "episode" | "special" | "trailer" | "extra" | "film" | "season" | "arc" | "volume";
@@ -92,6 +94,11 @@ export function buildProjectWorkbenchContext(snapshot: CanvasAgentSnapshot): Wor
         canvasId: null, title: snapshot.title, activePanel: snapshot.activePanel || "overview", blockers: [...snapshot.blockers || []],
         selectedNodeIds: [], visibleNodeIds: [], visibleNodeSummaries: [], assetVersionIds: [], canvasRevision: snapshot.revision ?? 0,
     };
+}
+
+export function buildWorkspaceWorkbenchContext(snapshot: WorkspaceAgentSnapshot): WorkbenchContextV1 {
+    return { schemaVersion: "1", contextKind: "workspace", workspaceId: snapshot.workspaceId, projectId: null, canvasId: null,
+        title: "全局工作台", activePanel: snapshot.activePanel || "home", selectedNodeIds: [], visibleNodeIds: [], visibleNodeSummaries: [], assetVersionIds: [], canvasRevision: snapshot.revision ?? 0 };
 }
 
 export function publishWorkbenchContext(context: WorkbenchContextV1 | undefined) {

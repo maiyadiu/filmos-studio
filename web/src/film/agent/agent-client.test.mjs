@@ -33,5 +33,11 @@ describe("generic Agent Session client", () => {
         } });
         await client.listSessions({ projectId: "canvas-a", brainProfileId: "codex.subscription" });
         expect(calls[0].path).toBe("/agent/sessions?brainProfileId=codex.subscription&projectId=canvas-a");
+        await client.getWorkspace();
+        expect(calls[1].path).toBe("/agent/workspace");
+        await client.listSessions({ workspaceId: "owner-a", brainProfileId: "codex.subscription" });
+        expect(calls[2].path).toBe("/agent/sessions?brainProfileId=codex.subscription&workspaceId=owner-a");
+        expect(() => client.listSessions({ workspaceId: "owner-a", projectId: "old-canvas" })).toThrow();
+        expect(calls).toHaveLength(3);
     });
 });

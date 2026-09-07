@@ -5,12 +5,45 @@ import { buildProjectWorkbenchContext, buildLiveWorkbenchContextDraft, publishWo
 import { runProjectAgentTool } from "../src/services/api/project-agent-tools";
 import { apiClient } from "../src/services/api/request";
 import type { ProjectDetail } from "../src/services/api/projects";
+import { buildWorkspaceAgentSnapshot, hashAgentPageSnapshot, requireAgentProjectSnapshot, workspaceAgentPage } from "../src/film/agent/workspace-agent-context";
+import { buildWorkspaceWorkbenchContext } from "../src/film/agent/workbench-context";
 
 const detail = { project: { id: "project", name: "隔离作品", revision: 2, status: "active" }, units: [{ id: "one", title: "第一章" }, { id: "two", title: "第二章" }] } as ProjectDetail;
 const chapter = { projectId: "project", unitId: "two", revision: 3, ready: true, dirty: false };
 const previousWindow = globalThis.window;
 const previousAdapter = apiClient.defaults.adapter;
 afterEach(() => { globalThis.window = previousWindow; apiClient.defaults.adapter = previousAdapter; });
+
+test("workspace snapshot is route-whitelisted, owner-bound and contains no previous work or settings content", () => {
+    const snapshot = buildWorkspaceAgentSnapshot("owner", "/assets");
+    expect(snapshot).toEqual({ contextKind: "workspace", workspaceId: "owner", projectId: null, activePanel: "assets", nodes: [], connections: [], selectedNodeIds: [], visibleNodeIds: [], assetVersionIds: [] });
+    for (const route of ["/home", "/projects", "/canvas", "/settings"]) expect(hashAgentPageSnapshot(buildWorkspaceAgentSnapshot("owner", route))).not.toBe(hashAgentPageSnapshot(snapshot));
+    for (const route of ["/projects/real", "/canvas/real", "/login", "/settings?key=secret", "__proto__", "toString"]) {
+        expect(workspaceAgentPage(route)).toBeNull();
+        expect(() => buildWorkspaceAgentSnapshot("owner", route)).toThrow();
+    }
+    expect(() => buildWorkspaceAgentSnapshot("../owner", "/home")).toThrow();
+    expect(() => requireAgentProjectSnapshot(snapshot)).toThrow("没有绑定作品");
+    const session = { workspaceId: "owner", projectId: null, canvasId: null, brainProfileId: "codex.subscription" };
+    expect(matchesAgentSessionScope(session as never, snapshot, "codex.subscription")).toBe(true);
+    for (const patch of [{ workspaceId: "another" }, { workspaceId: undefined }, { projectId: "null" }, { projectId: "old" }, { domainProjectId: "old" }, { canvasId: "old" }, { contentUnitId: "old" }, { brainProfileId: "openai.api" }]) expect(matchesAgentSessionScope({ ...session, ...patch } as never, snapshot, "codex.subscription")).toBe(false);
+    expect(matchesAgentSessionScope(session as never, buildProjectAgentSnapshot(detail, "overview"), "codex.subscription")).toBe(false);
+});
+
+test("workspace publisher clears formal scope and publishes no settings values", async () => {
+    const messages: unknown[] = [];
+    globalThis.window = Object.assign(new EventTarget(), { webkit: { messageHandlers: { filmosDesktop: { postMessage: (value: unknown) => messages.push(value) } } } }) as unknown as Window & typeof globalThis;
+    const old = publishWorkbenchContext(buildProjectWorkbenchContext(buildProjectAgentSnapshot(detail, "overview")));
+    const context = buildWorkspaceWorkbenchContext(buildWorkspaceAgentSnapshot("owner", "/settings"));
+    const clear = publishWorkbenchContext(context);
+    old();
+    expect(window.filmOSGetWorkbenchContext?.()).toEqual(context);
+    expect(context).toMatchObject({ contextKind: "workspace", workspaceId: "owner", projectId: null, canvasId: null, activePanel: "settings", selectedNodeIds: [], assetVersionIds: [] });
+    expect(messages.at(-1)).toMatchObject({ context: null, canvasId: "", projectId: "" });
+    await expect(buildLiveWorkbenchContextDraft(context)).rejects.toThrow("DOMAIN_PROJECT_REQUIRED");
+    clear();
+    expect(window.filmOSGetWorkbenchContext).toBeUndefined();
+});
 
 test("project scope uses actual selected chapter, never first chapter or a stale project", () => {
     const snapshot = buildProjectAgentSnapshot(detail, "chapters", chapter);

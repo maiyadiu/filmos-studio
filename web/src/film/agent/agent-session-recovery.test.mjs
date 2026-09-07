@@ -24,6 +24,18 @@ test("recovery checks current scope, synchronizes context, resumes the original 
     expect(calls).toEqual([{ path: "/agent/sessions/s", method: "GET" }, { path: "/agent/sessions/s/resume", method: "POST" }, { path: "/agent/sessions/s", method: "GET" }]);
 });
 
+test("workspace recovery binds the exact runtime owner with null project and canvas", async () => {
+    const workspaceScope = { id: "s", brainProfileId: "codex.subscription", projectId: null, canvasId: null, workspaceId: "owner", domainProjectId: undefined, contentUnitId: undefined };
+    const working = fixture(value => ({ ...value, session: { ...value.session, ...workspaceScope } }));
+    expect((await recoverAgentSession(working.client, workspaceScope, () => true, async () => true)).session.providerThreadId).toBe("original-thread");
+    expect(working.calls.map(c => c.method)).toEqual(["GET", "POST", "GET"]);
+    for (const patch of [{ workspaceId: "other" }, { workspaceId: undefined }, { projectId: "null" }, { domainProjectId: "old" }, { contentUnitId: "old" }, { canvasId: "old" }]) {
+        const denied = fixture(value => ({ ...value, session: { ...value.session, ...workspaceScope, ...patch } }));
+        await expect(recoverAgentSession(denied.client, workspaceScope, () => true, async () => true)).rejects.toThrow("身份不一致");
+        expect(denied.calls).toHaveLength(1);
+    }
+});
+
 test.each([
     ["active", value => { value.session.execution.activeTurnId = "running"; }],
     ["resuming", value => { value.session.execution.resuming = true; }],

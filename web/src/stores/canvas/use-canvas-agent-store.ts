@@ -40,6 +40,7 @@ type CanvasAgentStore = {
     threads: AgentThreadSummary[];
     activeThreadId: string;
     sessionScopeKey: string;
+    sessionUserId: string | null;
     latestPlan: AgentTurnPlan | null;
     workspacePath: string;
     loadingThreads: boolean;
@@ -109,6 +110,7 @@ export const useCanvasAgentStore = create<CanvasAgentStore>((set) => ({
     threads: [],
     activeThreadId: "",
     sessionScopeKey: "",
+    sessionUserId: null,
     latestPlan: null,
     workspacePath: "",
     loadingThreads: false,

@@ -13,7 +13,8 @@ export type BrainSessionView = {
     id: string;
     conversationId: string;
     brainProfileId: string;
-    projectId: string;
+    projectId: string | null;
+    workspaceId?: string;
     canvasId: string | null;
     domainProjectId?: string;
     contentUnitId?: string;
@@ -68,13 +69,19 @@ export class AgentSessionClient {
         return this.json<AgentRuntimeDiagnostics>("/agent/diagnostics", { method: "GET", signal });
     }
 
-    listSessions(scope: { projectId?: string; brainProfileId?: string } = {}, signal?: AbortSignal) {
+    getWorkspace(signal?: AbortSignal) {
+        return this.json<{ workspaceId: string }>("/agent/workspace", { method: "GET", signal });
+    }
+
+    listSessions(scope: { projectId?: string; workspaceId?: string; brainProfileId?: string } = {}, signal?: AbortSignal) {
+        if (scope.workspaceId && scope.projectId) throw new Error("工作区历史不能混入项目查询");
         const query = new URLSearchParams();
         // Runtime request targets are signed in canonical key order. Keep the
         // query stable before the browser signs it so restart recovery can
         // restore persisted Generic Agent sessions instead of receiving 400.
         if (scope.brainProfileId) query.set("brainProfileId", scope.brainProfileId);
         if (scope.projectId) query.set("projectId", scope.projectId);
+        if (scope.workspaceId) query.set("workspaceId", scope.workspaceId);
         return this.json<{ sessions: BrainSessionView[] }>(`/agent/sessions${query.size ? `?${query}` : ""}`, { method: "GET", signal });
     }
 

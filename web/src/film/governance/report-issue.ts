@@ -736,7 +736,7 @@ function currentDomainProjectId() {
 }
 
 export function currentDomainProjectIdFromContext(
-    context: { domainProjectId?: string; projectId?: string } | null | undefined,
+    context: { domainProjectId?: string; projectId?: string | null } | null | undefined,
     pathname: string,
 ) {
     const liveProjectId = context?.domainProjectId || context?.projectId;
