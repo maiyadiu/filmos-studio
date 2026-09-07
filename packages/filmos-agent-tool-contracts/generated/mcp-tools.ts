@@ -3739,6 +3739,7 @@ export const canonicalMcpTools = [
                     "type": "string"
                   },
                   "characters": {
+                    "description": "仅填写来源正文中逐字出现的角色名称，例如阿禾、索恩；不要把（仅屏幕影像）、画外音、身份或资产ID附加到姓名。出场方式、可见范围及动作保留在action/camera字段。",
                     "items": {
                       "minLength": 1,
                       "type": "string"

@@ -129,7 +129,7 @@ func validateShotContent(content model.ShotContent, paragraphs []ScriptParagraph
 			}
 		}
 		if !found {
-			return BadAuthRequest("角色名称未出现在来源正文中，不能虚构角色或资产ID")
+			return BadAuthRequest("characters 只能填写来源正文中的角色原名；屏幕影像、画外音等出场说明请写入 action/camera，不能附加到姓名或虚构角色、资产ID")
 		}
 	}
 	return nil

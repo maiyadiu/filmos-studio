@@ -27,6 +27,15 @@ test("shot read tools are fresh scoped reads and batch is a non-paid write", () 
     }
 });
 
+test("character input describes exact identity separately from screen and voice presence", () => {
+    const fields = toolInputSchemas.project_create_or_update_shots.shape.shots.element.shape.content.shape;
+    assert.match(fields.characters.description ?? "", /来源正文.*逐字/);
+    assert.match(fields.characters.description ?? "", /action\/camera/);
+    const tool = new CanonicalAgentToolManifest().get("project_create_or_update_shots");
+    const schema = tool.inputSchema as any;
+    assert.match(schema.properties.shots.items.properties.content.properties.characters.description, /仅屏幕影像/);
+});
+
 test("native storyboard sync freezes source version and cannot choose another canvas or generation", () => {
     const input = { unitId: "unit", expectedShotRevision: 2, sourceRevision: 3, sourceHash: "a".repeat(64) };
     const schema = toolInputSchemas.project_sync_storyboard;

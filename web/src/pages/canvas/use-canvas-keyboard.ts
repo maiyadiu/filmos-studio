@@ -1,6 +1,7 @@
 import { useEffect, type Dispatch, type SetStateAction } from "react";
 
 import type { CanvasNodeData, ContextMenuState } from "@/types/canvas";
+import { hasBrowserTextSelection, isCanvasOverlayTarget, isCanvasTextEditingTarget } from "@/lib/canvas/canvas-keyboard-target";
 
 type UseCanvasKeyboardOptions = {
     nodesRef: { current: CanvasNodeData[] };
@@ -73,10 +74,10 @@ export function useCanvasKeyboard({
 }: UseCanvasKeyboardOptions) {
     useEffect(() => {
         const handleKeyDown = (event: KeyboardEvent) => {
-            const target = event.target instanceof Element ? event.target : null;
             const key = event.key.toLowerCase();
             const isModifierShortcut = event.metaKey || event.ctrlKey;
-            const isTextEditingTarget = event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLSelectElement || Boolean(target?.closest("[contenteditable='true']"));
+            const isTextEditingTarget = isCanvasTextEditingTarget(event.target);
+            if (event.defaultPrevented || event.isComposing) return;
 
             if (isModifierShortcut && !event.altKey && (key === "+" || key === "=" || event.code === "NumpadAdd")) {
                 event.preventDefault();
@@ -106,8 +107,8 @@ export function useCanvasKeyboard({
                 return;
             }
             if (isTextEditingTarget) return;
-            const isCanvasControlTarget = Boolean(target?.closest("[data-canvas-no-zoom]"));
-            if (isCanvasControlTarget && !(isModifierShortcut && !event.altKey && (key === "c" || key === "v"))) return;
+            if (isCanvasOverlayTarget(event.target)) return;
+            if (isModifierShortcut && (key === "c" || key === "x") && hasBrowserTextSelection()) return;
             if (event.altKey && !isModifierShortcut && key === "l") {
                 event.preventDefault();
                 if (!event.repeat && selectedNodeIdsRef.current.size > 1) beginBatchConnection();
@@ -145,6 +146,7 @@ export function useCanvasKeyboard({
                 return;
             }
             if (isModifierShortcut && !event.altKey && key === "c") {
+                if (!selectedNodeIdsRef.current.size) return;
                 event.preventDefault();
                 copySelectedNodes();
                 return;
@@ -181,8 +183,7 @@ export function useCanvasKeyboard({
         };
 
         const handlePaste = (event: ClipboardEvent) => {
-            const target = event.target instanceof Element ? event.target : null;
-            if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLSelectElement || target?.closest("[contenteditable='true']")) return;
+            if (event.defaultPrevented || isCanvasTextEditingTarget(event.target) || isCanvasOverlayTarget(event.target)) return;
             // 节点标记写入失败或仍在写入时避开旧系统图片，其余情况保持系统内容优先。
             event.preventDefault();
             const text = event.clipboardData?.getData("text/plain") || "";

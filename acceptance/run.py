@@ -476,7 +476,7 @@ SOURCE_CHECKS = tuple(check for check in RC_LOCAL_CHECKS if check.check_id in SO
     Check(
         "source-supervisor-lifecycle",
         "Source Swift supervisor/window/configuration tests (mock/owned processes, no Keychain suite)",
-        ("xcrun", "swift", "test", "--package-path", "desktop/macos", "--scratch-path", ".local/source-swift-test", "--filter", "ServiceSupervisorTests|DesktopWindowLifecycleTests|InternalWorkbenchConfigurationTests"),
+        ("xcrun", "swift", "test", "--package-path", "desktop/macos", "--scratch-path", ".local/source-swift-test", "--filter", "ServiceSupervisorTests|DesktopWindowLifecycleTests|DesktopEditMenuTests|InternalWorkbenchConfigurationTests"),
         ROOT,
         ("01-desktop", "13-qa"),
     ),

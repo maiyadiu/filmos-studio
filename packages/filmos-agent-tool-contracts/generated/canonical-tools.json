@@ -4022,6 +4022,7 @@
                       "type": "string"
                     },
                     "characters": {
+                      "description": "仅填写来源正文中逐字出现的角色名称，例如阿禾、索恩；不要把（仅屏幕影像）、画外音、身份或资产ID附加到姓名。出场方式、可见范围及动作保留在action/camera字段。",
                       "items": {
                         "minLength": 1,
                         "type": "string"
@@ -4168,7 +4169,7 @@
         ],
         "type": "object"
       },
-      "input_schema_hash": "cd6e747487eeac074cc21bc2f1cbc558bb427d304a95a16db95f9d9713254d68"
+      "input_schema_hash": "cb4b85eec7b926920e6d150b83b8c69420216e407e7ce6d4806029773ebb7407"
     },
     {
       "name": "project_create_script",
@@ -5203,5 +5204,5 @@
       "input_schema_hash": "99334726611ccf58a148b0814696bfa6fe08c1b2d027e946beccf5a74331c9aa"
     }
   ],
-  "contract_hash": "b85394db7f482eadfc5b99528557f0be7a38b722c4b786416f5ad3a731e4e6b2"
+  "contract_hash": "b9570fcc95d7884b33a3cdc485b402c71e709f6be6a732f1eeb17ec36154f8f7"
 }

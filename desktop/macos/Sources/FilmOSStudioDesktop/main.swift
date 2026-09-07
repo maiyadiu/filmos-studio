@@ -1516,6 +1516,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             keyEquivalent: "q"
         )
         applicationItem.submenu = applicationMenu
+        mainMenu.addItem(DesktopEditMenu.make())
 
         let viewItem = NSMenuItem()
         mainMenu.addItem(viewItem)

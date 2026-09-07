@@ -6,6 +6,7 @@ import (
 	"errors"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 
@@ -149,6 +150,26 @@ func TestShotBatchSaveReadbackReplayAndLocalEdit(t *testing.T) {
 	context, _ = s.GetProjectShotContext("u", "p", "chapter")
 	if context.Shots[0].Revision != 2 {
 		t.Fatal("retry reverted current shot")
+	}
+}
+
+func TestShotSourceCharacterIdentityAndScreenPresenceAreSeparate(t *testing.T) {
+	paragraphs := scriptParagraphs("<p>场景：控制室。屏幕上，阿禾的影像旁显示索恩的胸甲标记。</p>")
+	content := model.ShotContent{
+		Scene: "控制室", Characters: []string{"阿禾", "索恩"},
+		SourceReferences: []model.ShotSourceReference{{ParagraphID: paragraphs[0].ID, Quote: paragraphs[0].Text}},
+		Action: "阿禾仅为屏幕影像，索恩仅胸甲标记可见。", Camera: "屏幕特写，两人不在控制室现场。",
+	}
+	if err := validateShotContent(content, paragraphs); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"阿禾（仅屏幕影像）", "索恩（胸甲标记）", "虚构角色", "asset-123"} {
+		content.Characters = []string{name}
+		var app *AppError
+		err := validateShotContent(content, paragraphs)
+		if !errors.As(err, &app) || app.Status != 400 || !strings.Contains(err.Error(), "action/camera") {
+			t.Fatalf("want actionable source rejection, got %v", err)
+		}
 	}
 }
 

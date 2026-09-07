@@ -13,7 +13,8 @@ const projectShotSchema = z.object({
     title: z.string().min(1).max(240), description: z.string().min(1), position: z.number().int().min(0), durationMs: z.number().int().positive().max(3600000),
     content: z.object({
         sourceReferences: z.array(z.object({ paragraphId: z.string().min(1), quote: z.string().min(1) }).strict()).min(1).max(200),
-        scene: z.string().min(1), characters: z.array(z.string().min(1)).max(100),
+        scene: z.string().min(1),
+        characters: z.array(z.string().min(1)).max(100).describe("仅填写来源正文中逐字出现的角色名称，例如阿禾、索恩；不要把（仅屏幕影像）、画外音、身份或资产ID附加到姓名。出场方式、可见范围及动作保留在action/camera字段。"),
         dialogue: z.array(z.object({ speaker: z.string().min(1), text: z.string().min(1), paragraphId: z.string().min(1) }).strict()).max(200),
         action: z.string().min(1), camera: z.string().min(1),
     }).strict(),
