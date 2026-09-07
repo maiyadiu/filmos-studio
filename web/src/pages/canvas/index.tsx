@@ -17,7 +17,7 @@ import { useCanvasStore } from "@/stores/canvas/use-canvas-store";
 import { useCanvasUiStore } from "@/stores/canvas/use-canvas-ui-store";
 import { exportCanvasProjects } from "@/lib/canvas/canvas-export";
 import { saveCanvasDrawing, type CanvasDrawingRenderDraft } from "@/lib/canvas/canvas-drawing-storage";
-import { createCanvasProjectWithRemoteSync, saveRemoteUserDataNow } from "@/services/user-data-sync";
+import { createCanvasProjectWithRemoteSync, reassignSyncedCanvasProjects } from "@/services/user-data-sync";
 import { listProjects } from "@/services/api/projects";
 
 export default function CanvasPage() {
@@ -36,7 +36,6 @@ export default function CanvasPage() {
     const importProject = useCanvasStore((state) => state.importProject);
     const selectedIds = useCanvasUiStore((state) => state.selectedProjectIds);
     const setDeleteIds = useCanvasUiStore((state) => state.setDeleteProjectIds);
-    const updateProject = useCanvasStore((state) => state.updateProject);
     const [associationOpen, setAssociationOpen] = useState(false);
     const [associationProjectId, setAssociationProjectId] = useState("");
     const projectQuery = useQuery({ queryKey: ["projects"], queryFn: () => listProjects() });
@@ -90,9 +89,8 @@ export default function CanvasPage() {
     }, [filteredProjects.length, visibleProjects.length]);
     const associateSelected = async (nextProjectId = associationProjectId) => {
         const projectId = nextProjectId || undefined;
-        selectedIds.forEach((id) => updateProject(id, { projectId }));
         try {
-            await saveRemoteUserDataNow();
+            await reassignSyncedCanvasProjects(selectedIds, projectId);
             message.success(projectId ? "已加入项目" : "已移出项目，画布仍保留");
             setAssociationOpen(false);
         } catch (error) {

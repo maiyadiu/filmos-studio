@@ -3,7 +3,7 @@ import localforage from "localforage";
 import { apiClient } from "../src/services/api/request";
 import { hashScriptContent } from "../src/film/story/script-version";
 import { requireCanvasContentHash, sameCanvasJSON } from "../src/lib/canvas/canvas-sync-baseline";
-import { resetRemoteUserDataSync, saveRemoteUserDataNow, syncRemoteUserData, syncSyncedProjectStoryboard, loadSyncedCanvasPrompt, saveSyncedCanvasPrompt, acquireSyncedChapterCanvas } from "../src/services/user-data-sync";
+import { resetRemoteUserDataSync, saveRemoteUserDataNow, syncRemoteUserData, syncSyncedProjectStoryboard, loadSyncedCanvasPrompt, saveSyncedCanvasPrompt, acquireSyncedChapterCanvas, reassignSyncedCanvasProjects } from "../src/services/user-data-sync";
 import { flushCanvasStorePersistence, useCanvasStore, type CanvasProject } from "../src/stores/canvas/use-canvas-store";
 import { flushAssetStorePersistence, useAssetStore } from "../src/stores/use-asset-store";
 import { upsertProjectChapterStoryboard } from "../src/lib/canvas/project-chapter-storyboard";
@@ -179,6 +179,58 @@ function chapterCanvasProtocol(f: Fixture) {
     };
     return state;
 }
+
+test("rejected canonical canvas reassignment keeps local identity and pending content", async () => fixture(async f => {
+    await syncRemoteUserData("fixture-user");
+    useCanvasStore.getState().renameProject("canvas-cas", "本地待保存内容");
+    const before = structuredClone(useCanvasStore.getState().projects);
+    f.protocol = (method, url) => {
+        if (method === "put" && url === "/canvas-projects/canvas-cas") throw new Error("章节已有唯一画布，不能改挂");
+    };
+    await expect(reassignSyncedCanvasProjects(["canvas-cas"], "other-project")).rejects.toThrow("不能改挂");
+    expect(useCanvasStore.getState().projects).toEqual(before);
+    expect(f.remote.get("canvas-cas")?.projectId).toBe("business");
+}));
+
+test("successful reassignment saves only relationship and preserves pending drafts and CAS", async () => fixture(async f => {
+    await syncRemoteUserData("fixture-user");
+    useCanvasStore.getState().renameProject("canvas-cas", "仍未保存的标题");
+    expect((await reassignSyncedCanvasProjects(["canvas-cas"], "new-project")).completedIds).toEqual(["canvas-cas"]);
+    expect(f.remote.get("canvas-cas")).toMatchObject({ title: "初版", projectId: "new-project" });
+    expect(useCanvasStore.getState().projects[0]).toMatchObject({ title: "仍未保存的标题", projectId: "new-project" });
+    const hash = await hashScriptContent(JSON.stringify(f.remote.get("canvas-cas")));
+    await saveRemoteUserDataNow();
+    expect(f.writes[1]?.expectedContentHash).toBe(hash);
+    expect(f.remote.get("canvas-cas")?.title).toBe("仍未保存的标题");
+}));
+
+test("batch reassignment reports partial completion without changing rejected canvases", async () => fixture(async f => {
+    f.remote.set("second", { ...project(), id: "second" });
+    await syncRemoteUserData("fixture-user");
+    f.protocol = (method, url) => {
+        if (method === "put" && url === "/canvas-projects/second") throw new Error("唯一章节绑定拒绝改挂");
+    };
+    await expect(reassignSyncedCanvasProjects(["canvas-cas", "second"], "new-project")).rejects.toThrow("已有 1 个画布关系完成并回读");
+    expect(useCanvasStore.getState().projects.map(c => [c.id, c.projectId])).toEqual([["canvas-cas", "new-project"], ["second", "business"]]);
+}));
+
+test("lost reassignment response recovers the same canvas and a repeat does not write again", async () => fixture(async f => {
+    await syncRemoteUserData("fixture-user");
+    f.options.loseResponse = true;
+    await reassignSyncedCanvasProjects(["canvas-cas"], "new-project");
+    await reassignSyncedCanvasProjects(["canvas-cas"], "new-project");
+    expect(f.writes).toHaveLength(1);
+    expect(useCanvasStore.getState().projects[0]?.projectId).toBe("new-project");
+}));
+
+test("session switch during reassignment does not apply the result into local state", async () => fixture(async f => {
+    await syncRemoteUserData("fixture-user");
+    const before = structuredClone(useCanvasStore.getState().projects);
+    f.options.resetDuringSave = true;
+    await expect(reassignSyncedCanvasProjects(["canvas-cas"], "new-project")).rejects.toThrow("用户会话已改变");
+    expect(useCanvasStore.getState().projects).toEqual(before);
+    expect(f.remote.get("canvas-cas")?.projectId).toBe("new-project"); // Sent before the session changed; do not call it rolled back.
+}));
 
 test("chapter entry hydrates exactly the server canvas, preserves other drafts and reuses CAS", async () => fixture(async f => {
     await syncRemoteUserData("fixture-user");

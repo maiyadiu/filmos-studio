@@ -387,6 +387,45 @@ export function acquireSyncedChapterCanvas(projectId: string, unitId: string, pr
     });
 }
 
+// Association changes only the persisted relationship, not the user's pending
+// node edits. Apply locally after CAS and readback; a rejection leaves it intact.
+export function reassignSyncedCanvasProjects(ids: string[], projectId?: string) {
+    return withRemoteUserDataSyncExclusive(async () => {
+        const assertCurrent = remoteSyncSession();
+        const completed: string[] = [];
+        try {
+            for (const id of [...new Set(ids)]) {
+                assertCurrent();
+                const baseline = acknowledgedCanvasStates.get(id), localBaseline = acknowledgedProjects.get(id);
+                const current = () => {
+                    assertCurrent();
+                    const canvas = useCanvasStore.getState().projects.find(canvas => canvas.id === id);
+                    if (!canvas || (canvas.projectId || "") !== (baseline?.project.projectId || "")) throw new Error("画布归属在操作期间发生变化，请核对；未覆盖本地修改");
+                    return canvas;
+                };
+                if (!baseline || !localBaseline) throw new Error("画布缺少已确认的服务端版本，请先完成同步");
+                current();
+                if ((baseline.project.projectId || "") === (projectId || "")) { completed.push(id); continue; }
+                const payload = { ...baseline.project, projectId, updatedAt: new Date().toISOString() };
+                const saved = await saveCanvasSyncPayload(payload, false);
+                const remote = await getRemoteCanvasProject(id);
+                current();
+                if (remote.project.id !== id || !sameCanvasJSON(remote.project, saved.project) || requireCanvasContentHash(remote.contentHash) !== saved.contentHash) throw new Error("画布关系已请求保存，但回读不一致，请核对");
+                useCanvasStore.getState().updateProject(id, { projectId });
+                acknowledgedCanvasStates.set(id, saved);
+                acknowledgedProjects.set(id, { ...localBaseline, projectId, updatedAt: useCanvasStore.getState().projects.find(canvas => canvas.id === id)!.updatedAt });
+                await flushCanvasStorePersistence();
+                assertCurrent();
+                completed.push(id);
+            }
+            return { completedIds: completed };
+        } catch (error) {
+            const detail = error instanceof Error ? error.message : "画布关系未完成";
+            throw new Error(completed.length ? `已有 ${completed.length} 个画布关系完成并回读；其余未确认：${detail}` : detail, { cause: error });
+        }
+    });
+}
+
 export async function deleteAssetWithRemoteSync(id: string) {
     const assetId = id.trim();
     if (!assetId) throw new Error("素材 ID 不能为空");
