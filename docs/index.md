@@ -28,6 +28,7 @@
 功能、代码地图、待办、待测试分别维护在以下页面；尚未建立的专题会在对应任务中补齐：
 
 - [功能](content/docs/overview/features.mdx)
+- [作品目录](content/docs/overview/作品目录.mdx)：默认或自选位置、单层分类、内容投影和离线恢复边界。
 - [本地开发](content/docs/backend/local-development.mdx)
 - [后端数据库](content/docs/backend/backend-database.mdx)
 - 代码地图：待补充

@@ -33,7 +33,7 @@ const SETTINGS_SECTIONS: Array<{ key: string; label: string }> = [
     { key: "channels", label: "自定义渠道" },
     { key: "preferences", label: "生成偏好" },
     { key: "prompts", label: "提示词偏好" },
-    { key: "storage", label: "我的对象存储" },
+    { key: "storage", label: "文件与存储" },
 ];
 
 function toolItem(slug: NavigationToolSlug, to: string): WorkspaceNavItem {

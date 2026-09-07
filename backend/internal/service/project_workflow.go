@@ -110,7 +110,12 @@ func (s *Service) ProjectWorkflows(projectID string) ([]ProjectWorkflowDetail, e
 	return result, nil
 }
 
-func (s *Service) CreateUnitWorkflow(userID string, projectID string, unitID string) (ProjectWorkflowDetail, error) {
+func (s *Service) CreateUnitWorkflow(userID string, projectID string, unitID string) (_ ProjectWorkflowDetail, resultErr error) {
+	finish, directoryErr := s.beginProjectDirectoryWrite(userID, projectID)
+	if directoryErr != nil {
+		return ProjectWorkflowDetail{}, directoryErr
+	}
+	defer finish(&resultErr)
 	if _, err := s.repo.ProjectForUser(userID, projectID); err != nil {
 		return ProjectWorkflowDetail{}, err
 	}
@@ -120,7 +125,12 @@ func (s *Service) CreateUnitWorkflow(userID string, projectID string, unitID str
 	return s.createProjectWorkflow(projectID, unitID, "unit")
 }
 
-func (s *Service) UpdateWorkflowStep(userID string, projectID string, stepID string, req UpdateWorkflowStepRequest) (model.WorkflowStepInstance, error) {
+func (s *Service) UpdateWorkflowStep(userID string, projectID string, stepID string, req UpdateWorkflowStepRequest) (_ model.WorkflowStepInstance, resultErr error) {
+	finish, directoryErr := s.beginProjectDirectoryWrite(userID, projectID)
+	if directoryErr != nil {
+		return model.WorkflowStepInstance{}, directoryErr
+	}
+	defer finish(&resultErr)
 	if _, err := s.repo.ProjectForUser(userID, projectID); err != nil {
 		return model.WorkflowStepInstance{}, err
 	}
@@ -179,7 +189,12 @@ func (s *Service) UpdateWorkflowStep(userID string, projectID string, stepID str
 	return *step, nil
 }
 
-func (s *Service) RegisterTaskOutput(userID string, projectID string, stepID string, req RegisterTaskOutputRequest) (model.WorkflowStepInstance, error) {
+func (s *Service) RegisterTaskOutput(userID string, projectID string, stepID string, req RegisterTaskOutputRequest) (_ model.WorkflowStepInstance, resultErr error) {
+	finish, directoryErr := s.beginProjectDirectoryWrite(userID, projectID)
+	if directoryErr != nil {
+		return model.WorkflowStepInstance{}, directoryErr
+	}
+	defer finish(&resultErr)
 	if _, err := s.repo.ProjectForUser(userID, projectID); err != nil {
 		return model.WorkflowStepInstance{}, err
 	}

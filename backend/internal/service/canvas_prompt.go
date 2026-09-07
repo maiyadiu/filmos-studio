@@ -468,7 +468,12 @@ func canvasPromptAssets(repo *repository.Repository, userID, projectID string, t
 	return nil
 }
 
-func (s *Service) SaveCanvasPrompt(userID, canvasID string, req SaveCanvasPromptRequest) (CanvasPromptSaveResult, error) {
+func (s *Service) SaveCanvasPrompt(userID, canvasID string, req SaveCanvasPromptRequest) (_ CanvasPromptSaveResult, resultErr error) {
+	finish, err := s.beginProjectDirectoryWrite(userID, req.ProjectID)
+	if err != nil {
+		return CanvasPromptSaveResult{}, err
+	}
+	defer finish(&resultErr)
 	result := CanvasPromptSaveResult{}
 	if strings.TrimSpace(req.RequestID) != req.RequestID || req.RequestID == "" || len(req.RequestID) > 100 || req.ExpectedRevision == nil || *req.ExpectedRevision < 0 || len(req.Prompt) > 64<<10 || strings.TrimSpace(req.Prompt) == "" || len(req.ExpectedContentHash) != 64 || len(req.DependencyHash) != 64 {
 		return result, BadAuthRequest("提示词保存需要 requestId、当前版本/哈希、依赖哈希和 1–64 KiB 正文")

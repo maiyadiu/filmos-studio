@@ -1,4 +1,5 @@
 import { apiClient, request } from "@/services/api/request";
+import { projectDirectoryHeaders, type LocalProjectDirectory } from "@/services/api/project-directories";
 
 const api = apiClient;
 
@@ -240,8 +241,8 @@ export function getProject(id: string) {
     return request<ProjectDetail>(api.get(`/projects/${encodeURIComponent(id)}`));
 }
 
-export function createProject(input: { name: string; type: string; aspectRatio: string; sourceType: string; description?: string; stylePresetId?: string; styleProfileJson?: string }) {
-    return request<{ project: Project }>(api.post("/projects", input));
+export function createProject(input: { name: string; type: string; aspectRatio: string; sourceType: string; description?: string; stylePresetId?: string; styleProfileJson?: string; localDirectory?: LocalProjectDirectory }) {
+    return request<{ project: Project }>(api.post("/projects", input, input.localDirectory ? { headers: projectDirectoryHeaders } : undefined));
 }
 
 export function updateProject(projectId: string, input: Partial<Pick<Project, "name" | "type" | "aspectRatio" | "sourceType" | "description" | "stylePresetId" | "styleProfileJson" | "status">>) {

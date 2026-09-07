@@ -115,7 +115,12 @@ func (s *Service) ListVoiceProfiles(userID string) ([]VoiceProfileSummary, error
 	return result, nil
 }
 
-func (s *Service) CreateProjectCharacter(userID string, projectID string, req CreateProjectCharacterRequest) (ProjectCharacterDetail, error) {
+func (s *Service) CreateProjectCharacter(userID string, projectID string, req CreateProjectCharacterRequest) (_ ProjectCharacterDetail, resultErr error) {
+	directoryFinish, directoryErr := s.beginProjectDirectoryWrite(userID, projectID)
+	if directoryErr != nil {
+		return ProjectCharacterDetail{}, directoryErr
+	}
+	defer directoryFinish(&resultErr)
 	if _, err := s.repo.ProjectForUser(userID, projectID); err != nil {
 		return ProjectCharacterDetail{}, err
 	}
@@ -159,7 +164,12 @@ func (s *Service) ProjectCharacter(userID string, projectID string, assetID stri
 	return s.projectCharacterDetail(userID, projectID, asset)
 }
 
-func (s *Service) UpdateProjectCharacter(userID string, projectID string, assetID string, req UpdateProjectCharacterRequest) (ProjectCharacterDetail, error) {
+func (s *Service) UpdateProjectCharacter(userID string, projectID string, assetID string, req UpdateProjectCharacterRequest) (_ ProjectCharacterDetail, resultErr error) {
+	directoryFinish, directoryErr := s.beginProjectAssetDirectoryWrite(userID, projectID, assetID)
+	if directoryErr != nil {
+		return ProjectCharacterDetail{}, directoryErr
+	}
+	defer directoryFinish(&resultErr)
 	asset, err := s.repo.ProjectCharacterAsset(userID, projectID, strings.TrimSpace(assetID))
 	if err != nil {
 		return ProjectCharacterDetail{}, err
@@ -178,7 +188,12 @@ func (s *Service) UpdateProjectCharacter(userID string, projectID string, assetI
 	return s.ProjectCharacter(userID, projectID, asset.ID)
 }
 
-func (s *Service) ReplaceProjectCharacterRepresentations(userID string, projectID string, assetID string, req ReplaceCharacterRepresentationsRequest) (ProjectCharacterDetail, error) {
+func (s *Service) ReplaceProjectCharacterRepresentations(userID string, projectID string, assetID string, req ReplaceCharacterRepresentationsRequest) (_ ProjectCharacterDetail, resultErr error) {
+	directoryFinish, directoryErr := s.beginProjectAssetDirectoryWrite(userID, projectID, assetID)
+	if directoryErr != nil {
+		return ProjectCharacterDetail{}, directoryErr
+	}
+	defer directoryFinish(&resultErr)
 	asset, err := s.repo.ProjectCharacterAsset(userID, projectID, strings.TrimSpace(assetID))
 	if err != nil {
 		return ProjectCharacterDetail{}, err
@@ -216,7 +231,7 @@ func (s *Service) ReplaceProjectCharacterRepresentations(userID string, projectI
 }
 
 // 三视图生成是强校验写路径：任务只有在资源已绑定到新角色版本后才能对外显示成功。
-func (s *Service) finalizeCharacterTurnaroundTask(task model.Task, result map[string]interface{}) (bool, error) {
+func (s *Service) finalizeCharacterTurnaroundTask(task model.Task, result map[string]interface{}) (_ bool, resultErr error) {
 	if !strings.Contains(task.InputJSON, "character_turnaround") {
 		return false, nil
 	}
@@ -236,6 +251,11 @@ func (s *Service) finalizeCharacterTurnaroundTask(task model.Task, result map[st
 	if projectID == "" || assetID == "" {
 		return false, errors.New("三视图任务缺少项目或角色标识")
 	}
+	finish, directoryErr := s.beginProjectAssetDirectoryWrite(task.UserID, projectID, assetID)
+	if directoryErr != nil {
+		return false, directoryErr
+	}
+	defer finish(&resultErr)
 	encodedResult, err := json.Marshal(result)
 	if err != nil {
 		return false, err
@@ -322,7 +342,12 @@ func (s *Service) reconcileCharacterTurnaroundTasks(userID string, projectID str
 	return recovered
 }
 
-func (s *Service) BindProjectCharacterVoice(userID string, projectID string, assetID string, req BindCharacterVoiceRequest) (ProjectCharacterDetail, error) {
+func (s *Service) BindProjectCharacterVoice(userID string, projectID string, assetID string, req BindCharacterVoiceRequest) (_ ProjectCharacterDetail, resultErr error) {
+	directoryFinish, directoryErr := s.beginProjectAssetDirectoryWrite(userID, projectID, assetID)
+	if directoryErr != nil {
+		return ProjectCharacterDetail{}, directoryErr
+	}
+	defer directoryFinish(&resultErr)
 	asset, err := s.repo.ProjectCharacterAsset(userID, projectID, strings.TrimSpace(assetID))
 	if err != nil {
 		return ProjectCharacterDetail{}, err
@@ -338,7 +363,12 @@ func (s *Service) BindProjectCharacterVoice(userID string, projectID string, ass
 	return s.ProjectCharacter(userID, projectID, asset.ID)
 }
 
-func (s *Service) UnbindProjectCharacterVoice(userID string, projectID string, assetID string) (ProjectCharacterDetail, error) {
+func (s *Service) UnbindProjectCharacterVoice(userID string, projectID string, assetID string) (_ ProjectCharacterDetail, resultErr error) {
+	directoryFinish, directoryErr := s.beginProjectAssetDirectoryWrite(userID, projectID, assetID)
+	if directoryErr != nil {
+		return ProjectCharacterDetail{}, directoryErr
+	}
+	defer directoryFinish(&resultErr)
 	asset, err := s.repo.ProjectCharacterAsset(userID, projectID, strings.TrimSpace(assetID))
 	if err != nil {
 		return ProjectCharacterDetail{}, err

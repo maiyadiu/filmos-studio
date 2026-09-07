@@ -62,7 +62,12 @@ func (s *Service) ReviseProjectScript(userID, projectID, unitID string, req Upda
 	return s.SaveProjectScriptRevision(userID, projectID, unitID, req)
 }
 
-func (s *Service) SaveProjectScriptRevision(userID, projectID, unitID string, req UpdateProjectUnitRequest) (repository.ScriptRevisionResult, error) {
+func (s *Service) SaveProjectScriptRevision(userID, projectID, unitID string, req UpdateProjectUnitRequest) (_ repository.ScriptRevisionResult, resultErr error) {
+	finish, err := s.beginProjectDirectoryWrite(userID, projectID)
+	if err != nil {
+		return repository.ScriptRevisionResult{}, err
+	}
+	defer finish(&resultErr)
 	project, err := s.repo.ProjectForUser(userID, projectID)
 	if err != nil {
 		return repository.ScriptRevisionResult{}, err

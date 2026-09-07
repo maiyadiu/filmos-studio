@@ -11,6 +11,7 @@ import (
 )
 
 func RegisterProjectRoutes(r *gin.RouterGroup, svc *service.Service) {
+	registerProjectDirectoryRoutes(r, svc)
 	registerProjectScriptRoutes(r, svc)
 	RegisterStyleProfileRoutes(r, svc)
 	r.GET("/voice-profiles", func(c *gin.Context) {
@@ -61,6 +62,10 @@ func RegisterProjectRoutes(r *gin.RouterGroup, svc *service.Service) {
 		ok(c, projects)
 	})
 	r.POST("/projects", func(c *gin.Context) {
+		if svc.DesktopLocalAuthEnabled() && !projectDirectoryLocalRequest(c, svc) {
+			failService(c, service.NewAppError(403, "本机新建项目只允许工作台同源请求"))
+			return
+		}
 		user, err := currentUser(c, svc)
 		if err != nil {
 			failService(c, err)

@@ -37,7 +37,12 @@ type CreateAssetCandidatesRequest struct {
 	Candidates []AssetCandidateInput `json:"candidates"`
 }
 
-func (s *Service) CreateProjectShot(userID string, projectID string, req CreateProjectShotRequest) (model.Shot, error) {
+func (s *Service) CreateProjectShot(userID string, projectID string, req CreateProjectShotRequest) (_ model.Shot, resultErr error) {
+	directoryFinish, directoryErr := s.beginProjectDirectoryWrite(userID, projectID)
+	if directoryErr != nil {
+		return model.Shot{}, directoryErr
+	}
+	defer directoryFinish(&resultErr)
 	if _, err := s.repo.ProjectForUser(userID, projectID); err != nil {
 		return model.Shot{}, err
 	}
@@ -100,7 +105,12 @@ func validShotStatus(status string) bool {
 	}
 }
 
-func (s *Service) LinkShotAsset(userID string, projectID string, shotID string, req LinkShotAssetRequest) (model.ShotAssetReference, error) {
+func (s *Service) LinkShotAsset(userID string, projectID string, shotID string, req LinkShotAssetRequest) (_ model.ShotAssetReference, resultErr error) {
+	directoryFinish, directoryErr := s.beginProjectDirectoryWrite(userID, projectID)
+	if directoryErr != nil {
+		return model.ShotAssetReference{}, directoryErr
+	}
+	defer directoryFinish(&resultErr)
 	if _, err := s.repo.ProjectForUser(userID, projectID); err != nil {
 		return model.ShotAssetReference{}, err
 	}
@@ -125,7 +135,12 @@ func (s *Service) LinkShotAsset(userID string, projectID string, shotID string, 
 	return reference, nil
 }
 
-func (s *Service) CreateProjectAssetCandidates(userID string, projectID string, req CreateAssetCandidatesRequest) ([]model.ProjectAssetCandidate, error) {
+func (s *Service) CreateProjectAssetCandidates(userID string, projectID string, req CreateAssetCandidatesRequest) (_ []model.ProjectAssetCandidate, resultErr error) {
+	directoryFinish, directoryErr := s.beginProjectDirectoryWrite(userID, projectID)
+	if directoryErr != nil {
+		return nil, directoryErr
+	}
+	defer directoryFinish(&resultErr)
 	if _, err := s.repo.ProjectForUser(userID, projectID); err != nil {
 		return nil, err
 	}

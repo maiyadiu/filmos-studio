@@ -80,7 +80,12 @@ func (s *Service) GetProjectShotBatch(userID, projectID, unitID, requestID strin
 	return row, shotWriteError(err)
 }
 
-func (s *Service) SaveProjectUnitShots(userID, projectID, unitID string, req SaveProjectUnitShotsRequest) (repository.ShotBatchResult, error) {
+func (s *Service) SaveProjectUnitShots(userID, projectID, unitID string, req SaveProjectUnitShotsRequest) (_ repository.ShotBatchResult, resultErr error) {
+	finish, err := s.beginProjectDirectoryWrite(userID, projectID)
+	if err != nil {
+		return repository.ShotBatchResult{}, err
+	}
+	defer finish(&resultErr)
 	project, err := s.repo.ProjectForUser(userID, projectID)
 	if err != nil {
 		return repository.ShotBatchResult{}, shotWriteError(err)

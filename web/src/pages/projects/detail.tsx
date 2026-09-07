@@ -8,6 +8,7 @@ import { getProject, linkCanvasUnit } from "@/services/api/projects";
 import { WorkspacePage } from "@/components/layout/workspace-page";
 import { WorkspaceErrorState, WorkspaceLoadingState } from "@/components/layout/workspace-state";
 import { upsertProjectChapterStoryboard } from "@/lib/canvas/project-chapter-storyboard";
+import { ProjectDirectoryStatus } from "./project-directory-status";
 
 import ProjectAssetsView from "./detail/assets";
 import ProjectCanvasesView from "./detail/canvases";
@@ -87,6 +88,7 @@ export default function ProjectDetailPage() {
                         <Tooltip title={activeView === "chapters" && detail.data.units.length ? "新建当前章节画布" : "新建项目画布"}><Button size="small" className="!h-9 !shrink-0 !px-2 sm:!px-3" icon={<Plus className="size-4" />} onClick={createCanvas} aria-label={activeView === "chapters" && detail.data.units.length ? "新建当前章节画布" : "新建项目画布"}><span className="hidden sm:inline">新建画布</span></Button></Tooltip>
                     </div>
                 </header>
+                <ProjectDirectoryStatus projectId={detail.data.project.id} revision={detail.data.project.revision} />
                 {detail.data.project.status === "archived" ? <Alert type="warning" showIcon banner message="项目已归档，恢复后才能创建画布和生成任务" className="!border-x-0 !border-t-0" /> : null}
                 <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
                     <div className={activeView === "chapters" ? "min-h-0 flex-1" : "thin-scrollbar min-h-0 flex-1 overflow-y-auto px-3 py-5 sm:px-5 lg:px-8 lg:py-7"}>

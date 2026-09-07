@@ -80,11 +80,16 @@ func (s *Service) UserAsset(userID string, id string) (json.RawMessage, error) {
 	return json.RawMessage(asset.PayloadJSON), nil
 }
 
-func (s *Service) UpsertUserAsset(userID string, raw json.RawMessage) (UserDataSummary, error) {
+func (s *Service) UpsertUserAsset(userID string, raw json.RawMessage) (_ UserDataSummary, resultErr error) {
 	asset, err := assetFromJSON(userID, raw)
 	if err != nil {
 		return UserDataSummary{}, err
 	}
+	finish, err := s.beginProjectAssetDirectoryWrite(userID, "", asset.ID)
+	if err != nil {
+		return UserDataSummary{}, err
+	}
+	defer finish(&resultErr)
 	policy, err := s.RuntimePolicy()
 	if err != nil {
 		return UserDataSummary{}, err
@@ -135,7 +140,12 @@ func (s *Service) UserAssets(userID string) ([]json.RawMessage, error) {
 	return result, nil
 }
 
-func (s *Service) ReplaceUserAssets(userID string, req AssetsSyncRequest) ([]json.RawMessage, error) {
+func (s *Service) ReplaceUserAssets(userID string, req AssetsSyncRequest) (_ []json.RawMessage, resultErr error) {
+	finish, err := s.beginProjectDirectoryChanges(userID, func() ([]string, error) { return s.repo.ProjectIDsForAssets(userID, nil) })
+	if err != nil {
+		return nil, err
+	}
+	defer finish(&resultErr)
 	assets := make([]model.Asset, 0, len(req.Assets))
 	var totalBytes int64
 	for _, raw := range req.Assets {
@@ -202,7 +212,7 @@ func (s *Service) UserCanvasProject(userID string, id string) (json.RawMessage, 
 	return json.RawMessage(project.PayloadJSON), nil
 }
 
-func (s *Service) UpsertUserCanvasProject(userID string, raw json.RawMessage, expectedContentHash ...*string) (UserDataSummary, error) {
+func (s *Service) UpsertUserCanvasProject(userID string, raw json.RawMessage, expectedContentHash ...*string) (_ UserDataSummary, resultErr error) {
 	var expected *string
 	if len(expectedContentHash) > 0 {
 		expected = expectedContentHash[0]
@@ -217,6 +227,21 @@ func (s *Service) UpsertUserCanvasProject(userID string, raw json.RawMessage, ex
 	if err != nil {
 		return UserDataSummary{}, err
 	}
+	finish, err := s.beginProjectDirectoryChanges(userID, func() ([]string, error) {
+		ids := []string{project.ProjectID}
+		previous, e := s.repo.CanvasProjectForUser(userID, project.ID)
+		if errors.Is(e, gorm.ErrRecordNotFound) {
+			return ids, nil
+		}
+		if e != nil {
+			return nil, e
+		}
+		return append(ids, previous.ProjectID), nil
+	})
+	if err != nil {
+		return UserDataSummary{}, err
+	}
+	defer finish(&resultErr)
 	policy, err := s.RuntimePolicy()
 	if err != nil {
 		return UserDataSummary{}, err
@@ -253,11 +278,22 @@ func (s *Service) UpsertUserCanvasProject(userID string, raw json.RawMessage, ex
 	return UserDataSummary{ID: project.ID, Title: project.Title, CreatedAt: project.CreatedAt, UpdatedAt: project.UpdatedAt, ContentHash: model.CanvasContentHash([]byte(project.PayloadJSON))}, nil
 }
 
-func (s *Service) DeleteUserCanvasProject(userID string, id string) error {
+func (s *Service) DeleteUserCanvasProject(userID string, id string) (resultErr error) {
+	finish, err := s.beginProjectDirectoryChanges(userID, func() ([]string, error) {
+		previous, e := s.repo.CanvasProjectForUser(userID, id)
+		if e != nil {
+			return nil, e
+		}
+		return []string{previous.ProjectID}, nil
+	})
+	if err != nil {
+		return err
+	}
+	defer finish(&resultErr)
 	return s.repo.DeleteCanvasProject(userID, id)
 }
 
-func (s *Service) ReplaceUserCanvasProjects(userID string, req CanvasProjectsSyncRequest) ([]json.RawMessage, error) {
+func (s *Service) ReplaceUserCanvasProjects(userID string, req CanvasProjectsSyncRequest) (_ []json.RawMessage, resultErr error) {
 	projects := make([]model.CanvasProject, 0, len(req.Projects))
 	var totalBytes int64
 	for _, raw := range req.Projects {
@@ -268,6 +304,24 @@ func (s *Service) ReplaceUserCanvasProjects(userID string, req CanvasProjectsSyn
 		projects = append(projects, item)
 		totalBytes += int64(len(raw))
 	}
+	finish, err := s.beginProjectDirectoryChanges(userID, func() ([]string, error) {
+		previous, e := s.repo.CanvasProjects(userID)
+		if e != nil {
+			return nil, e
+		}
+		ids := []string{}
+		for _, p := range previous {
+			ids = append(ids, p.ProjectID)
+		}
+		for _, p := range projects {
+			ids = append(ids, p.ProjectID)
+		}
+		return ids, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	defer finish(&resultErr)
 	policy, err := s.RuntimePolicy()
 	if err != nil {
 		return nil, err

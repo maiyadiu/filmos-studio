@@ -25,6 +25,10 @@ type Service struct {
 	emailCodeMu                sync.Mutex
 	redeemBatchMu              sync.Mutex
 	storageMu                  sync.Mutex
+	projectDirectoryMu         sync.Mutex
+	projectDirectoryPickerMu   sync.Mutex
+	projectDirectoryGrants     map[string]projectDirectoryGrant
+	projectDirectoryNative     ProjectDirectoryPlatform
 	characterTaskMu            sync.Mutex
 	productionCanvasMu         sync.Mutex
 	activeCancels              map[string]context.CancelFunc

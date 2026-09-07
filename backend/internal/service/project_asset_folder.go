@@ -32,7 +32,12 @@ func (s *Service) ProjectAssetFolders(userID string, projectID string) ([]model.
 	return s.repo.ProjectAssetFolders(projectID)
 }
 
-func (s *Service) CreateProjectAssetFolder(userID string, projectID string, req CreateProjectAssetFolderRequest) (model.ProjectAssetFolder, error) {
+func (s *Service) CreateProjectAssetFolder(userID string, projectID string, req CreateProjectAssetFolderRequest) (_ model.ProjectAssetFolder, resultErr error) {
+	directoryFinish, directoryErr := s.beginProjectDirectoryWrite(userID, projectID)
+	if directoryErr != nil {
+		return model.ProjectAssetFolder{}, directoryErr
+	}
+	defer directoryFinish(&resultErr)
 	if _, err := s.repo.ProjectForUser(userID, projectID); err != nil {
 		return model.ProjectAssetFolder{}, err
 	}
@@ -71,7 +76,12 @@ func (s *Service) CreateProjectAssetFolder(userID string, projectID string, req 
 	return folder, nil
 }
 
-func (s *Service) UpdateProjectAssetFolder(userID string, projectID string, folderID string, req UpdateProjectAssetFolderRequest) (model.ProjectAssetFolder, error) {
+func (s *Service) UpdateProjectAssetFolder(userID string, projectID string, folderID string, req UpdateProjectAssetFolderRequest) (_ model.ProjectAssetFolder, resultErr error) {
+	directoryFinish, directoryErr := s.beginProjectDirectoryWrite(userID, projectID)
+	if directoryErr != nil {
+		return model.ProjectAssetFolder{}, directoryErr
+	}
+	defer directoryFinish(&resultErr)
 	if _, err := s.repo.ProjectForUser(userID, projectID); err != nil {
 		return model.ProjectAssetFolder{}, err
 	}
@@ -128,7 +138,12 @@ func (s *Service) UpdateProjectAssetFolder(userID string, projectID string, fold
 	return *folder, nil
 }
 
-func (s *Service) DeleteProjectAssetFolder(userID string, projectID string, folderID string) error {
+func (s *Service) DeleteProjectAssetFolder(userID string, projectID string, folderID string) (resultErr error) {
+	directoryFinish, directoryErr := s.beginProjectDirectoryWrite(userID, projectID)
+	if directoryErr != nil {
+		return directoryErr
+	}
+	defer directoryFinish(&resultErr)
 	if _, err := s.repo.ProjectForUser(userID, projectID); err != nil {
 		return err
 	}

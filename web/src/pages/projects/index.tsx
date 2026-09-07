@@ -1,4 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { ProjectDirectoryLocation } from "@/components/project-directory-location";
+import type { ProjectDirectoryLocation as DirectoryLocation, LocalProjectDirectory } from "@/services/api/project-directories";
+import { useUserStore } from "@/stores/use-user-store";
 import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { App, Button, Form, Input, Modal, Select } from "antd";
 import { ArrowRight, BookOpenText, FileText, FolderKanban, Images, LayoutGrid, Palette, Plus, Search, Sparkles, Trash2 } from "lucide-react";
@@ -20,11 +23,15 @@ import { sourceTypeLabel } from "./detail/shared";
 type ProjectForm = { name: string; aspectRatio: string; sourceType: string };
 
 export default function ProjectsPage() {
+	const localProjects = useUserStore((state) => state.authMode === "desktop_local");
+	const [projectLocation, setProjectLocation] = useState<DirectoryLocation>();
+	const createRequestId = useRef(crypto.randomUUID());
     const navigate = useNavigate();
     const queryClient = useQueryClient();
     const { message, modal } = App.useApp();
     const effectiveConfig = useEffectiveConfig();
     const [createForm] = Form.useForm<ProjectForm>();
+    const createProjectName = Form.useWatch("name", createForm) || "";
     const [searchParams, setSearchParams] = useSearchParams();
     const [keyword, setKeyword] = useState("");
     const [status, setStatus] = useState<"all" | "active" | "archived">("all");
@@ -56,7 +63,7 @@ export default function ProjectsPage() {
         setCreateOpen(true);
     };
     useEffect(() => {
-        if (!createOpen) return;
+        if (!createOpen) { createRequestId.current = crypto.randomUUID(); setProjectLocation(undefined); return; }
         createForm.setFieldsValue({
             name: storyDraft.trim().slice(0, 24) || "",
             sourceType: createSource,
@@ -86,7 +93,7 @@ export default function ProjectsPage() {
         setGenerationStatus("正在创建项目…");
         setGenerationPreview("");
         try {
-            const project = await createUniqueProjectName(story, selectedStyle);
+            const project = await createUniqueProjectName(story, selectedStyle, localProjects ? { requestId: createRequestId.current, locationToken: projectLocation?.locationToken } : undefined);
             setGenerationStatus("AI 正在生成故事大纲与章节…");
             const answer = await requestImageQuestion(
                 { ...effectiveConfig, model: textModel, imageModel: textModel, videoModel: textModel, textModel },
@@ -121,7 +128,7 @@ export default function ProjectsPage() {
         getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.page + 1 : undefined),
     });
     const mutation = useMutation({
-        mutationFn: createProject,
+        mutationFn: (input: Parameters<typeof createProject>[0]) => createProject({ ...input, ...(localProjects ? { localDirectory: { requestId: createRequestId.current, locationToken: projectLocation?.locationToken } } : {}) }),
         onSuccess: ({ project }) => {
             setCreateOpen(false);
             void queryClient.invalidateQueries({ queryKey: ["projects"] });
@@ -258,6 +265,7 @@ export default function ProjectsPage() {
                         <button type="button" className={createSource === "text" ? "app-story-source is-active" : "app-story-source"} onClick={() => { setCreateSource("text"); createForm.setFieldValue("sourceType", "text"); }}><BookOpenText className="size-4" /><span>粘贴文本</span></button>
                     </div>
                     <Form.Item name="name" label="项目名称" rules={[{ required: true, whitespace: true, message: "请输入项目名称" }]}><Input autoFocus placeholder="例如：长安夜行" /></Form.Item>
+                    <ProjectDirectoryLocation selected={projectLocation} onSelect={setProjectLocation} projectName={createProjectName} requestId={createRequestId.current} />
                     <div className="grid grid-cols-2 gap-3">
                         <Form.Item name="aspectRatio" label="默认画幅"><Select options={[{ label: "9:16 竖屏", value: "9:16" }, { label: "16:9 横屏", value: "16:9" }, { label: "1:1 方形", value: "1:1" }]} /></Form.Item>
                         <Form.Item name="sourceType" label="内容来源"><Select options={[{ label: "空白开始", value: "blank" }, { label: "导入小说", value: "novel" }, { label: "粘贴文本", value: "text" }]} /></Form.Item>
@@ -328,7 +336,7 @@ function parseGeneratedStory(answer: string) {
     return { title: title || storyTitleFromAnswer(answer), synopsis, chapters };
 }
 
-async function createUniqueProjectName(story: string, selectedStyle: CanvasStylePreset | null) {
+async function createUniqueProjectName(story: string, selectedStyle: CanvasStylePreset | null, localDirectory?: LocalProjectDirectory) {
     const base = story.trim().slice(0, 24);
     const buildInput = (name: string) => ({
         name,
@@ -336,6 +344,7 @@ async function createUniqueProjectName(story: string, selectedStyle: CanvasStyle
         aspectRatio: "9:16",
         sourceType: "blank",
         description: story.trim(),
+        localDirectory,
         ...(selectedStyle ? { stylePresetId: selectedStyle.id, styleProfileJson: serializeStyleProfile(selectedStyle.profile || createStyleProfileSnapshot(selectedStyle)) } : {}),
     });
     let attempt = 0;
@@ -344,7 +353,7 @@ async function createUniqueProjectName(story: string, selectedStyle: CanvasStyle
             return await createProject(buildInput(attempt === 0 ? base : `${base}（${attempt + 1}）`));
         } catch (error) {
             const message = error instanceof Error ? error.message : "";
-            const uniqueConflict = message.includes("UNIQUE") || message.includes("projects.user_id") || message.includes("projects.name");
+            const uniqueConflict = message.includes("项目名称已存在") || (!localDirectory && (message.includes("UNIQUE") || message.includes("projects.user_id") || message.includes("projects.name")));
             if (!uniqueConflict || attempt >= 5) throw error;
             attempt += 1;
         }

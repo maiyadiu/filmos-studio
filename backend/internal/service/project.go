@@ -14,13 +14,14 @@ import (
 )
 
 type CreateProjectRequest struct {
-	Name             string `json:"name"`
-	Type             string `json:"type"`
-	AspectRatio      string `json:"aspectRatio"`
-	SourceType       string `json:"sourceType"`
-	Description      string `json:"description"`
-	StylePresetID    string `json:"stylePresetId"`
-	StyleProfileJSON string `json:"styleProfileJson"`
+	LocalDirectory   *CreateProjectDirectoryRequest `json:"localDirectory,omitempty"`
+	Name             string                         `json:"name"`
+	Type             string                         `json:"type"`
+	AspectRatio      string                         `json:"aspectRatio"`
+	SourceType       string                         `json:"sourceType"`
+	Description      string                         `json:"description"`
+	StylePresetID    string                         `json:"stylePresetId"`
+	StyleProfileJSON string                         `json:"styleProfileJson"`
 }
 
 type UpdateProjectRequest struct {
@@ -191,7 +192,7 @@ func (s *Service) ProjectDetail(userID string, id string) (ProjectDetail, error)
 	return ProjectDetail{Project: *project, Units: units, Canvases: canvases, CanvasUnitLinks: canvasUnitLinks, Assets: assets, AssetFolders: assetFolders, Workflows: workflows, Shots: shots, ShotReferences: shotReferences, AssetCandidates: candidates}, nil
 }
 
-func (s *Service) CreateProject(userID string, req CreateProjectRequest) (model.Project, error) {
+func (s *Service) createProjectRecord(userID string, req CreateProjectRequest, projectID string) (model.Project, error) {
 	if err := s.EnsureBuiltinProjectWorkflowTemplate(); err != nil {
 		return model.Project{}, err
 	}
@@ -220,7 +221,7 @@ func (s *Service) CreateProject(userID string, req CreateProjectRequest) (model.
 		return model.Project{}, BadAuthRequest(err.Error())
 	}
 	now := time.Now()
-	project := model.Project{ID: newID(), UserID: userID, Name: name, Type: projectType, AspectRatio: aspectRatio, SourceType: sourceType, Description: strings.TrimSpace(req.Description), StylePresetID: stylePresetID, StyleProfileJSON: styleProfileJSON, Status: model.ProjectStatusActive, Revision: 1, CreatedAt: now, UpdatedAt: now}
+	project := model.Project{ID: projectID, UserID: userID, Name: name, Type: projectType, AspectRatio: aspectRatio, SourceType: sourceType, Description: strings.TrimSpace(req.Description), StylePresetID: stylePresetID, StyleProfileJSON: styleProfileJSON, Status: model.ProjectStatusActive, Revision: 1, CreatedAt: now, UpdatedAt: now}
 	if err := s.repo.CreateProject(&project); err != nil {
 		return model.Project{}, err
 	}
@@ -235,7 +236,12 @@ func (s *Service) CreateProject(userID string, req CreateProjectRequest) (model.
 	return project, nil
 }
 
-func (s *Service) UpdateProject(userID string, id string, req UpdateProjectRequest) (model.Project, error) {
+func (s *Service) UpdateProject(userID string, id string, req UpdateProjectRequest) (_ model.Project, resultErr error) {
+	finish, err := s.beginProjectDirectoryWrite(userID, id)
+	if err != nil {
+		return model.Project{}, err
+	}
+	defer finish(&resultErr)
 	project, err := s.repo.ProjectForUser(userID, id)
 	if err != nil {
 		return model.Project{}, err
@@ -323,7 +329,12 @@ func (s *Service) DeleteProject(userID string, id string) error {
 	return nil
 }
 
-func (s *Service) CreateProjectUnit(userID string, projectID string, req CreateProjectUnitRequest) (model.ProjectUnit, error) {
+func (s *Service) CreateProjectUnit(userID string, projectID string, req CreateProjectUnitRequest) (_ model.ProjectUnit, resultErr error) {
+	finish, err := s.beginProjectDirectoryWrite(userID, projectID)
+	if err != nil {
+		return model.ProjectUnit{}, err
+	}
+	defer finish(&resultErr)
 	if _, err := s.repo.ProjectForUser(userID, projectID); err != nil {
 		return model.ProjectUnit{}, err
 	}
@@ -351,7 +362,12 @@ func (s *Service) GetProjectUnit(userID string, projectID string, unitID string)
 	return *unit, nil
 }
 
-func (s *Service) ImportProjectUnits(userID string, projectID string, req ImportProjectUnitsRequest) ([]model.ProjectUnit, error) {
+func (s *Service) ImportProjectUnits(userID string, projectID string, req ImportProjectUnitsRequest) (_ []model.ProjectUnit, resultErr error) {
+	finish, err := s.beginProjectDirectoryWrite(userID, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer finish(&resultErr)
 	if _, err := s.repo.ProjectForUser(userID, projectID); err != nil {
 		return nil, err
 	}
@@ -376,7 +392,12 @@ func (s *Service) ImportProjectUnits(userID string, projectID string, req Import
 	return units, nil
 }
 
-func (s *Service) ReorderProjectUnits(userID string, projectID string, req ReorderProjectUnitsRequest) error {
+func (s *Service) ReorderProjectUnits(userID string, projectID string, req ReorderProjectUnitsRequest) (resultErr error) {
+	finish, err := s.beginProjectDirectoryWrite(userID, projectID)
+	if err != nil {
+		return err
+	}
+	defer finish(&resultErr)
 	if _, err := s.repo.ProjectForUser(userID, projectID); err != nil {
 		return err
 	}
@@ -407,7 +428,12 @@ func (s *Service) ReorderProjectUnits(userID string, projectID string, req Reord
 	return s.repo.ReorderProjectUnits(projectID, normalizedIDs)
 }
 
-func (s *Service) DeleteProjectUnit(userID string, projectID string, unitID string) error {
+func (s *Service) DeleteProjectUnit(userID string, projectID string, unitID string) (resultErr error) {
+	finish, err := s.beginProjectDirectoryWrite(userID, projectID)
+	if err != nil {
+		return err
+	}
+	defer finish(&resultErr)
 	if _, err := s.repo.ProjectForUser(userID, projectID); err != nil {
 		return err
 	}
@@ -442,7 +468,12 @@ func (s *Service) UpdateProjectUnit(userID string, projectID string, unitID stri
 	return result.Unit, err
 }
 
-func (s *Service) LinkCanvasUnit(userID string, projectID string, req LinkCanvasUnitRequest) (model.CanvasUnitLink, error) {
+func (s *Service) LinkCanvasUnit(userID string, projectID string, req LinkCanvasUnitRequest) (_ model.CanvasUnitLink, resultErr error) {
+	finish, err := s.beginProjectDirectoryWrite(userID, projectID)
+	if err != nil {
+		return model.CanvasUnitLink{}, err
+	}
+	defer finish(&resultErr)
 	if _, err := s.repo.ProjectForUser(userID, projectID); err != nil {
 		return model.CanvasUnitLink{}, err
 	}
@@ -481,7 +512,12 @@ func (s *Service) LinkCanvasUnit(userID string, projectID string, req LinkCanvas
 	return link, nil
 }
 
-func (s *Service) UnlinkCanvasUnit(userID string, projectID string, canvasID string, unitID string) error {
+func (s *Service) UnlinkCanvasUnit(userID string, projectID string, canvasID string, unitID string) (resultErr error) {
+	directoryFinish, directoryErr := s.beginProjectDirectoryWrite(userID, projectID)
+	if directoryErr != nil {
+		return directoryErr
+	}
+	defer directoryFinish(&resultErr)
 	if _, err := s.repo.ProjectForUser(userID, projectID); err != nil {
 		return err
 	}
@@ -502,7 +538,12 @@ func (s *Service) UnlinkCanvasUnit(userID string, projectID string, canvasID str
 	return s.repo.DeleteCanvasUnitLink(projectID, canvas.ID, strings.TrimSpace(unitID))
 }
 
-func (s *Service) UnlinkCanvasProject(userID string, projectID string, canvasID string) error {
+func (s *Service) UnlinkCanvasProject(userID string, projectID string, canvasID string) (resultErr error) {
+	directoryFinish, directoryErr := s.beginProjectDirectoryWrite(userID, projectID)
+	if directoryErr != nil {
+		return directoryErr
+	}
+	defer directoryFinish(&resultErr)
 	if _, err := s.repo.ProjectForUser(userID, projectID); err != nil {
 		return err
 	}

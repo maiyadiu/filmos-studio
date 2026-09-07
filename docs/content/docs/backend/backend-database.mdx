@@ -9,6 +9,14 @@ description: 影策后端核心持久化表与状态边界
 
 ## 章节正文与修订历史
 
+本机新作品另有`project_directories`关联表：project_id主键，user_id/request_id联合唯一，request_hash、root_path、state及创建/更新时间。它只记录目录归属与同步恢复状态，不存第二份可编辑正文；旧Project没有该行，不自动迁移。状态为initializing、pending、ready、sync_failed。默认父目录在既有system_settings中按用户保存；真实路径不加入公共Project JSON。
+
+本机新增接口：`GET /api/project-locations`，`POST /api/project-locations/choose`，`PUT /api/project-locations/default`；`GET /api/projects/:id/directory`及`POST /api/projects/:id/directory/{open,sync,relocate,export}`。本机创建项目增加`localDirectory:{requestId,locationToken?}`；公开部署禁止该字段。写路径要求回环真实对端、合法本机Host、精确同源或显式开发Origin，以及`X-FilmOS-Project-Directory: 1`和JSON内容类型。
+
+目录同步不与数据库伪装成单个原子事务。业务写前检查已关联目录，写后投影实际提交状态；失败保留数据库和现场并返回错误，状态供重试同步回读。共享素材影响所有已关联作品，画布改绑同步旧/新项目。目录模板、资源引用与用户恢复说明见[作品目录](../overview/作品目录.mdx)。
+
+### 正文与修订
+
 `project_units.source_text` 仍是章节编辑器的当前正文（HTML）；`revision` 为非空整数，新增及迁移前的章节从 1 开始。`project_unit_revisions` 在同一业务数据库保存追加式修订：项目/章节 ID、修订号、标题、完整正文、SHA-256、章节状态、请求 ID/请求哈希、说明、操作用户和时间。首次修改会同时保存修改前的原始版本；历史记录不被后续编辑覆盖，随所属章节/项目的既有删除事务清理。
 
 - `GET /api/projects/:id/units/:unitId/script-revisions`：最近 50 个修订元数据，不携带正文；更早版本仍可按修订号读取。

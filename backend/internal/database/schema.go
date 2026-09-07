@@ -55,6 +55,7 @@ func Models() []any {
 		&model.VoiceProfile{},
 		&model.CharacterVoiceBinding{},
 		&model.Project{},
+		&model.ProjectDirectory{},
 		&model.StyleProfile{},
 		&model.ProjectUnit{},
 		&model.ProjectUnitRevision{},

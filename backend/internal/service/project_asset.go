@@ -93,7 +93,12 @@ func (s *Service) ProjectAssets(userID string, projectID string) ([]ProjectAsset
 	return result, nil
 }
 
-func (s *Service) LinkProjectAsset(userID string, projectID string, req LinkProjectAssetRequest) (ProjectAssetSummary, error) {
+func (s *Service) LinkProjectAsset(userID string, projectID string, req LinkProjectAssetRequest) (_ ProjectAssetSummary, resultErr error) {
+	directoryFinish, directoryErr := s.beginProjectAssetDirectoryWrite(userID, projectID, strings.TrimSpace(req.AssetID))
+	if directoryErr != nil {
+		return ProjectAssetSummary{}, directoryErr
+	}
+	defer directoryFinish(&resultErr)
 	if _, err := s.repo.ProjectForUser(userID, projectID); err != nil {
 		return ProjectAssetSummary{}, err
 	}
@@ -156,7 +161,12 @@ func (s *Service) LinkProjectAsset(userID string, projectID string, req LinkProj
 	return s.projectAssetSummary(userID, projectID, asset)
 }
 
-func (s *Service) UnlinkProjectAsset(userID string, projectID string, assetID string) error {
+func (s *Service) UnlinkProjectAsset(userID string, projectID string, assetID string) (resultErr error) {
+	directoryFinish, directoryErr := s.beginProjectDirectoryWrite(userID, projectID)
+	if directoryErr != nil {
+		return directoryErr
+	}
+	defer directoryFinish(&resultErr)
 	if _, err := s.repo.ProjectForUser(userID, projectID); err != nil {
 		return err
 	}
@@ -212,7 +222,12 @@ func canvasReferencesCharacterAsset(payloadJSON string, assetID string) (bool, e
 	return false, nil
 }
 
-func (s *Service) UpdateProjectAsset(userID string, projectID string, assetID string, req UpdateProjectAssetRequest) (ProjectAssetSummary, error) {
+func (s *Service) UpdateProjectAsset(userID string, projectID string, assetID string, req UpdateProjectAssetRequest) (_ ProjectAssetSummary, resultErr error) {
+	directoryFinish, directoryErr := s.beginProjectAssetDirectoryWrite(userID, projectID, assetID)
+	if directoryErr != nil {
+		return ProjectAssetSummary{}, directoryErr
+	}
+	defer directoryFinish(&resultErr)
 	if _, err := s.repo.ProjectForUser(userID, projectID); err != nil {
 		return ProjectAssetSummary{}, err
 	}
@@ -261,7 +276,12 @@ func (s *Service) UpdateProjectAsset(userID string, projectID string, assetID st
 	return s.projectAssetSummary(userID, projectID, asset)
 }
 
-func (s *Service) CreateProjectAssetVersion(userID string, projectID string, assetID string, req CreateAssetVersionRequest) (model.AssetVersion, error) {
+func (s *Service) CreateProjectAssetVersion(userID string, projectID string, assetID string, req CreateAssetVersionRequest) (_ model.AssetVersion, resultErr error) {
+	directoryFinish, directoryErr := s.beginProjectAssetDirectoryWrite(userID, projectID, assetID)
+	if directoryErr != nil {
+		return model.AssetVersion{}, directoryErr
+	}
+	defer directoryFinish(&resultErr)
 	if _, err := s.repo.ProjectForUser(userID, projectID); err != nil {
 		return model.AssetVersion{}, err
 	}
@@ -308,7 +328,12 @@ func (s *Service) CreateProjectAssetVersion(userID string, projectID string, ass
 	return version, nil
 }
 
-func (s *Service) ConfirmProjectAssetCandidate(userID string, projectID string, candidateID string, req ConfirmProjectAssetCandidateRequest) (ProjectAssetSummary, error) {
+func (s *Service) ConfirmProjectAssetCandidate(userID string, projectID string, candidateID string, req ConfirmProjectAssetCandidateRequest) (_ ProjectAssetSummary, resultErr error) {
+	directoryFinish, directoryErr := s.beginProjectAssetDirectoryWrite(userID, projectID, strings.TrimSpace(req.AssetID))
+	if directoryErr != nil {
+		return ProjectAssetSummary{}, directoryErr
+	}
+	defer directoryFinish(&resultErr)
 	if _, err := s.repo.ProjectForUser(userID, projectID); err != nil {
 		return ProjectAssetSummary{}, err
 	}

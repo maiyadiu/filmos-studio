@@ -4,6 +4,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
 import { UserOSSSettingsForm } from "@/components/layout/user-oss-settings-form";
+import { ProjectDirectoryLocation } from "@/components/project-directory-location";
 import { audioFormatOptions, audioVoiceOptions, normalizeAudioSpeedValue } from "@/lib/audio-generation";
 import { refreshSystemChannels } from "@/lib/user-session";
 import { defaultConfig, useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
@@ -27,7 +28,7 @@ const configSections: Array<{ key: ConfigSectionKey; label: string; description:
     { key: "channels", label: "个人渠道", description: "模型服务与个人工作流", icon: <RadioTower className="size-4" /> },
     { key: "preferences", label: "生成偏好", description: "画布、视频与音频默认值", icon: <SlidersHorizontal className="size-4" /> },
     { key: "prompts", label: "提示词偏好", description: "按任务定制平台模板", icon: <MessageSquareText className="size-4" /> },
-    { key: "storage", label: "我的对象存储", description: "管理个人媒体存储", icon: <Cloud className="size-4" /> },
+    { key: "storage", label: "文件与存储", description: "管理作品目录和个人媒体存储", icon: <Cloud className="size-4" /> },
     { key: "diagnostics", label: "问题诊断", description: "导出日志协助排查", icon: <Bug className="size-4" /> },
 ];
 
@@ -184,6 +185,7 @@ export default function SettingsPage() {
         storage: (
             <SettingsPane>
                 <div className="settings-section">
+                    <ProjectDirectoryLocation settings />
                     <UserOSSSettingsForm />
                 </div>
             </SettingsPane>
