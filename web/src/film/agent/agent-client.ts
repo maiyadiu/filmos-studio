@@ -50,6 +50,13 @@ export type AgentRuntimeDiagnostics = {
 
 type AgentRuntimeTransport = Pick<LocalRuntimeSessionClient, "request">;
 
+export class AgentRuntimeRequestError extends Error {
+    constructor(readonly code: string, readonly status: number, message: string) {
+        super([code, message].filter(Boolean).join(": ") || `AGENT_RUNTIME_REQUEST_FAILED:${status}`);
+        this.name = "AgentRuntimeRequestError";
+    }
+}
+
 export class AgentSessionClient {
     constructor(private readonly runtime: AgentRuntimeTransport = getLocalRuntimeSessionClient()) {}
 
@@ -118,7 +125,7 @@ export class AgentSessionClient {
     private async json<T>(path: string, init: RequestInit) {
         const response = await this.runtime.request(path, init);
         const value = await response.json().catch(() => ({})) as { ok?: boolean; code?: string; message?: string } & T;
-        if (!response.ok || value.ok !== true) throw new Error([value.code, value.message].filter(Boolean).join(": ") || `AGENT_RUNTIME_REQUEST_FAILED:${response.status}`);
+        if (!response.ok || value.ok !== true) throw new AgentRuntimeRequestError(typeof value.code === "string" ? value.code : "", response.status, typeof value.message === "string" ? value.message : "");
         return value;
     }
 }

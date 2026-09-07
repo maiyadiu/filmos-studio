@@ -34,7 +34,7 @@ export function agentTextEvent(event: TextEvent): Omit<AgentChatItem, "id"> | nu
 
 /** Delta text is not prose to normalize: spaces, repeated tokens and Markdown breaks are data. */
 export function appendAgentChatMessage(messages: AgentChatItem[], next: AgentChatItem): AgentChatItem[] {
-    const index = next.streamId ? messages.findIndex((item) => item.streamId === next.streamId && item.role === next.role) : -1;
+    const index = messages.findIndex((item) => item.role === next.role && (item.id === next.id || Boolean(next.streamId && item.streamId === next.streamId)));
     if (index < 0) return [...messages, next].slice(-120);
     const previous = messages[index];
     if (previous.streamMode === "complete" && next.streamMode !== "complete") return messages;

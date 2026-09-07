@@ -16,10 +16,10 @@ export type IssuePermissionGrantInput = {
 export class AgentPermissionGrantStore {
     private readonly grants = new Map<string, AgentPermissionGrant>();
 
-    constructor(private readonly signingKey = crypto.randomBytes(32)) {}
+    constructor(private readonly signingKey = crypto.randomBytes(32), private readonly now: () => Date = () => new Date()) {}
 
     issue(input: IssuePermissionGrantInput) {
-        const issuedAt = new Date();
+        const issuedAt = this.now();
         const expiresAt = new Date(issuedAt.getTime() + (input.ttlMs ?? 15 * 60_000));
         const unsigned: Omit<AgentPermissionGrant, "signature"> = {
             id: crypto.randomUUID(),
@@ -53,7 +53,7 @@ export class AgentPermissionGrantStore {
             throw new Error("AGENT_GRANT_SCOPE_MISMATCH");
         }
         if (input.nonce !== undefined && grant.nonce !== input.nonce) throw new Error("AGENT_GRANT_NONCE_MISMATCH");
-        if (Date.parse(grant.expiresAt) <= (input.now ?? new Date()).getTime()) {
+        if (Date.parse(grant.expiresAt) <= (input.now ?? this.now()).getTime()) {
             this.grants.delete(grant.id);
             throw new Error("AGENT_GRANT_EXPIRED");
         }

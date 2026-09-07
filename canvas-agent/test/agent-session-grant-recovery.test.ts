@@ -230,6 +230,66 @@ test("explicit context read renews expired receipts without bypassing stale writ
     } finally { await instance.dispose(); }
 });
 
+test("crossing the real 15 minute grant boundary stops tools; idle recovery reads the original receipt without replaying its write", async () => {
+    let now = Date.now();
+    const grants = new AgentPermissionGrantStore(undefined, () => new Date(now));
+    const store = new MemoryBrainSessionStore();
+    const snapshot: WorkbenchContextSnapshot = { projectId: "project-grant-recovery", canvasId: "canvas-grant-recovery", domainProjectId: "domain-script", canvasRevision: 1, canvasStateHash: "a".repeat(64), nodes: [], connections: [], selectedNodeIds: [], visibleNodeIds: [], assets: [] };
+    const requestId = "script-original-request";
+    const receipt = { projectId: "domain-script", requestId, unitIds: ["new-a"] };
+    const toolCalls: Array<{ name: string; input: unknown }> = [];
+    const instance = runtime(store, grants, { hasConnectedBrowser: () => true, request: async () => { throw new Error("MODEL_API_FORBIDDEN"); } }, () => snapshot, {
+        callTool: async (name, input) => {
+            toolCalls.push({ name: String(name), input });
+            return { ok: true, data: { receipt, verification: { ok: true, persisted: true, matchesCurrent: true } } };
+        },
+    });
+    const adapter = instance.registry.getAdapter("codex.subscription");
+    adapter.probe = async () => ({ profileId: "codex.subscription", status: "ready", checkedAt: new Date().toISOString() });
+    adapter.createSession = async () => ({ providerThreadId: "original-provider-thread" });
+    let resumes = 0;
+    adapter.resumeSession = async input => { resumes++; assert.equal(input.providerThreadId, "original-provider-thread"); return { providerThreadId: input.providerThreadId }; };
+    adapter.readHistory = async () => [{ id: "saved-receipt", role: "tool", text: requestId, source: "provider" }];
+    let turns = 0;
+    try {
+        const { session } = await instance.createSession({ conversationId: "expiry-fixture", brainProfileId: "codex.subscription", projectId: snapshot.projectId, canvasId: snapshot.canvasId, domainProjectId: snapshot.domainProjectId, actorId: "owner-grant-recovery" });
+        const originalGrant = grants.get(session.permissionGrantId)!;
+        assert.equal(Date.parse(originalGrant.expiresAt) - Date.parse(originalGrant.issuedAt), 15 * 60_000);
+        const write = { sessionId: session.id, toolName: "project_create_script", toolInput: { requestId, expectedProjectRevision: 1, note: "fixture", chapters: [{ title: "chapter", sourceText: "<p>original</p>" }] } };
+        adapter.sendTurn = async () => {
+            turns++;
+            assert.equal((await instance.proposeTool(write)).status, "completed");
+            now = Date.parse(originalGrant.expiresAt);
+            await assert.rejects(instance.resumeSession(session.id, "owner-grant-recovery"), /ALREADY_RUNNING/);
+            // Neither repeating the write nor reading context silently renews a grant.
+            await assert.rejects(instance.proposeTool(write), /GRANT_EXPIRED/);
+            await assert.rejects(instance.proposeTool({ ...write, toolName: "workbench_get_context", toolInput: {} }), /GRANT_NOT_FOUND/);
+            throw new Error("AGENT_GRANT_EXPIRED");
+        };
+        await assert.rejects(instance.sendTurn(session.id, { turnId: "long-turn", prompt: "fixture", scriptCreation: { requestId, chapterCount: 1, polishRounds: 0 } }, () => undefined), /GRANT_EXPIRED/);
+        assert.equal(toolCalls.length, 1);
+        assert.equal((await store.getSession(session.id))?.status, "failed");
+        const recovered = await instance.resumeSession(session.id, "owner-grant-recovery");
+        assert.equal(resumes, 1); assert.equal(turns, 1); assert.equal(toolCalls.length, 1);
+        assert.equal(recovered.session.providerThreadId, session.providerThreadId);
+        assert.equal(recovered.history[0].text, requestId);
+        const nextGrant = grants.get(recovered.session.permissionGrantId)!;
+        assert.notEqual(nextGrant.id, originalGrant.id);
+        assert.equal(Date.parse(nextGrant.expiresAt), now + 15 * 60_000);
+        for (const field of ["sessionId", "connectionId", "actorId", "projectId", "domainProjectId", "toolSurface", "allowedTools"] as const) assert.deepEqual(nextGrant[field], originalGrant[field]);
+        assert.throws(() => grants.validate(originalGrant.id, { sessionId: session.id, connectionId: session.connectionId, projectId: session.projectId }), /GRANT_NOT_FOUND/);
+        assert.throws(() => grants.validate(nextGrant.id, { sessionId: session.id, connectionId: session.connectionId, projectId: "other-project" }), /SCOPE_MISMATCH/);
+        const read = await instance.proposeTool({ sessionId: session.id, turnId: "explicit-readback", toolName: "project_get_script_batch", toolInput: { requestId } });
+        assert.equal(read.status, "completed");
+        if (read.status === "completed") assert.deepEqual((read.result.output as { data: { receipt: unknown } }).data.receipt, receipt);
+        assert.deepEqual(toolCalls.map(call => call.name), ["project_create_script", "project_get_script_batch"]);
+        assert.equal((toolCalls[1].input as { requestId: string }).requestId, requestId);
+        // New-chapter auto-approval was limited to the old turn, not restored.
+        assert.equal((await instance.proposeTool({ ...write, turnId: "after-recovery" })).status, "confirmation_required");
+        assert.equal(toolCalls.length, 2);
+    } finally { await instance.dispose(); }
+});
+
 function runtime(store: MemoryBrainSessionStore, grants: AgentPermissionGrantStore, browserRuntime: BrowserRuntimeTransport, snapshot?: () => WorkbenchContextSnapshot, canvasToolExecutor: CanonicalCanvasToolExecutor = { callTool: async () => ({ ok: true }) }) {
     return new GenericAgentRuntime(
         config(),

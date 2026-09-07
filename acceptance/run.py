@@ -469,6 +469,7 @@ SOURCE_CHECKS = tuple(check for check in RC_LOCAL_CHECKS if check.check_id in SO
          "test/project-chapter-storyboard.test.ts", "test/canvas-prompts.test.ts", "test/canvas-sync-baseline.test.ts",
          "test/canvas-tool-failure.test.ts", "test/agent-creative-results.test.ts", "test/agent-message-stream.test.ts",
          "test/agent-session-observation.test.ts", "test/canvas-agent-workflow.test.ts", "test/ai-message-markdown.test.tsx",
+         "src/film/agent/agent-client.test.mjs", "src/film/agent/agent-session-recovery.test.mjs",
          "test/chapter-document-view.test.ts", "test/canvas-local-runtime.test.ts", "test/user-scoped-generation-persistence.test.ts", "test/project-shot-image.test.ts", "test/project-directory.test.ts"),
         ROOT / "web",
         ("03-project-ui", "08-agent", "13-qa"),

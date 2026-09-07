@@ -8,6 +8,16 @@ function ingest(messages: AgentChatItem[], event: Parameters<typeof agentTextEve
     return appendAgentChatMessage(messages, { ...item!, id: `message-${messages.length}` });
 }
 
+test("repeated non-stream history IDs are merged once while distinct local errors remain", () => {
+    const receipt: AgentChatItem = { id: "receipt", role: "tool", text: "原请求已保存" };
+    const error: AgentChatItem = { id: "error", role: "error", text: "授权到期" };
+    const once = [receipt, error].reduce((items, item) => appendAgentChatMessage(items, item), [receipt]);
+    const twice = once.reduce((items, item) => appendAgentChatMessage(items, item), [receipt]);
+    expect(once).toEqual([receipt, error]);
+    expect(twice).toEqual(once);
+    expect(appendAgentChatMessage(twice, { ...receipt, id: "different-receipt" })).toHaveLength(3);
+});
+
 test("raw deltas retain whitespace, repeated tokens and Markdown tables without heuristic deduplication", () => {
     let messages: AgentChatItem[] = [];
     const parts = ["## 剧本", "\n\n", "哈", "哈", "\n\n", "| 镜头 | 状态 |", "\n", "| --- | --- |", "\n", "| 10 | 已保存 |", "  ", "\n"];

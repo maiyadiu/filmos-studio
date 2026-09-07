@@ -28,6 +28,7 @@ import { summarizeShotImage } from "../../../../packages/filmos-agent-contracts/
 import { buildCanvasAgentContext, findCanvasAgentNodes, getCanvasAgentConnection, getCanvasAgentGenerationTasks, getCanvasAgentNode, getCanvasAgentResources, validateCanvasAgentOps } from "@/lib/canvas/canvas-agent-context";
 import { buildCanvasResourceReferences } from "@/lib/canvas/canvas-resource-references";
 import { canvasToolFailure } from "@/lib/canvas/canvas-tool-failure";
+import { agentFailureGuidance, agentFailureText, recoverAgentSession } from "@/film/agent/agent-session-recovery";
 import { agentCreativeResult, creativeToolTargetSummary } from "@/lib/canvas/agent-creative-results";
 import { AgentCreativeResultAction } from "./agent-creative-result";
 import { resolveSkillMentions } from "@/lib/canvas/canvas-skill-mentions";
@@ -163,6 +164,8 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
     const sessionScopeRef = useRef(sessionScopeKey);
     sessionScopeRef.current = sessionScopeKey;
     const [cancelling, setCancelling] = useState(false);
+    const [recoveringSession, setRecoveringSession] = useState(false);
+    const recoveryInFlightRef = useRef(false);
     const chatGPTHostProfile = brainProfileId === "chatgpt.subscription.host";
     const [chatGPTHostStatus, setChatGPTHostStatus] = useState<FilmOSDesktopChatGPTHostStatus | null>(() => typeof window === "undefined" ? null : window.filmOSChatGPTHostStatus ?? null);
     const [chatGPTHostClock, setChatGPTHostClock] = useState(() => Date.now());
@@ -507,7 +510,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
         const files = creation ? [] : attachments;
         const mentionedSkills = resolveSkillMentions(text, composerSkills);
         const requestPrompt = promptWithAttachments(text, files);
-        if (!connected || !requestPrompt || sending || waiting || pendingTool || activeTurnRef.current || (genericRuntime && activeThreadId && !executionKnown)) return;
+        if (!connected || !requestPrompt || sending || waiting || pendingTool || recoveryInFlightRef.current || activeTurnRef.current || (genericRuntime && activeThreadId && !executionKnown)) return;
         if (chatGPTHostProfile && !chatGPTHost.handoffReady) {
             addMessage({ role: "error", title: "ChatGPT Host 未就绪", text: `${chatGPTHost.message}。请打开“ChatGPT 连接”完成当前项目授权后再发送。` });
             return;
@@ -569,7 +572,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
             if (sessionScopeRef.current !== requestScope || (dispatchedTurn && useCanvasAgentStore.getState().activeThreadId !== dispatchedTurn.sessionId)) return;
             const cancelled = error instanceof Error && error.message.toUpperCase().includes("AGENT_TURN_CANCELLED");
             setAgentState({ activity: cancelled ? "已停止" : genericRuntime && dispatchedTurn ? "正在核对执行状态" : "发送失败", ...(!genericRuntime || !dispatchedTurn ? { waiting: false } : {}) });
-            addMessage({ role: cancelled ? "system" : "error", title: cancelled ? "已停止" : "发送失败", text: cancelled ? "本轮已停止，已保存的内容保留。可以先核对章节版本再继续。" : error instanceof Error ? error.message : "发送失败" });
+            addMessage({ role: cancelled ? "system" : "error", title: cancelled ? "已停止" : "发送失败", text: cancelled ? "本轮已停止，已保存的内容保留。可以先核对章节版本再继续。" : agentFailureText(error) });
             addEventLog(cancelled ? "已停止" : "发送失败", error);
         } finally {
             if (genericRuntime) {
@@ -588,7 +591,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
     };
 
     useEffect(() => {
-        if (!scriptLaunch || !genericRuntime || brainProfileId !== "codex.subscription" || !skillsReady || !connected || sending || waiting || pendingTool || activeTurnRef.current || launchAttemptedRef.current === scriptLaunch.id) return;
+        if (!scriptLaunch || !genericRuntime || brainProfileId !== "codex.subscription" || !skillsReady || !connected || sending || waiting || pendingTool || recoveryInFlightRef.current || activeTurnRef.current || launchAttemptedRef.current === scriptLaunch.id) return;
         if (!matchesScriptLaunch(scriptLaunch, user?.id || "", snapshot.projectId, snapshot.domainProjectId || "")) return;
         launchAttemptedRef.current = scriptLaunch.id;
         if (scriptLaunch.claimed || activeThreadId) {
@@ -604,7 +607,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
         void claimScriptLaunch(scriptLaunch).then(claimed => {
             if (claimed && sessionScopeRef.current === scope) return sendPrompt(scriptLaunch.prompt, scriptLaunch);
         }).catch(error => addMessage({ role: "error", title: "未自动发送", text: error instanceof Error ? error.message : "请检查原会话，勿重复创建项目" }));
-    }, [scriptLaunch, genericRuntime, brainProfileId, skillsReady, connected, sending, waiting, pendingTool, activeThreadId, composerSkills, sessionScopeKey, user?.id, snapshot.projectId, snapshot.domainProjectId]);
+    }, [scriptLaunch, genericRuntime, brainProfileId, skillsReady, connected, sending, waiting, pendingTool, recoveringSession, activeThreadId, composerSkills, sessionScopeKey, user?.id, snapshot.projectId, snapshot.domainProjectId]);
 
     const addAttachments = async (files: FileList | File[] | null) => {
         if (!files) return;
@@ -759,9 +762,11 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
             });
         } catch (error) {
             const message = error instanceof Error ? error.message : "画布操作失败";
+            const failure = canvasToolFailure(error);
+            const guidance = failure.backendStatus ? agentFailureGuidance(`canvas_backend_http_${failure.backendStatus}`) : "";
             setAgentState({ activity: "工具失败", waiting: false });
-            addMessage({ role: "tool", title: "工具失败", text: message, detail: payload });
-            await postToolResult(clientIdRef.current, { requestId: payload.requestId, ...canvasToolFailure(error) });
+            addMessage({ role: "tool", title: "工具失败", text: guidance ? `${message}\n\n${guidance}` : message, detail: payload });
+            await postToolResult(clientIdRef.current, { requestId: payload.requestId, ...failure });
         } finally {
             activeToolRequestIdsRef.current.delete(payload.requestId);
         }
@@ -880,7 +885,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
 
     const startNewThread = async () => {
         const projectId = snapshotRef.current.projectId;
-        if (!connected || !projectId || sending || waiting || pendingTool || (genericRuntime && activeThreadId && !executionKnown)) return;
+        if (!connected || !projectId || sending || waiting || pendingTool || recoveryInFlightRef.current || (genericRuntime && activeThreadId && !executionKnown)) return;
         setAgentState({ loadingThreads: true });
         try {
             if (genericRuntime) {
@@ -902,31 +907,46 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
 
     const resumeThread = async (threadId: string) => {
         const projectId = snapshotRef.current.projectId;
-        if (!connected || !projectId || !threadId || sending || waiting || pendingTool || (genericRuntime && activeThreadId && !executionKnown)) return;
+        if (!connected || !projectId || !threadId || sending || waiting || pendingTool || activeTurnRef.current || recoveryInFlightRef.current || (genericRuntime && activeThreadId && !executionKnown)) return;
+        const scopeKey = sessionScopeRef.current;
+        const initialActiveId = useCanvasAgentStore.getState().activeThreadId;
+        const isCurrent = () => sessionScopeRef.current === scopeKey && useCanvasAgentStore.getState().activeThreadId === initialActiveId && connectedRef.current && useCanvasAgentStore.getState().enabled;
+        recoveryInFlightRef.current = true;
+        setRecoveringSession(true);
         setAgentState({ loadingThreads: true });
         try {
             if (genericRuntime) {
-                const data = await agentSessionClient.resumeSession(threadId);
+                const data = await recoverAgentSession(agentSessionClient, {
+                    id: threadId, brainProfileId, projectId, canvasId: projectId,
+                    domainProjectId: snapshotRef.current.domainProjectId, contentUnitId: snapshotRef.current.contentUnitId,
+                }, isCurrent, async () => Boolean(await syncState(clientIdRef.current, snapshotRef.current)));
+                if (!isCurrent()) return;
                 const history = normalizeGenericHistory(data.history, threadId);
                 if (!history.length && data.historyStatus.limitation) history.push({ id: `history-limit-${threadId}`, role: "system", text: data.historyStatus.limitation });
-                setAgentState({ activeThreadId: threadId, messages: history, latestPlan: data.session.latestPlan ?? null, activeTab: "chat", activity: "已恢复会话" });
+                const preserved = initialActiveId === threadId ? useCanvasAgentStore.getState().messages.reduce((items, item) => appendAgentChatMessage(items, item), history) : history;
+                setAgentState({ activeThreadId: threadId, messages: preserved, latestPlan: data.session.latestPlan ?? null, activeTab: "chat", activity: "已恢复会话" });
+                addMessage({ role: "system", text: "已恢复原会话与当前上下文，未重发任务或保存。输入草稿仍保留；继续前请先让 Agent 回读原 requestId 的回执和当前版本，再处理未完成部分。" });
                 await loadThreads();
                 return;
             }
             const data = await fetchAgentJson<AgentThreadResponse>(`/agent/codex/threads/${encodeURIComponent(threadId)}/resume`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ canvasId: projectId }) });
+            if (!isCurrent()) return;
             setAgentState({ activeThreadId: data.thread?.id || threadId, messages: normalizeHistoryMessages(data.messages || []), activeTab: "chat", activity: "已恢复会话" });
             await loadThreads();
         } catch (error) {
+            if (!isCurrent()) return;
             addEventLog("恢复对话失败", error);
-            message.error(error instanceof Error ? error.message : "恢复对话失败");
+            addMessage({ role: "error", title: "恢复未确认", text: agentFailureText(error) });
         } finally {
+            recoveryInFlightRef.current = false;
+            setRecoveringSession(false);
             setAgentState({ loadingThreads: false });
         }
     };
 
     const deleteThread = async (threadId: string) => {
         const projectId = snapshotRef.current.projectId;
-        if (!connected || !projectId || !threadId) return;
+        if (!connected || !projectId || !threadId || recoveryInFlightRef.current) return;
         setAgentState({ loadingThreads: true });
         try {
             if (genericRuntime) {
@@ -1075,6 +1095,12 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
                     <Button type="text" shape="circle" className="!h-7 !w-7 !min-w-7" disabled={!connected || loadingThreads || sending || waiting || Boolean(pendingTool) || executionUncertain} style={{ color: theme.node.muted }} icon={<Plus className="size-3.5" />} onClick={() => void startNewThread()} aria-label="新建对话" />
                 </Tooltip>
             </div>
+            {genericRuntime && activeThreadId ? (
+                <div className="flex shrink-0 items-center gap-2 px-4 pb-2 text-[var(--fs-tiny)]" style={{ color: theme.node.muted }}>
+                    <Button size="small" loading={recoveringSession} disabled={!connected || sending || waiting || Boolean(pendingTool) || Boolean(activeTurn) || executionUncertain} onClick={() => void resumeThread(activeThreadId)}>恢复当前会话</Button>
+                    <span>仅恢复连接与上下文，不重发任务</span>
+                </div>
+            ) : null}
             {connected && brainProfileId === "codex.subscription" ? (
                 <CodexAccountBar
                     status={accountStatus}
@@ -1144,7 +1170,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
                     <AgentChatComposer
                         prompt={prompt}
                         attachments={attachments.map(agentAttachmentToChatAttachment)}
-                        disabled={!connected || executionUncertain || (chatGPTHostProfile && !chatGPTHost.handoffReady)}
+                        disabled={!connected || recoveringSession || executionUncertain || (chatGPTHostProfile && !chatGPTHost.handoffReady)}
                         sending={sending || waiting || Boolean(pendingTool)}
                         placeholder={chatGPTHostProfile && !chatGPTHost.handoffReady ? chatGPTHost.message : `询问 ${brainProfileLabel(brainProfileId)}，或让它操作画布`}
                         theme={theme}
