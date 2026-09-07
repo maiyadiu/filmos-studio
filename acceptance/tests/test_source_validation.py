@@ -30,6 +30,7 @@ def test_source_suite_has_real_diff_and_fixture_contracts_without_app_or_user_da
         "known-dependency-security", "portrait-image-compatibility",
         "project-script-persistence", "project-script-tools", "project-script-broker",
         "creative-agent-build", "creative-persistence-contracts", "creative-browser-contracts",
+        "production-generation-composition",
     } <= ids
     assert not {"desktop-release-build", "desktop-runtime", "desktop-review-vertical-canary"} & ids
     for check in checks:
@@ -64,6 +65,7 @@ def test_source_builds_agent_contracts_before_tests_that_import_their_package_ex
     build = checks[ids.index("creative-agent-build")]
     assert build.command == ("npm", "run", "build")
     assert build.cwd == ROOT / "canvas-agent"
+    assert ids.index("creative-agent-build") < ids.index("production-generation-composition")
 
 
 @pytest.mark.parametrize("stale", [False, True])

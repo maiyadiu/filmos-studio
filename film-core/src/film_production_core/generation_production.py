@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import sqlite3
 from datetime import datetime, timezone
 from typing import Any
 
@@ -36,6 +37,10 @@ class GenerationProductionStore:
         project_id = self._string(payload.get("projectId"), "projectId")
         project_name = self._string(payload.get("projectName"), "projectName")
         bindings = self._record(payload.get("bindings"), "bindings")
+        if bindings.get("schemaVersion") == 2:
+            return self._persist_project_authority_v2(payload)
+        if bindings.get("schemaVersion") not in (None, 1):
+            raise DomainRuleViolation("generation_authority_schema_invalid", "Unsupported project authority schema")
         policy = self._record(bindings.get("projectPolicy"), "bindings.projectPolicy")
         lock = self._record(bindings.get("projectLock"), "bindings.projectLock")
         connection = self._record(bindings.get("connection"), "bindings.connection")
@@ -65,6 +70,109 @@ class GenerationProductionStore:
             trace_id=f"authority:{project_id}:{authority_hash[:24]}", trace_kind="project_authority", project_id=project_id,
             generation_attempt_id=f"authority:{project_id}", content_hash=authority_hash, payload=payload,
         )
+        return self.project_authority(project_id)
+
+    def _v2_authority_entries(self, payload: dict[str, Any]) -> list[tuple[dict, dict, dict, dict]]:
+        bindings, project_id = payload["bindings"], payload["projectId"]
+        policy = self._record(bindings.get("projectPolicy"), "bindings.projectPolicy")
+        if policy.get("projectId") != project_id or policy.get("schemaVersion") != 2:
+            raise DomainRuleViolation("generation_authority_project_mismatch", "Policy V2 must bind the requested project")
+        self._hash(policy.get("contentHash"), "bindings.projectPolicy.contentHash")
+        if bindings.get("brainPolicy") is not None:
+            brain = self._record(bindings["brainPolicy"], "bindings.brainPolicy")
+            if brain.get("projectId") != project_id:
+                raise DomainRuleViolation("generation_authority_project_mismatch", "Brain policy must bind the requested project")
+        indexed = {}
+        for field in ("connections", "catalogs", "grants", "ledgers"):
+            items = bindings.get(field)
+            if not isinstance(items, list) or not items:
+                raise DomainRuleViolation("generation_production_field_invalid", f"bindings.{field} must be a non-empty array")
+            records = {}
+            for value in items:
+                record = self._record(value, f"bindings.{field}[]")
+                cid = self._string(record.get("connectionId"), f"bindings.{field}.connectionId")
+                if cid in records:
+                    raise DomainRuleViolation("generation_authority_connection_mismatch", "Each connection must have exactly one catalog, grant and ledger")
+                self._hash(record.get("contentHash"), f"bindings.{field}.contentHash")
+                records[cid] = record
+            indexed[field] = records
+        connection_ids = set(indexed["connections"])
+        if any(set(records) != connection_ids for records in indexed.values()):
+            raise DomainRuleViolation("generation_authority_connection_mismatch", "Connection, catalog, grant and ledger sets must agree")
+        grant_map = self._record(policy.get("budgetGrantIdsByConnection"), "projectPolicy.budgetGrantIdsByConnection")
+        if set(grant_map) != connection_ids:
+            raise DomainRuleViolation("generation_authority_connection_mismatch", "Budget map must cover exactly the allowed connections")
+        expected_connections, entries, grant_ids, ledger_ids = [], [], set(), set()
+        for cid, connection in indexed["connections"].items():
+            catalog, grant, ledger = (indexed[field][cid] for field in ("catalogs", "grants", "ledgers"))
+            engine = self._string(connection.get("engineId"), "connection.engineId")
+            expected_connections.append({"engineId": engine, "connectionId": cid})
+            if any(record.get("engineId") != engine for record in (catalog, grant, ledger)):
+                raise DomainRuleViolation("generation_authority_engine_mismatch", "Connection authorities must bind the same engine")
+            if any(record.get("projectId") != project_id for record in (grant, ledger)):
+                raise DomainRuleViolation("generation_authority_project_mismatch", "Budget authorities must bind the requested project")
+            if engine == MOCK_ENGINE_ID and payload["projectName"] != ACCEPTANCE_PROJECT_NAME:
+                raise DomainRuleViolation("mock_provider_scope_forbidden", "Mock Provider is restricted to FilmOS_Acceptance_Project")
+            instance = self._string(connection.get("connectionInstanceRef"), "connection.connectionInstanceRef")
+            if any(record.get("connectionInstanceRef") != instance or record.get("accountBindingRef") != connection.get("accountBindingRef") for record in (grant, ledger)):
+                raise DomainRuleViolation("generation_authority_connection_mismatch", "Budget must bind the same account and connection instance")
+            gid = self._string(grant.get("grantId"), "grant.grantId")
+            lid = self._string(ledger.get("ledgerId"), "ledger.ledgerId")
+            if gid in grant_ids or lid in ledger_ids or ledger.get("grantId") != gid or grant_map[cid] != gid:
+                raise DomainRuleViolation("generation_authority_connection_mismatch", "Budget IDs must be unique and bind the selected connection")
+            grant_ids.add(gid)
+            ledger_ids.add(lid)
+            cost = self._record(grant.get("maxTotalCost"), "grant.maxTotalCost")
+            unit = self._string(cost.get("unit"), "grant.maxTotalCost.unit")
+            amount = cost.get("amountMicrounits")
+            if grant.get("status") != "active" or ledger.get("status") != "active":
+                raise DomainRuleViolation("generation_authority_budget_invalid", "Settings cannot activate a closed budget")
+            if (type(grant.get("maxTasks")) is not int or grant["maxTasks"] < 1
+                    or not isinstance(amount, str) or not re.fullmatch(r"0|[1-9][0-9]*", amount)
+                    or ledger.get("costUnit") != unit):
+                raise DomainRuleViolation("generation_authority_budget_invalid", "Budget requires positive tasks and canonical nonnegative cost in the ledger unit")
+            for field in ("createdAt", "updatedAt"):
+                self._string(ledger.get(field), f"ledger.{field}")
+            entries.append((connection, catalog, grant, ledger))
+        allowed = policy.get("allowedConnections")
+        if not isinstance(allowed, list) or sorted(allowed, key=self._canonical_json) != sorted(expected_connections, key=self._canonical_json):
+            raise DomainRuleViolation("generation_authority_connection_mismatch", "Policy allowed connections must match the authority")
+        routes = self._record(policy.get("defaultRoutes"), "projectPolicy.defaultRoutes")
+        locks = self._record(policy.get("modelLocksByTask"), "projectPolicy.modelLocksByTask")
+        for field, mapping in (("defaultRoutes", routes), ("modelLocksByTask", locks)):
+            for task, value in mapping.items():
+                route = self._record(value, f"projectPolicy.{field}.{task}")
+                cid = self._string(route.get("connectionId"), f"projectPolicy.{field}.{task}.connectionId")
+                connection = indexed["connections"].get(cid)
+                if not connection or route.get("engineId") != connection["engineId"]:
+                    raise DomainRuleViolation("generation_authority_connection_mismatch", "Every route and lock must bind an allowed connection")
+                if field == "modelLocksByTask" and any(route.get(key) != routes.get(task, {}).get(key) for key in ("engineId", "connectionId", "modelId", "workflowId", "skillId")):
+                    raise DomainRuleViolation("generation_authority_connection_mismatch", "Task lock must match its default route")
+        return entries
+
+    def _persist_project_authority_v2(self, payload: dict[str, Any]) -> dict[str, Any]:
+        entries = self._v2_authority_entries(payload)
+        project_id, authority_hash = payload["projectId"], self._canonical_hash(payload)
+        try:
+            with self.budget.transaction() as connection:
+                for _, _, grant, ledger in entries:
+                    self.budget.ensure(grant["grantId"], ledger["ledgerId"], self._budget_scope(grant),
+                        grant["maxTasks"], grant["maxTotalCost"]["amountMicrounits"], update_limits=True)
+                previous = connection.execute(
+                    "SELECT trace_id,content_hash FROM generation_production_traces WHERE trace_kind='project_authority' AND project_id=? ORDER BY created_at DESC,rowid DESC LIMIT 1",
+                    (project_id,),
+                ).fetchone()
+                if previous is None or previous["content_hash"] != authority_hash:
+                    # Identical retries are no-ops; restoring a prior setting
+                    # appends a new receipt rather than reviving an old trace.
+                    event_hash = self._canonical_hash([authority_hash, previous["trace_id"] if previous else None])
+                    connection.execute(
+                        "INSERT INTO generation_production_traces(trace_id,trace_kind,project_id,generation_attempt_id,content_hash,payload_json,created_at) VALUES(?,'project_authority',?,?,?,?,?)",
+                        (f"authority:{project_id}:{event_hash}", project_id, f"authority:{project_id}",
+                         authority_hash, self._canonical_json(payload), self._now()),
+                    )
+        except (ValueError, sqlite3.IntegrityError) as error:
+            raise DomainRuleViolation("generation_authority_budget_conflict", "Budget binding or limits conflict with the existing ledger; no settings were saved") from error
         return self.project_authority(project_id)
 
     def acceptance_authority(self, project_id: str) -> dict[str, Any]:
@@ -134,8 +242,18 @@ class GenerationProductionStore:
             self._hash(evidence.get(field), f"authorizationEvidence.{field}")
         if str(evidence.get("brokerDecisionReceiptId", "")).startswith("dddd"):
             raise DomainRuleViolation("synthetic_broker_receipt_forbidden", "Broker Decision Receipt must come from CanonicalAgentToolBroker")
-        bindings = self.project_authority(preview["projectId"])["bindings"]
-        current_ledger, current_grant = bindings["ledger"], bindings["grant"]
+        authority = self.project_authority(preview["projectId"])
+        bindings = authority["bindings"]
+        if bindings.get("schemaVersion") == 2:
+            entries = self._v2_authority_entries(authority)
+            selected = [entry for entry in entries if entry[0]["connectionId"] == route.get("connectionId") and entry[0]["engineId"] == route.get("engineId")]
+            if len(selected) != 1:
+                raise DomainRuleViolation("generation_authority_connection_mismatch", "Authorization route has no exact connection budget")
+            _, _, current_grant, current_ledger = selected[0]
+            if reservation.get("ledgerId") != current_ledger["ledgerId"]:
+                raise DomainRuleViolation("generation_authority_connection_mismatch", "Reservation must use the route connection's ledger")
+        else:
+            current_ledger, current_grant = bindings["ledger"], bindings["grant"]
         if reservation.get("ledgerExpectedVersion") != current_ledger["entityVersion"] or reservation.get("ledgerExpectedContentHash") != current_ledger["contentHash"]:
             raise DomainRuleViolation("budget_ledger_stale", "Budget ledger version/hash changed before authorization")
         if reservation.get("budgetGrantExpectedVersion") != current_grant["entityVersion"] or reservation.get("budgetGrantExpectedContentHash") != current_grant["contentHash"]:
@@ -282,7 +400,13 @@ class GenerationProductionStore:
     def _with_current_budget(self, payload: dict[str, Any]) -> dict[str, Any]:
         result = json.loads(json.dumps(payload))
         bindings = result["bindings"]
-        original = bindings["ledger"]
+        if bindings.get("schemaVersion") == 2:
+            bindings["ledgers"] = [self._current_ledger(original) for original in bindings["ledgers"]]
+        else:
+            bindings["ledger"] = self._current_ledger(bindings["ledger"])
+        return result
+
+    def _current_ledger(self, original: dict[str, Any]) -> dict[str, Any]:
         internal = self.budget.snapshot(original["ledgerId"])
         with self.database.connect() as connection:
             event = connection.execute(
@@ -302,8 +426,7 @@ class GenerationProductionStore:
             "lastEventSequence": internal["last_event_sequence"], "status": internal["status"],
             "createdAt": original["createdAt"], "updatedAt": event["occurred_at"] if event else original["updatedAt"],
         }
-        bindings["ledger"] = {**base, "contentHash": self._contract_hash("budget-ledger", base)}
-        return result
+        return {**base, "contentHash": self._contract_hash("budget-ledger", base)}
 
     def _insert_provider_evidence(self, attempt_id: str, authorization_id: str, receipt: dict[str, Any]) -> None:
         try:

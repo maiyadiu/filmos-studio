@@ -78,7 +78,7 @@ def main() -> int:
         )
         try:
             wait_for_health(f"http://127.0.0.1:{port}/film/health", sidecar)
-            web_log = run(("bun", "test", "test/production-generation-composition.test.ts", "test/production-generation-film-core-http.test.ts", "test/project-production-runtime.test.ts", "test/engine-connection-synchronizer.test.ts", "test/agent-browser-runtime-lifecycle.test.ts", "test/brain-generation-routing-config.test.ts", "test/canonical-generation-tool-runtime.test.ts"), ROOT / "web", environment)
+            web_log = run(("bun", "test", "test/production-generation-composition.test.ts", "test/production-generation-film-core-http.test.ts", "test/film-core-authority-errors.test.ts", "test/project-production-runtime.test.ts", "test/engine-connection-synchronizer.test.ts", "test/agent-browser-runtime-lifecycle.test.ts", "test/brain-generation-routing-config.test.ts", "test/canonical-generation-tool-runtime.test.ts"), ROOT / "web", environment)
         finally:
             sidecar.terminate()
             try:
@@ -86,7 +86,7 @@ def main() -> int:
             except subprocess.TimeoutExpired:
                 sidecar.kill()
                 sidecar.wait(timeout=2)
-        core_log = run((film_core_python, "-m", "pytest", "-q", "tests/test_generation_production.py"), ROOT / "film-core", environment)
+        core_log = run((film_core_python, "-m", "pytest", "-q", "tests/test_generation_production.py", "tests/test_generation_authority_v2.py", "tests/test_generation_budget.py"), ROOT / "film-core", environment)
         trace = json.loads(trace_path.read_text(encoding="utf-8"))
         http_trace = json.loads(http_trace_path.read_text(encoding="utf-8"))
 

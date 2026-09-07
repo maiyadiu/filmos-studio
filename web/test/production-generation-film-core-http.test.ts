@@ -11,11 +11,51 @@ import { executeCanonicalGenerationTool } from "@/film/generation-routing/canoni
 import { FILMOS_ACCEPTANCE_PROJECT_NAME, FILMOS_MOCK_GENERATION_ENGINE_ID, type ProductionGenerationService } from "@/film/generation-routing/production-composition";
 import { CanvasNodeType, type CanvasNodeData } from "@/types/canvas";
 import { defaultConfig } from "@/stores/use-config-store";
+import { createAcceptanceMockBindings } from "@/film/generation-routing/acceptance-production-runtime";
+import { FilmCoreHttpProductionGenerationAuthority } from "@/film/generation-routing/film-core-production-authority";
+import { buildProjectProductionBindingsV2, projectGenerationConnectionPolicyInputs } from "@/film/generation-routing/project-production-authority-builder";
 import { canonicalGenerationBrokerAuthorization } from "./helpers/canonical-agent-broker";
 
 const filmCoreBaseUrl = process.env.FILMOS_PRODUCTION_FILM_CORE_URL;
 
 describe("V2.4 candidate production runtime over real Film Core HTTP", () => {
+    test.skipIf(!filmCoreBaseUrl)("settings V2 builder saves both connections through the real HTTP client and reloads without collapsing routes", async () => {
+        const projectId = "filmos-settings-v2-http";
+        const original = await createAcceptanceMockBindings(projectId);
+        const secondaryId = "settings-secondary";
+        const primary = { connection: original.connection, catalog: original.catalog, maxTasks: 20, maxTotalCostMicrounits: "0", costUnit: "mock" };
+        const secondary = {
+            ...primary,
+            connection: { ...original.connection, connectionId: secondaryId },
+            catalog: { ...original.catalog, connectionId: secondaryId },
+        };
+        const bindings = await buildProjectProductionBindingsV2({
+            projectId, connections: [primary, secondary],
+            defaultRoutes: {
+                text_to_image: { engineId: original.connection.engineId, connectionId: original.connection.connectionId, modelId: FILMOS_ACCEPTANCE_MOCK_MODEL_ID },
+                reference_to_image: { engineId: secondary.connection.engineId, connectionId: secondaryId, modelId: FILMOS_ACCEPTANCE_MOCK_MODEL_ID },
+            },
+            defaultBrainProfileId: "codex.subscription", allowedBrainProfileIds: ["codex.subscription"],
+            strictLockTaskKinds: ["text_to_image", "reference_to_image"], allowProviderUpload: false,
+        });
+        const authority = new FilmCoreHttpProductionGenerationAuthority(async () => new Map(), filmCoreBaseUrl);
+        const saved = await authority.ensureProjectAuthority(projectId, FILMOS_ACCEPTANCE_PROJECT_NAME, bindings);
+        expect(saved.projectPolicy).toEqual(bindings.projectPolicy);
+        expect(saved.connections).toEqual(bindings.connections);
+        expect(saved.ledgers).toHaveLength(2);
+        const freshClient = new FilmCoreHttpProductionGenerationAuthority(async () => new Map(), filmCoreBaseUrl);
+        expect((await freshClient.loadProjectAuthority(projectId))?.bindings).toEqual(saved);
+        const inputs = projectGenerationConnectionPolicyInputs(saved);
+        inputs[1]!.maxTasks = 23;
+        const updated = await buildProjectProductionBindingsV2({
+            projectId, connections: inputs, defaultRoutes: saved.projectPolicy.defaultRoutes,
+            allowedBrainProfileIds: ["codex.subscription"], strictLockTaskKinds: ["text_to_image", "reference_to_image"], allowProviderUpload: false,
+        });
+        const resaved = await authority.ensureProjectAuthority(projectId, FILMOS_ACCEPTANCE_PROJECT_NAME, updated);
+        expect(resaved.grants.map(grant => grant.maxTasks)).toEqual([20, 23]);
+        expect(resaved.projectPolicy.defaultRoutes).toEqual(saved.projectPolicy.defaultRoutes);
+        expect(resaved.ledgers.map(ledger => ledger.ledgerId)).toEqual(saved.ledgers.map(ledger => ledger.ledgerId));
+    });
     test.skipIf(!filmCoreBaseUrl)("Composer runtime persists preview, broker, provider receipt and candidate through loopback Film Core", async () => {
         const snapshot = acceptanceSnapshot();
         const runtime = await createAcceptanceProviderFixture({

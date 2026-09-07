@@ -87,7 +87,22 @@ export class FilmCoreHttpProductionGenerationAuthority implements ProductionGene
 
     private async read<T>(response: Response): Promise<T> {
         const payload = await response.json().catch(() => undefined);
-        if (!response.ok) throw new Error(typeof payload?.detail?.code === "string" ? payload.detail.code : `FILM_CORE_PRODUCTION_HTTP_${response.status}`);
+        if (!response.ok) {
+            const code = typeof payload?.detail?.code === "string" ? payload.detail.code : `FILM_CORE_PRODUCTION_HTTP_${response.status}`;
+            const explanations: Record<string, string> = {
+                generation_production_field_invalid: "生成配置字段不完整或格式不正确，未保存",
+                generation_authority_connection_mismatch: "生成路线、连接与预算绑定不一致，未保存",
+                generation_authority_budget_invalid: "预算任务数、额度或单位不正确，未保存",
+                generation_authority_budget_conflict: "预算绑定已变化、已关闭或额度低于已用及预留量，未保存；请重新读取配置",
+                generation_authority_project_mismatch: "生成配置不属于当前项目，未保存",
+            };
+            // Show only a field path from the known validator, never arbitrary
+            // response text that might contain a private path or credential.
+            const field = code === "generation_production_field_invalid" && typeof payload?.detail?.message === "string"
+                ? /^(bindings(?:\.[A-Za-z][A-Za-z0-9_]*(?:\[\])?)+) must be /.exec(payload.detail.message)?.[1]
+                : undefined;
+            throw Object.assign(new Error(explanations[code] ? `${explanations[code]}${field ? `：${field}` : ""}（${code}）` : code), { code });
+        }
         return payload as T;
     }
 }

@@ -123,13 +123,14 @@ export function ProjectAIGenerationSettings({ projectId, projectName }: { projec
     }, [descriptorOptions, selectedDescriptor, taskKind]);
 
     const save = async () => {
-        if (!selectedConnection) throw new Error("PROJECT_ENGINE_CONNECTION_REQUIRED");
-        if (selectedConnection.status !== "ready") throw new Error("PROJECT_ENGINE_CONNECTION_NOT_READY");
-        if (!selectedDescriptor) throw new Error(selectedConnection.engineId === "flova_cli" ? "READY_FOR_USER_SELECTION" : "PROJECT_GENERATION_DESCRIPTOR_REQUIRED");
-        if (!allowedBrains.includes(defaultBrain)) throw new Error("PROJECT_DEFAULT_BRAIN_NOT_ALLOWED");
-        if (selectedConnection.engineId === "flova_cli" && !externalProjectId.trim()) throw new Error("FLOVA_EXTERNAL_PROJECT_SELECTION_REQUIRED");
         setSaving(true);
         try {
+            if (loadState === "unavailable") throw new Error("现有生成配置读取失败，请重新打开设置后再保存，避免覆盖旧配置");
+            if (!selectedConnection) throw new Error("请先选择生成引擎连接");
+            if (selectedConnection.status !== "ready") throw new Error("生成引擎连接尚未就绪");
+            if (!selectedDescriptor) throw new Error("请先选择该连接下可用的模型、工作流或技能");
+            if (!allowedBrains.includes(defaultBrain)) throw new Error("默认 AI 大脑必须包含在允许的 AI 大脑中");
+            if (selectedConnection.engineId === "flova_cli" && !externalProjectId.trim()) throw new Error("请先选择已有的 Flova 项目");
             const evidence = catalogEvidence(selectedConnection.engineId, dreaminaSnapshot?.evidence);
             if (!evidence) throw new Error("DREAMINA_CATALOG_EVIDENCE_REQUIRED");
             const catalog = await createRuntimeGenerationCatalogSnapshot({ connection: selectedConnection, descriptors, evidence });

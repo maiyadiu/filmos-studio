@@ -441,6 +441,7 @@ SOURCE_CHECKS = tuple(check for check in RC_LOCAL_CHECKS if check.check_id in SO
         ROOT / "canvas-agent",
         ("08-agent", "13-qa"),
     ),
+    *(check for check in RC_LOCAL_CHECKS if check.check_id == "production-generation-composition"),
     Check(
         "project-script-broker",
         "Creative tools, scope isolation, session recovery and public failure contracts with mock providers",

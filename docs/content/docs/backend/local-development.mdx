@@ -29,6 +29,12 @@ scripts/filmos-source-start stop
 
 ## 验证范围与数据边界
 
+### 项目生成配置的 Film Core 合同
+
+「项目设置 → AI 与生成 → 保存到正式 Film Core」调用 `POST /film/generation-production/project-authority`，不保存项目名称，也不发起 Provider 请求。`bindings.schemaVersion=2` 使用 `connections/catalogs/grants/ledgers` 数组和 `projectPolicy.modelLocksByTask`，按连接分别保留路线与预算；GET 同一路径追加项目 ID 回读全部配置及实时账本。V1 原有调用仍使用单连接字段，不自动改写历史回执。
+
+V2 保存将全部连接的预算配置与追加回执放在同一个 SQLite 事务中；无效/重复/跨项目/错连接绑定或预算冲突全部回滚，不清零已用及预留量。错误为 HTTP 409，`detail.code` 为机器可读错误码，`detail.message` 说明原因；界面只展示安全字段名与预定义提示，不回显任意服务端内容。相关隔离 HTTP 测试随 `production-generation-composition` 检查执行，不连接真实用户数据库。
+
 普通验证复用现有验收器：
 
 ```bash

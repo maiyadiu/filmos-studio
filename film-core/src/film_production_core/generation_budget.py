@@ -98,16 +98,21 @@ class GenerationBudgetRepository:
         """)
 
     @contextmanager
-    def _transaction(self) -> Iterator[None]:
+    def transaction(self) -> Iterator[sqlite3.Connection]:
         with self._lock:
-            self.connection.execute("BEGIN IMMEDIATE")
+            # Authority saves enroll all connection budgets and the receipt in
+            # one transaction. Nested repository operations use a savepoint.
+            nested = self.connection.in_transaction
+            self.connection.execute("SAVEPOINT budget_nested" if nested else "BEGIN IMMEDIATE")
             try:
-                yield
+                yield self.connection
             except BaseException:
-                self.connection.execute("ROLLBACK")
+                self.connection.execute("ROLLBACK TO budget_nested" if nested else "ROLLBACK")
+                if nested:
+                    self.connection.execute("RELEASE budget_nested")
                 raise
             else:
-                self.connection.execute("COMMIT")
+                self.connection.execute("RELEASE budget_nested" if nested else "COMMIT")
 
     def close(self) -> None:
         with self._lock:
@@ -146,7 +151,7 @@ class GenerationBudgetRepository:
                   "consumed_tasks": 0, "consumed_cost_microunits": "0",
                   "open_reservation_ids": [], "last_event_sequence": 0,
                   "status": "active", "version": 1}
-        with self._transaction():
+        with self.transaction():
             self.connection.execute("INSERT INTO generation_budget_grants VALUES(?,?,?,?,?,?,?,?)",
                                     (grant_id, scope_json, max_tasks, max_cost_microunits,
                                      "active", 1, 1, _hash("generation-budget-grant", "envelope", grant)))
@@ -155,8 +160,8 @@ class GenerationBudgetRepository:
                                      "active", 1, _hash("budget-ledger", "envelope", ledger)))
 
     def ensure(self, grant_id: str, ledger_id: str, scope: BudgetScope,
-               max_tasks: int, max_cost_microunits: str | None) -> dict:
-        with self._lock:
+               max_tasks: int, max_cost_microunits: str | None, *, update_limits: bool = False) -> dict:
+        with self.transaction():
             existing = self.connection.execute(
                 "SELECT ledger_id FROM generation_budget_ledgers WHERE ledger_id=? AND grant_id=?",
                 (ledger_id, grant_id),
@@ -165,6 +170,21 @@ class GenerationBudgetRepository:
                 self.create(grant_id, ledger_id, scope, max_tasks, max_cost_microunits)
             snapshot = self.snapshot(ledger_id)
             self._assert_scope(snapshot["scope_json"], scope)
+            if update_limits:
+                grant = self.connection.execute("SELECT * FROM generation_budget_grants WHERE grant_id=?", (grant_id,)).fetchone()
+                if grant["status"] != "active" or snapshot["status"] != "active":
+                    raise ValueError("BUDGET_AUTHORITY_CLOSED")
+                if (max_tasks < snapshot["reserved_tasks"] + snapshot["consumed_tasks"]
+                        or (max_cost_microunits is not None and _amount(max_cost_microunits)
+                            < _amount(snapshot["reserved_cost_microunits"]) + _amount(snapshot["consumed_cost_microunits"]))):
+                    raise ValueError("BUDGET_LIMIT_BELOW_USAGE")
+                if (grant["max_tasks"], grant["max_cost_microunits"]) != (max_tasks, max_cost_microunits):
+                    projection = self._grant_projection(grant_id, scope, max_tasks, max_cost_microunits,
+                        grant["status"], grant["binding_revision"] + 1, grant["version"] + 1)
+                    self.connection.execute(
+                        "UPDATE generation_budget_grants SET max_tasks=?,max_cost_microunits=?,binding_revision=?,version=?,content_hash=? WHERE grant_id=?",
+                        (max_tasks, max_cost_microunits, projection["binding_revision"], projection["version"],
+                         _hash("generation-budget-grant", "envelope", projection), grant_id))
             return snapshot
 
     def _require_fresh_ledger(self, ledger_id: str, expected_version: int,
@@ -271,7 +291,7 @@ class GenerationBudgetRepository:
                 scope: BudgetScope | None = None, route_snapshot_id: str = "route-snapshot",
                 expires_at: str = "9999-12-31T23:59:59Z",
                 occurred_at: str = "1970-01-01T00:00:00Z") -> dict:
-        with self._transaction():
+        with self.transaction():
             return self._reserve_current_transaction(
                 reservation_id=reservation_id, ledger_id=ledger_id,
                 generation_attempt_id=generation_attempt_id,
@@ -305,7 +325,7 @@ class GenerationBudgetRepository:
         ).fetchone()
         if existing is not None:
             return {"authorization": json.loads(existing["payload_json"]), "ledger": self.snapshot(ledger_id)}
-        with self._transaction():
+        with self.transaction():
             ledger = self._reserve_current_transaction(
                 reservation_id=reservation_id, ledger_id=ledger_id,
                 generation_attempt_id=attempt_id,
@@ -386,7 +406,7 @@ class GenerationBudgetRepository:
                                provider_receipt_id: str | None = None) -> dict:
         if event_type not in {"submitted", "released", "expired", "settled"}:
             raise ValueError("BUDGET_RESERVATION_TRANSITION_INVALID")
-        with self._transaction():
+        with self.transaction():
             if self._event_exists(idempotency_key, event_type, reservation_id):
                 return self.snapshot(ledger_id)
             ledger, grant = self._require_fresh_ledger(
@@ -448,7 +468,7 @@ class GenerationBudgetRepository:
                                      idempotency_key: str, expected_version: int,
                                      expected_content_hash: str, occurred_at: str,
                                      reason_code: str) -> dict:
-        with self._transaction():
+        with self.transaction():
             if self._event_exists(idempotency_key, "reconciliation_required", reservation_id):
                 return self.snapshot(ledger_id)
             ledger, _ = self._require_fresh_ledger(ledger_id, expected_version, expected_content_hash)
@@ -467,7 +487,7 @@ class GenerationBudgetRepository:
 
     def revoke(self, *, ledger_id: str, idempotency_key: str, expected_version: int,
                expected_content_hash: str, occurred_at: str) -> dict:
-        with self._transaction():
+        with self.transaction():
             if self._event_exists(idempotency_key, "revoked", None):
                 return self.snapshot(ledger_id)
             ledger, grant = self._require_fresh_ledger(ledger_id, expected_version, expected_content_hash)
@@ -495,7 +515,7 @@ class GenerationBudgetRepository:
                        replacement_ledger_id: str, next_scope: BudgetScope,
                        idempotency_key: str, expected_version: int,
                        expected_content_hash: str, occurred_at: str) -> dict:
-        with self._transaction():
+        with self.transaction():
             if self._event_exists(idempotency_key, "binding_rotated", None):
                 return self.snapshot(ledger_id)
             ledger, grant = self._require_fresh_ledger(ledger_id, expected_version, expected_content_hash)
