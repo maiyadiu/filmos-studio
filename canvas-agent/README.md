@@ -44,6 +44,12 @@ Codex 项目页执行临时目录使用 Runtime 下的 `project-workspaces/<proj
 
 执行临时目录为 Runtime 下的 `agent-workspaces/<workspaceId>`，只能匹配本 Runtime owner，不登记画布、不创建作品目录；使用原 Session 存储，不新增 Agent 服务。当前仅为底层与隔离测试交付，全局 UI、素材实际选择读取、导航与用户作品验收尚未完成，不能据此宣称全工作台可控。后续继续通过既有 Host 贡献槽接入，兼容验收以影策候选加当前 FilmOS 的组合为准。
 
+## 工作台账号绑定边界
+
+Generic Runtime 提供签名的 `/agent/account/challenge`、`/agent/account/bind` 和 `/agent/account`，协议详见[本机账号证明](../docs/content/docs/backend/账号证明.mdx)。身份从工作台既有登录态在线验证，不信任浏览器自报 userId；挑战一次性，绑定最长60秒，换号不能复用旧签名会话，撤销会取消在途校验。不改变默认浏览器 key、其他模块历史或既有工具权限。
+
+当前仅完成挑战与绑定基础，历史/详情/事件和前端续期尚未全面消费该绑定。上方 workspace 仍是 Runtime owner 范围，不是已验收的网页账号隔离；禁止据此向全局面板开放实际素材正文。
+
 ## 章节脚本修订
 
 浏览器工具桥保留后端明确的 HTTP 失败状态：404 表示目标或原回执不存在，409 表示版本/依赖冲突；不能统一解释为运行时内部故障。公开响应只含固定恢复提示和 `canvas_backend_http_<status>`，不透传后端原文、URL 或凭据。响应丢失或服务错误仍须回读原请求与当前版本，不能自动重发写入。

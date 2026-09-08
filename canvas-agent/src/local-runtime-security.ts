@@ -132,7 +132,7 @@ export function signedRuntimeGuard(
             });
             // Keep the public session contract free of origin while exposing the
             // already verified origin to module handlers that scope local data.
-            res.locals.runtimeSession = { ...session, origin };
+            res.locals.runtimeSession = { ...session, origin, runtimeInstanceId: sessions.runtimeInstanceId };
             next();
         } catch (error) {
             next(error);

@@ -37,19 +37,22 @@ import type { WorkbenchContextSnapshot } from "../brains/context-broker.js";
 import { agentRuntimeProfileStatus, assertGenericAgentRuntimeDependencies, resolveAgentFeatureFlags } from "../brains/feature-flags.js";
 import type { BrainSessionStore } from "../brains/session-store.js";
 import type { BrowserRuntimeTransport } from "../brains/browser-runtime-port.js";
+import { RuntimeAccountBindings } from "../runtime-account.js";
+import { LocalRuntimeSessionError } from "../local-runtime-session.js";
 
 export type CanvasAgentSession = Pick<
     CanvasSession,
     "health" | "workbenchContext" | "agentContextSnapshot" | "openEvents" | "updateState" | "resolveResult" | "emitAll" | "callTool" | "closeRuntimeSession" | "dispose"
 >;
 
-export type CanvasAgentHttpModuleOptions = { brainSessionStore?: BrainSessionStore; browserRuntimeTransport?: BrowserRuntimeTransport };
+export type CanvasAgentHttpModuleOptions = { brainSessionStore?: BrainSessionStore; browserRuntimeTransport?: BrowserRuntimeTransport; accountVerifierFetch?: typeof globalThis.fetch; accountNow?: () => number };
 
 export function createCanvasAgentHttpModule(
     config: LocalRuntimeConfig,
     session: CanvasAgentSession = new CanvasSession(),
     options: CanvasAgentHttpModuleOptions = {},
 ): LocalRuntimeModule {
+    const accounts = new RuntimeAccountBindings({ ownerId: config.ownerId, trustedOrigins: config.trustedWebOrigins, fetch: options.accountVerifierFetch, now: options.accountNow });
     const emit = (type: string, payload: unknown) => session.emitAll(type, payload);
     const permissionGrants = new AgentPermissionGrantStore();
     const canonicalTools = new CanonicalAgentToolManifest();
@@ -87,6 +90,20 @@ export function createCanvasAgentHttpModule(
         return grant;
     };
     const routes: LocalRuntimeProtectedRoute[] = [
+        ...(generic ? [
+        agentRoute("POST", "/agent/account/challenge", "agent:sessions:manage", (req, res) => {
+            if (Object.keys(accountBody(req)).length) throw new LocalRuntimeSessionError("agent_account_body_invalid", "账号挑战请求必须为空对象", 400);
+            res.json({ ok: true, ...accounts.challenge(res.locals.runtimeSession) });
+        }),
+        agentRoute("POST", "/agent/account/bind", "agent:sessions:manage", async (req, res) => {
+            const body = accountBody(req);
+            if (Object.keys(body).length !== 1 || !("proof" in body)) throw new LocalRuntimeSessionError("agent_account_body_invalid", "账号绑定请求只能包含证明", 400);
+            res.json({ ok: true, binding: await accounts.bind(res.locals.runtimeSession, body.proof) });
+        }),
+        agentRoute("GET", "/agent/account", "agent:sessions:read", (_req, res) => {
+            res.json({ ok: true, binding: accounts.require(res.locals.runtimeSession) });
+        }),
+        ] : []),
         canvasRoute("GET", "/events", (req, res) => {
             session.openEvents(
                 new URL(req.originalUrl || req.url, config.url),
@@ -293,7 +310,7 @@ export function createCanvasAgentHttpModule(
             scopes: ["canvas:connect", "agent:profiles:read", "agent:sessions:read", "agent:sessions:manage", "agent:turns:run", "agent:confirmations:decide", "agent:tools:execute", "agent:handoff:manage"],
         },
         routes,
-        onRuntimeSessionRevoked: (sessionId) => session.closeRuntimeSession(sessionId),
+        onRuntimeSessionRevoked: (sessionId) => { accounts.revoke(sessionId); session.closeRuntimeSession(sessionId); },
         publicHealth: () => {
             const { ok: _ok, ...health } = session.health();
             const activation = agentRuntimeProfileStatus(agentFeatureFlags);
@@ -307,6 +324,7 @@ export function createCanvasAgentHttpModule(
             };
         },
         dispose: () => {
+            accounts.dispose();
             for (const grant of grantsByCanvas.values()) permissionGrants.revoke(grant.id);
             grantsByCanvas.clear();
             approvals.dispose();
@@ -526,6 +544,15 @@ function jsonRecord(req: Request) {
         throw new Error("Canvas request body is invalid");
     }
     return value as Record<string, unknown>;
+}
+
+function accountBody(req: Request) {
+    try {
+        if (!Buffer.isBuffer(req.body) || req.body.byteLength > 8192) throw new Error("invalid");
+        return jsonRecord(req);
+    } catch {
+        throw new LocalRuntimeSessionError("agent_account_body_invalid", "账号绑定请求格式无效", 400);
+    }
 }
 
 function requiredBodyString(body: Record<string, unknown>, key: string) {

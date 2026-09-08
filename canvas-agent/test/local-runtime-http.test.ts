@@ -14,6 +14,10 @@ import {
 } from "../src/local-runtime-contract.js";
 import { createLocalRuntimeApp, type LocalRuntimeModule } from "../src/local-runtime.js";
 import { createDreaminaHttpModule } from "../src/modules/dreamina-http.js";
+import { createCanvasAgentHttpModule } from "../src/modules/canvas-agent-http.js";
+import { CanvasSession } from "../src/canvas-session.js";
+import { MemoryBrainSessionStore } from "../src/brains/session-store.js";
+import { AGENT_FEATURE_FLAG_IDS } from "../src/brains/feature-flags.js";
 import {
     LocalRuntimeSessionManager,
     type RuntimeBrowserRegistration,
@@ -468,10 +472,72 @@ async function withProductionDreaminaRuntime(
     }
 }
 
+test("account HTTP handshake uses the signed server identity, rejects body identity and cannot survive revocation", async () => {
+    let accountChallenge: Record<string, string> | undefined;
+    let verifications = 0;
+    const module = createCanvasAgentHttpModule({
+        url: endpoint, token: "fixture-master-token", ownerId: "fixture-owner", trustedWebOrigins: [origin], browserRegistrations: [],
+        agentFeatureFlags: Object.fromEntries(AGENT_FEATURE_FLAG_IDS.map(id => [id, true])),
+    }, new CanvasSession(), {
+        brainSessionStore: new MemoryBrainSessionStore(), accountNow: () => now,
+        accountVerifierFetch: async (target, init) => {
+            verifications += 1;
+            assert.equal(String(target), origin + "/api/auth/runtime-account/verify");
+            assert.equal(init?.credentials, "omit");
+            return Response.json({ code: 0, msg: "", data: {
+                protocol: "filmos-runtime-account-v1", userId: "fixture-web-user", authMode: "account",
+                challenge: accountChallenge, issuedAt: Math.floor(now / 1000), expiresAt: Math.floor(now / 1000) + 60,
+            } });
+        },
+    });
+    await withRuntime(async ({ server }) => {
+        const key = browserKey();
+        const signed = await exchangeRequest(server, key.privateKey, await challengeRequest(server, key.publicJwk));
+        const call = (path: string, body?: string) => {
+            const method = body === undefined ? "GET" : "POST";
+            return request(server, { path, method, body, headers: { ...jsonHeaders(origin), ...signedHeaders(key.privateKey, signed, method, path, Buffer.from(body ?? "")) } });
+        };
+        for (const headers of [jsonHeaders(origin), { ...jsonHeaders(origin), "X-Canvas-Token": "fixture-master-token" }]) {
+            const response = await request(server, { path: "/agent/account/challenge", method: "POST", headers, body: "{}" });
+            assert.equal(response.status, 401);
+        }
+        assert.equal((await call("/agent/account")).status, 401);
+        for (const body of ["null", "[]", "{", JSON.stringify({ userId: "spoofed" }), " ".repeat(8193)]) {
+            const denied = await call("/agent/account/challenge", body);
+            assert.equal(denied.status, 400);
+            assert.equal(JSON.parse(denied.body).code, "agent_account_body_invalid");
+        }
+        const issued = await call("/agent/account/challenge", "{}");
+        assert.equal(issued.status, 200);
+        accountChallenge = JSON.parse(issued.body).challenge;
+        assert.deepEqual({ ...accountChallenge, nonce: "server-generated" }, {
+            runtimeInstanceId, runtimeSessionId: signed.sessionId, keyId: signed.keyId, origin, nonce: "server-generated",
+        });
+        const proofBody = JSON.stringify({ proof: "fixture." + "s".repeat(43) });
+        assert.equal((await call("/agent/account/bind", JSON.stringify({ ...JSON.parse(proofBody), userId: "spoofed" }))).status, 400);
+        assert.equal(verifications, 0);
+        const bound = await call("/agent/account/bind", proofBody);
+        assert.equal(bound.status, 200);
+        assert.equal(JSON.parse(bound.body).binding.userId, "fixture-web-user");
+        assert.deepEqual(JSON.parse((await call("/agent/account")).body), JSON.parse(bound.body));
+        assert.equal((await call("/agent/account/bind", proofBody)).status, 409);
+        assert.equal(verifications, 1);
+        assert.equal((await call("/runtime/session/revoke", "{}")).status, 200);
+        assert.equal((await call("/agent/account")).status, 401);
+        const second = await exchangeRequest(server, key.privateKey, await challengeRequest(server, undefined, signed.keyId));
+        const unbound = await request(server, { path: "/agent/account", headers: {
+            ...jsonHeaders(origin), ...signedHeaders(key.privateKey, second, "GET", "/agent/account", Buffer.alloc(0)),
+        } });
+        assert.equal(unbound.status, 401, "a new signed session never inherits the old proof lease");
+        assert.equal(verifications, 1);
+    }, undefined, undefined, [module]);
+});
+
 async function withRuntime(
     run: (fixture: { server: Server; manager: LocalRuntimeSessionManager }) => Promise<void>,
     onDreaminaStatus: (() => void) | undefined = () => undefined,
     onDreaminaEffect: () => void = () => undefined,
+    additionalModules: LocalRuntimeModule[] = [],
 ) {
     const registrations: RuntimeBrowserRegistration[] = [];
     const manager = new LocalRuntimeSessionManager({
@@ -480,6 +546,7 @@ async function withRuntime(
         trustedOrigins: [origin],
         registrations,
         now: () => now,
+        onSessionRevoked: id => { for (const module of additionalModules) module.onRuntimeSessionRevoked?.(id); },
     });
     const descriptor: LocalRuntimeModuleDescriptor = {
         id: "dreamina",
@@ -527,7 +594,7 @@ async function withRuntime(
         endpoint,
         version: "0.1.0",
         sessionManager: manager,
-        modules: [module],
+        modules: [module, ...additionalModules],
     });
     const server = app.listen(0, "127.0.0.1");
     await new Promise<void>((resolve, reject) => {
@@ -538,6 +605,7 @@ async function withRuntime(
         await run({ server, manager });
     } finally {
         manager.dispose();
+        await Promise.all(additionalModules.map(module => module.dispose?.()));
         await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
     }
 }
