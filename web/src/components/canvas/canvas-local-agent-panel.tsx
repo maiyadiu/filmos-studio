@@ -9,6 +9,9 @@ import { agentTextEvent, appendAgentChatMessage, scopedAgentStreamId } from "@/l
 import { consumeLocalRuntimeEventStream, postCanvasRuntimeState, prepareCanvasRuntimeConnection, waitForCanvasRuntimeReconnect, type LocalRuntimeEvent } from "@/lib/canvas/local-runtime-connection";
 import { createClientId } from "@/lib/client-id";
 import { getLocalRuntimeSessionClient, useLocalRuntimeStore } from "@/stores/use-local-runtime-store";
+import { LocalRuntimeSessionClient } from "@/services/local-runtime-session";
+import { issueRuntimeAccountProof } from "@/services/api/auth";
+import { RuntimeAccountClient } from "@/film/agent/runtime-account-client";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { useUserStore } from "@/stores/use-user-store";
 import {
@@ -174,7 +177,16 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
     const chatGPTHostProfile = brainProfileId === "chatgpt.subscription.host";
     const [chatGPTHostStatus, setChatGPTHostStatus] = useState<FilmOSDesktopChatGPTHostStatus | null>(() => typeof window === "undefined" ? null : window.filmOSChatGPTHostStatus ?? null);
     const [chatGPTHostClock, setChatGPTHostClock] = useState(() => Date.now());
-    const agentSessionClient = useMemo(() => new AgentSessionClient(), []);
+    const runtimeClient = useMemo(() => genericRuntime ? new RuntimeAccountClient({
+        userId: user?.id ?? "", origin: globalThis.location?.origin ?? "",
+        runtime: () => new LocalRuntimeSessionClient(), issueProof: issueRuntimeAccountProof,
+    }) : getLocalRuntimeSessionClient(), [genericRuntime, user?.id]);
+    const agentSessionClient = useMemo(() => new AgentSessionClient(runtimeClient), [runtimeClient]);
+    const postToolResult = useCallback((clientId: string, body: Parameters<typeof postToolResultWithClient>[2]) => postToolResultWithClient(runtimeClient, clientId, body), [runtimeClient]);
+    const fetchAgentJson = useCallback(<T,>(path: string, init?: RequestInit) => fetchAgentJsonWithClient<T>(runtimeClient, path, init), [runtimeClient]);
+    useEffect(() => () => {
+        if (runtimeClient instanceof RuntimeAccountClient) void runtimeClient.disconnect().catch(() => undefined);
+    }, [runtimeClient, enabled]);
     const chatGPTHost = useMemo(
         () => chatGPTHostReadiness(chatGPTHostStatus, snapshot.domainProjectId || "", chatGPTHostClock),
         [chatGPTHostClock, chatGPTHostStatus, snapshot.domainProjectId],
@@ -253,7 +265,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
             const queued = runtimeSyncQueueRef.current
                 .catch(() => undefined)
                 .then(async () => {
-                    const result = await postCanvasRuntimeState(getLocalRuntimeSessionClient(), clientId, envelope);
+                    const result = await postCanvasRuntimeState(runtimeClient, clientId, envelope);
                     runtimeRevisionRef.current = result.revision;
                     runtimeCanonicalStateHashRef.current = result.stateHash;
                     return result;
@@ -270,7 +282,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
             runtimeSyncQueueRef.current = queued.then(() => undefined);
             return queued;
         },
-        [pushEventLog],
+        [pushEventLog, runtimeClient],
     );
     const loadThreads = useCallback(async () => {
         const scopeKey = sessionScopeKey;
@@ -317,7 +329,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
         } finally {
             if (sessionScopeRef.current === scopeKey) setAgentState({ loadingThreads: false });
         }
-    }, [agentSessionClient, brainProfileId, genericRuntime, sessionScopeKey, setAgentState]);
+    }, [agentSessionClient, brainProfileId, fetchAgentJson, genericRuntime, sessionScopeKey, setAgentState]);
     const loadAccountStatus = useCallback(async () => {
         if (!connectedRef.current && !useCanvasAgentStore.getState().connected) return;
         try {
@@ -325,7 +337,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
         } catch (error) {
             addEventLog("读取 Codex 账户失败", error);
         }
-    }, []);
+    }, [fetchAgentJson]);
 
     useEffect(() => {
         sessionScopeRef.current = sessionScopeKey;
@@ -442,7 +454,8 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
             while (!controller.signal.aborted) {
                 try {
                     await prepareCanvasRuntimeConnection(useLocalRuntimeStore, controller.signal);
-                    await consumeLocalRuntimeEventStream(getLocalRuntimeSessionClient(), `/events?clientId=${encodeURIComponent(clientId)}`, { signal: controller.signal, lastEventId, onEvent: receive });
+                    if (runtimeClient instanceof RuntimeAccountClient) await runtimeClient.connect(controller.signal);
+                    await consumeLocalRuntimeEventStream(runtimeClient, `/events?clientId=${encodeURIComponent(clientId)}`, { signal: controller.signal, lastEventId, onEvent: receive });
                     if (!controller.signal.aborted) throw new Error("Canvas stream closed");
                 } catch (error) {
                     if (controller.signal.aborted) return;
@@ -465,7 +478,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
             connectedRef.current = false;
             setAgentState({ connected: false });
         };
-    }, [enabled, loadThreads, message, setAgentState, syncState]);
+    }, [enabled, loadThreads, message, postToolResult, runtimeClient, setAgentState, syncState]);
 
     useEffect(() => {
         if (connected) void Promise.all([loadThreads(), ...(brainProfileId === "codex.subscription" ? [loadAccountStatus()] : [])]);
@@ -1557,8 +1570,8 @@ function AgentHistoryView({
     );
 }
 
-async function postToolResult(clientId: string, body: { requestId: string; result?: unknown; error?: string; backendStatus?: number; localConflict?: string; visualError?: string }) {
-    const response = await getLocalRuntimeSessionClient().request(`/canvas/result?clientId=${encodeURIComponent(clientId)}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+async function postToolResultWithClient(runtime: Pick<LocalRuntimeSessionClient, "request">, clientId: string, body: { requestId: string; result?: unknown; error?: string; backendStatus?: number; localConflict?: string; visualError?: string }) {
+    const response = await runtime.request(`/canvas/result?clientId=${encodeURIComponent(clientId)}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
     if (!response.ok) throw new Error("Canvas Agent 工具结果写回失败");
 }
 
@@ -1828,8 +1841,8 @@ function formatBytes(bytes: number) {
     return bytes > 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)}MB` : `${Math.ceil(bytes / 1024)}KB`;
 }
 
-async function fetchAgentJson<T>(path: string, init?: RequestInit) {
-    const res = await getLocalRuntimeSessionClient().request(path, init);
+async function fetchAgentJsonWithClient<T>(runtime: Pick<LocalRuntimeSessionClient, "request">, path: string, init?: RequestInit) {
+    const res = await runtime.request(path, init);
     const data = (await res.json().catch(() => ({}))) as T;
     if (!res.ok) throw new Error("本地 Agent 请求失败");
     return data;

@@ -351,6 +351,12 @@ export function getAuthSettings() {
     return request<{ firstUser: boolean; registrationEnabled: boolean; linuxdoEnabled: boolean; emailEnabled: boolean; emailCodeRequired: boolean; authMode: "account" | "desktop_local" }>(api.get("/auth/settings"));
 }
 
+export type RuntimeAccountChallenge = { runtimeInstanceId: string; runtimeSessionId: string; keyId: string; nonce: string; origin: string };
+
+export function issueRuntimeAccountProof(challenge: RuntimeAccountChallenge, signal?: AbortSignal) {
+    return request<{ proof: string; expiresAt: number }>(api.post("/auth/runtime-account/proof", challenge, { signal, timeout: 5_000 }));
+}
+
 export function linuxDOLoginURL(next: string) {
     const base = String(api.defaults.baseURL || "/api").replace(/\/$/, "");
     return `${base}/auth/linuxdo/start?next=${encodeURIComponent(next)}`;

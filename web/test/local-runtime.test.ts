@@ -113,6 +113,98 @@ describe("Local Runtime signed browser session", () => {
         expect(client.currentSession()?.sessionId).toBe("session-fixture-000000000001");
     });
 
+    test("late connection exchange cannot restore a locally revoked session", async () => {
+        const runtime = runtimeFetchFixture();
+        const keys = memoryKeyStore();
+        const entered = deferred<void>(), response = deferred<Response>();
+        const client = new LocalRuntimeSessionClient({ origin, keyStore: keys, now: () => runtime.now, fetch: async (input, init) => {
+            const result = await runtime.fetch(input, init);
+            if (String(input).endsWith("/runtime/session/exchange")) { entered.resolve(); return response.promise; }
+            return result;
+        } });
+        const connecting = client.connect();
+        await entered.promise;
+        client.revokeLocalSession();
+        response.resolve(jsonResponse(200, { sessionId: "late-session", keyId: keys.record!.keyId, scopes: ["canvas:connect"], expiresAt: new Date(runtime.now + 60_000).toISOString() }));
+        await expect(connecting).rejects.toMatchObject({ name: "AbortError" });
+        expect(client.currentSession()).toBeUndefined();
+        expect(keys.record).toBeDefined();
+    });
+
+    test("stale 401 cannot clear a replacement session, and account-proof 401 never rotates the signed session", async () => {
+        const runtime = runtimeFetchFixture();
+        const entered = deferred<void>(), late = deferred<Response>();
+        let responseCode = "agent_account_binding_required";
+        const client = new LocalRuntimeSessionClient({ origin, keyStore: memoryKeyStore(), now: () => runtime.now, fetch: async (input, init) => {
+            if (String(input).endsWith("/late")) { entered.resolve(); return late.promise; }
+            if (String(input).endsWith("/account-check")) return jsonResponse(401, { code: responseCode });
+            return runtime.fetch(input, init);
+        } });
+        await client.connect();
+        const request = client.request("/late");
+        await entered.promise;
+        client.revokeLocalSession();
+        await client.connect();
+        const replacement = client.currentSession();
+        late.resolve(jsonResponse(401, { code: "session_required" }));
+        expect((await request).status).toBe(401);
+        expect(client.currentSession()).toEqual(replacement);
+        for (const code of ["agent_account_binding_required", "agent_account_proof_rejected", "canvas_backend_http_401"]) {
+            responseCode = code;
+            expect((await client.request("/account-check")).status).toBe(401);
+            expect(client.currentSession()).toEqual(replacement);
+        }
+        responseCode = "session_required";
+        expect((await client.request("/account-check")).status).toBe(401);
+        expect(client.currentSession()).toBeUndefined();
+    });
+
+    test("a request revoked while signing is never dispatched, and keys are not cleared", async () => {
+        const runtime = runtimeFetchFixture();
+        const keys = memoryKeyStore();
+        const client = new LocalRuntimeSessionClient({ origin, keyStore: keys, now: () => runtime.now, fetch: runtime.fetch });
+        await client.connect();
+        const entered = deferred<void>(), ready = deferred<RuntimeBrowserKeyRecord>();
+        keys.load = () => { entered.resolve(); return ready.promise; };
+        const request = client.request("/canvas/result?clientId=old", { method: "POST", body: "{}" });
+        await entered.promise;
+        client.revokeLocalSession();
+        ready.resolve(keys.record!);
+        await expect(request).rejects.toMatchObject({ name: "AbortError" });
+        expect(runtime.requests.some(item => item.url.includes("/canvas/result"))).toBe(false);
+        expect(keys.record).toBeDefined();
+    });
+
+    test("remote revocation signs the captured old session without clearing a concurrent replacement or shared key", async () => {
+        const runtime = runtimeFetchFixture();
+        const keys = memoryKeyStore();
+        const entered = deferred<void>(), response = deferred<Response>();
+        let revoked: Headers | undefined;
+        const client = new LocalRuntimeSessionClient({ origin, keyStore: keys, now: () => runtime.now, fetch: async (input, init) => {
+            if (String(input).endsWith("/runtime/session/revoke")) {
+                revoked = new Headers(init?.headers);
+                expect(init?.body).toBe("{}"); expect(init?.credentials).toBe("omit");
+                entered.resolve(); return response.promise;
+            }
+            return runtime.fetch(input, init);
+        } });
+        await client.connect();
+        const old = client.currentSession()!;
+        const revoke = client.revokeRemoteSession();
+        expect(client.currentSession()).toBeUndefined();
+        await entered.promise;
+        runtime.now += 1000;
+        await client.connect();
+        const current = client.currentSession();
+        expect(current?.sessionId).not.toBe(old.sessionId);
+        response.resolve(jsonResponse(401, { code: "session_required" }));
+        expect((await revoke)?.status).toBe(401);
+        expect(revoked?.get("x-framefield-runtime-session")).toBe(old.sessionId);
+        expect(revoked?.has("x-framefield-runtime-proof")).toBe(true);
+        expect(client.currentSession()).toEqual(current);
+        expect(keys.record?.keyId).toBe(old.keyId);
+    });
+
     test("untrusted Runtime error bodies cannot enter browser errors", async () => {
         const client = new LocalRuntimeSessionClient({
             origin,
@@ -150,6 +242,12 @@ describe("Local Runtime signed browser session", () => {
     });
 });
 
+function deferred<T>() {
+    let resolve!: (value: T) => void;
+    const promise = new Promise<T>(done => { resolve = done; });
+    return { promise, resolve };
+}
+
 function memoryKeyStore(): RuntimeBrowserKeyStore & { record?: RuntimeBrowserKeyRecord } {
     return {
         record: undefined,
@@ -178,6 +276,7 @@ function runtimeFetchFixture() {
         now: Date.parse("2026-08-10T00:00:00.000Z"),
         obsoleteChallenge: false,
         keyId: "",
+        sessionCount: 0,
         requests,
         fetch: async (input: string | URL | Request, init: RequestInit = {}) => {
             const url = String(input);
@@ -222,7 +321,7 @@ function runtimeFetchFixture() {
             }
             if (url.endsWith("/runtime/session/exchange")) {
                 return jsonResponse(200, {
-                    sessionId: "session-fixture-000000000001",
+                    sessionId: `session-fixture-${String(++fixture.sessionCount).padStart(12, "0")}`,
                     keyId: fixture.keyId,
                     scopes: ["runtime:status", "dreamina:status", "dreamina:login", "dreamina:logout", "canvas:connect"],
                     expiresAt: new Date(fixture.now + 10 * 60_000).toISOString(),

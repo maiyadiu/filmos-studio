@@ -88,6 +88,7 @@ export class LocalRuntimeSessionClient {
     private runtimeInstanceId?: string;
     private pending?: RuntimeChallenge;
     private connectAttempt?: { signal?: AbortSignal; promise: Promise<LocalRuntimeConnection> };
+    private epoch = 0;
 
     constructor(options: LocalRuntimeSessionClientOptions = {}) {
         this.origin = exactOrigin(options.origin ?? globalThis.location?.origin ?? "");
@@ -115,8 +116,9 @@ export class LocalRuntimeSessionClient {
         }
         if (this.connectAttempt && !this.connectAttempt.signal?.aborted) return this.connectAttempt.promise;
 
+        const epoch = ++this.epoch;
         let attempt: { signal?: AbortSignal; promise: Promise<LocalRuntimeConnection> };
-        const promise = this.connectOnce(signal).finally(() => {
+        const promise = this.connectOnce(epoch, signal).finally(() => {
             if (this.connectAttempt === attempt) this.connectAttempt = undefined;
         });
         attempt = { signal, promise };
@@ -130,6 +132,10 @@ export class LocalRuntimeSessionClient {
             this.session = undefined;
             throw new LocalRuntimeClientError("session_required", "本机会话尚未建立", 401);
         }
+        return this.requestForSession(session, this.runtimeInstanceId!, this.epoch, pathAndQuery, init);
+    }
+
+    private async requestForSession(session: RuntimePublicSession, runtimeInstanceId: string, epoch: number, pathAndQuery: string, init: RequestInit, revocation = false) {
         const url = exactRuntimeUrl(pathAndQuery);
         const method = String(init.method ?? "GET").toUpperCase();
         const bodyBytes = requestBodyBytes(init.body);
@@ -150,13 +156,19 @@ export class LocalRuntimeSessionClient {
             lastEventId,
             origin: this.origin,
             endpoint: LOCAL_RUNTIME_ENDPOINT,
-            runtimeInstanceId: this.runtimeInstanceId!,
+            runtimeInstanceId,
             requestNonce,
             timestamp,
             sessionExpiresAt: session.expiresAt,
         };
         const key = await this.requireKey();
+        if (key.keyId !== session.keyId) throw new LocalRuntimeClientError("session_key_changed", "本机会话密钥已变化，请重新连接", 401);
         const proof = await signP1363(this.cryptoImpl, key.privateKey, canonicalize(payload));
+        if (init.signal?.aborted) throw new DOMException("aborted", "AbortError");
+        if (!revocation) {
+            this.assertCurrentAttempt(epoch);
+            if (Date.parse(session.expiresAt) <= this.now()) throw new LocalRuntimeClientError("session_required", "本机会话已到期", 401);
+        }
         headers.set("X-Framefield-Runtime-Session", session.sessionId);
         headers.set("X-Framefield-Runtime-Timestamp", String(timestamp));
         headers.set("X-Framefield-Runtime-Nonce", requestNonce);
@@ -169,17 +181,42 @@ export class LocalRuntimeSessionClient {
             redirect: "error",
             cache: "no-store",
         });
-        if (response.status === 401) this.session = undefined;
+        if (response.status === 401 && !revocation && this.epoch === epoch && this.session === session) {
+            const body = await safeJson(response.clone());
+            // These failures concern workbench login/proof, not the cryptographic
+            // Runtime session. Never replay the failed operation while renewing it.
+            const proofFailure = ["agent_account_binding_required", "agent_account_proof_rejected", "canvas_backend_http_401"].includes(String(body.code ?? ""));
+            if (!proofFailure && this.epoch === epoch && this.session === session) this.revokeLocalSession();
+        }
         return response;
     }
 
     revokeLocalSession() {
+        this.epoch += 1;
         this.session = undefined;
         this.pending = undefined;
+        this.connectAttempt = undefined;
     }
 
-    private async connectOnce(signal?: AbortSignal): Promise<LocalRuntimeConnection> {
+    async revokeRemoteSession(signal?: AbortSignal) {
+        const session = this.session;
+        const runtimeInstanceId = this.runtimeInstanceId;
+        this.revokeLocalSession();
+        if (!session || !runtimeInstanceId || Date.parse(session.expiresAt) <= this.now()) return;
+        // Sign only the captured session's revocation. A concurrently established
+        // replacement must never be revoked, cleared, or used for this request.
+        return this.requestForSession(session, runtimeInstanceId, this.epoch, "/runtime/session/revoke", {
+            method: "POST", headers: { "content-type": "application/json" }, body: "{}", signal,
+        }, true);
+    }
+
+    private assertCurrentAttempt(epoch: number, signal?: AbortSignal) {
+        if (this.epoch !== epoch || signal?.aborted) throw new DOMException("aborted", "AbortError");
+    }
+
+    private async connectOnce(epoch: number, signal?: AbortSignal): Promise<LocalRuntimeConnection> {
         const info = await this.readInfo(signal);
+        this.assertCurrentAttempt(epoch, signal);
         if (!info.originTrusted) {
             this.session = undefined;
             this.pending = undefined;
@@ -191,9 +228,11 @@ export class LocalRuntimeSessionClient {
         }
         this.runtimeInstanceId = info.runtimeInstanceId;
         const key = await this.requireKey(signal);
+        this.assertCurrentAttempt(epoch, signal);
         let challenge = this.pending;
         if (!challenge || Date.parse(challenge.expiresAt) <= this.now()) {
             challenge = await this.createChallenge(key, signal);
+            this.assertCurrentAttempt(epoch, signal);
             this.pending = challenge;
         }
         if (challenge.runtimeInstanceId !== info.runtimeInstanceId || challenge.keyId !== key.keyId) {
@@ -216,7 +255,9 @@ export class LocalRuntimeSessionClient {
             ),
             signal,
         );
+        this.assertCurrentAttempt(epoch, signal);
         const exchange = await this.jsonFetch("/runtime/session/exchange", { challengeId: challenge.challengeId, signature }, signal, true);
+        this.assertCurrentAttempt(epoch, signal);
         if (!exchange.response.ok) throw responseError(exchange.response, exchange.body);
         const session = parseSession(exchange.body, key.keyId);
         this.pending = undefined;
@@ -225,6 +266,7 @@ export class LocalRuntimeSessionClient {
             key.registered = true;
             await abortable(this.keyStore.save(key), signal);
         }
+        this.assertCurrentAttempt(epoch, signal);
         return { state: "connected", session: this.currentSession()!, runtimeVersion: info.apiVersion };
     }
 
