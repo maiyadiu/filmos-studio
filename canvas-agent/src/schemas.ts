@@ -7,7 +7,27 @@ const nodeTypeSchema = z.enum(["image", "text", "script", "video", "audio", "fra
 const generationModeSchema = z.enum(["text", "image", "video", "audio"]);
 const projectIdSchema = z.string().min(1).optional();
 const projectPromptTarget = { projectId: projectIdSchema, canvasId: z.string().min(1).optional(), nodeId: z.string().min(1), rowId: z.string().min(1), kind: z.enum(["image", "video"]) };
-const projectCandidateSchema = z.object({ unitId: z.string().optional(), shotId: z.string().optional(), name: z.string().min(1), category: z.string().min(1), details: recordSchema.optional() });
+const characterDescriptionFields = ["appearance", "clothing", "physique", "personality", "consistencyPrompt", "multiViewPrompt"] as const;
+const characterTextSchema = z.string().trim().min(1);
+const projectCharacterDetailsSchema = z.object({
+    role: characterTextSchema.describe("剧情定位；从已读剧本提取，不能把拟定设定当原文事实。"),
+    appearance: z.string().optional().describe("稳定外观"),
+    clothing: z.string().optional().describe("服饰"),
+    physique: z.string().optional().describe("体态"),
+    personality: z.string().optional().describe("性格"),
+    consistencyPrompt: z.string().optional().describe("跨镜头一致性设定"),
+    multiViewPrompt: z.string().optional().describe("多视图设定，文字卡阶段不需要生成图片"),
+    voiceLanguage: characterTextSchema.describe("声音语言；原文未设定时明确写原文未设定，不编造事实。"),
+    voiceAge: characterTextSchema.describe("声音年龄；原文未设定时明确写原文未设定。"),
+    voiceTimbre: characterTextSchema.describe("声音音色；原文未设定时明确写原文未设定。"),
+}).catchall(z.unknown()).refine((details) => characterDescriptionFields.filter((key) => Boolean(details[key]?.trim())).length >= 3, {
+    message: "角色稳定设定至少填写appearance/clothing/physique/personality/consistencyPrompt/multiViewPrompt中的三项；未设定须明确标注，创作建议与来源事实分开。",
+}).describe("角色details必填role、voiceLanguage、voiceAge、voiceTimbre；六项稳定设定至少三项非空。只能使用已读来源；原文没有的设定明确标为未设定/待设计，不自动杜撰或锁定。");
+const projectCandidateBase = { unitId: z.string().optional(), shotId: z.string().optional(), name: z.string().min(1) };
+const projectCandidateSchema = z.discriminatedUnion("category", [
+    z.object({ ...projectCandidateBase, category: z.literal("character"), details: projectCharacterDetailsSchema }),
+    z.object({ ...projectCandidateBase, category: z.enum(["environment", "wardrobe", "prop", "weapon", "style", "other"]), details: recordSchema.optional() }),
+]);
 const projectShotSchema = z.object({
     id: z.string().min(1).optional(), expectedRevision: z.number().int().min(0),
     title: z.string().min(1).max(240), description: z.string().min(1), position: z.number().int().min(0), durationMs: z.number().int().positive().max(3600000),
@@ -245,7 +265,7 @@ export const toolDescriptions: Record<ToolName, string> = {
     project_get_script_revision: "回读指定章节修订的真实正文与哈希；用于原版、新版比较和保存后的核验。不会修改或锁定剧本。",
     project_revise_script: "按已读取正文中的唯一 oldText 片段进行精确替换，未指定的正文保持不变。沿用 sourceFormat，保留 HTML 格式；使用读取到的 expectedRevision，每次逻辑修订一个 requestId，重试复用相同 ID 和参数。保存修订历史并回读验证，失败不得报完成。不修改已完成章节、不批准或锁定 Film Core 剧本，也不生成素材。",
     project_list_units: "按类型或状态筛选当前短剧项目的章节/项目单元。",
-    project_extract_asset_candidates: "将分镜识别出的角色、场景、服饰、道具或武器需求登记为待确认资产候选。",
+    project_extract_asset_candidates: "将已读剧本/分镜中的角色、场景、服饰、道具或武器登记为待确认资产候选，不生成图片。角色details必须包含role、voiceLanguage、voiceAge、voiceTimbre，以及appearance/clothing/physique/personality/consistencyPrompt/multiViewPrompt至少三项。原文未设定须明确标注，创作建议与来源事实分开。先读当前项目候选和完整来源，保存后回读；不确定是否保存时不得盲目重复新增。",
     project_confirm_asset_candidate: "确认一个资产候选，创建正式资产或关联已有个人资产。",
     project_get_shots: "读取指定章节完整脚本、段落ID/原文和识别出的精确dialogue、脚本revision/sourceHash、shotRevision、当前业务镜头、来源覆盖和过期ID。拆镜前必须读全文，不能凭摘要。段落ID只在该章该版本有效；coverage.chapterComplete只证明来源引用和标识对白覆盖，不证明空间/导演质量。",
     project_sync_storyboard: "将已保存且来源未过期的业务分镜同步到当前授权画布，复用原生分镜导入；不新建画布、不生成、不上传。先project_get_shots，以unit.shotRevision、unit.revision、sourceHash作为expectedShotRevision、sourceRevision、sourceHash。保留既有节点/行ID、手写提示词、素材、布局及连接；手工改动或版本冲突拒绝覆盖，不用canvas_apply_ops重建绕过。成功返回真实nodeId、rowId和shotId供project_get_prompt接续。verification必须全部通过才能继续依赖该映射；persisted=true但ok=false表示需要回读核对，不代表可以重建对象。",

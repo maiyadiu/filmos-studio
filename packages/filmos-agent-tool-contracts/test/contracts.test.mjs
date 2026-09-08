@@ -28,6 +28,16 @@ test("generated schemas are real JSON Schema rather than validator placeholders"
   }
 });
 
+test("character candidate requirements reach the generated model-facing schema", () => {
+  const tool = canonicalAgentTools.find((item) => item.name === "project_extract_asset_candidates");
+  const branches = tool.input_schema.properties.candidates.items.anyOf;
+  const character = branches.find((branch) => branch.properties.category.const === "character");
+  assert.ok(character.required.includes("details"));
+  assert.deepEqual(character.properties.details.required, ["role", "voiceLanguage", "voiceAge", "voiceTimbre"]);
+  assert.match(character.properties.details.description, /至少三项/);
+  assert.match(tool.description, /不确定是否保存时不得盲目重复新增/);
+});
+
 test("canonical generation tools share one broker contract and ChatGPT excludes external writes and paid submit", () => {
   const required = ["generation_list_engines", "generation_get_engine_status", "generation_refresh_catalog", "generation_list_models", "generation_list_workflows", "generation_list_skills", "generation_select_effective_route", "generation_resolve_route_binding", "generation_compile_prompt", "generation_preview_submission", "generation_create_external_project", "generation_submit", "generation_get_status", "generation_reconcile", "generation_cancel", "generation_download_outputs", "generation_import_candidate", "generation_get_lineage"];
   const byName = new Map(canonicalAgentTools.map((tool) => [tool.name, tool]));

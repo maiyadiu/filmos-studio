@@ -3960,38 +3960,131 @@ export const canonicalMcpTools = [
   },
   {
     "name": "project_extract_asset_candidates",
-    "description": "将分镜识别出的角色、场景、服饰、道具或武器需求登记为待确认资产候选。",
+    "description": "将已读剧本/分镜中的角色、场景、服饰、道具或武器登记为待确认资产候选，不生成图片。角色details必须包含role、voiceLanguage、voiceAge、voiceTimbre，以及appearance/clothing/physique/personality/consistencyPrompt/multiViewPrompt至少三项。原文未设定须明确标注，创作建议与来源事实分开。先读当前项目候选和完整来源，保存后回读；不确定是否保存时不得盲目重复新增。",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
         "candidates": {
           "items": {
-            "additionalProperties": false,
-            "properties": {
-              "category": {
-                "minLength": 1,
-                "type": "string"
-              },
-              "details": {
-                "additionalProperties": {},
+            "anyOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "category": {
+                    "const": "character",
+                    "type": "string"
+                  },
+                  "details": {
+                    "additionalProperties": {},
+                    "description": "角色details必填role、voiceLanguage、voiceAge、voiceTimbre；六项稳定设定至少三项非空。只能使用已读来源；原文没有的设定明确标为未设定/待设计，不自动杜撰或锁定。",
+                    "properties": {
+                      "appearance": {
+                        "description": "稳定外观",
+                        "type": "string"
+                      },
+                      "clothing": {
+                        "description": "服饰",
+                        "type": "string"
+                      },
+                      "consistencyPrompt": {
+                        "description": "跨镜头一致性设定",
+                        "type": "string"
+                      },
+                      "multiViewPrompt": {
+                        "description": "多视图设定，文字卡阶段不需要生成图片",
+                        "type": "string"
+                      },
+                      "personality": {
+                        "description": "性格",
+                        "type": "string"
+                      },
+                      "physique": {
+                        "description": "体态",
+                        "type": "string"
+                      },
+                      "role": {
+                        "description": "剧情定位；从已读剧本提取，不能把拟定设定当原文事实。",
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "voiceAge": {
+                        "description": "声音年龄；原文未设定时明确写原文未设定。",
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "voiceLanguage": {
+                        "description": "声音语言；原文未设定时明确写原文未设定，不编造事实。",
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "voiceTimbre": {
+                        "description": "声音音色；原文未设定时明确写原文未设定。",
+                        "minLength": 1,
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "role",
+                      "voiceLanguage",
+                      "voiceAge",
+                      "voiceTimbre"
+                    ],
+                    "type": "object"
+                  },
+                  "name": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "shotId": {
+                    "type": "string"
+                  },
+                  "unitId": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name",
+                  "category",
+                  "details"
+                ],
                 "type": "object"
               },
-              "name": {
-                "minLength": 1,
-                "type": "string"
-              },
-              "shotId": {
-                "type": "string"
-              },
-              "unitId": {
-                "type": "string"
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "category": {
+                    "enum": [
+                      "environment",
+                      "wardrobe",
+                      "prop",
+                      "weapon",
+                      "style",
+                      "other"
+                    ],
+                    "type": "string"
+                  },
+                  "details": {
+                    "additionalProperties": {},
+                    "type": "object"
+                  },
+                  "name": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "shotId": {
+                    "type": "string"
+                  },
+                  "unitId": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name",
+                  "category"
+                ],
+                "type": "object"
               }
-            },
-            "required": [
-              "name",
-              "category"
-            ],
-            "type": "object"
+            ]
           },
           "maxItems": 100,
           "minItems": 1,
