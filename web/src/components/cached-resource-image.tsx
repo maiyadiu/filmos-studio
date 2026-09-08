@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, type ImgHTMLAttributes, type ReactNode } f
 
 import { resourceIdFromStorageKey } from "@/services/api/resources";
 import { cacheResourceObjectUrl } from "@/services/resource-blob-cache";
+import { resolveImageUrl } from "@/services/image-storage";
+import { getActiveUserScope } from "@/lib/user-scope";
 
 type CachedResourceImageProps = Omit<ImgHTMLAttributes<HTMLImageElement>, "src"> & {
     storageKey?: string;
@@ -12,14 +14,16 @@ type CachedResourceImageProps = Omit<ImgHTMLAttributes<HTMLImageElement>, "src">
 
 /**
  * 资源图片优先读取按用户隔离的本地 Blob 缓存，避免刷新后再次从对象存储下载。
- * 普通外链、data URL 和本地 Blob URL 不经过资源缓存，保持原有行为。
+ * 本地生成图同样按 storageKey 恢复；持久化的 blob URL 不可跨页面生命周期复用。
+ * 没有存储标识的普通外链、data URL 和 Blob URL 保持直接显示。
  */
 export function CachedResourceImage({ storageKey, src = "", fallback = null, eager = false, onError, ...props }: CachedResourceImageProps) {
     const remoteResource = Boolean(resourceIdFromStorageKey(storageKey));
+    const scope = getActiveUserScope();
+    const identity = JSON.stringify([scope, storageKey, src]);
     const targetRef = useRef<HTMLSpanElement>(null);
     const [nearViewport, setNearViewport] = useState(eager || !remoteResource);
-    const [cachedSrc, setCachedSrc] = useState(remoteResource ? "" : src);
-    const [cacheFailed, setCacheFailed] = useState(false);
+    const [resolved, setResolved] = useState<{ identity: string; url: string; failed?: boolean }>();
 
     useEffect(() => {
         if (!remoteResource || eager) {
@@ -43,33 +47,34 @@ export function CachedResourceImage({ storageKey, src = "", fallback = null, eag
 
     useEffect(() => {
         let cancelled = false;
-        setCacheFailed(false);
-        if (!remoteResource || !storageKey) {
-            setCachedSrc(src);
+        if (!storageKey) {
             return () => { cancelled = true; };
         }
         if (!nearViewport) {
-            setCachedSrc("");
             return () => { cancelled = true; };
         }
 
-        setCachedSrc("");
-        const resolve = cacheResourceObjectUrl(storageKey);
+        setResolved(undefined);
+        const fallbackUrl = src.startsWith("blob:") ? "" : src;
+        const resolve = remoteResource ? cacheResourceObjectUrl(storageKey) : resolveImageUrl(storageKey, fallbackUrl);
         void resolve.then((url) => {
-            if (!cancelled) setCachedSrc(url || src);
+            if (!cancelled && scope === getActiveUserScope()) setResolved({ identity, url: url || fallbackUrl });
         }).catch(() => {
-            if (!cancelled) {
-                setCacheFailed(true);
-                setCachedSrc(src);
-            }
+            if (!cancelled && scope === getActiveUserScope()) setResolved({ identity, url: fallbackUrl });
         });
         return () => { cancelled = true; };
-    }, [nearViewport, remoteResource, src, storageKey]);
+    }, [identity, nearViewport, remoteResource, scope, src, storageKey]);
 
-    if (!remoteResource) return <img {...props} src={cachedSrc} onError={onError} />;
+    const current = resolved?.identity === identity ? resolved : undefined;
+    const imageUrl = current?.failed ? "" : storageKey ? current?.url : src;
+    const image = imageUrl ? <img {...props} src={imageUrl} onError={(event) => {
+        setResolved({ identity, url: "", failed: true });
+        onError?.(event);
+    }} /> : fallback;
+    if (!storageKey) return image;
     return (
         <span ref={targetRef} className="cached-resource-image-shell">
-            {cachedSrc && !(cacheFailed && !src) ? <img {...props} src={cachedSrc} onError={onError} /> : fallback}
+            {image}
         </span>
     );
 }
