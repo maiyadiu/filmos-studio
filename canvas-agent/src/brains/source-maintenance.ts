@@ -6,30 +6,24 @@ import { promisify } from "node:util";
 import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { LocalRuntimeSessionError } from "../local-runtime-session.js";
+import { sourceReadInputSchema as readSchema, sourcePatchInputSchema as patchSchema } from "./source-maintenance-schemas.js";
 
 const exec = promisify(execFile);
 const sourceRoots = ["web/", "canvas-agent/", "backend/", "packages/", "desktop/macos/", "scripts/", "docs/"];
 const textExtensions = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".css", ".go", ".swift", ".md", ".mdx", ".sh"]);
-const readSchema = z.object({ path: z.string().min(1).max(300), startLine: z.number().int().min(1).max(100_000).default(1), lineCount: z.number().int().min(1).max(240).default(160), expectedHash: z.string().regex(/^[a-f0-9]{64}$/).optional() }).strict();
 const listSchema = z.object({ prefix: z.string().max(300).default(""), offset: z.number().int().min(0).max(100_000).default(0), limit: z.number().int().min(1).max(100).default(60) }).strict();
 const maxFileBytes = 256 * 1024;
-const hashSchema = z.string().regex(/^[a-f0-9]{64}$/);
-const patchSchema = z.object({
-    requestId: z.string().regex(/^[A-Za-z0-9_-]{1,80}$/), path: z.string().min(1).max(300), expectedHash: hashSchema,
-    oldText: z.string().min(1).max(32_768), newText: z.string().max(32_768),
-}).strict();
 export type SourcePatchReceipt = {
     requestId: string; path: string; beforeHash: string; afterHash: string; sourceHead: string;
     status: "applied"; verified: true; committed: false; runtimeUpdated: false;
 };
-export { readSchema as sourceReadInputSchema, patchSchema as sourcePatchInputSchema };
 type PreparedPatch = { inputHash: string; before: Buffer; after: Buffer; receipt: SourcePatchReceipt; expiresAt: number; mode: number };
 // Serializes this Runtime's writers across workspace instances. This is not an
 // OS-wide editor lock; external changes still require exact hash/inode checks.
 const writers = new Set<string>();
 
 // Source authority comes from the launched executable's repository, never an
-// HTTP cwd or a model path. HTTP currently exposes only inspect/list/read.
+// HTTP cwd or a model path. Writes additionally require a scoped session task.
 export class SourceMaintenanceWorkspace {
     private readonly patches = new Map<string, PreparedPatch>();
     private readonly receipts = new Map<string, SourcePatchReceipt>();
@@ -87,9 +81,8 @@ export class SourceMaintenanceWorkspace {
             content: lines.slice(startLine - 1, startLine - 1 + lineCount).join("\n"), truncated: startLine > 1 || startLine + lineCount - 1 < lines.length };
     }
 
-    // Internal primitive, deliberately not an HTTP/MCP permission. A future
-    // native engineering task must bind owner/session/file scope and revalidate
-    // it through authorize immediately before the synchronous commit section.
+    // The primitive is not permission: the session task binds owner/file scope
+    // and revalidates it immediately before the synchronous replacement.
     async preparePatch(input: unknown) {
         const parsed = patchSchema.safeParse(input);
         if (!parsed.success) throw patchInvalid();

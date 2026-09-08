@@ -205,6 +205,7 @@ export class AgentSessionManager {
 
     async closeSession(sessionId: string) {
         const session = await this.requireSession(sessionId);
+        if (session.sourceMaintenance?.status === "active") throw new Error("AGENT_SOURCE_TASK_ACTIVE");
         await this.registry.getAdapter(session.brainProfileId).closeSession(sessionId);
         this.confirmations.cancelSession(sessionId);
         this.contexts.revokeSession(sessionId);

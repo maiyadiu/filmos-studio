@@ -510,7 +510,7 @@ function createGenericAgentRoutes(generic: GenericAgentRuntime, config: LocalRun
         }),
         agentRoute("POST", "/agent/sessions/:sessionId/close", "agent:sessions:manage", async (req, res) => {
             assertEmptyBody(req);
-            res.json({ ok: true, session: await generic.manager.closeSession(routeParam(req.params.sessionId)) });
+            res.json({ ok: true, session: await generic.closeSession(routeParam(req.params.sessionId)) });
         }),
     ];
 }

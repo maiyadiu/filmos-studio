@@ -1,19 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { z } from "zod";
 import { SOURCE_MAINTENANCE_TOOLS, type BrainSession, type SourceMaintenanceRecord } from "@filmos/agent-contracts";
 import type { BrainSessionStore } from "./session-store.js";
-import { SourceMaintenanceWorkspace, sourceReadInputSchema, sourcePatchInputSchema } from "./source-maintenance.js";
+import { SourceMaintenanceWorkspace } from "./source-maintenance.js";
+import { sourceTaskInputSchema as openSchema, sourceToolSchemas } from "./source-maintenance-schemas.js";
 import { LocalRuntimeSessionError } from "../local-runtime-session.js";
 
-const requestId = z.string().regex(/^[A-Za-z0-9_-]{1,80}$/);
-const hash = z.string().regex(/^[a-f0-9]{64}$/);
-const openSchema = z.object({ requestId, purpose: z.string().trim().min(1).max(1000), files: z.array(z.object({ path: z.string().min(1).max(300), expectedHash: hash }).strict()).min(1).max(5) }).strict();
-export const sourceToolSchemas = {
-    source_get_task: z.object({}).strict(),
-    source_read_file: sourceReadInputSchema,
-    source_prepare_patch: sourcePatchInputSchema,
-    source_apply_patch: z.object({ requestId }).strict(),
-} as const;
 type SourceTool = keyof typeof sourceToolSchemas;
 type SourceAuthorization = () => void;
 type ActiveTask = { sessionId: string; accountScopeId: string; workspace: SourceMaintenanceWorkspace; record: SourceMaintenanceRecord; authorize: SourceAuthorization; busy: boolean };

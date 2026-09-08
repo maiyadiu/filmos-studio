@@ -170,6 +170,13 @@ export class GenericAgentRuntime {
         } finally { this.resumingSessions.delete(sessionId); }
     }
 
+    async closeSession(sessionId: string) {
+        if (this.activeTurns.has(sessionId) || this.resumingSessions.has(sessionId)) throw new Error("AGENT_SESSION_TURN_ALREADY_RUNNING");
+        this.resumingSessions.add(sessionId);
+        try { return await this.manager.closeSession(sessionId); }
+        finally { this.resumingSessions.delete(sessionId); }
+    }
+
     // Persisted status can outlive a process. Observe the existing live turn and
     // confirmation maps; this read never resumes a provider or renews a grant.
     sessionView(session: BrainSession) {

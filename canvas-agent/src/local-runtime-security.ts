@@ -252,6 +252,7 @@ export function publicAgentRuntimeFailure(error: unknown) {
     if (code === "AGENT_TOOL_REQUIRES_PROJECT_CONTEXT") return new LocalRuntimeSessionError("agent_project_context_required", "当前是全局工作台页面，没有选中作品；该操作需要进入明确的项目或画布后执行，不会借用上次作品", 409);
     if (code === "AGENT_WORKSPACE_PROFILE_DENIED" || code === "AGENT_GRANT_WORKSPACE_TOOL_DENIED") return new LocalRuntimeSessionError("agent_workspace_scope_denied", "当前全局工作台授权不包含此操作，不会借用作品或工程任务的权限", 403);
     if (code === "AGENT_SOURCE_UNAVAILABLE") return new LocalRuntimeSessionError("agent_source_unavailable", "当前运行环境未开放源码任务", 409);
+    if (code === "AGENT_SOURCE_TASK_ACTIVE") return new LocalRuntimeSessionError("agent_source_task_active", "请先核对并结束源码维护范围，未关闭原会话", 409);
     if (code === "AGENT_SOURCE_TASK_REQUIRED" || code === "AGENT_SOURCE_GRANT_INVALID") return new LocalRuntimeSessionError("agent_source_task_denied", "当前会话没有匹配的源码任务范围，不会扩权或改走其他通道", 403);
     if (code === "AGENT_TOOL_REQUIRES_CANVAS_CONTEXT") return new LocalRuntimeSessionError("agent_canvas_context_required", "当前是项目页面，未绑定活动画布；该操作需要进入真实画布后执行，不会自动创建或使用上一张画布", 409);
     if (code === "AGENT_PROJECT_PAGE_WRITE_BLOCKED") return new LocalRuntimeSessionError("agent_project_write_blocked", "当前项目页面有未保存草稿、内容未就绪或已归档，仅可读取；请先处理页面提示，未执行写入", 409);

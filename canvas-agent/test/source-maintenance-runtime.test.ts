@@ -40,8 +40,11 @@ test("maintenance replaces the idle session grant, executes exact patches throug
     assert.deepEqual(new Set(grant.allowedTools), new Set(["workbench_get_context", ...SOURCE_MAINTENANCE_TOOLS]));
     assert.equal(current.providerThreadId, session.providerThreadId);
     assert.equal(turns, 0);
+    await assert.rejects(runtime.manager.closeSession(session.id), /AGENT_SOURCE_TASK_ACTIVE/);
+    assert.notEqual((await store.getSession(session.id))!.status, "closed");
     native.sendTurn = async input => {
         turns++;
+        await assert.rejects(runtime.closeSession(session.id), /TURN_ALREADY_RUNNING/);
         const tool = (toolName: string, toolInput: Record<string, unknown>) => runtime.proposeTool({ sessionId: session.id, toolName, toolInput, ordinaryConfirmationEnabled: false });
         await assert.rejects(runtime.changeSourceTask(session.id, "close", {}, () => {}), /TURN_ALREADY_RUNNING/);
         await assert.rejects(tool("project_get_context", {}), /SOURCE_GRANT_INVALID|TOOL_NOT_GRANTED/);
@@ -69,6 +72,8 @@ test("maintenance replaces the idle session grant, executes exact patches throug
     native.resumeSession = async () => ({ sourceMaintenance: undefined });
     await assert.rejects(runtime.manager.resumeSession(session.id, "fixture"), /Runtime-owned source task/);
     assert.deepEqual((await store.getSession(session.id))!.sourceMaintenance, closed.sourceMaintenance);
+    await runtime.manager.closeSession(session.id);
+    assert.equal((await store.getSession(session.id))!.status, "closed");
 });
 
 test("source grants cannot mix creative tools or another brain and source MCP advertises only its exact tools", t => {

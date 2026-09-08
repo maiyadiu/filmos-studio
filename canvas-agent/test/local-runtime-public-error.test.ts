@@ -12,6 +12,7 @@ test("source task denial is not a request to refresh or expand ordinary creative
         assert.doesNotMatch(failure?.message || "", /private-path|恢复当前会话/);
     }
     assert.equal(publicAgentRuntimeFailure(new Error("AGENT_SOURCE_UNAVAILABLE"))?.statusCode, 409);
+    assert.equal(publicAgentRuntimeFailure(new Error("AGENT_SOURCE_TASK_ACTIVE"))?.code, "agent_source_task_active");
 });
 
 test("generation configuration failure is not an authorization error or an unknown postcondition", () => {

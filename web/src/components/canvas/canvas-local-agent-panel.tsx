@@ -56,6 +56,8 @@ import { VoiceRecordingButton } from "@/components/conversation/voice-recording-
 import { AgentChatEmptyState } from "./canvas-agent-panel-chrome";
 import { AgentSessionClient, type AgentHistoryMessageView, type BrainSessionView, type AgentTurnPlan } from "@/film/agent/agent-client";
 import { CodexModelPicker } from "./codex-model-picker";
+import { SourceMaintenanceControl } from "./source-maintenance-control";
+import { changeSourceScope, type SourceScopeOperation } from "@/film/agent/source-maintenance-action";
 import type { CodexModelReceipt } from "../../../../packages/filmos-agent-contracts/src/codex-models";
 import { dispatchBrowserRuntimeRequest, type BrowserRuntimeRequest } from "@/film/agent/browser-runtime-bridge";
 import { chatGPTHostReadiness } from "@/film/agent/chatgpt-host-readiness";
@@ -145,6 +147,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
 }) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const user = useUserStore((state) => state.user);
+    const sourceDeveloper = useUserStore((state) => state.authMode === "desktop_local");
     const effectiveConfig = useEffectiveConfig();
     const routingConfig = useBrainGenerationRoutingStore((state) => state.config);
     const { message, modal } = App.useApp();
@@ -190,6 +193,14 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
     const sessionScopeKey = JSON.stringify([user?.id, brainProfileId, snapshot.contextKind || "canvas", snapshot.projectId, snapshot.domainProjectId, snapshot.contentUnitId, agentWorkspaceId(snapshot)]);
     const sessionScopeRef = useRef(sessionScopeKey);
     sessionScopeRef.current = sessionScopeKey;
+    const sourceKey = `${sessionScopeKey}:${activeThreadId}`;
+    const [sourceObserved, setSourceObserved] = useState({ key: "", active: false });
+    const [sourceOperation, setSourceOperation] = useState({ key: "", busy: false, uncertain: false });
+    const sourceOperationRef = useRef(sourceOperation);
+    const sourceActive = sourceObserved.key === sourceKey && sourceObserved.active;
+    const sourceBusy = sourceOperation.key === sourceKey && sourceOperation.busy;
+    const sourceUncertain = sourceOperation.key === sourceKey && sourceOperation.uncertain;
+    const sourceLocked = () => sourceOperationRef.current.key === sourceKey && (sourceOperationRef.current.busy || sourceOperationRef.current.uncertain);
     const [cancelling, setCancelling] = useState(false);
     const [recoveringSession, setRecoveringSession] = useState(false);
     const recoveryInFlightRef = useRef(false);
@@ -260,6 +271,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
         if (session.id !== sessionId || !matchesAgentSessionScope(session, scope, brainProfileId)) return;
         const execution = session.execution;
         if (!execution) return; // An older Runtime cannot prove a turn has stopped.
+        if (!sourceOperationRef.current.busy) setSourceObserved({ key: `${scopeKey}:${sessionId}`, active: session.sourceMaintenance?.status === "active" });
         if (unacknowledgedTurnRef.current && execution.activeTurnId !== unacknowledgedTurnRef.current) return;
         if (execution.activeTurnId) unacknowledgedTurnRef.current = null;
         setExecutionKnown(true);
@@ -303,6 +315,33 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
         },
         [pushEventLog, runtimeClient],
     );
+    const changeMaintenance = async (operation: SourceScopeOperation) => {
+        const sessionId = activeThreadId;
+        const isCurrent = () => sessionScopeRef.current === sessionScopeKey && useCanvasAgentStore.getState().activeThreadId === sessionId && connectedRef.current && useCanvasAgentStore.getState().enabled;
+        if (!sourceDeveloper || !genericRuntime || brainProfileId !== "codex.subscription" || !sessionId || !isCurrent()
+            || sourceOperationRef.current.busy || sendInFlightRef.current || recoveryInFlightRef.current || activeTurnRef.current || sending || waiting || pendingTool || !executionKnown || loadingThreads
+            || storyboardActionBusy(useCanvasAgentStore.getState().storyboardAction) || characterActionBusy(useCanvasAgentStore.getState().characterAction)) throw new Error("原会话尚未空闲或身份未确认，未改变维护范围。");
+        const previousUncertain = sourceUncertain;
+        const pending = { key: sourceKey, busy: true, uncertain: previousUncertain };
+        sourceOperationRef.current = pending; setSourceOperation(pending);
+        executionEpochRef.current++;
+        try {
+            const result = await changeSourceScope(agentSessionClient, {
+                id: sessionId, brainProfileId, projectId: snapshotRef.current.projectId, canvasId: agentSnapshotCanvasId(snapshotRef.current),
+                workspaceId: agentWorkspaceId(snapshotRef.current), domainProjectId: snapshotRef.current.domainProjectId, contentUnitId: snapshotRef.current.contentUnitId,
+            }, operation, isCurrent, async () => Boolean(await syncState(clientIdRef.current, snapshotRef.current)));
+            if (!isCurrent()) throw new Error("维护期间已切换工作台；请在原会话核对状态。");
+            setSourceObserved({ key: sourceKey, active: result.source.record?.status === "active" });
+            setAgentState({ latestModelReceipt: result.session.latestModelReceipt ?? null });
+            pending.uncertain = operation.kind === "reconcile" && previousUncertain;
+            return result.source;
+        } catch (error) { pending.uncertain = true; throw error; }
+        finally {
+            pending.busy = false;
+            if (isCurrent()) { sourceOperationRef.current = { ...pending }; setSourceOperation({ ...pending }); }
+            else if (sourceOperationRef.current === pending) sourceOperationRef.current = { ...pending };
+        }
+    };
     const loadThreads = useCallback(async () => {
         const scopeKey = sessionScopeKey;
         if (sessionScopeRef.current !== scopeKey) return;
@@ -622,6 +661,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
         }
     };
     const sendPrompt = async (overrideText?: string, creation?: ScriptLaunch, buttonAction?: StoryboardButtonAction, characterButton?: CharacterButtonAction) => {
+        if (sourceLocked() || (sourceActive && (creation || buttonAction || characterButton))) return false;
         const text = (overrideText ?? prompt).trim();
         const files = creation || buttonAction || characterButton ? [] : attachments;
         const mentionedSkills = resolveSkillMentions(text, composerSkills);
@@ -678,11 +718,14 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
                     setAgentState({ activeThreadId: sessionId });
                 }
                 if (buttonAction) assertStoryboardButtonUnchanged(buttonAction, useUserStore.getState().user?.id || "", currentButtonCanvas());
-                if (characterButton) {
+                if (brainProfileId === "codex.subscription") {
                     const { session } = await agentSessionClient.getSession(sessionId);
                     if (sessionScopeRef.current !== requestScope || useCanvasAgentStore.getState().activeThreadId !== sessionId || !matchesAgentSessionScope(session, snapshotRef.current, brainProfileId)
-                        || !session.execution || session.execution.activeTurnId || session.execution.resuming || session.execution.pendingConfirmations.length) throw new Error("当前会话尚未空闲或身份改变；角色任务未发送");
-                    assertCharacterButtonDispatch(characterButton, useUserStore.getState().user?.id || "", snapshotRef.current, useCanvasAgentStore.getState().enabled);
+                        || !session.execution || session.execution.activeTurnId || session.execution.resuming || session.execution.pendingConfirmations.length) throw new Error("当前会话尚未空闲或身份改变；任务未发送");
+                    const maintenance = session.sourceMaintenance?.status === "active";
+                    setSourceObserved({ key: `${requestScope}:${sessionId}`, active: maintenance });
+                    if (maintenance !== sourceActive || (maintenance && (creation || buttonAction || characterButton))) throw new Error("源码维护范围已变化，请先核对当前模式；任务未发送。");
+                    if (characterButton) assertCharacterButtonDispatch(characterButton, useUserStore.getState().user?.id || "", snapshotRef.current, useCanvasAgentStore.getState().enabled);
                 }
                 const turnId = buttonAction ? `storyboard-${buttonAction.id}` : characterButton ? `characters-${characterButton.id}` : createId();
                 executionEpochRef.current++;
@@ -779,6 +822,10 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
 
     useEffect(() => {
         if (!storyboardAction || storyboardAction.status !== "queued" || !genericRuntime || brainProfileId !== "codex.subscription") return;
+        if (sourceActive || sourceLocked()) {
+            patchStoryboardButtonAction(storyboardAction.id, { status: "not_sent", message: "请先结束源码维护并核对状态；本次分镜未发送，不会排队补发" });
+            return;
+        }
         try {
             assertStoryboardButtonUnchanged(storyboardAction, user?.id || "", currentButtonCanvas());
             if (!enabled || Date.now() - storyboardAction.createdAt >= 45_000) throw new Error("已停用 Codex 或连接等待到期，任务未发送");
@@ -791,7 +838,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
         void sendPrompt(storyboardButtonPrompt(storyboardAction), undefined, storyboardAction).then(sent => {
             if (sent === false) patchStoryboardButtonAction(storyboardAction.id, { status: "not_sent", message: "当前会话忙碌，分镜任务未发送" });
         });
-    }, [storyboardAction, genericRuntime, brainProfileId, user?.id, sessionScopeKey, enabled, connected, skillsReady, loadingThreads, executionKnown, activeThreadId, sending, waiting, pendingTool]);
+    }, [storyboardAction, genericRuntime, brainProfileId, user?.id, sessionScopeKey, enabled, connected, skillsReady, loadingThreads, executionKnown, activeThreadId, sending, waiting, pendingTool, sourceActive, sourceBusy, sourceUncertain]);
 
     useEffect(() => {
         if (!characterAction || characterAction.status !== "queued") return;
@@ -803,6 +850,10 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
 
     useEffect(() => {
         if (!characterAction || characterAction.status !== "queued" || !genericRuntime || brainProfileId !== "codex.subscription") return;
+        if (sourceActive || sourceLocked()) {
+            patchCharacterButtonAction(characterAction.id, { status: "not_sent", message: "请先结束源码维护并核对状态；本次角色提取未发送，不会排队补发" });
+            return;
+        }
         try {
             assertCharacterButtonDispatch(characterAction, user?.id || "", snapshotRef.current, enabled);
         } catch (error) {
@@ -818,9 +869,10 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
         void sendPrompt(characterButtonPrompt(characterAction), undefined, undefined, characterAction).then(sent => {
             if (sent === false) patchCharacterButtonAction(characterAction.id, { status: "not_sent", message: "当前会话忙碌，角色任务未发送" });
         });
-    }, [characterAction, genericRuntime, brainProfileId, user?.id, sessionScopeKey, enabled, connected, skillsReady, loadingThreads, executionKnown, activeThreadId, sending, waiting, pendingTool]);
+    }, [characterAction, genericRuntime, brainProfileId, user?.id, sessionScopeKey, enabled, connected, skillsReady, loadingThreads, executionKnown, activeThreadId, sending, waiting, pendingTool, sourceActive, sourceBusy, sourceUncertain]);
 
     useEffect(() => {
+        if (sourceActive || sourceLocked()) return;
         if (!scriptLaunch || !genericRuntime || brainProfileId !== "codex.subscription" || !skillsReady || !connected || sending || waiting || pendingTool || characterActionBusy(useCanvasAgentStore.getState().characterAction) || storyboardActionBusy(useCanvasAgentStore.getState().storyboardAction) || sendInFlightRef.current || recoveryInFlightRef.current || activeTurnRef.current || launchAttemptedRef.current === scriptLaunch.id) return;
         if (!snapshot.projectId || !matchesScriptLaunch(scriptLaunch, user?.id || "", snapshot.projectId, snapshot.domainProjectId || "")) return;
         launchAttemptedRef.current = scriptLaunch.id;
@@ -1140,6 +1192,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
     };
 
     const startNewThread = async () => {
+        if (sourceActive || sourceLocked()) return;
         const projectId = snapshotRef.current.projectId;
         if (!connected || (!projectId && !agentWorkspaceId(snapshotRef.current)) || sending || waiting || pendingTool || recoveryInFlightRef.current || (genericRuntime && activeThreadId && !executionKnown)) return;
         setAgentState({ loadingThreads: true });
@@ -1168,6 +1221,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
     };
 
     const resumeThread = async (threadId: string) => {
+        if (sourceActive || sourceLocked()) return;
         const projectId = snapshotRef.current.projectId;
         if (!connected || (!projectId && !agentWorkspaceId(snapshotRef.current)) || !threadId || sending || waiting || pendingTool || activeTurnRef.current || recoveryInFlightRef.current || (genericRuntime && activeThreadId && !executionKnown)) return;
         const scopeKey = sessionScopeRef.current;
@@ -1209,6 +1263,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
     };
 
     const deleteThread = async (threadId: string) => {
+        if (sourceActive || sourceLocked()) return;
         const projectId = snapshotRef.current.projectId;
         if (!connected || (!projectId && !agentWorkspaceId(snapshotRef.current)) || !threadId || recoveryInFlightRef.current) return;
         setAgentState({ loadingThreads: true });
@@ -1353,17 +1408,17 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
                     </Button>
                 ) : null}
                 <Tooltip title={threads.length ? `历史会话 · ${threads.length}` : "历史会话"}>
-                    <Button type="text" disabled={sending || waiting || Boolean(pendingTool) || executionUncertain} className={`!h-7 !min-w-7 !px-1.5 ${activeTab === "history" ? "font-medium" : ""}`} style={{ color: activeTab === "history" ? theme.node.text : theme.node.muted, background: activeTab === "history" ? theme.spatial.surface : "transparent" }} icon={<History className="size-3.5" />} onClick={() => setAgentState({ activeTab: activeTab === "history" ? "chat" : "history" })} aria-label="打开历史会话">
+                    <Button type="text" disabled={sourceBusy || sourceActive || sourceUncertain || sending || waiting || Boolean(pendingTool) || executionUncertain} className={`!h-7 !min-w-7 !px-1.5 ${activeTab === "history" ? "font-medium" : ""}`} style={{ color: activeTab === "history" ? theme.node.text : theme.node.muted, background: activeTab === "history" ? theme.spatial.surface : "transparent" }} icon={<History className="size-3.5" />} onClick={() => setAgentState({ activeTab: activeTab === "history" ? "chat" : "history" })} aria-label="打开历史会话">
                         {threads.length ? <span className="text-[var(--fs-tiny)] tabular-nums">{threads.length}</span> : null}
                     </Button>
                 </Tooltip>
                 <Tooltip title="新对话">
-                    <Button type="text" shape="circle" className="!h-7 !w-7 !min-w-7" disabled={!connected || loadingThreads || sending || waiting || Boolean(pendingTool) || executionUncertain} style={{ color: theme.node.muted }} icon={<Plus className="size-3.5" />} onClick={() => void startNewThread()} aria-label="新建对话" />
+                    <Button type="text" shape="circle" className="!h-7 !w-7 !min-w-7" disabled={sourceBusy || sourceActive || sourceUncertain || !connected || loadingThreads || sending || waiting || Boolean(pendingTool) || executionUncertain} style={{ color: theme.node.muted }} icon={<Plus className="size-3.5" />} onClick={() => void startNewThread()} aria-label="新建对话" />
                 </Tooltip>
             </div>
             {genericRuntime && activeThreadId ? (
                 <div className="flex shrink-0 items-center gap-2 px-4 pb-2 text-[var(--fs-tiny)]" style={{ color: theme.node.muted }}>
-                    <Button size="small" loading={recoveringSession} disabled={!connected || sending || waiting || Boolean(pendingTool) || Boolean(activeTurn) || executionUncertain} onClick={() => void resumeThread(activeThreadId)}>恢复当前会话</Button>
+                    <Button size="small" loading={recoveringSession} disabled={sourceBusy || sourceActive || sourceUncertain || !connected || sending || waiting || Boolean(pendingTool) || Boolean(activeTurn) || executionUncertain} onClick={() => void resumeThread(activeThreadId)}>恢复当前会话</Button>
                     <span>仅恢复连接与上下文，不重发任务</span>
                 </div>
             ) : null}
@@ -1380,7 +1435,13 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
 
             {genericRuntime && enabled && connected && brainProfileId === "codex.subscription" ? <CodexModelPicker key={sessionScopeKey} client={agentSessionClient}
                 value={codexModel} onChange={codexModel => setAgentState({ codexModel })} receipt={latestModelReceipt}
-                disabled={sending || waiting || Boolean(pendingTool) || Boolean(activeTurn) || executionUncertain || recoveringSession || accountBusy} /> : null}
+                disabled={sourceBusy || sending || waiting || Boolean(pendingTool) || Boolean(activeTurn) || executionUncertain || recoveringSession || accountBusy} /> : null}
+
+            {genericRuntime && enabled && sourceDeveloper && activeThreadId && brainProfileId === "codex.subscription" ? <SourceMaintenanceControl key={sourceKey} client={agentSessionClient}
+                scope={{ id: activeThreadId, brainProfileId, projectId: snapshot.projectId, canvasId: agentSnapshotCanvasId(snapshot), workspaceId: agentWorkspaceId(snapshot), domainProjectId: snapshot.domainProjectId, contentUnitId: snapshot.contentUnitId }}
+                connected={connected} active={sourceActive} uncertain={sourceUncertain} disabled={sourceBusy || sending || waiting || Boolean(pendingTool) || Boolean(activeTurn) || executionUncertain || recoveringSession || loadingThreads || accountBusy}
+                onChange={changeMaintenance} /> : null}
+            {sourceUncertain ? <p role="status" className="px-4 pb-2 text-xs">维护结果待核对，暂停发送。请打开“源码维护”只读刷新，再核对并结束原范围；不会重发补丁。</p> : null}
 
             {genericRuntime && brainProfileId === "codex.subscription" && storyboardAction && storyboardAction.userId === user?.id && storyboardAction.canvasId === snapshot.projectId ? (
                 <div className="shrink-0 space-y-1 px-4 py-2 text-xs" role="status" style={{ color: theme.node.text }}>
@@ -1412,7 +1473,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
             ) : (
                 <>
                     <div ref={listRef} className="thin-scrollbar min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
-                        {!messages.length && !pendingTool && !waiting ? (
+                        {!messages.length && !pendingTool && !waiting && !sourceActive ? (
                             <AgentChatEmptyState
                                 theme={theme}
                                 nodeCount={snapshot.nodes.length}
@@ -1424,6 +1485,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
                                 }}
                             />
                         ) : null}
+                        {!messages.length && sourceActive ? <p className="text-sm text-muted-foreground">已进入限定源码维护。请在原聊天框描述本次修复；作品创作入口在结束维护后恢复。</p> : null}
                         {latestPlan ? <AgentPlanCard plan={latestPlan} theme={theme} /> : null}
                         {messages.map((item) => {
                             const result = snapshot.contextKind === "workspace" ? null : agentCreativeResult(item, snapshot);
@@ -1442,10 +1504,10 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
                                 }}
                             />
                         ); })}
-                        {pendingTool && snapshot.contextKind !== "workspace" ? (
+                        {pendingTool && (snapshot.contextKind !== "workspace" || pendingTool.name.startsWith("source_")) ? (
                             <AgentPendingToolCard
-                                summary={[pendingTool.canonicalConfirmation?.summary || summarizeCanvasAgentOps(pendingTool.input?.ops || []) || toolName(pendingTool.name), creativeToolTargetSummary(pendingTool.name, pendingTool.input || {}, snapshot)].filter(Boolean).join("\n")}
-                                detail={{ requestId: pendingTool.requestId, name: pendingTool.name, input: pendingTool.input, impact: pendingTool.canonicalConfirmation?.impact || previewCanvasAgentOps(pendingTool.input?.ops || [], snapshot) }}
+                                summary={[pendingTool.canonicalConfirmation?.summary || summarizeCanvasAgentOps(pendingTool.input?.ops || []) || toolName(pendingTool.name), snapshot.contextKind === "workspace" ? "仅限当前源码维护范围" : creativeToolTargetSummary(pendingTool.name, pendingTool.input || {}, snapshot)].filter(Boolean).join("\n")}
+                                detail={{ requestId: pendingTool.requestId, name: pendingTool.name, input: pendingTool.input, impact: pendingTool.canonicalConfirmation?.impact || (snapshot.contextKind === "workspace" ? [] : previewCanvasAgentOps(pendingTool.input?.ops || [], snapshot)) }}
                                 theme={theme}
                                 onReject={rejectPendingTool}
                                 onApprove={approvePendingTool}
@@ -1456,9 +1518,9 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
                     <AgentChatComposer
                         prompt={prompt}
                         attachments={attachments.map(agentAttachmentToChatAttachment)}
-                        disabled={!connected || recoveringSession || executionUncertain || (chatGPTHostProfile && !chatGPTHost.handoffReady)}
+                        disabled={sourceBusy || sourceUncertain || !connected || recoveringSession || executionUncertain || (chatGPTHostProfile && !chatGPTHost.handoffReady)}
                         sending={sending || waiting || Boolean(pendingTool)}
-                        placeholder={chatGPTHostProfile && !chatGPTHost.handoffReady ? chatGPTHost.message : snapshot.contextKind === "workspace" ? "与 Codex 讨论工作台；编辑作品请进入项目" : snapshot.contextKind === "project" ? "让 Codex 读取、编写或打磨当前作品" : `询问 ${brainProfileLabel(brainProfileId)}，或让它操作画布`}
+                        placeholder={sourceActive ? "描述本次源码修复要求，仅修改维护范围内的文件" : chatGPTHostProfile && !chatGPTHost.handoffReady ? chatGPTHost.message : snapshot.contextKind === "workspace" ? "与 Codex 讨论工作台；编辑作品请进入项目" : snapshot.contextKind === "project" ? "让 Codex 读取、编写或打磨当前作品" : `询问 ${brainProfileLabel(brainProfileId)}，或让它操作画布`}
                         theme={theme}
                         references={composerReferences}
                         slashSkills={composerSkills}

@@ -8,7 +8,7 @@ import { zodToJsonSchema } from "zod-to-json-schema";
 import { CANONICAL_AGENT_TOOL_METADATA } from "../../../canvas-agent/src/brains/tool-manifest-source.js";
 import { filmToolInputSchemas } from "../../../canvas-agent/src/film/contracts.js";
 import { toolInputSchemas } from "../../../canvas-agent/src/schemas.js";
-import { sourceToolSchemas } from "../../../canvas-agent/src/brains/source-maintenance-tasks.js";
+import { sourceToolSchemas } from "../../../canvas-agent/src/brains/source-maintenance-schemas.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const generatedDir = resolve(root, "generated");

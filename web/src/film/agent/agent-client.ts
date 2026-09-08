@@ -1,8 +1,13 @@
 import type { LocalRuntimeSessionClient } from "@/services/local-runtime-session";
 import { getLocalRuntimeSessionClient } from "@/stores/use-local-runtime-store";
-import type { AgentTurnPlan, AgentTurnReceipt } from "../../../../packages/filmos-agent-contracts/src/index";
+import type { AgentTurnPlan, AgentTurnReceipt, SourceMaintenanceRecord } from "../../../../packages/filmos-agent-contracts/src/index";
 import type { CodexModelOption, CodexModelSelection, CodexModelReceipt } from "../../../../packages/filmos-agent-contracts/src/codex-models";
 export type { AgentTurnPlan };
+
+export type SourceTaskView = { record: SourceMaintenanceRecord | null; live: boolean; note: string };
+export type SourceTaskInput = { requestId: string; purpose: string; files: Array<{ path: string; expectedHash: string }> };
+export type SourceFileView = { path: string; contentHash: string; bytes: number; startLine: number; endLine: number; totalLines: number; content: string; truncated: boolean };
+export type SourceWorkspaceView = { available: true; mode: "source-read-only"; branch: "integration"; head: string; tree: string; trackedClean: boolean; sourceFileCount: number };
 
 export type AgentExecutionView = {
     activeTurnId: string | null;
@@ -26,6 +31,7 @@ export type BrainSessionView = {
     latestModelReceipt?: CodexModelReceipt | null;
     latestTurnReceipt?: AgentTurnReceipt | null;
     execution?: AgentExecutionView;
+    sourceMaintenance?: SourceMaintenanceRecord;
 };
 
 export type AgentHistoryMessageView = {
@@ -78,6 +84,34 @@ export class AgentSessionClient {
 
     getWorkspace(signal?: AbortSignal) {
         return this.json<{ workspaceId: string }>("/agent/workspace", { method: "GET", signal });
+    }
+
+    inspectSource(signal?: AbortSignal) {
+        return this.json<{ result: SourceWorkspaceView }>("/agent/source", { method: "GET", signal });
+    }
+
+    listSourceFiles(input: { prefix?: string; offset?: number; limit?: number }, signal?: AbortSignal) {
+        return this.post<{ result: { paths: string[]; total: number; nextOffset: number | null } }>("/agent/source/files", input, signal);
+    }
+
+    readSourceFile(input: { path: string; startLine?: number; lineCount?: number; expectedHash?: string }, signal?: AbortSignal) {
+        return this.post<{ result: SourceFileView }>("/agent/source/read", input, signal);
+    }
+
+    getSourceTask(sessionId: string, signal?: AbortSignal) {
+        return this.json<{ source: SourceTaskView }>(`/agent/sessions/${segment(sessionId)}/source-task`, { method: "GET", signal });
+    }
+
+    openSourceTask(sessionId: string, input: SourceTaskInput, signal?: AbortSignal) {
+        return this.post<{ session: BrainSessionView; source: SourceTaskView }>(`/agent/sessions/${segment(sessionId)}/source-task/open`, input, signal);
+    }
+
+    closeSourceTask(sessionId: string, signal?: AbortSignal) {
+        return this.post<{ session: BrainSessionView; source: SourceTaskView }>(`/agent/sessions/${segment(sessionId)}/source-task/close`, {}, signal);
+    }
+
+    reconcileSourceTask(sessionId: string, signal?: AbortSignal) {
+        return this.post<{ source: { record: SourceMaintenanceRecord; writeExecuted: false; note: string } }>(`/agent/sessions/${segment(sessionId)}/source-task/reconcile`, {}, signal);
     }
 
     listSessions(scope: { projectId?: string; workspaceId?: string; brainProfileId?: string } = {}, signal?: AbortSignal) {

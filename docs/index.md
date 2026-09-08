@@ -31,7 +31,7 @@
 - [作品目录](content/docs/overview/作品目录.mdx)：默认或自选位置、单层分类、内容投影和离线恢复边界。
 - [本地开发](content/docs/backend/local-development.mdx)
 - [本机账号证明](content/docs/backend/账号证明.mdx)：工作台登录到 Runtime 挑战的短时身份来源；会话与事件流接线的待验收边界。
-- [源码维护](content/docs/backend/源码维护.mdx)：开发者私有源码读取边界；原生工程执行与安全更新尚未开放。
+- [源码维护](content/docs/backend/源码维护.mdx)：原会话开发者维护范围、精确补丁与回执；真实运行和安全更新仍待验收。
 - [后端数据库](content/docs/backend/backend-database.mdx)
 - 代码地图：待补充
 - 待办：待补充
