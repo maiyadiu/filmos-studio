@@ -1,4 +1,4 @@
-import { createCanvasNode, createStoryboardRow } from "@/lib/canvas/canvas-project-domain";
+import { createCanvasNode, createStoryboardRow, isEmptyStoryboardPlaceholder } from "@/lib/canvas/canvas-project-domain";
 import type { ProjectShot, ProjectShotContext, ProjectUnit } from "@/services/api/projects";
 import { sameCanvasJSON } from "./canvas-sync-baseline";
 import { CanvasNodeType, type CanvasConnection, type CanvasNodeData, type StoryboardData, type StoryboardRow } from "@/types/canvas";
@@ -42,8 +42,8 @@ export function upsertProjectChapterStoryboard(
     const currentRows = new Map((existing?.metadata?.storyboard?.rows || []).map((row) => [row.id, row]));
     if (currentRows.size !== (existing?.metadata?.storyboard?.rows.length || 0)) throw new Error("分镜行身份重复，未覆盖任何一行");
     const incomingIds = new Set(shots.filter(shot => shot.unitId === unit.id).map(shot => `project-shot:${shot.id}`));
-    if ([...currentRows.keys()].some(id => !incomingIds.has(id))) {
-        throw new Error("画布中存在本次业务分镜以外的镜头，已保留；请在新画布导入，避免覆盖手工镜头或已有连接");
+    if ([...currentRows.values()].some(row => !incomingIds.has(row.id) && !isEmptyStoryboardPlaceholder(row, existing!.id, connections))) {
+        throw new Error("画布中存在本次业务分镜以外的镜头，已保留；请核对当前镜头归属，避免覆盖手工镜头或已有连接");
     }
     const rows = shots
         .filter((shot) => shot.unitId === unit.id)

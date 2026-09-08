@@ -86,6 +86,15 @@ export function createStoryboardRow(shotNumber: number, patch: Partial<Storyboar
     };
 }
 
+// Only untouched default rows may yield to generated shots. Timing, directing
+// fields, prompt versions and downstream links all count as existing work.
+export function isEmptyStoryboardPlaceholder(row: StoryboardRow, nodeId: string, connections: CanvasConnection[]) {
+    const { id, shotNumber, durationSeconds, status, errorDetails, ...content } = row;
+    if (durationSeconds !== 6 || (status && status !== "idle") || errorDetails) return false;
+    if (Object.values(content).some(value => typeof value === "string" ? !!value.trim() : Array.isArray(value) ? value.length > 0 : !!value && Object.keys(value).length > 0)) return false;
+    return !connections.some(connection => (connection.fromNodeId === nodeId && (connection.fromHandleId === `row:${id}` || connection.storyboardRowId === id)) || (connection.toNodeId === nodeId && connection.toHandleId === `row:${id}`));
+}
+
 // 有结构化变量时由服务端按最新平台模板和用户偏好编译；变量被清除表示用户已做镜头级手动覆盖。
 export function storyboardPromptTemplateMetadata(row: StoryboardRow, kind: "image" | "video"): Pick<CanvasNodeMetadata, "promptTemplateOperation" | "promptTemplateVariables"> {
     const variables = kind === "image" ? row.imagePromptTemplateVariables : row.videoPromptTemplateVariables;

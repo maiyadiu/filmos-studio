@@ -18,6 +18,22 @@ test("maps ordered business fields and provenance without a second node on repea
     expect(second.nodes[0].metadata?.storyboard?.rows[0]).toMatchObject({ id: "project-shot:s1", shotNumber: 1, durationSeconds: 43.5, dialogue: "林夏：我陪你。", performanceBlocking: "手停在账本旁", camera: "固定双人中景", characters: [{ characterName: "林夏" }], projectShotSource: { id: "s1", revision: 1, sourceRevision: 2, sourceHash: "hash" } });
 });
 
+test("first business generation replaces only untouched defaults in the original bound node", () => {
+    const original = createCanvasNode(CanvasNodeType.Script, { x: 0, y: 0 }, { chapterId: unit.id });
+    const before = structuredClone(original);
+    const result = upsertProjectChapterStoryboard([original], [], { unit, shots: [shot()] });
+    expect(result.scriptNodeId).toBe(original.id);
+    expect(result.rowCount).toBe(1);
+    expect(original).toEqual(before);
+    for (const patch of [{ durationSeconds: 9 }, { narrativeIntent: "威胁逼近" }, { errorDetails: "旧生成失败" }]) {
+        const work = structuredClone(original); Object.assign(work.metadata!.storyboard!.rows[0], patch);
+        expect(() => upsertProjectChapterStoryboard([work], [], { unit, shots: [shot()] })).toThrow("避免覆盖手工镜头");
+    }
+    const rowId = original.metadata!.storyboard!.rows[0].id;
+    const links = [{ id: "keep", fromNodeId: original.id, fromHandleId: `row:${rowId}`, toNodeId: "image" }];
+    expect(() => upsertProjectChapterStoryboard([original], links, { unit, shots: [shot()] })).toThrow("避免覆盖手工镜头");
+});
+
 test("one updated business shot preserves prompts, assets, other rows and valid connections", () => {
     const shots = [shot(), shot("s2", 1)];
     const original = upsertProjectChapterStoryboard([], [], { unit, shots });

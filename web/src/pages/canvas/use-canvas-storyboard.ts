@@ -42,6 +42,7 @@ type UseCanvasStoryboardOptions = {
     setConnections: Dispatch<SetStateAction<CanvasConnection[]>>;
     setSelectedNodeIds: Dispatch<SetStateAction<Set<string>>>;
     enqueueGenerationBatch: (sourceNodeId: string, mode: CanvasGenerationBatchMode, targets: Array<{ rowId: string; nodeId: string }>) => string | undefined;
+    onGenerateScriptWithCodex?: (nodeId: string, prompt: string) => void;
 };
 
 const NODE_STATUS_IDLE = "idle" as const;
@@ -57,6 +58,7 @@ export function useCanvasStoryboard({
     setConnections,
     setSelectedNodeIds,
     enqueueGenerationBatch,
+    onGenerateScriptWithCodex,
 }: UseCanvasStoryboardOptions) {
     const { message, modal } = App.useApp();
     const effectiveConfig = useEffectiveConfig();
@@ -118,6 +120,16 @@ export function useCanvasStoryboard({
     const generateScriptRows = useCallback(async (nodeId: string, prompt: string) => {
         const scriptNode = nodesRef.current.find((node) => node.id === nodeId && node.type === CanvasNodeType.Script);
         if (!scriptNode || !prompt.trim()) return;
+        if (scriptNode.metadata?.storyboardTextChannel === "codex") {
+            try {
+                if (!onGenerateScriptWithCodex) throw new Error("此页面尚未连接 Codex 分镜入口，未改用 API");
+                onGenerateScriptWithCodex(nodeId, prompt);
+                return true;
+            } catch (error) {
+                message.warning(error instanceof Error ? error.message : "Codex 分镜任务未发送");
+                return false;
+            }
+        }
         let storyboardContext: ReturnType<typeof resolveStoryboardGenerationContext>;
         try {
             storyboardContext = resolveStoryboardGenerationContext(nodesRef.current);
@@ -184,7 +196,7 @@ export function useCanvasStoryboard({
             message.error(details);
             return false;
         }
-    }, [connectionsRef, effectiveConfig, isAiConfigReady, message, nodesRef, projectId, setNodes]);
+    }, [connectionsRef, effectiveConfig, isAiConfigReady, message, nodesRef, onGenerateScriptWithCodex, projectId, setNodes]);
 
     const ensureScriptImageNodes = useCallback((nodeId: string, rowIds: string[]) => {
         const scriptNode = nodesRef.current.find((node) => node.id === nodeId && node.type === CanvasNodeType.Script);

@@ -11,6 +11,10 @@ import { createClientId } from "@/lib/client-id";
 import { getLocalRuntimeSessionClient, useLocalRuntimeStore } from "@/stores/use-local-runtime-store";
 import { LocalRuntimeSessionClient } from "@/services/local-runtime-session";
 import { issueRuntimeAccountProof } from "@/services/api/auth";
+import { getRemoteCanvasProject } from "@/services/api/user-data";
+import { getProjectShotBatch, getProjectShotContext } from "@/services/api/projects";
+import { saveRemoteUserDataNow } from "@/services/user-data-sync";
+import { assertStoryboardButtonScope, assertStoryboardButtonUnchanged, storyboardActionBusy, storyboardButtonPrompt, verifyStoryboardButtonResult, type StoryboardButtonAction } from "@/film/agent/storyboard-button-action";
 import { RuntimeAccountClient } from "@/film/agent/runtime-account-client";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { useUserStore } from "@/stores/use-user-store";
@@ -19,6 +23,8 @@ import {
     canvasAgentConnectionStartingPatch,
     canvasAgentTransientDisconnectPatch,
     useCanvasAgentStore,
+    claimStoryboardButtonAction,
+    patchStoryboardButtonAction,
     type AgentAttachment,
     type AgentChatItem,
     type AgentEventLog,
@@ -150,6 +156,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
         latestPlan,
         latestModelReceipt,
         codexModel,
+        storyboardAction,
         eventLogs,
         threads,
         activeThreadId,
@@ -171,6 +178,8 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
     const activeTurnRef = useRef(activeTurn);
     const executionEpochRef = useRef(0);
     const unacknowledgedTurnRef = useRef<string | null>(null);
+    const sendInFlightRef = useRef(false);
+    const buttonHistoryScopeRef = useRef("");
     const [executionKnown, setExecutionKnown] = useState(false);
     const setActiveTurn = useCallback((turn: typeof activeTurn) => { activeTurnRef.current = turn; updateActiveTurn(turn); }, []);
     const sessionScopeKey = JSON.stringify([user?.id, brainProfileId, snapshot.contextKind || "canvas", snapshot.projectId, snapshot.domainProjectId, snapshot.contentUnitId, agentWorkspaceId(snapshot)]);
@@ -298,6 +307,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
         const projectId = snapshotRef.current.projectId;
         const workspaceId = agentWorkspaceId(snapshotRef.current);
         if ((!connectedRef.current && !useCanvasAgentStore.getState().connected) || (!projectId && !workspaceId)) return;
+        buttonHistoryScopeRef.current = "";
         setAgentState({ loadingThreads: true });
         try {
             if (genericRuntime) {
@@ -307,6 +317,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
                 const sessions = data.sessions.filter((item) => item.status !== "closed" && matchesAgentSessionScope(item, scope, brainProfileId));
                 const current = useCanvasAgentStore.getState();
                 if (current.activeThreadId !== activeBeforeRequest) return;
+                buttonHistoryScopeRef.current = scopeKey;
                 const activeSessionId = sessions.some((item) => item.id === current.activeThreadId) ? current.activeThreadId : sessions[0]?.id || "";
                 setAgentState({
                     threads: sessions.map(brainSessionThread),
@@ -522,6 +533,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
         if (!genericRuntime) return;
         const previous = useCanvasAgentStore.getState();
         if (previous.sessionScopeKey === sessionScopeKey) return;
+        buttonHistoryScopeRef.current = "";
         pendingToolRef.current = null;
         executionEpochRef.current++;
         unacknowledgedTurnRef.current = null;
@@ -530,7 +542,8 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
         const userChanged = previous.sessionUserId !== (user?.id ?? null);
         if (userChanged) for (const attachment of previous.attachments) URL.revokeObjectURL(attachment.url);
         setAgentState({ sessionScopeKey, sessionUserId: user?.id ?? null, activeThreadId: "", threads: [], messages: [], latestPlan: null, latestModelReceipt: null, pendingTool: null, sending: false, waiting: false, activity: "就绪",
-            ...(userChanged ? { codexModel: null, prompt: "", attachments: [], eventLogs: [], profileSessions: {}, workspacePath: "", activeTab: "chat" as const } : {}) });
+            ...(userChanged ? { codexModel: null, prompt: "", attachments: [], eventLogs: [], profileSessions: {}, workspacePath: "", activeTab: "chat" as const,
+                ...(previous.storyboardAction?.userId !== user?.id ? { storyboardAction: null } : {}) } : {}) });
     }, [genericRuntime, sessionScopeKey, setAgentState]);
 
     useEffect(() => {
@@ -543,12 +556,43 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
         return () => clearTimeout(timer);
     }, [connected, snapshot, syncState]);
 
-    const sendPrompt = async (overrideText?: string, creation?: ScriptLaunch) => {
+    const currentButtonCanvas = () => {
+        const current = requireAgentProjectSnapshot(snapshotRef.current);
+        return { id: current.projectId, projectId: current.domainProjectId, nodes: current.nodes, connections: current.connections };
+    };
+    const checkStoryboardButtonResult = async (action: StoryboardButtonAction) => {
+        const scope = sessionScopeRef.current;
+        const assertScope = () => {
+            if (sessionScopeRef.current !== scope || useCanvasAgentStore.getState().activeThreadId !== action.sessionId || useCanvasAgentStore.getState().storyboardAction?.id !== action.id) throw new Error("会话已切换，请恢复原会话核对；不会重发");
+            assertStoryboardButtonScope(action, useUserStore.getState().user?.id || "", currentButtonCanvas());
+        };
+        try {
+            assertScope();
+            if (!action.sessionId) throw new Error("任务未取得会话身份，不能确认完成");
+            patchStoryboardButtonAction(action.id, { status: "checking", message: "正在回读原请求与已保存分镜" });
+            const { session } = await agentSessionClient.getSession(action.sessionId);
+            assertScope();
+            if (!matchesAgentSessionScope(session, snapshotRef.current, "codex.subscription") || !session.execution || session.execution.activeTurnId || session.execution.resuming || session.execution.pendingConfirmations.length) throw new Error("原会话仍在执行或执行状态未确认；没有重发任务");
+            const remote = await getRemoteCanvasProject(action.canvasId);
+            assertScope();
+            const business = action.unitId && action.projectId ? {
+                context: await getProjectShotContext(action.projectId, action.unitId),
+                receipt: (await getProjectShotBatch(action.projectId, action.unitId, `shots-${action.id}`)).receipt,
+            } : undefined;
+            assertScope();
+            const result = verifyStoryboardButtonResult(action, useUserStore.getState().user?.id || "", currentButtonCanvas(), remote.project, business);
+            patchStoryboardButtonAction(action.id, { status: "verified", message: `已保存并回读原节点：${result.rowCount} 镜，${result.durationSeconds} 秒` });
+        } catch (error) {
+            patchStoryboardButtonAction(action.id, { status: "needs_review", message: error instanceof Error ? error.message : "分镜结果待核对；不会自动重发" });
+        }
+    };
+
+    const sendPrompt = async (overrideText?: string, creation?: ScriptLaunch, buttonAction?: StoryboardButtonAction) => {
         const text = (overrideText ?? prompt).trim();
-        const files = creation ? [] : attachments;
+        const files = creation || buttonAction ? [] : attachments;
         const mentionedSkills = resolveSkillMentions(text, composerSkills);
         const requestPrompt = promptWithAttachments(text, files);
-        if (!connected || !requestPrompt || sending || waiting || pendingTool || recoveryInFlightRef.current || activeTurnRef.current || (genericRuntime && activeThreadId && !executionKnown)) return;
+        if (sendInFlightRef.current || !connected || !requestPrompt || sending || waiting || pendingTool || recoveryInFlightRef.current || activeTurnRef.current || (genericRuntime && activeThreadId && !executionKnown)) return false;
         if (chatGPTHostProfile && !chatGPTHost.handoffReady) {
             addMessage({ role: "error", title: "ChatGPT Host 未就绪", text: `${chatGPTHost.message}。请打开“ChatGPT 连接”完成当前项目授权后再发送。` });
             return;
@@ -557,13 +601,23 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
             addMessage({ role: "error", title: "图片过大", text: "图片附件超过 30MB，请删减后再发送。" });
             return;
         }
+        sendInFlightRef.current = true;
         setAgentState({ activity: "发送中", sending: true, waiting: true });
         const requestScope = sessionScopeKey;
         let dispatchedTurn: { sessionId: string; turnId: string } | null = null;
-        addMessage({ role: "user", text: text || "发送了图片", attachments: files });
+        addMessage({ role: "user", text: buttonAction ? `生成当前节点的分镜：${buttonAction.prompt}` : text || "发送了图片", attachments: files });
         addEventLog("用户发送", { text, attachments: files.map(({ name, type, size }) => ({ name, type, size })) });
         try {
             if (mentionedSkills.some(skill => !skill.instruction?.trim())) throw new Error("所选技能缺少完整正文，任务未发送；请在技能库补齐，不会用技能简介代替。");
+            if (buttonAction) {
+                if (!genericRuntime || brainProfileId !== "codex.subscription") throw new Error("分镜按钮不使用其他通道，未改用 API");
+                assertStoryboardButtonUnchanged(buttonAction, useUserStore.getState().user?.id || "", currentButtonCanvas());
+                await saveRemoteUserDataNow();
+                const remote = await getRemoteCanvasProject(buttonAction.canvasId);
+                if (sessionScopeRef.current !== requestScope) throw new Error("工作台页面已切换，任务未发送");
+                assertStoryboardButtonUnchanged(buttonAction, useUserStore.getState().user?.id || "", currentButtonCanvas());
+                assertStoryboardButtonUnchanged(buttonAction, useUserStore.getState().user?.id || "", remote.project);
+            }
             if (genericRuntime) {
                 if (!await syncState(clientIdRef.current, snapshotRef.current)) throw new Error("工作台上下文同步失败，未发送任务");
                 if (sessionScopeRef.current !== requestScope) return;
@@ -575,12 +629,14 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
                     sessionId = created.session.id;
                     setAgentState({ activeThreadId: sessionId });
                 }
-                const turnId = createId();
+                if (buttonAction) assertStoryboardButtonUnchanged(buttonAction, useUserStore.getState().user?.id || "", currentButtonCanvas());
+                const turnId = buttonAction ? `storyboard-${buttonAction.id}` : createId();
                 executionEpochRef.current++;
                 unacknowledgedTurnRef.current = turnId;
                 dispatchedTurn = { sessionId, turnId };
                 setAgentState({ latestPlan: null, latestModelReceipt: null });
                 setActiveTurn({ sessionId, turnId });
+                if (buttonAction) patchStoryboardButtonAction(buttonAction.id, { status: "running", sessionId, message: "Codex 正在处理原分镜；进度与审批见当前会话" });
                 await agentSessionClient.sendTurn(sessionId, {
                     turnId,
                     prompt: requestPrompt,
@@ -606,11 +662,15 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
             }
             if (sessionScopeRef.current !== requestScope || (dispatchedTurn && useCanvasAgentStore.getState().activeThreadId !== dispatchedTurn.sessionId)) return;
             addEventLog("本地 Agent 已接收", { accepted: true });
-            files.forEach((item) => {
-                URL.revokeObjectURL(item.url);
-                attachmentUrlsRef.current.delete(item.url);
-            });
-            setAgentState({ prompt: "", attachments: [] });
+            if (buttonAction && dispatchedTurn) await checkStoryboardButtonResult({ ...buttonAction, sessionId: dispatchedTurn.sessionId });
+            if (!buttonAction) {
+                files.forEach((item) => {
+                    URL.revokeObjectURL(item.url);
+                    attachmentUrlsRef.current.delete(item.url);
+                });
+                setAgentState({ prompt: "", attachments: [] });
+            }
+            return true;
         } catch (error) {
             if (sessionScopeRef.current !== requestScope || (dispatchedTurn && useCanvasAgentStore.getState().activeThreadId !== dispatchedTurn.sessionId)) return;
             const cancelled = error instanceof Error && error.message.toUpperCase().includes("AGENT_TURN_CANCELLED");
@@ -618,6 +678,13 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
             addMessage({ role: cancelled ? "system" : "error", title: cancelled ? "已停止" : "发送失败", text: cancelled ? "本轮已停止，已保存的内容保留。可以先核对章节版本再继续。" : agentFailureText(error) });
             addEventLog(cancelled ? "已停止" : "发送失败", error);
         } finally {
+            sendInFlightRef.current = false;
+            if (buttonAction) {
+                const current = useCanvasAgentStore.getState().storyboardAction;
+                if (current?.id === buttonAction.id && (current.status === "preparing" || current.status === "running")) patchStoryboardButtonAction(buttonAction.id, {
+                    status: dispatchedTurn ? "needs_review" : "not_sent", message: dispatchedTurn ? "发送或连接结果待确认；请核对原结果，不会自动重发" : "分镜任务未发送，原节点与聊天草稿已保留；原因见会话",
+                });
+            }
             if (genericRuntime) {
                 if (sessionScopeRef.current === requestScope && (!dispatchedTurn || useCanvasAgentStore.getState().activeThreadId === dispatchedTurn.sessionId)) {
                     if (unacknowledgedTurnRef.current === dispatchedTurn?.turnId) unacknowledgedTurnRef.current = null;
@@ -634,7 +701,31 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
     };
 
     useEffect(() => {
-        if (!scriptLaunch || !genericRuntime || brainProfileId !== "codex.subscription" || !skillsReady || !connected || sending || waiting || pendingTool || recoveryInFlightRef.current || activeTurnRef.current || launchAttemptedRef.current === scriptLaunch.id) return;
+        if (!storyboardAction || storyboardAction.status !== "queued") return;
+        const timer = setTimeout(() => {
+            if (useCanvasAgentStore.getState().storyboardAction?.status === "queued") patchStoryboardButtonAction(storyboardAction.id, { status: "not_sent", message: "连接未及时就绪，任务未发送；不会在稍后登录时自动重发" });
+        }, Math.max(0, storyboardAction.createdAt + 45_000 - Date.now()));
+        return () => clearTimeout(timer);
+    }, [storyboardAction?.id, storyboardAction?.status]);
+
+    useEffect(() => {
+        if (!storyboardAction || storyboardAction.status !== "queued" || !genericRuntime || brainProfileId !== "codex.subscription") return;
+        try {
+            assertStoryboardButtonUnchanged(storyboardAction, user?.id || "", currentButtonCanvas());
+            if (!enabled || Date.now() - storyboardAction.createdAt >= 45_000) throw new Error("已停用 Codex 或连接等待到期，任务未发送");
+        } catch (error) {
+            patchStoryboardButtonAction(storyboardAction.id, { status: "not_sent", message: error instanceof Error ? error.message : "分镜目标改变，任务未发送" });
+            return;
+        }
+        if (!skillsReady || !connected || loadingThreads || buttonHistoryScopeRef.current !== sessionScopeKey || (!executionKnown && !!activeThreadId) || sending || waiting || pendingTool || activeTurnRef.current || recoveryInFlightRef.current) return;
+        if (!claimStoryboardButtonAction(storyboardAction.id)) return;
+        void sendPrompt(storyboardButtonPrompt(storyboardAction), undefined, storyboardAction).then(sent => {
+            if (sent === false) patchStoryboardButtonAction(storyboardAction.id, { status: "not_sent", message: "当前会话忙碌，分镜任务未发送" });
+        });
+    }, [storyboardAction, genericRuntime, brainProfileId, user?.id, sessionScopeKey, enabled, connected, skillsReady, loadingThreads, executionKnown, activeThreadId, sending, waiting, pendingTool]);
+
+    useEffect(() => {
+        if (!scriptLaunch || !genericRuntime || brainProfileId !== "codex.subscription" || !skillsReady || !connected || sending || waiting || pendingTool || storyboardActionBusy(useCanvasAgentStore.getState().storyboardAction) || sendInFlightRef.current || recoveryInFlightRef.current || activeTurnRef.current || launchAttemptedRef.current === scriptLaunch.id) return;
         if (!snapshot.projectId || !matchesScriptLaunch(scriptLaunch, user?.id || "", snapshot.projectId, snapshot.domainProjectId || "")) return;
         launchAttemptedRef.current = scriptLaunch.id;
         if (scriptLaunch.claimed || activeThreadId) {
@@ -650,7 +741,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
         void claimScriptLaunch(scriptLaunch).then(claimed => {
             if (claimed && sessionScopeRef.current === scope) return sendPrompt(scriptLaunch.prompt, scriptLaunch);
         }).catch(error => addMessage({ role: "error", title: "未自动发送", text: error instanceof Error ? error.message : "请检查原会话，勿重复创建项目" }));
-    }, [scriptLaunch, genericRuntime, brainProfileId, skillsReady, connected, sending, waiting, pendingTool, recoveringSession, activeThreadId, composerSkills, sessionScopeKey, user?.id, snapshot.projectId, snapshot.domainProjectId]);
+    }, [scriptLaunch, genericRuntime, brainProfileId, skillsReady, connected, sending, waiting, pendingTool, storyboardAction, recoveringSession, activeThreadId, composerSkills, sessionScopeKey, user?.id, snapshot.projectId, snapshot.domainProjectId]);
 
     const addAttachments = async (files: FileList | File[] | null) => {
         if (!files) return;
@@ -1194,6 +1285,13 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
             {genericRuntime && enabled && connected && brainProfileId === "codex.subscription" ? <CodexModelPicker key={sessionScopeKey} client={agentSessionClient}
                 value={codexModel} onChange={codexModel => setAgentState({ codexModel })} receipt={latestModelReceipt}
                 disabled={sending || waiting || Boolean(pendingTool) || Boolean(activeTurn) || executionUncertain || recoveringSession || accountBusy} /> : null}
+
+            {genericRuntime && brainProfileId === "codex.subscription" && storyboardAction && storyboardAction.userId === user?.id && storyboardAction.canvasId === snapshot.projectId ? (
+                <div className="shrink-0 space-y-1 px-4 py-2 text-xs" role="status" style={{ color: theme.node.text }}>
+                    <p>分镜按钮：{storyboardAction.message}</p>
+                    {storyboardAction.status === "needs_review" ? <Button size="small" disabled={!connected || sending || waiting || Boolean(pendingTool)} onClick={() => void checkStoryboardButtonResult(storyboardAction)}>核对原结果（不重发）</Button> : null}
+                </div>
+            ) : null}
 
             {activeTab === "history" ? (
                 <AgentHistoryView

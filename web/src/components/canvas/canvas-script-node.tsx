@@ -9,6 +9,8 @@ import { CanvasPromptEditor } from "@/components/canvas/canvas-prompt-editor";
 import { AIMessageMarkdown } from "@/components/ai/ai-message-markdown";
 import { documentTextFromHtml } from "@/lib/document-text";
 import { useCanvasStore } from "@/stores/canvas/use-canvas-store";
+import { useCanvasAgentStore } from "@/stores/canvas/use-canvas-agent-store";
+import { storyboardActionBusy } from "@/film/agent/storyboard-button-action";
 import type { CanvasPromptKind } from "@/services/api/canvas-prompts";
 import { StoryboardAssetsCell } from "@/components/canvas/storyboard-assets-cell";
 import { ModelPicker } from "@/components/model-picker";
@@ -118,6 +120,7 @@ export function CanvasScriptNodeContent({
     onPromptChange,
     onGenerateScript,
     onModelChange,
+    onTextChannelChange,
     onShotDurationChange,
     onShotCountChange,
     onComposerHeightChange,
@@ -149,6 +152,7 @@ export function CanvasScriptNodeContent({
     onPromptChange: (prompt: string) => void;
     onGenerateScript: (prompt: string) => void;
     onModelChange: (model: string) => void;
+    onTextChannelChange?: (channel: "api" | "codex") => void;
     onShotDurationChange: (duration: StoryboardShotDuration) => void;
     onShotCountChange: (count: StoryboardShotCount) => void;
     onComposerHeightChange: (height: number) => void;
@@ -160,9 +164,12 @@ export function CanvasScriptNodeContent({
     const effectiveConfig = useEffectiveConfig();
     const generationConfig = buildGenerationConfig(effectiveConfig, node, "text");
     const simpleMode = workspaceMode === "simple";
+    const textChannel = node.metadata?.storyboardTextChannel || "api";
+    const buttonAction = useCanvasAgentStore(state => state.storyboardAction && state.storyboardAction.canvasId === canvasId && state.storyboardAction.nodeId === node.id ? state.storyboardAction : null);
+    const generating = node.metadata?.status === "loading" || storyboardActionBusy(buttonAction);
     const rows = node.metadata?.storyboard?.rows || [];
-    const hasBusinessShots = rows.some(row => row.projectShotSource);
-    const contentColumnLabel = hasBusinessShots ? (rows.every(row => row.projectShotSource) ? "画面描述" : "画面描述 / 视频提示词") : "视频提示词";
+    const showsDescription = (row: StoryboardRow) => !!row.projectShotSource || !!row.plotDescription?.trim() || textChannel === "codex";
+    const contentColumnLabel = rows.some(showsDescription) ? (rows.every(showsDescription) ? "画面描述" : "画面描述 / 视频提示词") : "视频提示词";
     const [promptTarget, setPromptTarget] = useState<{ rowId: string; kind: CanvasPromptKind }>();
     const domainProjectId = useCanvasStore(state => state.projects.find(project => project.id === canvasId)?.projectId);
     const promptRow = rows.find(row => row.id === promptTarget?.rowId);
@@ -247,7 +254,7 @@ export function CanvasScriptNodeContent({
     ];
     const submitPrompt = () => {
         const value = prompt.trim();
-        if (value && node.metadata?.status !== "loading") onGenerateScript(value);
+        if (value && !generating) onGenerateScript(value);
     };
     useLayoutEffect(() => {
         composerHeightChangeRef.current = onComposerHeightChange;
@@ -375,7 +382,7 @@ export function CanvasScriptNodeContent({
                                 ) : null}
                             </div>
                             <CompactDurationInput value={row.durationSeconds} borderColor={theme.node.stroke} onChange={(durationSeconds) => onUpdateRow(row.id, { durationSeconds })} />
-                            {row.projectShotSource ? <CompactInput value={row.plotDescription} placeholder="填写画面描述" ariaLabel={`第 ${row.shotNumber} 镜画面描述`} onChange={plotDescription => onUpdateRow(row.id, { plotDescription })} borderColor={theme.node.stroke} /> : row.promptDrafts ? <StoryboardPromptPreview row={row} kind="video" onOpen={() => setPromptTarget({ rowId: row.id, kind: "video" })} disabled={!canvasId || !domainProjectId} borderColor={theme.node.stroke} /> : <CompactInput value={row.videoMotionPrompt} placeholder="描述视频运动、镜头和动作" ariaLabel={`第 ${row.shotNumber} 镜视频提示词`} onChange={videoMotionPrompt => onUpdateRow(row.id, { videoMotionPrompt })} borderColor={theme.node.stroke} />}
+                            {showsDescription(row) ? <CompactInput value={row.plotDescription} placeholder="填写画面描述" ariaLabel={`第 ${row.shotNumber} 镜画面描述`} onChange={plotDescription => onUpdateRow(row.id, { plotDescription })} borderColor={theme.node.stroke} /> : row.promptDrafts ? <StoryboardPromptPreview row={row} kind="video" onOpen={() => setPromptTarget({ rowId: row.id, kind: "video" })} disabled={!canvasId || !domainProjectId} borderColor={theme.node.stroke} /> : <CompactInput value={row.videoMotionPrompt} placeholder="描述视频运动、镜头和动作" ariaLabel={`第 ${row.shotNumber} 镜视频提示词`} onChange={videoMotionPrompt => onUpdateRow(row.id, { videoMotionPrompt })} borderColor={theme.node.stroke} />}
                             <CompactInput value={row.dialogue} placeholder="台词或旁白" ariaLabel={`第 ${row.shotNumber} 镜台词或旁白`} onChange={dialogue => onUpdateRow(row.id, { dialogue })} borderColor={theme.node.stroke} />
                             <div className="flex h-full min-w-0 items-center px-3">
                                 <StoryboardAssetsCell bindings={row.assetBindings || []} nodes={nodes} />
@@ -441,7 +448,10 @@ export function CanvasScriptNodeContent({
                     onPointerDown={(event) => event.stopPropagation()}
                     onWheel={(event) => event.stopPropagation()}
                 />
-                <div className="flex min-w-0 items-center justify-end gap-2" onMouseDown={(event) => event.stopPropagation()} onPointerDown={(event) => event.stopPropagation()}>
+                <div className="flex min-w-0 flex-wrap items-center justify-end gap-2" onMouseDown={(event) => event.stopPropagation()} onPointerDown={(event) => event.stopPropagation()}>
+                    {onTextChannelChange ? <Select aria-label="分镜生成通道" size="small" value={textChannel} disabled={generating}
+                        options={[{ value: "api", label: "API" }, { value: "codex", label: "Codex 订阅" }]} onChange={onTextChannelChange} popupMatchSelectWidth={false} /> : null}
+                    {textChannel === "codex" ? <span className="mr-auto min-w-0 flex-1 text-xs" style={{ color: theme.node.muted }}>在 Agent 中沿用模型与强度 · 不使用 API</span> : (
                     <Tooltip title="脚本生成需要文本理解与结构化输出能力，仅展示文本模型；视频/图片模型无法生成分镜表" placement="topLeft">
                         <div className="mr-auto min-w-36 max-w-56 flex-1">
                             <ModelPicker
@@ -457,6 +467,7 @@ export function CanvasScriptNodeContent({
                             />
                         </div>
                     </Tooltip>
+                    )}
                     {simpleMode ? (
                         <span className="text-[var(--fs-label)]" style={{ color: theme.node.muted }}>
                             自动拆分 · 时长自动
@@ -466,7 +477,7 @@ export function CanvasScriptNodeContent({
                             className="min-w-24"
                             size="small"
                             value={shotCount}
-                            disabled={node.metadata?.status === "loading"}
+                            disabled={generating}
                             options={[{ value: "auto", label: "自动拆分" }, ...Array.from({ length: 10 }, (_, index) => ({ value: String(index + 1) as StoryboardShotCount, label: `${index + 1} 镜` }))]}
                             popupMatchSelectWidth={false}
                             onChange={onShotCountChange}
@@ -477,7 +488,7 @@ export function CanvasScriptNodeContent({
                             className="min-w-24"
                             size="small"
                             value={shotDuration}
-                            disabled={node.metadata?.status === "loading"}
+                            disabled={generating}
                             options={[
                                 { value: "auto", label: "时长自动" },
                                 { value: "5", label: "5 秒" },
@@ -492,8 +503,9 @@ export function CanvasScriptNodeContent({
                     <Button
                         shape="circle"
                         icon={<Send className="size-4" />}
-                        disabled={!prompt.trim() || node.metadata?.status === "loading"}
-                        loading={node.metadata?.status === "loading"}
+                        aria-label={textChannel === "codex" ? "Codex 生成分镜" : "API 生成分镜"}
+                        disabled={!prompt.trim() || generating}
+                        loading={generating && buttonAction?.status !== "needs_review"}
                         style={{ background: theme.toolbar.itemHover, borderColor: theme.node.stroke, color: theme.node.text }}
                         onMouseDown={(event) => event.stopPropagation()}
                         onClick={submitPrompt}

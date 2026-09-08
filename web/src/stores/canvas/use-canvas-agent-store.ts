@@ -4,6 +4,7 @@ import type { CanvasAgentOp } from "@/lib/canvas/canvas-agent-ops";
 import type { CanvasAssistantSession } from "@/types/canvas";
 import type { AgentTurnPlan } from "@/film/agent/agent-client";
 import type { CodexModelReceipt, CodexModelSelection } from "../../../../packages/filmos-agent-contracts/src/codex-models";
+import { storyboardActionBusy, type StoryboardButtonAction } from "@/film/agent/storyboard-button-action";
 
 export type AgentChatRole = "user" | "assistant" | "system" | "tool" | "error";
 export type AgentAttachment = { id: string; name: string; type: string; size: number; url: string; dataUrl: string };
@@ -45,6 +46,7 @@ type CanvasAgentStore = {
     latestPlan: AgentTurnPlan | null;
     latestModelReceipt: CodexModelReceipt | null;
     codexModel: CodexModelSelection | null;
+    storyboardAction: StoryboardButtonAction | null;
     workspacePath: string;
     loadingThreads: boolean;
     activeTab: AgentPanelTab;
@@ -117,6 +119,7 @@ export const useCanvasAgentStore = create<CanvasAgentStore>((set) => ({
     latestPlan: null,
     latestModelReceipt: null,
     codexModel: null,
+    storyboardAction: null,
     workspacePath: "",
     loadingThreads: false,
     activeTab: "chat",
@@ -134,3 +137,22 @@ export const useCanvasAgentStore = create<CanvasAgentStore>((set) => ({
     addEventLog: (item) => set((state) => ({ eventLogs: [...state.eventLogs.slice(-160), item] })),
     clearEventLogs: () => set({ eventLogs: [] }),
 }));
+
+// One ephemeral UI intent. BrainSession remains the only execution authority.
+export function queueStoryboardButtonAction(action: StoryboardButtonAction) {
+    const current = useCanvasAgentStore.getState();
+    if (current.sending || current.waiting || current.pendingTool || storyboardActionBusy(current.storyboardAction)) throw new Error("已有任务执行中或结果待核对；未重复发送分镜任务");
+    current.setAgentState({ storyboardAction: action, enabled: true, activeTab: "chat" });
+}
+
+export function patchStoryboardButtonAction(id: string, patch: Partial<Pick<StoryboardButtonAction, "status" | "sessionId" | "message">>) {
+    const current = useCanvasAgentStore.getState();
+    if (current.storyboardAction?.id !== id) return false;
+    current.setAgentState({ storyboardAction: { ...current.storyboardAction, ...patch } });
+    return true;
+}
+
+export function claimStoryboardButtonAction(id: string) {
+    if (useCanvasAgentStore.getState().storyboardAction?.status !== "queued") return false;
+    return patchStoryboardButtonAction(id, { status: "preparing", message: "正在核对原节点与保存状态" });
+}

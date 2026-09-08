@@ -381,6 +381,7 @@ export type CanvasNodeMetadata = {
     storyboard?: StoryboardData;
     storyboardShotDuration?: StoryboardShotDuration;
     storyboardShotCount?: StoryboardShotCount;
+    storyboardTextChannel?: "api" | "codex";
     storyboardVideoInputMode?: StoryboardVideoInputMode;
     storyboardComposerHeight?: number;
     generationBatches?: CanvasGenerationBatch[];

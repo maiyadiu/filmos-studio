@@ -56,3 +56,12 @@ test("a missing business description is explicit, not replaced with a different 
     expect(html).toContain("填写画面描述");
     expect(html).not.toContain(row.videoMotionPrompt);
 });
+
+test("unbound generated rows show their actual shot content, not an empty media prompt", () => {
+    const row = createStoryboardRow(1, { plotDescription: "女孩推门，停下回应。", dialogue: "女孩：我在这里。" });
+    const html = renderSummary([row]);
+    expect(html).toContain('aria-label="第 1 镜画面描述"');
+    expect(html).toContain(row.plotDescription);
+    expect(html).toContain(row.dialogue);
+    expect(html).toContain('aria-label="第 1 镜输出连接点"');
+});

@@ -3,6 +3,8 @@ import type { MouseEvent as ReactMouseEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams, useSearchParams } from "react-router";
 import { readScriptLaunch, type ScriptLaunch } from "@/services/script-creation-launch";
+import { createStoryboardButtonAction } from "@/film/agent/storyboard-button-action";
+import { queueStoryboardButtonAction } from "@/stores/canvas/use-canvas-agent-store";
 import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import { uploadMediaFile } from "@/services/file-storage";
 import { readLocalRuntimeBootstrapState } from "@/services/local-runtime-bootstrap";
@@ -1631,6 +1633,13 @@ function InfiniteCanvasPage() {
             setConnections,
             setSelectedNodeIds,
             enqueueGenerationBatch,
+            onGenerateScriptWithCodex: (nodeId, prompt) => {
+                const action = createStoryboardButtonAction({ id: crypto.randomUUID(), userId: scriptLaunchUserId || "", nodeId, prompt,
+                    canvas: { id: projectId, projectId: currentProject?.projectId, nodes: nodesRef.current, connections: connectionsRef.current } });
+                queueStoryboardButtonAction(action);
+                setSelectedNodeIds(new Set([nodeId]));
+                openAgent("codex.subscription");
+            },
         });
 
     const handleRetryNode = useCanvasGenerationRetry({
@@ -1801,6 +1810,7 @@ function InfiniteCanvasPage() {
                         onPromptChange={(composerContent) => handleConfigNodeChange(contentNode.id, { composerContent })}
                         onGenerateScript={(prompt) => void generateScriptRows(contentNode.id, prompt)}
                         onModelChange={(model) => handleConfigNodeChange(contentNode.id, { model })}
+                        onTextChannelChange={(storyboardTextChannel) => handleConfigNodeChange(contentNode.id, { storyboardTextChannel })}
                         onShotDurationChange={(duration: StoryboardShotDuration) => handleConfigNodeChange(contentNode.id, { storyboardShotDuration: duration })}
                         onShotCountChange={(count: StoryboardShotCount) => handleConfigNodeChange(contentNode.id, { storyboardShotCount: count })}
                         workspaceMode={workspaceMode}
