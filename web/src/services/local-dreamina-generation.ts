@@ -1,4 +1,5 @@
 import type { LocalRuntimeTransport } from "@/services/local-runtime";
+import { DREAMINA_SUBMIT_ERROR_MESSAGES } from "@/lib/generation-error";
 import { LocalRuntimeClientError, type LocalRuntimeConnection } from "@/services/local-runtime-session";
 import { getLocalRuntimeSessionClient } from "@/stores/use-local-runtime-store";
 import type { GenerationTaskEffectClaim, GenerationTaskEffectResult, GenerationTaskEffectStore } from "@/services/generation-task-materializer";
@@ -784,7 +785,8 @@ function runtimeError(status: number, value: unknown) {
     const source = record(value);
     const code = typeof source?.code === "string" ? source.code : "local_generation_request_failed";
     const allowed = /^(?:local_generation|dreamina)_[a-z0-9_]{2,80}$/.test(code);
-    throw new LocalDreaminaGenerationClientError(allowed ? code : "local_generation_request_failed", "本机即梦生成请求失败", status || 502);
+    const detail = DREAMINA_SUBMIT_ERROR_MESSAGES[code] || (status === 401 ? "本机生成会话已失效；需恢复连接后核对原任务，本次不会自动重发。" : status === 403 ? "本机生成请求被权限或运行策略拒绝；请核对连接及生成权限，本次不会自动重发。" : "本机即梦生成请求失败");
+    throw new LocalDreaminaGenerationClientError(allowed ? code : "local_generation_request_failed", allowed ? `${detail}（${code}）` : detail, status || 502);
 }
 
 function bytesToBase64(bytes: Uint8Array) {

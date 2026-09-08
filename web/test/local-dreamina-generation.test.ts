@@ -447,6 +447,17 @@ test("Dreamina generation never replays a paid POST after a 401 or 403 session f
     }
 });
 
+test("paid-submit policy denial is preserved and never retried or presented as a prompt/model error", async () => {
+    let requests = 0;
+    const promise = runLocalDreaminaGenerationTask(videoInput(), { client: {
+        connect: async () => connectedFixture(),
+        request: async () => { requests += 1; return jsonResponse(403, { ok: false, code: "dreamina_external_paid_submit_disabled", message: "raw-private-provider-detail" }); },
+    }, idempotencyKey: () => "policy-block-fixture-0001" });
+    await expect(promise).rejects.toMatchObject({ status: 403, code: "dreamina_external_paid_submit_disabled" });
+    await expect(promise).rejects.toThrow("尚未开放外部生成");
+    expect(requests).toBe(1);
+});
+
 test("Dreamina query-only recovery reconnects once after an expired session without replaying generate", async () => {
     let connects = 0;
     let queries = 0;
@@ -537,7 +548,9 @@ test("Dreamina generation cancellation during signed session preflight prevents 
 });
 
 test("Dreamina generation cancellation during the paid POST propagates without retry", async () => {
-    const runtime = signedRuntimeFixture({ blockGenerateUntilAbort: true });
+    let reachedGenerate!: () => void;
+    const generateStarted = new Promise<void>(resolve => { reachedGenerate = resolve; });
+    const runtime = signedRuntimeFixture({ blockGenerateUntilAbort: true, onGenerate: reachedGenerate });
     const client = new LocalRuntimeSessionClient({
         origin: trustedOrigin,
         keyStore: memoryKeyStore(),
@@ -556,7 +569,7 @@ test("Dreamina generation cancellation during the paid POST propagates without r
         },
         controller.signal,
     );
-    await Promise.resolve();
+    await generateStarted;
     controller.abort();
 
     await expect(pending).rejects.toMatchObject({ code: "dreamina_submission_unknown" });
@@ -696,7 +709,7 @@ function memoryKeyStore(): RuntimeBrowserKeyStore & { record?: RuntimeBrowserKey
     };
 }
 
-function signedRuntimeFixture(options: { blockInfoUntilAbort?: boolean; blockGenerateUntilAbort?: boolean } = {}) {
+function signedRuntimeFixture(options: { blockInfoUntilAbort?: boolean; blockGenerateUntilAbort?: boolean; onGenerate?: () => void } = {}) {
     const requests: Array<{ url: string; path: string; method: string }> = [];
     const fixture = {
         now: Date.parse("2026-08-11T00:00:00.000Z"),
@@ -736,6 +749,7 @@ function signedRuntimeFixture(options: { blockInfoUntilAbort?: boolean; blockGen
                     expiresAt: new Date(fixture.now + 10 * 60_000).toISOString(),
                 });
             }
+            if (path === "/dreamina/generate") options.onGenerate?.();
             if (path === "/dreamina/generate" && options.blockGenerateUntilAbort) return await rejectOnAbort(init.signal);
             if (path === "/dreamina/generate") {
                 return jsonResponse(200, taskEnvelope("seedance-session-preflight-0001", "running"));

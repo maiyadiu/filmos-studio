@@ -98,25 +98,17 @@ function ImageSettingsPortal({
     showCount: boolean;
     onConfigChange: (key: keyof AiConfig, value: string) => void;
 }) {
-    const gap = 8;
-    const margin = 12;
-    const width = Math.min(420, window.innerWidth - margin * 2);
-    const alignRight = placement?.endsWith("Right");
-    const alignCenter = placement === "top" || placement === "bottom";
-    const left = alignCenter ? buttonRect.left + buttonRect.width / 2 - width / 2 : alignRight ? buttonRect.right - width : buttonRect.left;
-    const topPlacement = placement?.startsWith("top");
     const style = {
         position: "fixed",
         zIndex: "var(--z-dialog-popover)",
-        width,
-        left: Math.max(margin, Math.min(window.innerWidth - width - margin, left)),
-        ...(topPlacement ? { bottom: window.innerHeight - buttonRect.top + gap, maxHeight: Math.max(260, buttonRect.top - margin * 2) } : { top: buttonRect.bottom + gap, maxHeight: Math.max(260, window.innerHeight - buttonRect.bottom - margin * 2) }),
+        ...imageSettingsPopoverLayout(buttonRect, { width: window.innerWidth, height: window.innerHeight }, placement),
         background: theme.canvas.background,
         border: `1px solid ${theme.toolbar.border}`,
         borderRadius: 10,
         boxShadow: `0 24px 72px ${theme.spatial.shadow}`,
         padding: 12,
         overflowY: "auto",
+        overscrollBehavior: "contain",
         color: theme.node.text,
     } as const;
 
@@ -133,4 +125,16 @@ function ImageSettingsPortal({
         </div>,
         document.body,
     );
+}
+
+export function imageSettingsPopoverLayout(anchor: Pick<DOMRect, "top" | "bottom" | "left" | "right" | "width">, viewport: { width: number; height: number }, placement: CanvasImageSettingsPopoverProps["placement"] = "topLeft") {
+    const gap = 8, margin = 12;
+    const width = Math.max(0, Math.min(420, viewport.width - margin * 2));
+    const left = placement.endsWith("Right") ? anchor.right - width : placement === "top" || placement === "bottom" ? anchor.left + anchor.width / 2 - width / 2 : anchor.left;
+    const topEdge = Math.min(viewport.height - margin, Math.max(margin, anchor.top - gap));
+    const bottomEdge = Math.max(margin, Math.min(viewport.height - margin, anchor.bottom + gap));
+    const above = Math.max(0, topEdge - margin), below = Math.max(0, viewport.height - margin - bottomEdge);
+    const prefersTop = placement.startsWith("top");
+    const useTop = prefersTop ? above >= Math.min(260, below) : below < Math.min(260, above);
+    return { width, left: Math.max(margin, Math.min(viewport.width - width - margin, left)), ...(useTop ? { bottom: viewport.height - topEdge, maxHeight: above } : { top: bottomEdge, maxHeight: below }) };
 }

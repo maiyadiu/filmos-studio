@@ -13,7 +13,10 @@ export type GenerationFailureMetadata = {
 
 export function generationFailureMetadata(error: unknown, prompt: string): GenerationFailureMetadata {
     const raw = rawGenerationError(error);
-    if (!isContentModerationError(raw)) return { errorDetails: generationErrorMessage(error) };
+    if (!isContentModerationError(raw)) {
+        const code = generationErrorCode(error);
+        return { errorDetails: generationErrorMessage(error), ...(code ? { generationErrorCode: code } : {}) };
+    }
     return {
         errorDetails: CONTENT_MODERATION_MESSAGE,
         generationErrorCode: CONTENT_MODERATION_ERROR_CODE,
@@ -44,6 +47,9 @@ export function generationErrorMessage(error: unknown) {
 }
 
 export const DREAMINA_SUBMIT_ERROR_MESSAGES: Record<string, string> = {
+    dreamina_external_paid_submit_disabled: "当前源码工作台尚未开放外部生成提交，已在调用即梦前阻止本次请求；不是模型或提示词错误，请勿反复重试。",
+    dreamina_login_required: "即梦 CLI 登录态已失效；请在即梦连接设置中恢复登录，再核对原任务，不要重复提交。",
+    dreamina_request_invalid: "即梦请求参数未通过校验，请检查模型、比例、分辨率及参考素材。",
     dreamina_submit_spawn_failed: "无法启动官方即梦 CLI，任务尚未提交。",
     dreamina_submit_exit_nonzero: "官方即梦 CLI 未接受本次提交，任务没有自动重试。",
     dreamina_submit_timeout: "等待官方即梦 CLI 确认提交超时，为避免重复扣费，任务没有自动重试。",

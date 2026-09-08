@@ -100,7 +100,7 @@ export function ImageSettingsPanel({ config, onConfigChange, theme, showTitle = 
         <ImageSettingsTheme theme={theme}>
             <div
                 className={className}
-                style={{ color: theme.node.text }}
+                style={{ color: theme.node.text, fontSize: "var(--fs-caption)", lineHeight: 1.5 }}
                 onMouseDown={(event) => {
                     event.stopPropagation();
                     if (event.target instanceof HTMLInputElement) return;
@@ -121,7 +121,7 @@ export function ImageSettingsPanel({ config, onConfigChange, theme, showTitle = 
                 {profile.transparentBackground.supported ? <div className="flex items-center justify-between gap-3">
                     <div className="min-w-0">
                         <SettingTitle color={theme.node.muted}>透明背景</SettingTitle>
-                        <div className="mt-1 text-[var(--fs-label)]" style={{ color: theme.node.muted }}>
+                        <div className="mt-1" style={{ color: theme.node.muted, fontSize: "var(--fs-caption)", lineHeight: 1.5 }}>
                             请求模型输出保留 Alpha 通道的 PNG
                         </div>
                     </div>
@@ -163,18 +163,19 @@ export function ImageSettingsPanel({ config, onConfigChange, theme, showTitle = 
                 </div> : null}
                 {availableAspects.length ? <div className="space-y-2">
                     <SettingTitle color={theme.node.muted}>尺寸或比例</SettingTitle>
-                    <div className="grid grid-cols-4 gap-1.5 min-[380px]:grid-cols-5">
+                    <div className="grid gap-1.5" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(min(88px, 100%), 1fr))" }}>
                         {availableAspects.map((item) => (
                             <button
                                 key={item.value}
                                 type="button"
-                                className="flex h-[52px] cursor-pointer flex-col items-center justify-center gap-0.5 rounded-lg bg-transparent text-[var(--fs-label)] transition-colors hover:brightness-110 focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1"
-                                style={{ background: selectedAspect?.value === item.value ? theme.toolbar.activeBg : "transparent", color: theme.node.text, outlineColor: theme.node.muted }}
+                                className="flex min-h-[60px] min-w-0 cursor-pointer flex-col items-center justify-center gap-1 rounded-lg bg-transparent px-1 py-2 transition-colors hover:brightness-110 focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1"
+                                style={{ background: selectedAspect?.value === item.value ? theme.toolbar.activeBg : "transparent", color: theme.node.text, outlineColor: theme.node.muted, fontSize: "var(--fs-caption)", lineHeight: 1.4 }}
+                                aria-pressed={selectedAspect?.value === item.value}
                                 onMouseDown={(event) => event.stopPropagation()}
                                 onClick={() => selectAspect(item.value)}
                             >
                                 <AspectIcon type={item.icon} width={item.width} height={item.height} color={theme.node.text} />
-                                <span className="whitespace-nowrap">{item.label}</span>
+                                <span className="max-w-full text-center [overflow-wrap:anywhere]">{item.label}</span>
                             </button>
                         ))}
                     </div>
@@ -283,6 +284,7 @@ function OptionPill({ selected, disabled = false, theme, onClick, children }: { 
             type="button"
 			className="h-8 cursor-pointer rounded-full px-2 text-xs transition-colors hover:brightness-110 focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 disabled:cursor-not-allowed disabled:opacity-40"
 			style={{ background: selected ? theme.toolbar.activeBg : "transparent", color: theme.node.text, outlineColor: theme.node.muted }}
+			aria-pressed={selected}
 			disabled={disabled}
             onMouseDown={(event) => event.stopPropagation()}
             onClick={onClick}

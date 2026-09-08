@@ -2,6 +2,8 @@ import { useMemo } from "react";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { nanoid } from "nanoid";
+import { encodeChannelModel, decodeChannelModel, isChannelModelValue } from "@/lib/model-option";
+export { encodeChannelModel, decodeChannelModel, isChannelModelValue } from "@/lib/model-option";
 
 import { projectDesktopLocalChannelRuntime } from "@/lib/desktop-local-channel";
 import { scopedLocalStorage } from "@/lib/user-scope";
@@ -429,7 +431,6 @@ export type AiConfig = {
 
 export const CONFIG_STORE_KEY = "open_ai_canvas:ai_config_store";
 export type ModelCapability = "image" | "video" | "text" | "audio";
-const CHANNEL_MODEL_SEPARATOR = "::";
 const OPENAI_BASE_URL = "https://api.openai.com";
 const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com";
 const LEGACY_DEFAULT_MODEL_NAMES = new Set(["gpt-image-2", "grok-imagine-video", "gpt-5.5", "gpt-4o-mini-tts"]);
@@ -822,22 +823,6 @@ export function createModelChannel(channel?: Partial<ModelChannel>): ModelChanne
     };
 }
 
-export function encodeChannelModel(channelId: string, model: string) {
-    return `${channelId}${CHANNEL_MODEL_SEPARATOR}${model.trim()}`;
-}
-
-export function isChannelModelValue(value: string) {
-    return value.includes(CHANNEL_MODEL_SEPARATOR);
-}
-
-export function decodeChannelModel(value: string) {
-    const local = /^local:dreamina-cli:([A-Za-z0-9][A-Za-z0-9._:-]{0,119})$/.exec(value.trim());
-    if (local) return { channelId: "local:dreamina-cli", model: local[1] };
-    const index = value.indexOf(CHANNEL_MODEL_SEPARATOR);
-    if (index < 0) return null;
-    return { channelId: value.slice(0, index), model: value.slice(index + CHANNEL_MODEL_SEPARATOR.length) };
-}
-
 export function modelOptionName(value: string) {
     return decodeChannelModel(value)?.model || value;
 }
@@ -872,7 +857,7 @@ export function modelOptionsFromChannels(channels: ModelChannel[]) {
                 .map(normalizeRawModelName)
                 .filter(Boolean)
                 .filter((model) => channel.scope !== "system" || hasSystemModelPrice(channel, model))
-                .map((model) => (channel.transport === "local-runtime" ? `local:dreamina-cli:${model}` : encodeChannelModel(channel.id, model))),
+                .map((model) => encodeChannelModel(channel.id, model)),
         ),
     );
 }

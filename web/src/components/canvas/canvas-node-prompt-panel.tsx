@@ -8,7 +8,7 @@ import { resolveCanvasGenerationModel } from "@/lib/canvas/canvas-project-genera
 import { CreditSymbol, requestCreditCost } from "@/constant/credits";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { normalizeVideoDuration, normalizeVideoResolution } from "@/lib/video-generation-options";
-import { modelRequestOptions, resolveCompatibleModel, resolveModelGenerationDefaults, defaultImageParamsForModel, type ModelRequirements } from "@/lib/model-selection";
+import { modelRequestOptions, resolveCompatibleModel, resolveModelGenerationDefaults, type ModelRequirements } from "@/lib/model-selection";
 import { navigateToSettings } from "@/lib/settings-navigation";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { useUserStore } from "@/stores/use-user-store";
@@ -312,7 +312,10 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
                         fullWidth
                         config={config}
                         value={config.model}
-                        onChange={(model) => onConfigChange(node.id, mode === "image" ? { model, ...defaultImageParamsForModel(config, model) } : { model })}
+                        onChange={(model) => {
+                            const { count, ...params } = mode === "image" ? resolveModelGenerationDefaults(config, model, "image", config) : {};
+                            onConfigChange(node.id, { model, ...params, ...(count ? { count: Number(count) } : {}) });
+                        }}
                         capability={mode}
                         requirements={requirements}
                         onMissingConfig={() => navigateToSettings({ continueCreation: true })}

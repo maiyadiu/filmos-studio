@@ -1,4 +1,6 @@
 import type { ModelProtocol } from "@/lib/model-protocols";
+import { decodeChannelModel } from "@/lib/model-option";
+import type { DreaminaLocalModel } from "@/services/local-dreamina-model-catalog";
 
 export type ModelCapabilityConfig = {
     version: number;
@@ -323,13 +325,26 @@ export function defaultModelCapabilityConfig(protocol?: ModelProtocol, model = "
     return { version: 1, text, image: defaultImageCapabilityConfig(protocol, model), video };
 }
 
-export function modelCapabilityConfigFor(config: { channels: Array<{ id: string; models: string[]; modelCosts?: Array<{ model: string; capabilityConfig?: ModelCapabilityConfig; protocol?: ModelProtocol }> }> }, model: string) {
-    const separator = model.indexOf("::");
-    const channelId = separator >= 0 ? model.slice(0, separator) : "";
-    const modelName = separator >= 0 ? model.slice(separator + 2) : model;
+export function modelCapabilityConfigFor(config: { channels: Array<{ id: string; models: string[]; transport?: string; localModels?: DreaminaLocalModel[]; modelCosts?: Array<{ model: string; capabilityConfig?: ModelCapabilityConfig; protocol?: ModelProtocol }> }> }, model: string) {
+    const decoded = decodeChannelModel(model);
+    const channelId = decoded?.channelId || "";
+    const modelName = decoded?.model || model;
     const channel = config.channels.find((item) => item.id === channelId) || config.channels.find((item) => item.models.includes(modelName));
     const cost = channel?.modelCosts?.find((item) => item.model === modelName);
     const fallback = defaultModelCapabilityConfig(cost?.protocol, modelName);
+    const local = channel?.transport === "local-runtime" ? channel.localModels?.find((item) => item.id === modelName) : undefined;
+    if (local?.modality === "image") {
+        // Local CLI controls must reflect its signed execution catalog, not a generic API profile.
+        const tiers = local.settings.tiers || [];
+        return { ...fallback, image: {
+            ...fallback.image!,
+            references: { ...fallback.image!.references, maxImages: local.settings.maxReferenceImages, maskSupported: false },
+            size: { parameter: "aspect_ratio" as const, values: local.settings.aspects, default: local.settings.aspects.includes("1:1") ? "1:1" : local.settings.aspects[0] || "auto", allowCustom: false },
+            quality: { supported: tiers.length > 0, values: ["auto", ...tiers.filter(tier => tier !== "auto")], default: "auto" },
+            transparentBackground: { supported: false, default: false },
+            responseFormat: { supported: false }, outputFormat: { supported: false }, maxOutputs: 4,
+        } };
+    }
     if (!cost?.capabilityConfig) return fallback;
     const capabilityConfig = normalizeModelCapabilityConfig(cost.capabilityConfig);
     const text = capabilityConfig.text ? { ...fallback.text!, ...capabilityConfig.text, references: { ...fallback.text!.references, ...capabilityConfig.text.references } } : fallback.text;
