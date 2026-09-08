@@ -13,6 +13,7 @@ export type {
     AgentToolRisk,
     AgentToolSurfaceId,
     AgentTurnInput,
+    AgentTurnReceipt,
     AgentTurnPlan,
     AgentTurnResult,
     BrainAuthMode,

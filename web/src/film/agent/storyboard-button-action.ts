@@ -2,6 +2,7 @@ import { sameCanvasJSON } from "@/lib/canvas/canvas-sync-baseline";
 import { isEmptyStoryboardPlaceholder } from "@/lib/canvas/canvas-project-domain";
 import { assertProjectStoryboardContext, upsertProjectChapterStoryboard } from "@/lib/canvas/project-chapter-storyboard";
 import type { ProjectShotBatchReceipt, ProjectShotContext } from "@/services/api/projects";
+import type { BrainSessionView } from "./agent-client";
 import { CanvasNodeType, type CanvasConnection, type CanvasNodeData } from "@/types/canvas";
 
 type CanvasState = { id: string; projectId?: string; nodes: CanvasNodeData[]; connections: CanvasConnection[] };
@@ -15,8 +16,9 @@ export type StoryboardButtonAction = {
     prompt: string;
     createdAt: number;
     before: CanvasState;
-    status: "queued" | "preparing" | "running" | "checking" | "verified" | "not_sent" | "needs_review";
+    status: "queued" | "preparing" | "running" | "checking" | "verified" | "not_sent" | "no_change" | "needs_review";
     sessionId?: string;
+    beforeBusiness?: ProjectShotContext;
     message: string;
 };
 
@@ -91,4 +93,24 @@ export function verifyStoryboardButtonResult(action: StoryboardButtonAction, use
 function protectedStoryboardRowIds(action: StoryboardButtonAction) {
     const rows = action.before.nodes.find(node => node.id === action.nodeId)?.metadata?.storyboard?.rows ?? [];
     return rows.filter(row => !isEmptyStoryboardPlaceholder(row, action.nodeId, action.before.connections)).map(row => row.id);
+}
+
+// Empty output is not success. Only a matching, settled Runtime turn which
+// never attempted a write can release this intent without retrying anything.
+export function verifyStoryboardButtonNoChange(action: StoryboardButtonAction, userId: string, local: CanvasState, remote: CanvasState, session: BrainSessionView, business?: { context: ProjectShotContext; receiptMissing: boolean }) {
+    const receipt = session.latestTurnReceipt;
+    if (!action.sessionId || session.id !== action.sessionId || session.brainProfileId !== "codex.subscription"
+        || !session.execution || session.execution.activeTurnId || session.execution.resuming || session.execution.pendingConfirmations.length
+        || receipt?.turnId !== `storyboard-${action.id}` || !["completed", "failed", "cancelled"].includes(receipt.status)
+        || receipt.writeAttempted !== false || !receipt.finishedAt || !Number.isFinite(Date.parse(receipt.finishedAt))) throw new Error("原轮次结束及未写入证据不足，仍须核对原请求；不会重发");
+    assertStoryboardButtonUnchanged(action, userId, local);
+    assertStoryboardButtonUnchanged(action, userId, remote);
+    if (action.unitId) {
+        const before = action.beforeBusiness;
+        const current = business?.context;
+        if (!before || !current || !business.receiptMissing || before.unit.id !== action.unitId || current.unit.id !== action.unitId
+            || before.unit.projectId !== action.projectId || current.unit.projectId !== action.projectId
+            || before.unit.revision !== current.unit.revision || before.unit.shotRevision !== current.unit.shotRevision
+            || before.sourceHash !== current.sourceHash || !sameCanvasJSON(before.shots, current.shots)) throw new Error("业务分镜的未写入证据不足，仍须核对原请求");
+    }
 }

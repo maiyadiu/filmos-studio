@@ -142,6 +142,15 @@ export interface AgentHistoryMessage {
     source: "provider" | "handoff_timeline" | "local_timeline";
 }
 
+/** Runtime execution evidence, not a business save or generation receipt. */
+export type AgentTurnReceipt = {
+    turnId: string;
+    status: "running" | "completed" | "failed" | "cancelled" | "waiting_host";
+    startedAt: string;
+    finishedAt?: string;
+    writeAttempted: boolean;
+};
+
 export interface BrainSession {
     id: string;
     /** Server-verified account ownership; absent on unclaimed historical records. */
@@ -166,6 +175,7 @@ export interface BrainSession {
     /** Provider-reported progress only; business save receipts remain authoritative. */
     latestPlan?: AgentTurnPlan | null;
     latestModelReceipt?: CodexModelReceipt | null;
+    latestTurnReceipt?: AgentTurnReceipt | null;
     hostHandoff?: ChatGPTHandoffReceipt;
     hostHandoffTimeline?: ChatGPTHandoffTimelineEntry[];
     createdAt: string;

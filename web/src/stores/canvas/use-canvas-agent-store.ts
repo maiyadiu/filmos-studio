@@ -145,7 +145,7 @@ export function queueStoryboardButtonAction(action: StoryboardButtonAction) {
     current.setAgentState({ storyboardAction: action, enabled: true, activeTab: "chat" });
 }
 
-export function patchStoryboardButtonAction(id: string, patch: Partial<Pick<StoryboardButtonAction, "status" | "sessionId" | "message">>) {
+export function patchStoryboardButtonAction(id: string, patch: Partial<Pick<StoryboardButtonAction, "status" | "sessionId" | "message" | "beforeBusiness">>) {
     const current = useCanvasAgentStore.getState();
     if (current.storyboardAction?.id !== id) return false;
     current.setAgentState({ storyboardAction: { ...current.storyboardAction, ...patch } });

@@ -1,7 +1,8 @@
 import { afterEach, expect, test } from "bun:test";
 import { createCanvasNode, createStoryboardRow } from "../src/lib/canvas/canvas-project-domain";
 import { CanvasNodeType } from "../src/types/canvas";
-import { assertStoryboardButtonScope, assertStoryboardButtonUnchanged, createStoryboardButtonAction, storyboardButtonPrompt, verifyStoryboardButtonResult } from "../src/film/agent/storyboard-button-action";
+import { assertStoryboardButtonScope, assertStoryboardButtonUnchanged, createStoryboardButtonAction, storyboardButtonPrompt, verifyStoryboardButtonResult, verifyStoryboardButtonNoChange } from "../src/film/agent/storyboard-button-action";
+import type { BrainSessionView } from "../src/film/agent/agent-client";
 import { claimStoryboardButtonAction, patchStoryboardButtonAction, queueStoryboardButtonAction, useCanvasAgentStore } from "../src/stores/canvas/use-canvas-agent-store";
 import { upsertProjectChapterStoryboard } from "../src/lib/canvas/project-chapter-storyboard";
 import type { ProjectShotContext, ProjectShotBatchReceipt } from "../src/services/api/projects";
@@ -137,4 +138,38 @@ test("business readback requires exact original request, full coverage and curre
     expect(() => verifyStoryboardButtonResult(action, "user", saved, saved)).toThrow("缺少");
     expect(() => verifyStoryboardButtonResult(action, "user", saved, saved, { context, receipt: { ...receipt, requestId: "another" } })).toThrow("原请求");
     expect(() => verifyStoryboardButtonResult(action, "user", saved, saved, { context: { ...context, coverage: { ...context.coverage, chapterComplete: false } }, receipt })).toThrow("完整覆盖");
+});
+
+test("a settled original turn with no write attempt can release an unchanged button without claiming success", () => {
+    const { action, canvas, saved } = fixture();
+    action.sessionId = "original-session";
+    const session = { id: action.sessionId, brainProfileId: "codex.subscription", execution: { activeTurnId: null, resuming: false, pendingConfirmations: [] }, latestTurnReceipt: { turnId: `storyboard-${action.id}`, status: "failed", writeAttempted: false, startedAt: new Date().toISOString(), finishedAt: new Date().toISOString() } } as BrainSessionView;
+    for (const status of ["completed", "failed", "cancelled"] as const) {
+        expect(() => verifyStoryboardButtonNoChange(action, "user", canvas, canvas, { ...session, latestTurnReceipt: { ...session.latestTurnReceipt!, status } })).not.toThrow();
+    }
+    for (const patch of [{ turnId: "other-turn" }, { status: "running" as const }, { status: "waiting_host" as const }, { writeAttempted: true }, { finishedAt: undefined }]) {
+        expect(() => verifyStoryboardButtonNoChange(action, "user", canvas, canvas, { ...session, latestTurnReceipt: { ...session.latestTurnReceipt!, ...patch } })).toThrow();
+    }
+    for (const patch of [{ id: "other-session" }, { latestTurnReceipt: undefined }, { execution: undefined }, { execution: { ...session.execution!, activeTurnId: "new-turn" } }, { execution: { ...session.execution!, resuming: true } }]) {
+        expect(() => verifyStoryboardButtonNoChange(action, "user", canvas, canvas, { ...session, ...patch })).toThrow();
+    }
+    expect(() => verifyStoryboardButtonNoChange(action, "other", canvas, canvas, session)).toThrow();
+    expect(() => verifyStoryboardButtonNoChange(action, "user", saved, saved, session)).toThrow();
+    useCanvasAgentStore.setState({ ...initialAgent, storyboardAction: { ...action, status: "no_change" } });
+    expect(() => queueStoryboardButtonAction({ ...action, id: "explicit-new-click" })).not.toThrow();
+});
+
+test("no-change for a bound chapter also requires an unchanged business baseline and definite missing original receipt", () => {
+    const { action, canvas } = fixture(true);
+    action.sessionId = "original-session";
+    const context = { unit: { id: "chapter", projectId: "project", revision: 2, shotRevision: 0 }, sourceHash: "hash", shots: [] } as unknown as ProjectShotContext;
+    const session = { id: action.sessionId, brainProfileId: "codex.subscription", execution: { activeTurnId: null, resuming: false, pendingConfirmations: [] }, latestTurnReceipt: { turnId: `storyboard-${action.id}`, status: "cancelled", writeAttempted: false, finishedAt: new Date().toISOString() } } as BrainSessionView;
+    const business = { context, receiptMissing: true };
+    expect(() => verifyStoryboardButtonNoChange(action, "user", canvas, canvas, session, business)).toThrow("业务分镜");
+    action.beforeBusiness = structuredClone(context);
+    expect(() => verifyStoryboardButtonNoChange(action, "user", canvas, canvas, session, business)).not.toThrow();
+    expect(() => verifyStoryboardButtonNoChange(action, "user", canvas, canvas, session, { ...business, receiptMissing: false })).toThrow();
+    for (const patch of [{ sourceHash: "changed" }, { unit: { ...context.unit, revision: 3 } }, { unit: { ...context.unit, shotRevision: 1 } }, { shots: [{ id: "partially-saved" }] as ProjectShotContext["shots"] }]) {
+        expect(() => verifyStoryboardButtonNoChange(action, "user", canvas, canvas, session, { ...business, context: { ...context, ...patch } })).toThrow();
+    }
 });

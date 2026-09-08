@@ -246,6 +246,7 @@ function appendHandoffTimeline(current: BrainSession["hostHandoffTimeline"], han
 }
 
 function assertAdapterPatchScope(session: BrainSession, patch: Partial<BrainSession>) {
+    if (Object.prototype.hasOwnProperty.call(patch, "latestTurnReceipt")) throw new Error("Adapter attempted to change Runtime-owned turn receipt");
     const immutable: Array<keyof BrainSession> = ["id", "accountScopeId", "conversationId", "brainProfileId", "connectionId", "projectId", "workspaceId", "workspacePath", "executionProfile", "domainProjectId", "canvasId", "contentUnitId", "sceneId", "directorUnitId", "shotId", "permissionGrantId"];
     for (const key of immutable) {
         if (Object.prototype.hasOwnProperty.call(patch, key) && patch[key] !== session[key]) throw new Error(`Adapter attempted to change immutable session field: ${String(key)}`);

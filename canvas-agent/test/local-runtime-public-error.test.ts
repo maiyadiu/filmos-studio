@@ -95,6 +95,12 @@ test("public Agent failures expose stable actionable codes without leaking adapt
     assert.equal(publicAgentRuntimeFailure(new Error("AGENT_TURN_CANCELLED:private detail"))?.code, "agent_turn_cancelled");
     assert.equal(publicAgentRuntimeFailure(new Error("AGENT_ACTIVE_TURN_MISMATCH"))?.statusCode, 409);
     assert.equal(publicAgentRuntimeFailure(new Error("AGENT_SESSION_TURN_ALREADY_RUNNING"))?.statusCode, 409);
+    for (const code of ["AGENT_TURN_ALREADY_SUBMITTED", "AGENT_SESSION_RECOVERY_REQUIRED"]) {
+        const failure = publicAgentRuntimeFailure(new Error(`${code}:private thread detail`));
+        assert.equal(failure?.code, code.toLowerCase());
+        assert.equal(failure?.statusCode, 409);
+        assert.doesNotMatch(failure?.message ?? "", /private thread detail/);
+    }
     for (const code of ["AGENT_CONFIRMATION_EXPIRED:private-id", "AGENT_CONFIRMATION_ALREADY_DECIDED:expired", "AGENT_CONFIRMATION_NOT_APPROVED:cancelled", "AGENT_CONFIRMATION_NOT_FOUND:private-id"]) {
         const failure = publicAgentRuntimeFailure(new Error(code));
         assert.equal(failure?.code, "agent_confirmation_unavailable");

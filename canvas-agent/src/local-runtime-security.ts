@@ -253,6 +253,8 @@ export function publicAgentRuntimeFailure(error: unknown) {
     if (code === "AGENT_TOOL_REQUIRES_CANVAS_CONTEXT") return new LocalRuntimeSessionError("agent_canvas_context_required", "当前是项目页面，未绑定活动画布；该操作需要进入真实画布后执行，不会自动创建或使用上一张画布", 409);
     if (code === "AGENT_PROJECT_PAGE_WRITE_BLOCKED") return new LocalRuntimeSessionError("agent_project_write_blocked", "当前项目页面有未保存草稿、内容未就绪或已归档，仅可读取；请先处理页面提示，未执行写入", 409);
     if (code === "AGENT_TURN_CANCELLED") return new LocalRuntimeSessionError("agent_turn_cancelled", "本轮已停止；已保存内容保留，继续前请回读核对", 409);
+    if (code === "AGENT_TURN_ALREADY_SUBMITTED") return new LocalRuntimeSessionError("agent_turn_already_submitted", "原轮次已经提交，本次未重复执行；请回读原会话与实际保存结果，不要重发旧请求", 409);
+    if (code === "AGENT_SESSION_RECOVERY_REQUIRED") return new LocalRuntimeSessionError("agent_session_recovery_required", "原生会话缺少可恢复的对话身份，本次任务未启动；请检查原会话，不会另建对话或改走 API", 409);
     if (["AGENT_CONFIRMATION_EXPIRED", "AGENT_CONFIRMATION_ALREADY_DECIDED", "AGENT_CONFIRMATION_NOT_APPROVED", "AGENT_CONFIRMATION_NOT_FOUND"].includes(code)) return new LocalRuntimeSessionError("agent_confirmation_unavailable", "该确认已失效或已处理；请回读本轮状态与实际版本，不要重复批准或自动重发保存", 409);
     if (["AGENT_CONFIRMATION_SESSION_MISMATCH", "AGENT_CONFIRMATION_WAITER_SCOPE_MISMATCH", "AGENT_CONFIRMATION_CONTEXT_MISMATCH"].includes(code)) return new LocalRuntimeSessionError("agent_confirmation_scope_mismatch", "该确认不属于当前会话或上下文，未执行操作；请核对原会话", 403);
     if (code === "AGENT_ACTIVE_TURN_MISMATCH") return new LocalRuntimeSessionError("agent_active_turn_mismatch", "请求不属于当前执行轮次，请刷新本轮状态", 409);

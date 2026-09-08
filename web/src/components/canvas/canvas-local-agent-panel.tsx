@@ -13,8 +13,9 @@ import { LocalRuntimeSessionClient } from "@/services/local-runtime-session";
 import { issueRuntimeAccountProof } from "@/services/api/auth";
 import { getRemoteCanvasProject } from "@/services/api/user-data";
 import { getProjectShotBatch, getProjectShotContext } from "@/services/api/projects";
+import { ApiError } from "@/services/api/request";
 import { saveRemoteUserDataNow } from "@/services/user-data-sync";
-import { assertStoryboardButtonScope, assertStoryboardButtonUnchanged, storyboardActionBusy, storyboardButtonPrompt, verifyStoryboardButtonResult, type StoryboardButtonAction } from "@/film/agent/storyboard-button-action";
+import { assertStoryboardButtonScope, assertStoryboardButtonUnchanged, storyboardActionBusy, storyboardButtonPrompt, verifyStoryboardButtonResult, verifyStoryboardButtonNoChange, type StoryboardButtonAction } from "@/film/agent/storyboard-button-action";
 import { RuntimeAccountClient } from "@/film/agent/runtime-account-client";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { useUserStore } from "@/stores/use-user-store";
@@ -577,11 +578,22 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
             assertScope();
             const business = action.unitId && action.projectId ? {
                 context: await getProjectShotContext(action.projectId, action.unitId),
-                receipt: (await getProjectShotBatch(action.projectId, action.unitId, `shots-${action.id}`)).receipt,
+                receipt: await getProjectShotBatch(action.projectId, action.unitId, `shots-${action.id}`).then(result => result.receipt).catch(error => {
+                    if (error instanceof ApiError && error.status === 404) return undefined;
+                    throw error;
+                }),
             } : undefined;
             assertScope();
-            const result = verifyStoryboardButtonResult(action, useUserStore.getState().user?.id || "", currentButtonCanvas(), remote.project, business);
-            patchStoryboardButtonAction(action.id, { status: "verified", message: `已保存并回读原节点：${result.rowCount} 镜，${result.durationSeconds} 秒` });
+            try {
+                const result = verifyStoryboardButtonResult(action, useUserStore.getState().user?.id || "", currentButtonCanvas(), remote.project, business?.receipt ? { context: business.context, receipt: business.receipt } : undefined);
+                patchStoryboardButtonAction(action.id, { status: "verified", message: `已保存并回读原节点：${result.rowCount} 镜，${result.durationSeconds} 秒` });
+            } catch (resultError) {
+                const current = useCanvasAgentStore.getState().storyboardAction;
+                try {
+                    verifyStoryboardButtonNoChange({ ...action, beforeBusiness: current?.id === action.id ? current.beforeBusiness : undefined }, useUserStore.getState().user?.id || "", currentButtonCanvas(), remote.project, session, business ? { context: business.context, receiptMissing: !business.receipt } : undefined);
+                } catch { throw resultError; }
+                patchStoryboardButtonAction(action.id, { status: "no_change", message: "原轮次已结束，未发起写入且原分镜未变；本次未生成。可调整要求后重新点击，不会自动重发" });
+            }
         } catch (error) {
             patchStoryboardButtonAction(action.id, { status: "needs_review", message: error instanceof Error ? error.message : "分镜结果待核对；不会自动重发" });
         }
@@ -617,6 +629,11 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
                 if (sessionScopeRef.current !== requestScope) throw new Error("工作台页面已切换，任务未发送");
                 assertStoryboardButtonUnchanged(buttonAction, useUserStore.getState().user?.id || "", currentButtonCanvas());
                 assertStoryboardButtonUnchanged(buttonAction, useUserStore.getState().user?.id || "", remote.project);
+                if (buttonAction.unitId && buttonAction.projectId) {
+                    const beforeBusiness = await getProjectShotContext(buttonAction.projectId, buttonAction.unitId);
+                    if (sessionScopeRef.current !== requestScope || beforeBusiness.unit.id !== buttonAction.unitId || beforeBusiness.unit.projectId !== buttonAction.projectId) throw new Error("业务分镜来源已改变，任务未发送");
+                    patchStoryboardButtonAction(buttonAction.id, { beforeBusiness });
+                }
             }
             if (genericRuntime) {
                 if (!await syncState(clientIdRef.current, snapshotRef.current)) throw new Error("工作台上下文同步失败，未发送任务");
@@ -691,7 +708,11 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
                     // Session creation can fail before any turn is dispatched.
                     // There is then no running turn to observe or keep busy.
                     if (!dispatchedTurn) setAgentState({ sending: false, waiting: false });
-                    else await observeExecution().catch(() => undefined);
+                    else {
+                        await observeExecution().catch(() => undefined);
+                        const action = useCanvasAgentStore.getState().storyboardAction;
+                        if (buttonAction && action?.id === buttonAction.id && action.status === "needs_review") await checkStoryboardButtonResult(action);
+                    }
                 }
             } else {
                 setActiveTurn(null);

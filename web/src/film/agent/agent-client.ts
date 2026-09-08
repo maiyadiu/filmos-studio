@@ -1,6 +1,6 @@
 import type { LocalRuntimeSessionClient } from "@/services/local-runtime-session";
 import { getLocalRuntimeSessionClient } from "@/stores/use-local-runtime-store";
-import type { AgentTurnPlan } from "../../../../packages/filmos-agent-contracts/src/index";
+import type { AgentTurnPlan, AgentTurnReceipt } from "../../../../packages/filmos-agent-contracts/src/index";
 import type { CodexModelOption, CodexModelSelection, CodexModelReceipt } from "../../../../packages/filmos-agent-contracts/src/codex-models";
 export type { AgentTurnPlan };
 
@@ -24,6 +24,7 @@ export type BrainSessionView = {
     updatedAt: string;
     latestPlan?: AgentTurnPlan | null;
     latestModelReceipt?: CodexModelReceipt | null;
+    latestTurnReceipt?: AgentTurnReceipt | null;
     execution?: AgentExecutionView;
 };
 

@@ -64,6 +64,24 @@ test("session and conversation ownership cannot be overwritten, patched, importe
     assert.deepEqual(await store.getConversation("a"), conversation);
 });
 
+test("adapter cannot fabricate or erase Runtime-owned turn evidence on create or resume", async () => {
+    const registry = new BrainProfileRegistry(); registry.registerProfile(profile("codex.mock"));
+    const native = adapter("codex.mock"); registry.registerAdapter(native);
+    const store = new MemoryBrainSessionStore();
+    const manager = new AgentSessionManager(registry, store, new AgentPermissionGrantStore(), new AgentConfirmationStore(), new AgentContextBroker());
+    const input = { conversationId: "receipt", brainProfileId: "codex.mock", projectId: "p", canvasId: "x", actorId: "fixture", accountScopeId: accountA };
+    const session = await manager.createSession(input);
+    const receipt = { turnId: "original", status: "running" as const, startedAt: new Date().toISOString(), writeAttempted: true };
+    await store.updateSession(session.id, { latestTurnReceipt: receipt });
+    for (const value of [undefined, { ...receipt, status: "completed" as const, writeAttempted: false }]) {
+        native.createSession = async () => ({ latestTurnReceipt: value });
+        native.resumeSession = async () => ({ latestTurnReceipt: value });
+        await assert.rejects(manager.createSession({ ...input, conversationId: `bad-${String(value)}` }), /Runtime-owned turn receipt/);
+        await assert.rejects(manager.resumeSession(session.id, "fixture"), /Runtime-owned turn receipt/);
+        assert.deepEqual((await store.getSession(session.id))!.latestTurnReceipt, receipt);
+    }
+});
+
 test("adapter patches cannot erase or substitute the Runtime account on create or resume", async () => {
     for (const value of [undefined, accountB]) {
         const registry = new BrainProfileRegistry(); registry.registerProfile(profile("codex.mock"));

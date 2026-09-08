@@ -140,6 +140,8 @@ test("one-click script scope authorizes only verified new units in its active Co
         };
         const scriptCreation = { requestId: "script-fixture", chapterCount: 2, polishRounds: 1 };
         await instance.sendTurn(session.id, { turnId: "create-turn", prompt: "fixture", scriptCreation }, () => undefined);
+        assert.equal((await store.getSession(session.id))?.latestTurnReceipt?.writeAttempted, true);
+        assert.equal((await store.getSession(session.id))?.latestTurnReceipt?.status, "completed");
         assert.deepEqual(calls, ["project_create_script", "project_revise_script"]);
         assert.equal((await instance.proposeTool({ ...revise, turnId: "later-proposal" })).status, "confirmation_required");
         let began!: () => void; const started = new Promise<void>(resolve => { began = resolve; });
@@ -261,6 +263,8 @@ test("cancel targets exactly one active turn, invalidates pending writes, and pe
         }
         await assert.rejects(instance.proposeTool({ ...request, ordinaryConfirmationEnabled: false }), /AGENT_TURN_CANCELLED/);
         assert.equal((await store.getSession(session.id))?.status, "interrupted");
+        assert.equal((await store.getSession(session.id))?.latestTurnReceipt?.status, "cancelled");
+        assert.equal((await store.getSession(session.id))?.latestTurnReceipt?.writeAttempted, true);
         const continued = await instance.sendTurn(session.id, { turnId: "fresh-turn", prompt: "read back before continuing" }, () => undefined);
         assert.equal(continued.result.status, "completed");
         // A stale persisted status is not a live turn after interruption/restart.
@@ -387,6 +391,52 @@ test("crossing the real 15 minute grant boundary stops tools; idle recovery read
         // New-chapter auto-approval was limited to the old turn, not restored.
         assert.equal((await instance.proposeTool({ ...write, turnId: "after-recovery" })).status, "confirmation_required");
         assert.equal(toolCalls.length, 2);
+    } finally { await instance.dispose(); }
+});
+
+test("original turn receipt survives observation, forbids immediate replay and records failures without inventing business success", async () => {
+    const store = new MemoryBrainSessionStore();
+    const instance = runtime(store, new AgentPermissionGrantStore(), { hasConnectedBrowser: () => true, request: async () => { throw new Error("MODEL_API_FORBIDDEN"); } });
+    const adapter = instance.registry.getAdapter("codex.subscription");
+    adapter.probe = async () => ({ profileId: "codex.subscription", status: "ready", checkedAt: new Date().toISOString() });
+    adapter.createSession = async () => ({ providerThreadId: "receipt-fixture" });
+    let calls = 0;
+    try {
+        const { session } = await instance.createSession({ conversationId: "turn-receipt", brainProfileId: "codex.subscription", projectId: "project-grant-recovery", canvasId: "canvas-grant-recovery", actorId: "owner-grant-recovery" });
+        adapter.sendTurn = async input => {
+            calls++;
+            const running = (await store.getSession(session.id))!.latestTurnReceipt!;
+            assert.equal(running.status, "running");
+            assert.equal(running.turnId, input.turnId);
+            assert.equal(running.finishedAt, undefined);
+            await instance.proposeTool({ sessionId: session.id, toolName: "workbench_get_context", toolInput: {} });
+            return { sessionId: session.id, turnId: input.turnId, status: "completed", text: "No write was requested" };
+        };
+        await instance.sendTurn(session.id, { turnId: "read-only-turn", prompt: "fixture" }, () => undefined);
+        const done = instance.sessionView((await store.getSession(session.id))!).latestTurnReceipt!;
+        assert.equal(done.status, "completed");
+        assert.equal(done.writeAttempted, false);
+        assert.ok(done.finishedAt);
+        await assert.rejects(instance.sendTurn(session.id, { turnId: done.turnId, prompt: "same retry" }, () => undefined), /ALREADY_SUBMITTED/);
+        await assert.rejects(instance.proposeTool({ sessionId: session.id, turnId: done.turnId, toolName: "workbench_get_context", toolInput: {} }), /ALREADY_SUBMITTED/);
+        assert.equal(calls, 1);
+        assert.deepEqual((await store.getSession(session.id))!.latestTurnReceipt, done);
+        adapter.sendTurn = async () => { throw new Error("FIXTURE_FAILURE_BEFORE_TOOLS"); };
+        await assert.rejects(instance.sendTurn(session.id, { turnId: "failed-turn", prompt: "fixture" }, () => undefined), /FIXTURE_FAILURE/);
+        const failed = (await store.getSession(session.id))!.latestTurnReceipt!;
+        assert.equal(failed.turnId, "failed-turn");
+        assert.equal(failed.status, "failed");
+        assert.equal(failed.writeAttempted, false);
+        assert.ok(failed.finishedAt);
+        assert.equal(instance.sessionView((await store.getSession(session.id))!).execution.activeTurnId, null);
+        let resumes = 0;
+        adapter.resumeSession = async input => { resumes++; assert.equal(input.providerThreadId, "receipt-fixture"); return { providerThreadId: input.providerThreadId }; };
+        adapter.sendTurn = async input => { calls++; return { sessionId: session.id, turnId: input.turnId, status: "completed", text: "fresh explicit task" }; };
+        const continued = await instance.sendTurn(session.id, { turnId: "new-explicit-turn", prompt: "new explicit request" }, () => undefined);
+        assert.equal(resumes, 1);
+        assert.equal(calls, 2);
+        assert.equal(continued.session?.providerThreadId, "receipt-fixture");
+        assert.equal(continued.session?.latestTurnReceipt?.status, "completed");
     } finally { await instance.dispose(); }
 });
 

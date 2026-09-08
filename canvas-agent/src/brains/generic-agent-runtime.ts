@@ -27,7 +27,7 @@ import { AgentPolicyGateway } from "./policy-gateway.js";
 import { CanonicalAgentToolBroker, type AgentBrokerOutcome } from "./tool-broker.js";
 import { AgentRuntimeInstrumentation } from "./instrumentation.js";
 import { registerProductionToolProviders, type CanonicalCanvasToolExecutor } from "./tool-providers.js";
-import type { BrainSession } from "./contracts.js";
+import type { AgentTurnReceipt, BrainSession } from "./contracts.js";
 import { ScriptCreationScope } from "./script-creation-scope.js";
 import { HttpReviewBusCoordinator, ReviewCodexCoordinator, reviewConversationId, reviewTurnId } from "./review-codex-coordinator.js";
 import { ReviewWorktreeManager } from "./review-worktree-manager.js";
@@ -67,6 +67,7 @@ export class GenericAgentRuntime {
     private readonly sessionHydrations = new Map<string, Promise<BrainSession>>();
     private readonly resumingSessions = new Set<string>();
     private readonly activeTurns = new Map<string, string>();
+    private readonly turnReceipts = new Map<string, AgentTurnReceipt>();
     private readonly scriptCreationScopes = new Map<string, ScriptCreationScope>();
     private readonly turnControllers = new Map<string, AbortController>();
     private readonly cancelledTurns = new Set<string>();
@@ -193,7 +194,14 @@ export class GenericAgentRuntime {
         const controller = new AbortController();
         this.activeTurns.set(sessionId, input.turnId);
         this.turnControllers.set(sessionId, controller);
+        let receipt: AgentTurnReceipt | undefined;
         try {
+            const current = await this.store.getSession(sessionId);
+            if (!current) throw new Error("BRAIN_SESSION_NOT_FOUND");
+            if (current.latestTurnReceipt?.turnId === input.turnId) throw new Error("AGENT_TURN_ALREADY_SUBMITTED");
+            receipt = { turnId: input.turnId, status: "running", startedAt: new Date().toISOString(), writeAttempted: false };
+            this.turnReceipts.set(sessionId, receipt);
+            await this.store.updateSession(sessionId, { latestTurnReceipt: structuredClone(receipt) });
             const codexModel = parseCodexModelSelection(input.codexModel);
             if (codexModel && (await this.store.getSession(sessionId))?.brainProfileId !== "codex.subscription") throw new Error("CODEX_MODEL_SELECTION_INVALID");
             await this.ensureSessionHydrated(sessionId);
@@ -213,8 +221,12 @@ export class GenericAgentRuntime {
                 ...(input.localSkills?.length ? { localSkills: input.localSkills.map((skill) => ({ ...skill })) } : {}),
             }, async (event) => emit("agent_event", event));
             controller.signal.throwIfAborted();
-            return { session: await this.store.getSession(sessionId), contextReceiptId: captured.receipt.receiptId, result };
+            receipt.status = result.status === "handoff_pending" ? "waiting_host" : result.status === "completed" ? "completed" : "failed";
+            if (receipt.status !== "waiting_host") receipt.finishedAt = new Date().toISOString();
+            const session = await this.store.getSession(sessionId);
+            return { session: session ? { ...session, latestTurnReceipt: structuredClone(receipt) } : undefined, contextReceiptId: captured.receipt.receiptId, result };
         } catch (error) {
+            if (receipt) receipt.status = controller.signal.aborted ? "cancelled" : "failed";
             if (controller.signal.aborted) {
                 const current = await this.store.getSession(sessionId);
                 if (current && ["running", "awaiting_confirmation"].includes(current.status)) await this.store.updateSession(sessionId, { status: "interrupted", updatedAt: new Date().toISOString() });
@@ -222,10 +234,18 @@ export class GenericAgentRuntime {
             }
             throw error;
         } finally {
-            this.options.nativeConfirmations?.cancelSession(sessionId);
-            this.turnControllers.delete(sessionId);
-            this.activeTurns.delete(sessionId);
-            this.scriptCreationScopes.delete(sessionId);
+            try {
+                if (receipt) {
+                    if (receipt.status !== "waiting_host") receipt.finishedAt ??= new Date().toISOString();
+                    await this.store.updateSession(sessionId, { latestTurnReceipt: structuredClone(receipt) });
+                }
+            } finally {
+                this.options.nativeConfirmations?.cancelSession(sessionId);
+                this.turnReceipts.delete(sessionId);
+                this.turnControllers.delete(sessionId);
+                this.activeTurns.delete(sessionId);
+                this.scriptCreationScopes.delete(sessionId);
+            }
         }
     }
 
@@ -273,8 +293,16 @@ export class GenericAgentRuntime {
         if (!turnId) throw new Error("AGENT_ACTIVE_TURN_REQUIRED");
         if (this.cancelledTurns.has(`${session.id}:${turnId}`)) throw new Error("AGENT_TURN_CANCELLED");
         if (this.activeTurns.has(session.id) && this.activeTurns.get(session.id) !== turnId) throw new Error("AGENT_ACTIVE_TURN_MISMATCH");
+        if (!this.activeTurns.has(session.id) && session.latestTurnReceipt?.turnId === turnId) throw new Error("AGENT_TURN_ALREADY_SUBMITTED");
         const signal = this.turnControllers.get(session.id)?.signal;
         signal?.throwIfAborted();
+        const receipt = this.turnReceipts.get(session.id);
+        // Persist intent before any non-read tool reaches its provider. A failed
+        // or cancelled write is still uncertain and must not unlock a retry.
+        if (receipt && this.tools.get(input.toolName).risk !== "read" && !receipt.writeAttempted) {
+            receipt.writeAttempted = true;
+            await this.store.updateSession(session.id, { latestTurnReceipt: structuredClone(receipt) });
+        }
         const outcome = await this.broker.request({
             profile,
             session,
@@ -439,7 +467,9 @@ export class GenericAgentRuntime {
         const session = await this.store.getSession(sessionId);
         if (!session) throw new Error(`Unknown brain session: ${sessionId}`);
         contextSnapshotForSession(session, this.snapshot);
-        let requiresResume = !this.hydratedSessions.has(sessionId);
+        const failedNativeSession = session.brainProfileId === "codex.subscription" && session.status === "failed";
+        if (failedNativeSession && !session.providerThreadId) throw new Error("AGENT_SESSION_RECOVERY_REQUIRED");
+        let requiresResume = !this.hydratedSessions.has(sessionId) || failedNativeSession;
         if (!requiresResume) {
             try {
                 this.grants.validate(session.permissionGrantId, {
