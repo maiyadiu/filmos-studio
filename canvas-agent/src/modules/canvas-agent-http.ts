@@ -112,7 +112,7 @@ export function createCanvasAgentHttpModule(
             );
         }, { queryKeys: ["clientId"], lastEventId: true }),
         canvasRoute("POST", "/canvas/state", (req, res) => {
-            const result = session.updateState(jsonBody(req), queryValue(req, "clientId") || undefined, config.ownerId);
+            const result = session.updateState(jsonBody(req), queryValue(req, "clientId") || undefined, config.ownerId, runtimeSessionId(res));
             if (!result) {
                 res.json({ ok: true });
                 return;
@@ -124,7 +124,7 @@ export function createCanvasAgentHttpModule(
             res.json({ ok: true, ...result });
         }, { queryKeys: ["clientId"] }),
         canvasRoute("POST", "/canvas/result", (req, res) => {
-            session.resolveResult(jsonBody(req) as Parameters<CanvasSession["resolveResult"]>[0]);
+            session.resolveResult(jsonBody(req) as Parameters<CanvasSession["resolveResult"]>[0], queryValue(req, "clientId") || undefined, runtimeSessionId(res));
             res.json({ ok: true });
         }, { queryKeys: ["clientId"] }),
         canvasRoute("POST", "/api/tools", async (req, res) => {
@@ -489,7 +489,7 @@ function requiredHeader(req: Request, name: string) {
 }
 
 function runtimeSessionId(res: Response) {
-    const value = (res.locals.runtimeSession as { sessionId?: unknown } | undefined)?.sessionId;
+    const value = (res.locals?.runtimeSession as { sessionId?: unknown } | undefined)?.sessionId;
     return typeof value === "string" && value ? value : undefined;
 }
 

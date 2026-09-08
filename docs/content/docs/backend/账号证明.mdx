@@ -24,6 +24,10 @@ description: 将工作台已认证账号绑定到 Local Runtime 挑战的短时�
 
 ## Runtime 挑战与短时绑定
 
+画布桥接的签名客户端守卫已接入 `/events`、`/canvas/state`、`/canvas/result`：服务端校验后的 Runtime session 与 clientId 必须匹配，浏览器请求体里的身份不参与授权。不匹配返回403 `canvas_client_session_mismatch`，拒绝操作且不消费原待处理回执；签名请求发布状态前必须已有所属 SSE 客户端。
+
+同一签名会话可以替换自己的断线连接；仍有在途生成时，其他签名会话不能借相同 clientId 接管。撤销清理其全部待回执，包含 SSE 已断开的记录；这不代表远端生成被取消。后续只回读原任务，不自动重发写入。工具请求不会回退其他已连接标签页。以上是传输归属，网页账号、私有历史及广播隔离仍须完成下述绑定消费。
+
 仅在 Generic Runtime 启用时提供以下签名路由；不接受旧 master token 代替浏览器签名连接。
 
 - `POST /agent/account/challenge`：空 JSON 对象，使用 `agent:sessions:manage`。从服务器已校验的 Runtime 实例、session、key 和 Origin 构建挑战，并自行生成随机 nonce；拒绝客户端自报身份和未知字段。

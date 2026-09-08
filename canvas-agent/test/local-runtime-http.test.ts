@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import crypto, { type KeyObject } from "node:crypto";
+import { EventEmitter } from "node:events";
 import http, { type Server } from "node:http";
 import fs from "node:fs/promises";
 import os from "node:os";
@@ -530,6 +531,42 @@ test("account HTTP handshake uses the signed server identity, rejects body ident
         } });
         assert.equal(unbound.status, 401, "a new signed session never inherits the old proof lease");
         assert.equal(verifications, 1);
+    }, undefined, undefined, [module]);
+});
+
+test("signed canvas HTTP state and result use verified session identity, never a body substitute", async () => {
+    const canvas = new CanvasSession();
+    const module = createCanvasAgentHttpModule({ url: endpoint, token: "fixture", ownerId: "fixture-owner", trustedWebOrigins: [origin], browserRegistrations: [] }, canvas);
+    await withRuntime(async ({ server }) => {
+        const keyA = browserKey(), keyB = browserKey();
+        const signedA = await exchangeRequest(server, keyA.privateKey, await challengeRequest(server, keyA.publicJwk));
+        const signedB = await exchangeRequest(server, keyB.privateKey, await challengeRequest(server, keyB.publicJwk));
+        const frames: string[] = [];
+        const stream = Object.assign(new EventEmitter(), {
+            writeHead() {}, end() {}, write(chunk: unknown) { frames.push(String(chunk)); },
+        });
+        canvas.openEvents(new URL(endpoint + "/events?clientId=client-a"), stream as never, signedA.sessionId);
+        const post = (key: KeyObject, signed: typeof signedA, route: string, value: unknown) => {
+            const body = JSON.stringify(value);
+            return request(server, { path: route, method: "POST", body, headers: { ...jsonHeaders(origin), ...signedHeaders(key, signed, "POST", route, Buffer.from(body)) } });
+        };
+        const state = { projectId: "canvas-a", nodes: [], revision: 1 };
+        const statePath = "/canvas/state?clientId=client-a";
+        const denial = await post(keyB.privateKey, signedB, statePath, { ...state, runtimeSessionId: signedA.sessionId });
+        assert.equal(denial.status, 403);
+        assert.equal(JSON.parse(denial.body).code, "canvas_client_session_mismatch");
+        assert.throws(() => canvas.workbenchContext(), /CANVAS_CONTEXT_UNAVAILABLE/);
+        assert.equal((await post(keyA.privateKey, signedA, statePath, state)).status, 200);
+        const pending = canvas.callTool("canvas_apply_ops", { ops: [{ type: "select_nodes", ids: [] }] });
+        const frame = frames.find(item => item.startsWith("event: tool_call\n"))!;
+        const { requestId } = JSON.parse(frame.split("\n").find(line => line.startsWith("data: "))!.slice(6));
+        const resultPath = "/canvas/result?clientId=client-a";
+        const resultDenial = await post(keyB.privateKey, signedB, resultPath, { requestId, runtimeSessionId: signedA.sessionId, result: "forged" });
+        assert.equal(resultDenial.status, 403);
+        assert.equal(JSON.parse(resultDenial.body).code, "canvas_client_session_mismatch");
+        assert.equal((await post(keyA.privateKey, signedA, "/canvas/result?clientId=client-b", { requestId, result: "wrong-tab" })).status, 403);
+        assert.equal((await post(keyA.privateKey, signedA, resultPath, { requestId, result: "saved" })).status, 200);
+        assert.equal(await pending, "saved");
     }, undefined, undefined, [module]);
 });
 

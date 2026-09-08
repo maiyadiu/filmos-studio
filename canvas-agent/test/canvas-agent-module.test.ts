@@ -245,8 +245,9 @@ test("CanvasSession exposes precise node and connection reads", async () => {
     session.dispose();
 });
 
-test("CanvasSession closes only streams owned by a revoked Runtime session", async () => {
+test("CanvasSession closes only streams owned by a revoked Runtime session", async context => {
     const session = new CanvasSession();
+    context.after(() => session.dispose());
     const closeRuntimeSession = (session as CanvasSession & {
         closeRuntimeSession?: (sessionId: string) => void;
     }).closeRuntimeSession;
@@ -264,7 +265,7 @@ test("CanvasSession closes only streams owned by a revoked Runtime session", asy
     openEvents.call(session, new URL("http://127.0.0.1/events?clientId=first"), first.response, "session-a");
     openEvents.call(session, new URL("http://127.0.0.1/events?clientId=second"), second.response, "session-b");
     openEvents.call(session, new URL("http://127.0.0.1/events?clientId=legacy"), legacy.response);
-    session.updateState({ nodes: [] }, "first");
+    session.updateState({ nodes: [] }, "first", undefined, "session-a");
     const pending = session.callTool("canvas_apply_ops", { ops: [] });
 
     closeRuntimeSession.call(session, "session-a");
@@ -332,7 +333,7 @@ test("expired browser session clears context and exposes recoverable status unti
     const state = { projectId: "canvas-fixture", domainProjectId: "project-fixture", contentUnitId: "unit-fixture", revision: 1, nodes: [], connections: [], selectedNodeIds: [] };
     try {
         session.openEvents(new URL("http://127.0.0.1/events?clientId=lease-fixture"), first.response as never, "old-lease");
-        session.updateState(state, "lease-fixture");
+        session.updateState(state, "lease-fixture", undefined, "old-lease");
         const before = session.agentContextSnapshot();
         session.closeRuntimeSession("old-lease");
         assert.equal(session.hasConnectedBrowser(), false);
@@ -343,7 +344,7 @@ test("expired browser session clears context and exposes recoverable status unti
         });
         session.openEvents(new URL("http://127.0.0.1/events?clientId=lease-fixture"), second.response as never, "new-lease");
         assert.throws(() => session.agentContextSnapshot(), /CANVAS_CONTEXT_UNAVAILABLE/);
-        session.updateState(state, "lease-fixture");
+        session.updateState(state, "lease-fixture", undefined, "new-lease");
         assert.deepEqual(session.agentContextSnapshot(), before);
         assert.equal(session.hasConnectedBrowser(), true);
         assert.equal(first.writes().concat(second.writes()).some(value => value.includes("event: tool_call")), false);
@@ -629,6 +630,118 @@ function eventResponse() {
     response.end = () => { ended += 1; };
     return { response, ended: () => ended, writes: () => [...writes] };
 }
+
+test("signed canvas client identity cannot be replaced or published by another session", () => {
+    const session = new CanvasSession();
+    const original = eventResponse();
+    const attacker = eventResponse();
+    const url = new URL("http://127.0.0.1/events?clientId=owned-client");
+    try {
+        session.openEvents(url, original.response as never, "signed-a");
+        session.updateState({ projectId: "canvas-owned", nodes: [] }, "owned-client", undefined, "signed-a");
+        for (const identity of ["signed-b", undefined]) {
+            assert.throws(() => session.openEvents(url, attacker.response as never, identity), /不匹配/);
+            assert.throws(() => session.updateState({ projectId: "canvas-substituted" }, "owned-client", undefined, identity), /不匹配/);
+        }
+        assert.throws(() => session.updateState({ projectId: "canvas-substituted" }, "missing-client", undefined, "signed-a"), /不匹配/);
+        assert.throws(() => session.updateState({ projectId: "canvas-substituted" }, undefined, undefined, "signed-a"), /不匹配/);
+        assert.equal(session.workbenchContext().projectId, "canvas-owned");
+        assert.equal(original.ended(), 0);
+        assert.deepEqual(attacker.writes(), []);
+        const replacement = eventResponse();
+        session.openEvents(url, replacement.response as never, "signed-a");
+        original.response.emit("close");
+        assert.equal(session.hasConnectedBrowser(), true);
+        assert.equal(original.ended(), 1);
+    } finally { session.dispose(); }
+});
+
+test("signed results require both the original session and client without consuming the pending request", async () => {
+    const session = new CanvasSession();
+    const events = eventResponse();
+    try {
+        session.openEvents(new URL("http://127.0.0.1/events?clientId=owned-client"), events.response as never, "signed-a");
+        session.updateState({ nodes: [] }, "owned-client", undefined, "signed-a");
+        const pending = session.callTool("canvas_apply_ops", { ops: [{ type: "select_nodes", ids: [] }] });
+        const { requestId } = latestToolCall(events.writes());
+        for (const [clientId, identity] of [["owned-client", "signed-b"], ["other-client", "signed-a"], [undefined, "signed-a"], ["owned-client", undefined]]) {
+            assert.throws(() => session.resolveResult({ requestId, result: "forged" }, clientId, identity), /不匹配/);
+        }
+        session.resolveResult({ requestId, result: "original" }, "owned-client", "signed-a");
+        assert.equal(await pending, "original");
+        session.resolveResult({ requestId, result: "duplicate" }, "owned-client", "signed-a");
+    } finally { session.dispose(); }
+});
+
+test("recoverable generation retains signed ownership across SSE loss and is rejected on revocation", async () => {
+    const session = new CanvasSession();
+    const events = eventResponse();
+    const url = new URL("http://127.0.0.1/events?clientId=generation-client");
+    try {
+        session.openEvents(url, events.response as never, "signed-a");
+        session.updateState({ nodes: [] }, "generation-client", undefined, "signed-a");
+        const pending = session.callTool("canvas_generate_image", { prompt: "Fixture only", model: "fixture", quality: "auto", size: "1:1", count: 1 });
+        const result = assert.rejects(pending, /本机会话已撤销/);
+        const { requestId } = latestToolCall(events.writes());
+        events.response.emit("close");
+        assert.equal(session.hasConnectedBrowser(), false);
+        const other = eventResponse();
+        assert.throws(() => session.openEvents(url, other.response as never, "signed-b"), /不匹配/);
+        assert.throws(() => session.resolveResult({ requestId, result: "forged" }, "generation-client", "signed-b"), /不匹配/);
+        session.closeRuntimeSession("signed-a");
+        await result;
+        session.resolveResult({ requestId, result: "late" }, "generation-client", "signed-a");
+        assert.deepEqual(other.writes(), []);
+    } finally { session.dispose(); }
+});
+
+test("same signed client can recover a result after transient SSE loss without replaying generation", async () => {
+    const session = new CanvasSession();
+    const events = eventResponse();
+    const url = new URL("http://127.0.0.1/events?clientId=recover-client");
+    try {
+        session.openEvents(url, events.response as never, "signed-a");
+        session.updateState({ nodes: [] }, "recover-client", undefined, "signed-a");
+        const pending = session.callTool("canvas_generate_image", { prompt: "Fixture only", model: "fixture", quality: "auto", size: "1:1", count: 1 });
+        const { requestId } = latestToolCall(events.writes());
+        events.response.emit("close");
+        const resumed = eventResponse();
+        session.openEvents(url, resumed.response as never, "signed-a");
+        session.resolveResult({ requestId, result: "recovered" }, "recover-client", "signed-a");
+        assert.equal(await pending, "recovered");
+        assert.equal(resumed.writes().filter(item => item.startsWith("event: tool_call")).length, 0);
+    } finally { session.dispose(); }
+});
+
+test("canvas requests never fall back to another connected tab", async () => {
+    const session = new CanvasSession();
+    const other = eventResponse();
+    try {
+        session.openEvents(new URL("http://127.0.0.1/events?clientId=unrelated"), other.response as never);
+        session.updateState({ projectId: "canvas-original", nodes: [] }, "unavailable");
+        assert.equal(session.hasConnectedBrowser(), false);
+        await assert.rejects(session.request({ channel: "model", operation: "probe", profileId: "fixture", payload: {} }), /没有已连接画布/);
+        assert.equal(other.writes().filter(item => item.startsWith("event: browser_runtime_request")).length, 0);
+    } finally { session.dispose(); }
+});
+
+test("browser result can settle synchronously during dispatch and failed dispatch leaves no pending request", async () => {
+    const session = new CanvasSession();
+    const events = eventResponse();
+    try {
+        session.openEvents(new URL("http://127.0.0.1/events?clientId=dispatch"), events.response as never, "signed-a");
+        session.updateState({ nodes: [] }, "dispatch", undefined, "signed-a");
+        const originalWrite = events.response.write;
+        events.response.write = chunk => {
+            originalWrite(chunk);
+            session.resolveResult({ requestId: latestToolCall(events.writes()).requestId, result: "immediate" }, "dispatch", "signed-a");
+        };
+        assert.equal(await session.callTool("canvas_apply_ops", { ops: [{ type: "select_nodes", ids: [] }] }), "immediate");
+        events.response.write = () => { throw new Error("fixture-write-failed"); };
+        await assert.rejects(session.callTool("canvas_apply_ops", { ops: [{ type: "select_nodes", ids: [] }] }), /fixture-write-failed/);
+        session.closeRuntimeSession("signed-a");
+    } finally { session.dispose(); }
+});
 
 function latestToolCall(writes: string[]) {
     const event = [...writes].reverse().find((value) => value.startsWith("event: tool_call\n"));
