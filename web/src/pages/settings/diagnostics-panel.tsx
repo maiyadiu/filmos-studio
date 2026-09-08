@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 
 import { exportDiagnosticBundle, downloadDiagnosticBundle, previewDiagnosticBundle, type DiagnosticExportInput, type DiagnosticPreview } from "@/services/diagnostics/diagnostics-api";
 import { getClientDiagnosticEvents, getDiagnosticRuntime } from "@/services/diagnostics/client-diagnostics";
-import { AgentSessionClient, type AgentRuntimeDiagnostics } from "@/film/agent/agent-client";
+import type { AgentRuntimeDiagnostics } from "@/film/agent/agent-client";
+import { useAccountAgentClient } from "@/film/agent/use-account-agent-client";
 import { AGENT_FEATURE_FLAG_IDS, readAgentFeatureFlags, readAgentRuntimeBuildProfile } from "@/film/agent/feature-flags";
 import { useLocalRuntimeStore } from "@/stores/use-local-runtime-store";
 
@@ -23,6 +24,7 @@ const rangeOptions = [
 ];
 
 export default function DiagnosticsPanel({ taskId, projectId }: DiagnosticsPanelProps) {
+    const agentClient = useAccountAgentClient();
     const { message } = App.useApp();
     const [range, setRange] = useState<DiagnosticRange>("30m");
     const [description, setDescription] = useState("");
@@ -40,7 +42,7 @@ export default function DiagnosticsPanel({ taskId, projectId }: DiagnosticsPanel
         void connectRuntime(controller.signal)
             .then(async () => {
                 if (controller.signal.aborted || useLocalRuntimeStore.getState().connection !== "connected") return;
-                const result = await new AgentSessionClient().diagnostics(controller.signal);
+                const result = await agentClient.diagnostics(controller.signal);
                 if (!controller.signal.aborted) {
                     setAgentDiagnostics(result);
                     setAgentDiagnosticError("");
@@ -50,7 +52,7 @@ export default function DiagnosticsPanel({ taskId, projectId }: DiagnosticsPanel
                 if (!controller.signal.aborted) setAgentDiagnosticError(error instanceof Error ? error.message : "Agent Runtime 诊断失败");
             });
         return () => controller.abort();
-    }, [connectRuntime]);
+    }, [connectRuntime, agentClient]);
 
     useEffect(() => {
         let cancelled = false;

@@ -503,6 +503,7 @@ test("account HTTP handshake uses the signed server identity, rejects body ident
             assert.equal(response.status, 401);
         }
         assert.equal((await call("/agent/account")).status, 401);
+        assert.equal((await call("/agent/sessions")).status, 401, "signed transport alone does not grant private history access");
         for (const body of ["null", "[]", "{", JSON.stringify({ userId: "spoofed" }), " ".repeat(8193)]) {
             const denied = await call("/agent/account/challenge", body);
             assert.equal(denied.status, 400);
@@ -521,10 +522,13 @@ test("account HTTP handshake uses the signed server identity, rejects body ident
         assert.equal(bound.status, 200);
         assert.equal(JSON.parse(bound.body).binding.userId, "fixture-web-user");
         assert.deepEqual(JSON.parse((await call("/agent/account")).body), JSON.parse(bound.body));
+        assert.equal((await call("/agent/sessions")).status, 200);
+        assert.deepEqual(JSON.parse((await call("/agent/sessions")).body).sessions, []);
         assert.equal((await call("/agent/account/bind", proofBody)).status, 409);
         assert.equal(verifications, 1);
         assert.equal((await call("/runtime/session/revoke", "{}")).status, 200);
         assert.equal((await call("/agent/account")).status, 401);
+        assert.equal((await call("/agent/sessions")).status, 401);
         const second = await exchangeRequest(server, key.privateKey, await challengeRequest(server, undefined, signed.keyId));
         const unbound = await request(server, { path: "/agent/account", headers: {
             ...jsonHeaders(origin), ...signedHeaders(key.privateKey, second, "GET", "/agent/account", Buffer.alloc(0)),

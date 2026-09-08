@@ -20,7 +20,7 @@ import type { AcceptanceMockBindings } from "@/film/generation-routing/acceptanc
 import { createAcceptanceMockBindings, createAcceptanceProviderFixture, isAcceptanceProductionProject, type AcceptanceProviderFixture } from "@/film/generation-routing/acceptance-production-runtime";
 import { FILMOS_MOCK_GENERATION_ENGINE_ID, type ProductionGenerationService } from "@/film/generation-routing/production-composition";
 import { createProjectProductionFixture, type ProjectProductionFixture } from "@/film/generation-routing/project-production-runtime";
-import { AgentSessionClient } from "@/film/agent/agent-client";
+import { useAccountAgentClient } from "@/film/agent/use-account-agent-client";
 
 type CanvasConfigComposerProps = {
     projectId: string;
@@ -328,8 +328,9 @@ function GenerationRouteComposer({
     const routingConfig = useBrainGenerationRoutingStore((state) => state.config);
     const routingDocument = useBrainGenerationRoutingStore((state) => state.document);
     const effectiveConfig = useEffectiveConfig();
-    const agentSessionClient = useMemo(() => new AgentSessionClient(), []);
+    const agentSessionClient = useAccountAgentClient();
     const brokerSessionRef = useRef<string | null>(null);
+    useEffect(() => { brokerSessionRef.current = null; }, [agentSessionClient, domainProjectId, projectId, nodeId]);
     const acceptanceProject = isAcceptanceProductionProject({ projectId, domainProjectId, projectName });
     const [acceptanceBindings, setAcceptanceBindings] = useState<AcceptanceMockBindings | null>(null);
     const snapshotRef = useRef(snapshot);

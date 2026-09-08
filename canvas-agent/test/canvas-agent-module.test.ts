@@ -14,6 +14,7 @@ import type { LocalRuntimeConfig } from "../src/config.js";
 import { AGENT_FEATURE_FLAG_IDS } from "../src/brains/feature-flags.js";
 import { MemoryBrainSessionStore } from "../src/brains/session-store.js";
 import { CodexApprovalCoordinator } from "../src/brains/codex-approval-coordinator.js";
+import { accountCanvasFixture } from "./fixtures/account-canvas.js";
 
 const authority = "127.0.0.1:41743";
 const endpoint = `http://${authority}`;
@@ -24,29 +25,32 @@ test("generic HTTP decisions return native approvals to their owner, not the bus
     const config = fixtureConfig();
     config.agentFeatureFlags = Object.fromEntries(AGENT_FEATURE_FLAG_IDS.map(id => [id, true]));
     const store = new MemoryBrainSessionStore();
-    for (const id of ["native-session", "other-session"]) await store.saveSession({
-        id, conversationId: id, brainProfileId: "codex.subscription", connectionId: "codex.subscription",
-        projectId: "project-1", canvasId: "canvas-1", permissionGrantId: "fixture-grant", status: "ready",
-        createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
-    });
     let confirmationId = "";
     const approvals = new CodexApprovalCoordinator(undefined, (_type, payload) => {
         const event = payload as { confirmation?: { id: string } };
         if (event.confirmation) confirmationId = event.confirmation.id;
     }, 5_000);
-    const module = createCanvasAgentHttpModule(config, new CanvasSession(), { brainSessionStore: store, codexApprovals: approvals });
+    const fixture = accountCanvasFixture(config, new CanvasSession(), { brainSessionStore: store, codexApprovals: approvals });
+    const module = fixture.module;
+    const account = await fixture.bind("fixture-owner");
+    for (const id of ["native-session", "other-session"]) await store.saveSession({
+        id, conversationId: id, brainProfileId: "codex.subscription", connectionId: "codex.subscription",
+        accountScopeId: account.binding.accountScopeId,
+        projectId: "project-1", canvasId: "canvas-1", permissionGrantId: "fixture-grant", status: "ready",
+        createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    });
     const route = module.routes.find(item => item.path === "/agent/confirmations/:confirmationId/decision")!;
     const decide = (sessionId: string, approved: boolean, id = confirmationId) => new Promise<Record<string, unknown>>((resolve, reject) => {
-        route.handler({ params: { confirmationId: id }, body: Buffer.from(JSON.stringify({ sessionId, approved, content: { choice: "fixture" } })) } as never, { json: resolve } as never, reject);
+        route.handler({ params: { confirmationId: id }, body: Buffer.from(JSON.stringify({ sessionId, approved, content: { choice: "fixture" } })) } as never, { locals: { runtimeSession: account.principal }, json: resolve } as never, reject);
     });
     try {
         assert.equal(route.scope, "agent:confirmations:decide");
-        assert.equal(route.legacy, undefined);
+        assert.equal(route.legacy, false);
         for (const approved of [true, false]) {
             const pending = approvals.request({ sessionId: "native-session", turnId: "workbench-turn", contextReceiptId: "receipt-1", request: { id: `native-${approved}`, method: "mcpServer/elicitation/request", params: {}, threadId: "thread-1", turnId: "provider-turn" } });
             const read = module.routes.find(item => item.path === "/agent/sessions/:sessionId")!;
             const view = await new Promise<{ session: { execution: { pendingConfirmations: Array<{ id: string; turnId: string }> } } }>((resolve, reject) => {
-                read.handler({ params: { sessionId: "native-session" } } as never, { json: resolve } as never, reject);
+                read.handler({ params: { sessionId: "native-session" } } as never, { locals: { runtimeSession: account.principal }, json: resolve } as never, reject);
             });
             assert.deepEqual(view.session.execution.pendingConfirmations.map(item => ({ id: item.id, turnId: item.turnId })), [{ id: confirmationId, turnId: "workbench-turn" }]);
             await assert.rejects(decide("other-session", approved), /SESSION_MISMATCH/);
@@ -66,21 +70,24 @@ test("workspace HTTP identity and snapshot use the Runtime owner without a brows
     const config = fixtureConfig();
     config.agentFeatureFlags = Object.fromEntries(AGENT_FEATURE_FLAG_IDS.map(id => [id, true]));
     const session = new CanvasSession();
-    const module = createCanvasAgentHttpModule(config, session, { brainSessionStore: new MemoryBrainSessionStore() });
+    const fixture = accountCanvasFixture(config, session);
+    const module = fixture.module;
+    const account = await fixture.bind("workspace-user");
+    await fixture.connect(account.principal, "workspace-client");
     const invoke = (routePath: string, body = {}, query = {}) => new Promise<Record<string, unknown>>((resolve, reject) => {
         const route = module.routes.find(route => route.path === routePath)!;
-        route.handler({ body: Buffer.from(JSON.stringify(body)), query } as never, { json: resolve } as never, reject);
+        route.handler({ body: Buffer.from(JSON.stringify(body)), query: { ...query, ...(routePath === "/canvas/state" ? { clientId: "workspace-client" } : {}) } } as never, { locals: { runtimeSession: account.principal }, json: resolve } as never, reject);
     });
     try {
         const route = module.routes.find(route => route.path === "/agent/workspace")!;
         assert.equal(route.scope, "agent:profiles:read");
-        assert.equal(route.legacy, undefined);
+        assert.equal(route.legacy, false);
         assert.deepEqual(await invoke("/agent/workspace"), { ok: true, workspaceId: config.ownerId });
         const state = { contextKind: "workspace", projectId: null, activePanel: "assets", nodes: [], connections: [] };
         assert.equal((await invoke("/canvas/state", state)).accepted, true);
-        assert.equal(session.agentContextSnapshot().workspaceId, config.ownerId);
+        assert.equal(session.withAccountScope(account.binding.accountScopeId, () => session.agentContextSnapshot()).workspaceId, config.ownerId);
         await assert.rejects(invoke("/canvas/state", { ...state, workspaceId: "spoofed-workspace" }), /WORKSPACE_REQUIRED/);
-        assert.equal(session.agentContextSnapshot().workspaceId, config.ownerId);
+        assert.equal(session.withAccountScope(account.binding.accountScopeId, () => session.agentContextSnapshot()).workspaceId, config.ownerId);
         await assert.rejects(invoke("/agent/sessions", {}, { workspaceId: config.ownerId, projectId: "old-project" }), /WORKSPACE_PROJECT_MIXED/);
     } finally { await module.dispose?.(); }
 });
@@ -133,7 +140,7 @@ test("Canvas module declares signed Agent scopes and constructs default-off with
     assert.deepEqual(calls, []);
 });
 
-test("complete feature set registers generic routes while preserving legacy Codex aliases", async () => {
+test("complete feature set registers generic routes without legacy browser authorization", async () => {
     const config = fixtureConfig();
     config.agentFeatureFlags = Object.fromEntries(AGENT_FEATURE_FLAG_IDS.map((id) => [id, true]));
     const module = createCanvasAgentHttpModule(config, new CanvasSession(), { brainSessionStore: new MemoryBrainSessionStore() });
@@ -141,7 +148,7 @@ test("complete feature set registers generic routes while preserving legacy Code
         assert.equal(module.routes.some((route) => route.path === "/agent/connections"), true);
         assert.equal(module.routes.some((route) => route.path === "/agent/sessions/:sessionId/resume"), true);
         assert.equal(module.routes.some((route) => route.path === "/agent/codex/turn"), true);
-        assert.equal(module.routes.find((route) => route.path === "/agent/connections")?.legacy, undefined);
+        assert.equal(module.routes.find((route) => route.path === "/agent/connections")?.legacy, false);
         assert.equal(module.routes.find((route) => route.path === "/agent/sessions/:sessionId/tools")?.scope, "agent:tools:execute");
         assert.equal(module.routes.find((route) => route.path === "/agent/sessions/:sessionId/history")?.scope, "agent:sessions:read");
     } finally {

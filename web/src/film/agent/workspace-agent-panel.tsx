@@ -7,7 +7,7 @@ import { useLocalRuntimeStore } from "@/stores/use-local-runtime-store";
 import { prepareCanvasRuntimeConnection } from "@/lib/canvas/local-runtime-connection";
 import { YingceLocalAgentPanel } from "@/film/adapters/yingce/contributions/agent-panel";
 import { buildYingceWorkspaceContext, publishYingceWorkbenchContext } from "@/film/adapters/yingce/contributions/workbench-context-publisher";
-import { AgentSessionClient } from "./agent-client";
+import { useAccountAgentClient } from "./use-account-agent-client";
 import { buildWorkspaceAgentSnapshot, workspaceAgentPage } from "./workspace-agent-context";
 
 export function WorkspaceAgentEntry() {
@@ -17,6 +17,7 @@ export function WorkspaceAgentEntry() {
 }
 
 function WorkspaceAgentPanel({ pathname }: { pathname: string }) {
+    const client = useAccountAgentClient();
     const [open, setOpen] = useState(false);
     const [activated, setActivated] = useState(false);
     const [retry, setRetry] = useState(0);
@@ -28,14 +29,14 @@ function WorkspaceAgentPanel({ pathname }: { pathname: string }) {
         setScope({});
         void (async () => {
             await prepareCanvasRuntimeConnection(useLocalRuntimeStore, controller.signal);
-            const { workspaceId } = await new AgentSessionClient().getWorkspace(controller.signal);
+            const { workspaceId } = await client.getWorkspace(controller.signal);
             if (!/^[A-Za-z0-9_-]{1,120}$/.test(workspaceId)) throw new Error("工作区身份未确认");
             if (!controller.signal.aborted) setScope({ workspaceId });
         })().catch(error => {
             if (!controller.signal.aborted) setScope({ error: error instanceof Error ? error.message : "本机工作区连接失败" });
         });
         return () => controller.abort();
-    }, [activated, retry]);
+    }, [activated, retry, client]);
     const snapshot = useMemo(() => scope.workspaceId ? buildWorkspaceAgentSnapshot(scope.workspaceId, pathname) : undefined, [scope.workspaceId, pathname]);
     const context = useMemo(() => snapshot ? buildYingceWorkspaceContext(snapshot) : undefined, [snapshot]);
     useLayoutEffect(() => publishYingceWorkbenchContext(context), [context]);

@@ -37,15 +37,15 @@ import type { WorkbenchContextSnapshot } from "../brains/context-broker.js";
 import { agentRuntimeProfileStatus, assertGenericAgentRuntimeDependencies, resolveAgentFeatureFlags } from "../brains/feature-flags.js";
 import type { BrainSessionStore } from "../brains/session-store.js";
 import type { BrowserRuntimeTransport } from "../brains/browser-runtime-port.js";
-import { RuntimeAccountBindings } from "../runtime-account.js";
+import { RuntimeAccountBindings, type RuntimeAccountBinding } from "../runtime-account.js";
 import { LocalRuntimeSessionError } from "../local-runtime-session.js";
 
 export type CanvasAgentSession = Pick<
     CanvasSession,
     "health" | "workbenchContext" | "agentContextSnapshot" | "openEvents" | "updateState" | "resolveResult" | "emitAll" | "callTool" | "closeRuntimeSession" | "dispose"
->;
+> & Partial<Pick<CanvasSession, "enableAccountIsolation" | "withAccountScope">>;
 
-export type CanvasAgentHttpModuleOptions = { brainSessionStore?: BrainSessionStore; browserRuntimeTransport?: BrowserRuntimeTransport; accountVerifierFetch?: typeof globalThis.fetch; accountNow?: () => number; codexApprovals?: CodexApprovalCoordinator };
+export type CanvasAgentHttpModuleOptions = { brainSessionStore?: BrainSessionStore; browserRuntimeTransport?: BrowserRuntimeTransport; accountVerifierFetch?: typeof globalThis.fetch; accountNow?: () => number; codexApprovals?: CodexApprovalCoordinator; persistentAudit?: false };
 
 export function createCanvasAgentHttpModule(
     config: LocalRuntimeConfig,
@@ -59,11 +59,19 @@ export function createCanvasAgentHttpModule(
     const approvals = options.codexApprovals ?? new CodexApprovalCoordinator(undefined, emit);
     const agentFeatureFlags = resolveAgentFeatureFlags(config.agentFeatureFlags);
     assertGenericAgentRuntimeDependencies(agentFeatureFlags);
-    const generic = agentFeatureFlags["film.agent_generic_runtime"] ? new GenericAgentRuntime(
+    if (agentFeatureFlags["film.agent_generic_runtime"]) {
+        if (!session.enableAccountIsolation || !session.withAccountScope) throw new Error("ACCOUNT_CANVAS_SCOPE_REQUIRED");
+        session.enableAccountIsolation();
+    }
+    const generic: GenericAgentRuntime | undefined = agentFeatureFlags["film.agent_generic_runtime"] ? new GenericAgentRuntime(
             config,
             emit,
             () => session.agentContextSnapshot() as WorkbenchContextSnapshot,
-            ({ sessionId, turnId, request }) => approvals.request({ sessionId, turnId, request, contextReceiptId: liveContextReceipt(session) }),
+            async ({ sessionId, turnId, request }) => {
+                const owned = await generic!.store.getSession(sessionId);
+                if (!owned?.accountScopeId) throw accountSessionError();
+                return withRuntimeAccount(session, owned.accountScopeId, () => approvals.request({ sessionId, turnId, request, contextReceiptId: liveContextReceipt(session) }));
+            },
             {
                 featureFlags: agentFeatureFlags,
                 grants: permissionGrants,
@@ -71,6 +79,7 @@ export function createCanvasAgentHttpModule(
                 browserRuntime: options.browserRuntimeTransport ?? requireBrowserRuntimeTransport(session),
                 canvasToolExecutor: session,
                 nativeConfirmations: approvals,
+                ...(options.persistentAudit === false ? { persistentAudit: false } : {}),
                 ...(options.brainSessionStore ? { store: options.brainSessionStore } : {}),
             },
         ) : undefined;
@@ -110,6 +119,7 @@ export function createCanvasAgentHttpModule(
                 new URL(req.originalUrl || req.url, config.url),
                 res,
                 runtimeSessionId(res),
+                generic ? () => accounts.require(res.locals.runtimeSession).accountScopeId === accountBinding(res).accountScopeId : undefined,
             );
         }, { queryKeys: ["clientId"], lastEventId: true }),
         canvasRoute("POST", "/canvas/state", (req, res) => {
@@ -134,11 +144,13 @@ export function createCanvasAgentHttpModule(
             const grant = validateAgentGrantHeaders(req, permissionGrants, toolName, generic !== undefined && process.env.FILMOS_AGENT_GATEWAY_ENABLED === "true");
             if (generic && process.env.FILMOS_AGENT_GATEWAY_ENABLED === "true") {
                 if (!grant) throw new Error("AGENT_GRANT_REQUIRED");
-                const outcome = await generic.requestTool({
-                    sessionId: grant.sessionId,
-                    toolName,
+                const owned = await generic.store.getSession(grant.sessionId);
+                if (!owned?.accountScopeId) throw accountSessionError();
+                if (runtimeSessionId(res) && accounts.require(res.locals.runtimeSession).accountScopeId !== owned.accountScopeId) throw accountSessionError();
+                const outcome = await withRuntimeAccount(session, owned.accountScopeId, () => generic.requestTool({
+                    sessionId: grant.sessionId, toolName,
                     toolInput: body.input && typeof body.input === "object" && !Array.isArray(body.input) ? body.input as Record<string, unknown> : {},
-                });
+                }));
                 if (outcome.status !== "completed") throw new Error("AGENT_TOOL_OUTCOME_INCOMPLETE");
                 res.json({ ok: true, result: outcome.result.output, broker: { requestId: outcome.request.requestId, outcome: outcome.result.outcome } });
                 return;
@@ -277,7 +289,7 @@ export function createCanvasAgentHttpModule(
                 const outcome = await generic.decideConfirmation({
                     confirmationId: routeParam(req.params.confirmationId),
                     sessionId,
-                    actorId: String(body.actorId || config.ownerId || "local-owner"),
+                    actorId: generic ? config.ownerId! : String(body.actorId || config.ownerId || "local-owner"),
                     approved: body.approved === true,
                 });
                 res.json({ ok: true, outcome });
@@ -286,7 +298,7 @@ export function createCanvasAgentHttpModule(
             const confirmation = approvals.decide({
                 confirmationId: routeParam(req.params.confirmationId),
                 sessionId,
-                actorId: String(body.actorId || config.ownerId || "local-owner"),
+                actorId: generic ? config.ownerId! : String(body.actorId || config.ownerId || "local-owner"),
                 approved: body.approved === true,
                 ...(body.content && typeof body.content === "object" && !Array.isArray(body.content) ? { content: body.content as Record<string, unknown> } : {}),
             });
@@ -312,7 +324,7 @@ export function createCanvasAgentHttpModule(
             apiVersion: 1,
             scopes: ["canvas:connect", "agent:profiles:read", "agent:sessions:read", "agent:sessions:manage", "agent:turns:run", "agent:confirmations:decide", "agent:tools:execute", "agent:handoff:manage"],
         },
-        routes,
+        routes: generic ? routes.map(item => protectAccountRoute(item, accounts, generic, session)) : routes,
         onRuntimeSessionRevoked: (sessionId) => { accounts.revoke(sessionId); session.closeRuntimeSession(sessionId); },
         publicHealth: () => {
             const { ok: _ok, ...health } = session.health();
@@ -359,6 +371,7 @@ function createGenericAgentRoutes(generic: GenericAgentRuntime, config: LocalRun
         agentRoute("GET", "/agent/sessions", "agent:sessions:read", async (req, res) => {
             if (queryValue(req, "workspaceId") && (queryValue(req, "workspaceId") !== config.ownerId || queryValue(req, "projectId"))) throw new Error("AGENT_CONTEXT_WORKSPACE_PROJECT_MIXED");
             res.json({ ok: true, sessions: (await generic.store.listSessions({
+                accountScopeId: accountBinding(res).accountScopeId,
                 ...(queryValue(req, "projectId") ? { projectId: queryValue(req, "projectId") } : {}),
                 ...(queryValue(req, "workspaceId") ? { workspaceId: queryValue(req, "workspaceId"), projectId: null } : {}),
                 ...(queryValue(req, "brainProfileId") ? { brainProfileId: queryValue(req, "brainProfileId") } : {}),
@@ -367,7 +380,8 @@ function createGenericAgentRoutes(generic: GenericAgentRuntime, config: LocalRun
         agentRoute("POST", "/agent/sessions", "agent:sessions:manage", async (req, res) => {
             const body = jsonRecord(req);
             const current = session.agentContextSnapshot();
-            const result = await generic.createSession(trustedCreateSessionInput(body, current, config.ownerId || "local-owner"));
+            const binding = accountBinding(res);
+            const result = await generic.createSession({ ...trustedCreateSessionInput(body, current, config.ownerId!), accountScopeId: binding.accountScopeId });
             res.json({ ok: true, ...result });
         }),
         agentRoute("GET", "/agent/sessions/:sessionId", "agent:sessions:read", async (req, res) => {
@@ -383,7 +397,7 @@ function createGenericAgentRoutes(generic: GenericAgentRuntime, config: LocalRun
         }),
         agentRoute("POST", "/agent/sessions/:sessionId/resume", "agent:sessions:manage", async (req, res) => {
             assertEmptyBody(req);
-            res.json({ ok: true, ...(await generic.resumeSession(routeParam(req.params.sessionId), config.ownerId || "local-owner")) });
+            res.json({ ok: true, ...(await generic.resumeSession(routeParam(req.params.sessionId), config.ownerId!)) });
         }),
         agentRoute("POST", "/agent/sessions/:sessionId/context", "agent:sessions:read", async (req, res) => {
             assertEmptyBody(req);
@@ -397,7 +411,8 @@ function createGenericAgentRoutes(generic: GenericAgentRuntime, config: LocalRun
             let preparedSkills: Awaited<ReturnType<typeof writeSkillFiles>> = { directories: [], inputs: [] };
             try {
                 preparedSkills = await writeSkillFiles(parseAgentSkills(body.skills));
-                const result = await generic.sendTurn(routeParam(req.params.sessionId), { turnId, prompt: requiredBodyString(body, "prompt"), localImagePaths, localSkills: preparedSkills.inputs, ...(body.scriptCreation !== undefined ? { scriptCreation: body.scriptCreation } : {}) }, emit);
+                const scope = accountBinding(res).accountScopeId;
+                const result = await generic.sendTurn(routeParam(req.params.sessionId), { turnId, prompt: requiredBodyString(body, "prompt"), localImagePaths, localSkills: preparedSkills.inputs, ...(body.scriptCreation !== undefined ? { scriptCreation: body.scriptCreation } : {}) }, (type, payload) => withRuntimeAccount(session, scope, () => emit(type, payload)));
                 res.json({ ok: true, ...result });
             } finally {
                 await Promise.all([removeAttachmentFiles(localImagePaths), removeSkillDirectories(preparedSkills.directories)]);
@@ -444,6 +459,45 @@ function createGenericAgentRoutes(generic: GenericAgentRuntime, config: LocalRun
             res.json({ ok: true, session: await generic.manager.closeSession(routeParam(req.params.sessionId)) });
         }),
     ];
+}
+
+function withRuntimeAccount<T>(session: CanvasAgentSession, accountScopeId: string, action: () => T): T {
+    if (!session.withAccountScope) throw accountSessionError();
+    return session.withAccountScope(accountScopeId, action);
+}
+
+function accountBinding(res: Response): RuntimeAccountBinding {
+    const binding = res.locals?.runtimeAccount as RuntimeAccountBinding | undefined;
+    if (!binding) throw accountSessionError();
+    return binding;
+}
+
+function accountSessionError() {
+    return new LocalRuntimeSessionError("agent_account_session_unavailable", "当前账号没有此会话；原历史保留，未执行请求", 404);
+}
+
+function protectAccountRoute(item: LocalRuntimeProtectedRoute, accounts: RuntimeAccountBindings, generic: GenericAgentRuntime, session: CanvasAgentSession): LocalRuntimeProtectedRoute {
+    if (item.path === "/api/tools" || item.path === "/agent/account" || item.path.startsWith("/agent/account/")) return item;
+    const handler: RequestHandler = (req, res, next) => {
+        void (async () => {
+            const binding = accounts.require(res.locals.runtimeSession);
+            // Generic sessions must not fall through to unscoped legacy history
+            // or provider execution, even when the caller has a signed session.
+            if (item.path.startsWith("/agent/codex/") && !item.path.startsWith("/agent/codex/account") || item.path === "/agent/claude/turn") {
+                throw new LocalRuntimeSessionError("agent_legacy_route_disabled", "当前使用统一 Agent 会话入口；未执行旧入口请求", 409);
+            }
+            const sessionId = req.params?.sessionId || (item.path.startsWith("/agent/confirmations/") ? requiredBodyString(jsonRecord(req), "sessionId") : undefined);
+            if (sessionId) {
+                const owned = await generic.store.getSession(routeParam(sessionId));
+                if (!owned || owned.accountScopeId !== binding.accountScopeId) throw accountSessionError();
+            }
+            // Reads above may yield. Expiry/revocation must still block dispatch.
+            if (accounts.require(res.locals.runtimeSession).accountScopeId !== binding.accountScopeId) throw accountSessionError();
+            res.locals.runtimeAccount = binding;
+            withRuntimeAccount(session, binding.accountScopeId, () => item.handler(req, res, next));
+        })().catch(next);
+    };
+    return { ...item, legacy: false, handler };
 }
 
 function codexOptions(grant: AgentPermissionGrant, approvals: CodexApprovalCoordinator, session: CanvasAgentSession) {

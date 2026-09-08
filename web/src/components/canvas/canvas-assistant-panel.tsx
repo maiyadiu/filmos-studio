@@ -31,6 +31,7 @@ import { isModelApiBrainProfile, normalizeBrainProfileId } from "@/film/agent/br
 import { isAgentFeatureEnabled } from "@/film/agent/feature-flags";
 import { registerBrowserRuntimeHandler } from "@/film/agent/browser-runtime-bridge";
 import { BrowserRuntimeSessionProfiles, createBrowserRuntimeRequestHandler } from "@/film/agent/browser-runtime-handler";
+import { useAccountAgentClient } from "@/film/agent/use-account-agent-client";
 import { assertExplicitModelRuntimeSelection } from "@/film/agent/model-api-billing-guard";
 import { MODEL_API_AGENT_TOOLS, MODEL_API_READ_TOOL_NAMES } from "@/film/agent/model-api-tool-manifest";
 import { NODE_DEFAULT_SIZE } from "@/constant/canvas";
@@ -216,6 +217,7 @@ export function CanvasAssistantPanel({
     const generationConsumerControllerRef = useRef(new AbortController());
     const previousProfileRef = useRef(activeProfile);
     const browserRuntimeSessionProfilesRef = useRef(new BrowserRuntimeSessionProfiles());
+    const browserAgentClient = useAccountAgentClient();
 
     useEffect(() => {
         void initializeRouting(effectiveConfig);
@@ -230,8 +232,9 @@ export function CanvasAssistantPanel({
             resolveBinding: (profileId) => routingConfig?.bindings.find((binding) => binding.profileId === profileId && binding.enabled),
             ordinaryConfirmationEnabled: confirmTools,
             sessionProfiles: browserRuntimeSessionProfilesRef.current,
+            client: browserAgentClient,
         }));
-    }, [activeProfile, confirmTools, effectiveConfig, genericAgentRuntimeEnabled, isAiConfigReady, routingConfig]);
+    }, [activeProfile, browserAgentClient, confirmTools, effectiveConfig, genericAgentRuntimeEnabled, isAiConfigReady, routingConfig]);
 
     useEffect(() => {
         let cancelled = false;

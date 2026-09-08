@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { assertAgentWorkbenchScope, canvasToolApiError, CanvasPromptConflictError, isProjectPageTool, shotImageReadError } from "@filmos/agent-contracts";
 import type { ServerResponse } from "node:http";
+import { AsyncLocalStorage } from "node:async_hooks";
 
 import { CANVAS_GENERATION_CONTINUATION_TIMEOUT_MS } from "./canvas-tool-timeouts.js";
 import { buildCanvasContext, findCanvasNodes, getCanvasConnection, getCanvasGenerationTasks, getCanvasNode, getCanvasResources, hashState, validateCanvasOps } from "./canvas-context.js";
@@ -11,16 +12,50 @@ import type { BrowserRuntimeRequest, BrowserRuntimeTransport } from "./brains/br
 import type { CanonicalToolExecutionMetadata } from "./brains/tool-providers.js";
 import { LocalRuntimeSessionError } from "./local-runtime-session.js";
 
-type PendingRequest = { clientId: string; runtimeSessionId?: string; recoverable: boolean; resolve: (value: unknown) => void; reject: (error: Error) => void };
-type CanvasClient = { response: ServerResponse; timer: NodeJS.Timeout; runtimeSessionId?: string };
+type PendingRequest = { clientId: string; runtimeSessionId?: string; accountScopeId?: string; recoverable: boolean; resolve: (value: unknown) => void; reject: (error: Error) => void };
+type CanvasClient = { response: ServerResponse; timer: NodeJS.Timeout; runtimeSessionId?: string; accountScopeId?: string; authorize?: () => boolean };
 
 export class CanvasSession implements BrowserRuntimeTransport {
     private clients = new Map<string, CanvasClient>();
     private pending = new Map<string, PendingRequest>();
-    private canvasState: CanvasSnapshot | null = null;
+    private readonly states = new Map<string, CanvasSnapshot>();
+    private readonly accountScope = new AsyncLocalStorage<string>();
+    private accountIsolation = false;
+
+    enableAccountIsolation() { this.accountIsolation = true; }
+
+    withAccountScope<T>(accountScopeId: string, action: () => T): T {
+        if (!/^account_[a-f0-9]{64}$/.test(accountScopeId)) throw clientOwnershipError();
+        return this.accountScope.run(accountScopeId, action);
+    }
+
+    private get canvasState(): CanvasSnapshot | null {
+        const scope = this.accountScope.getStore();
+        if (this.accountIsolation && !scope) return null;
+        const state = this.states.get(scope ?? "legacy") ?? null;
+        if (!this.accountIsolation || !state) return state;
+        const client = state.clientId ? this.clients.get(state.clientId) : undefined;
+        return client && client.accountScopeId === scope && this.authorized(client) ? state : null;
+    }
+
+    private set canvasState(state: CanvasSnapshot | null) {
+        const scope = this.accountScope.getStore();
+        if (this.accountIsolation && !scope) throw clientOwnershipError();
+        if (state) this.states.set(scope ?? "legacy", state);
+        else this.states.delete(scope ?? "legacy");
+    }
+
+    private clearClientState(clientId: string) {
+        for (const [scope, state] of this.states) if (state.clientId === clientId) this.states.delete(scope);
+    }
+
+    private authorized(client: CanvasClient): boolean {
+        if (!this.accountIsolation) return true;
+        try { return Boolean(client.accountScopeId && client.authorize?.()); } catch { return false; }
+    }
 
     health() {
-        return { ok: true, hasCanvas: Boolean(this.canvasState && this.canvasState.contextKind !== "project" && this.canvasState.contextKind !== "workspace"), clients: this.clients.size };
+        return { ok: true, hasCanvas: [...this.states.values()].some(state => state.contextKind !== "project" && state.contextKind !== "workspace"), clients: this.clients.size };
     }
 
     workbenchContext() {
@@ -89,19 +124,26 @@ export class CanvasSession implements BrowserRuntimeTransport {
         };
     }
 
-    openEvents(url: URL, res: ServerResponse, runtimeSessionId?: string) {
+    openEvents(url: URL, res: ServerResponse, runtimeSessionId?: string, authorize?: () => boolean) {
         const clientId = url.searchParams.get("clientId") || crypto.randomUUID();
+        const accountScopeId = this.accountScope.getStore();
+        if (this.accountIsolation && (!accountScopeId || !authorize?.())) throw clientOwnershipError();
         const previous = this.clients.get(clientId);
-        if (previous && previous.runtimeSessionId !== runtimeSessionId) throw clientOwnershipError();
+        if (previous && (previous.runtimeSessionId !== runtimeSessionId || previous.accountScopeId !== accountScopeId)) throw clientOwnershipError();
         // A disconnected generation can still be waiting for its original result.
         // Do not let a different signed session claim that client's identity.
         for (const pending of this.pending.values()) {
-            if (pending.clientId === clientId && pending.runtimeSessionId !== runtimeSessionId) throw clientOwnershipError();
+            if (pending.clientId === clientId && (pending.runtimeSessionId !== runtimeSessionId || pending.accountScopeId !== accountScopeId)) throw clientOwnershipError();
         }
         res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" });
         sendEvent(res, "hello", { ok: true, clientId });
-        const timer = setInterval(() => sendEvent(res, "ping", { time: Date.now() }), 15000);
-        this.clients.set(clientId, { response: res, timer, runtimeSessionId });
+        const timer = setInterval(() => {
+            const client = this.clients.get(clientId);
+            if (!client || client.response !== res) return;
+            if (!this.authorized(client)) { res.end(); return; }
+            sendEvent(res, "ping", { time: Date.now() });
+        }, 15000);
+        this.clients.set(clientId, { response: res, timer, runtimeSessionId, accountScopeId, authorize });
         if (previous) {
             clearInterval(previous.timer);
             previous.response.end();
@@ -110,7 +152,7 @@ export class CanvasSession implements BrowserRuntimeTransport {
             clearInterval(timer);
             if (this.clients.get(clientId)?.response !== res) return;
             this.clients.delete(clientId);
-            if (this.canvasState?.clientId === clientId) this.canvasState = null;
+            this.clearClientState(clientId);
             this.rejectPendingClient(clientId, new Error("画布连接已断开"), true);
         });
     }
@@ -121,7 +163,7 @@ export class CanvasSession implements BrowserRuntimeTransport {
             if (client.runtimeSessionId !== runtimeSessionId) continue;
             this.clients.delete(clientId);
             clearInterval(client.timer);
-            if (this.canvasState?.clientId === clientId) this.canvasState = null;
+            this.clearClientState(clientId);
             this.rejectPendingClient(clientId, error);
             client.response.end();
         }
@@ -135,6 +177,7 @@ export class CanvasSession implements BrowserRuntimeTransport {
 
     updateState(body: unknown, clientId?: string, runtimeWorkspaceId?: string, runtimeSessionId?: string) {
         const client = clientId ? this.clients.get(clientId) : undefined;
+        if (this.accountIsolation && (!client || client.accountScopeId !== this.accountScope.getStore() || !this.authorized(client))) throw clientOwnershipError();
         if ((runtimeSessionId !== undefined || client?.runtimeSessionId !== undefined) &&
             (!client || client.runtimeSessionId !== runtimeSessionId)) throw clientOwnershipError();
         const candidate = { ...((body && typeof body === "object" && !Array.isArray(body) ? body : {}) as Record<string, unknown>), clientId } as CanvasSnapshot;
@@ -172,7 +215,7 @@ export class CanvasSession implements BrowserRuntimeTransport {
     resolveResult(body: { requestId?: string; error?: string; backendStatus?: unknown; localConflict?: unknown; visualError?: unknown; result?: unknown }, clientId?: string, runtimeSessionId?: string) {
         const item = body.requestId ? this.pending.get(body.requestId) : null;
         if (!item || !body.requestId) return;
-        if (item.runtimeSessionId !== runtimeSessionId ||
+        if (item.accountScopeId !== this.accountScope.getStore() || item.runtimeSessionId !== runtimeSessionId ||
             ((runtimeSessionId !== undefined || clientId !== undefined) && item.clientId !== clientId)) throw clientOwnershipError();
         this.pending.delete(body.requestId);
         const failure = canvasToolApiError(body.backendStatus);
@@ -186,7 +229,13 @@ export class CanvasSession implements BrowserRuntimeTransport {
     }
 
     emitAll(type: string, payload: unknown) {
-        this.clients.forEach((client) => sendEvent(client.response, type, payload));
+        const accountScopeId = this.accountScope.getStore();
+        if (this.accountIsolation && !accountScopeId) return;
+        this.clients.forEach((client) => {
+            if (client.accountScopeId !== accountScopeId) return;
+            if (!this.authorized(client)) { client.response.end(); return; }
+            sendEvent(client.response, type, payload);
+        });
     }
 
     hasConnectedBrowser() {
@@ -204,7 +253,7 @@ export class CanvasSession implements BrowserRuntimeTransport {
             response.end();
         });
         this.clients.clear();
-        this.canvasState = null;
+        this.states.clear();
         const error = new Error("Canvas session disposed");
         this.pending.forEach((request) => request.reject(error));
         this.pending.clear();
@@ -347,14 +396,14 @@ export class CanvasSession implements BrowserRuntimeTransport {
         const requestId = crypto.randomUUID();
         const stateClientId = this.canvasState?.clientId || "";
         const selected = this.clients.get(stateClientId);
-        if (!stateClientId || !selected) throw new Error("当前没有已连接画布");
+        if (!stateClientId || !selected || selected.accountScopeId !== this.accountScope.getStore() || !this.authorized(selected)) throw new Error("当前没有已连接画布");
         return await new Promise((resolve, reject) => {
             const timer = setTimeout(() => {
                 this.pending.delete(requestId);
                 reject(new Error("画布操作超时"));
             }, recoverable ? CANVAS_GENERATION_CONTINUATION_TIMEOUT_MS : 30000);
             if (recoverable) timer.unref();
-            const pending: PendingRequest = { clientId: stateClientId, runtimeSessionId: selected.runtimeSessionId, recoverable, resolve: (value) => (clearTimeout(timer), resolve(value)), reject: (error) => (clearTimeout(timer), reject(error)) };
+            const pending: PendingRequest = { clientId: stateClientId, runtimeSessionId: selected.runtimeSessionId, accountScopeId: selected.accountScopeId, recoverable, resolve: (value) => (clearTimeout(timer), resolve(value)), reject: (error) => (clearTimeout(timer), reject(error)) };
             this.pending.set(requestId, pending);
             try { sendEvent(selected.response, eventType, { requestId, ...payload }); }
             catch (error) {
