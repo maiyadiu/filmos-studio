@@ -19,6 +19,7 @@ import { createCanvasAgentHttpModule } from "../src/modules/canvas-agent-http.js
 import { CanvasSession } from "../src/canvas-session.js";
 import { MemoryBrainSessionStore } from "../src/brains/session-store.js";
 import { AGENT_FEATURE_FLAG_IDS } from "../src/brains/feature-flags.js";
+import { sourceFixture } from "./fixtures/source-maintenance.js";
 import {
     LocalRuntimeSessionManager,
     type RuntimeBrowserRegistration,
@@ -544,6 +545,56 @@ test("account HTTP handshake uses the signed server identity, rejects body ident
         assert.equal(unbound.status, 401, "a new signed session never inherits the old proof lease");
         assert.equal(verifications, 1);
     }, undefined, undefined, [module]);
+});
+
+test("source HTTP reads compose signed transport with server-verified developer identity and safe errors", async t => {
+    const source = sourceFixture(t);
+    for (const authMode of ["account", "desktop_local"] as const) {
+        let challenge: unknown;
+        let sourceReads = 0;
+        const module = createCanvasAgentHttpModule({
+            url: endpoint, token: "fixture-master-token", ownerId: "fixture-owner", trustedWebOrigins: [origin], browserRegistrations: [],
+            agentFeatureFlags: Object.fromEntries(AGENT_FEATURE_FLAG_IDS.map(id => [id, true])),
+        }, new CanvasSession(), {
+            brainSessionStore: new MemoryBrainSessionStore(), persistentAudit: false, accountNow: () => now,
+            sourceWorkspace: () => { sourceReads++; return source.workspace; },
+            accountVerifierFetch: async () => Response.json({ code: 0, msg: "", data: {
+                protocol: "filmos-runtime-account-v1", userId: `fixture-${authMode}`, authMode, challenge,
+                issuedAt: Math.floor(now / 1000), expiresAt: Math.floor(now / 1000) + 60,
+            } }),
+        });
+        await withRuntime(async ({ server }) => {
+            const key = browserKey();
+            const signed = await exchangeRequest(server, key.privateKey, await challengeRequest(server, key.publicJwk));
+            const call = (route: string, body?: string) => {
+                const method = body === undefined ? "GET" : "POST";
+                return request(server, { path: route, method, body, headers: { ...jsonHeaders(origin), ...signedHeaders(key.privateKey, signed, method, route, Buffer.from(body ?? "")) } });
+            };
+            for (const headers of [jsonHeaders(origin), { ...jsonHeaders(origin), "X-Canvas-Token": "fixture-master-token" }]) {
+                assert.equal((await request(server, { path: "/agent/source", headers })).status, 401);
+            }
+            assert.equal((await call("/agent/source")).status, 401); assert.equal(sourceReads, 0);
+            challenge = JSON.parse((await call("/agent/account/challenge", "{}")).body).challenge;
+            assert.equal((await call("/agent/account/bind", JSON.stringify({ proof: "fixture." + "s".repeat(43) }))).status, 200);
+            const status = await call("/agent/source");
+            if (authMode === "account") {
+                assert.equal(status.status, 403); assert.equal(JSON.parse(status.body).code, "agent_source_developer_required");
+                assert.equal(sourceReads, 0); return;
+            }
+            assert.equal(status.status, 200); assert.equal(JSON.parse(status.body).result.mode, "source-read-only");
+            const read = await call("/agent/source/read", JSON.stringify({ path: "README.md" }));
+            assert.equal(read.status, 200); assert.equal(JSON.parse(read.body).result.content, "fixture-only repository");
+            assert.equal(read.headers["cache-control"], "no-store, max-age=0");
+            for (const body of ["{", "[]", JSON.stringify({ path: "README.md", cwd: "/" })]) assert.equal((await call("/agent/source/read", body)).status, 400);
+            const denied = await call("/agent/source/read", JSON.stringify({ path: ".git/config" }));
+            assert.equal(denied.status, 403); assert.equal(JSON.parse(denied.body).code, "agent_source_path_denied");
+            assert.equal(denied.body.includes(source.root), false);
+            assert.equal((await call("/agent/source?cwd=%2Ftmp")).status, 400);
+            const previousReads = sourceReads;
+            assert.equal((await call("/runtime/session/revoke", "{}")).status, 200);
+            assert.equal((await call("/agent/source")).status, 401); assert.equal(sourceReads, previousReads);
+        }, undefined, undefined, [module]);
+    }
 });
 
 test("signed canvas HTTP state and result use verified session identity, never a body substitute", async () => {

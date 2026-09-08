@@ -170,6 +170,7 @@ export function codexConfig(configDir = CONFIG_DIR, grant?: AgentPermissionGrant
             FILMOS_AGENT_WORKSPACE_ID: grant.workspaceId ?? "",
             FILMOS_AGENT_GRANT_NONCE: grant.nonce,
             FILMOS_AGENT_GRANT_SIGNATURE: grant.signature,
+            FILMOS_SOURCE_TASK_ID: grant.sourceTaskId ?? "",
         } : {}),
     };
     // app-server's thread/start `config` field is a map of dotted config

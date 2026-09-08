@@ -1,5 +1,5 @@
 import type { AgentConfirmation, AgentPermissionGrant, AgentToolManifest, AgentToolRequest, BrainProfile, BrainSession } from "./contracts.js";
-import { isProjectPageTool } from "@filmos/agent-contracts";
+import { isProjectPageTool, isSourceMaintenanceTool } from "@filmos/agent-contracts";
 import type { WorkbenchContextIdentity } from "./context-broker.js";
 import { AgentContextBroker } from "./context-broker.js";
 import { AgentPermissionGrantStore } from "./permission-grants.js";
@@ -24,8 +24,11 @@ export class AgentPolicyGateway {
             throw new Error("AGENT_TOOL_REQUEST_IDENTITY_MISMATCH");
         }
         if (!manifest.surfaces.includes(profile.toolSurface) || grant.toolSurface !== profile.toolSurface) throw new Error("AGENT_TOOL_SURFACE_DENIED");
-        if (session.projectId === null && manifest.name !== "workbench_get_context") throw new Error("AGENT_TOOL_REQUIRES_PROJECT_CONTEXT");
-        if (session.canvasId === null && !isProjectPageTool(manifest.name)) throw new Error("AGENT_TOOL_REQUIRES_CANVAS_CONTEXT");
+        const sourceTool = isSourceMaintenanceTool(manifest.name);
+        if (sourceTool && !grant.sourceTaskId) throw new Error("AGENT_SOURCE_TASK_REQUIRED");
+        if (grant.sourceTaskId && !sourceTool && manifest.name !== "workbench_get_context") throw new Error("AGENT_SOURCE_GRANT_INVALID");
+        if (session.projectId === null && manifest.name !== "workbench_get_context" && !sourceTool) throw new Error("AGENT_TOOL_REQUIRES_PROJECT_CONTEXT");
+        if (session.canvasId === null && !isProjectPageTool(manifest.name) && !sourceTool) throw new Error("AGENT_TOOL_REQUIRES_CANVAS_CONTEXT");
         if (session.canvasId === null && manifest.risk !== "read" && input.currentContext.blockers?.length) throw new Error("AGENT_PROJECT_PAGE_WRITE_BLOCKED");
         this.grants.validate(grant.id, {
             sessionId: session.id,

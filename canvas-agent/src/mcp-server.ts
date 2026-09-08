@@ -37,10 +37,16 @@ export type RegisterMcpToolsOptions = {
 export function registerMcpTools(server: McpServer, config: CanvasAgentConfig, options: RegisterMcpToolsOptions = {}) {
     const surface = resolveToolSurface(options);
     const manifest = new CanonicalAgentToolManifest();
-    const allowedTools = manifest.list(surface);
+    const sourceTask = /^[a-f0-9-]{36}$/.test(process.env.FILMOS_SOURCE_TASK_ID || "");
+    const allowedTools = manifest.list(surface).filter(tool => sourceTask
+        ? tool.name === "workbench_get_context" || tool.provider === "source_maintenance"
+        : tool.provider !== "source_maintenance");
     const allowed = new Set(allowedTools.map((tool) => tool.name));
     toolNames.filter((name) => allowed.has(name)).forEach((name) => registerCanvasTool(server, config, name));
-    allowedTools.filter((tool) => tool.provider === "generation" && tool.name !== "dreamina_cli" && !toolNames.includes(tool.name as ToolName)).forEach((tool) => registerGenerationProxyTool(server, config, tool.name));
+    allowedTools.filter((tool) => tool.provider === "generation" && tool.name !== "dreamina_cli" && !toolNames.includes(tool.name as ToolName)).forEach((tool) => registerCanonicalProxyTool(server, config, tool.name));
+    if (sourceTask) {
+        allowedTools.filter(tool => tool.provider === "source_maintenance").forEach(tool => registerCanonicalProxyTool(server, config, tool.name));
+    }
     if (allowed.has("workbench_get_context")) registerWorkbenchContextTool(server, config);
     if (surface === "runtime_admin") {
         if (allowed.has("dreamina_cli")) registerDreaminaMcp(server, config);
@@ -49,11 +55,11 @@ export function registerMcpTools(server: McpServer, config: CanvasAgentConfig, o
     if (surface === "workbench_operator" && filmToolNames.some((name) => allowed.has(name))) registerFilmAgentMcp(server, config, { ...options.film, enabled: true });
 }
 
-function registerGenerationProxyTool(server: McpServer, config: CanvasAgentConfig, name: string) {
+function registerCanonicalProxyTool(server: McpServer, config: CanvasAgentConfig, name: string) {
     const contract = requiredMcpContract(name);
     server.registerTool(name, {
         description: contract.description,
-        inputSchema: generationInputShape(contract.inputSchema),
+        inputSchema: canonicalInputShape(contract.inputSchema),
         annotations: contract.annotations,
     }, async (input: unknown) => {
         const result = await postCanvasAgentTool(config, name, input);
@@ -61,7 +67,7 @@ function registerGenerationProxyTool(server: McpServer, config: CanvasAgentConfi
     });
 }
 
-function generationInputShape(schema: Record<string, unknown>) {
+function canonicalInputShape(schema: Record<string, unknown>) {
     const properties = schema.properties && typeof schema.properties === "object" && !Array.isArray(schema.properties) ? schema.properties as Record<string, Record<string, unknown>> : {};
     const required = new Set(Array.isArray(schema.required) ? schema.required.filter((item): item is string => typeof item === "string") : []);
     return Object.fromEntries(Object.entries(properties).map(([name, property]) => {
@@ -70,8 +76,14 @@ function generationInputShape(schema: Record<string, unknown>) {
             let stringValidator = z.string();
             if (typeof property.minLength === "number") stringValidator = stringValidator.min(property.minLength);
             if (typeof property.maxLength === "number") stringValidator = stringValidator.max(property.maxLength);
+            if (typeof property.pattern === "string") stringValidator = stringValidator.regex(new RegExp(property.pattern));
             validator = stringValidator;
-        } else if (property.type === "integer") validator = z.number().int();
+        } else if (property.type === "integer") {
+            let numberValidator = z.number().int();
+            if (typeof property.minimum === "number") numberValidator = numberValidator.min(property.minimum);
+            if (typeof property.maximum === "number") numberValidator = numberValidator.max(property.maximum);
+            validator = numberValidator;
+        }
         else if (property.type === "number") validator = z.number();
         else if (property.type === "boolean") validator = z.boolean();
         else if (property.type === "array") validator = z.array(z.unknown());

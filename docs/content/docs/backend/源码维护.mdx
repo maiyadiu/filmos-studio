@@ -1,0 +1,61 @@
+---
+title: 源码维护
+description: 开发者源码诊断、原会话限定补丁与运行态验收边界
+---
+
+# 源码维护
+
+私有源码读取与原 BrainSession 的限定工程任务已接入 Runtime/MCP，并通过隔离夹具验证。原生界面入口、测试执行、安全更新和原作品接续仍待接入，不等于真实 FilmOS 对话已能完成系统修复。普通创作的工具范围不变，不开放 shell，不借用正式 Review Bus 身份。
+
+## 身份与源码来源
+
+仅 Generic Runtime 提供以下路由。每次请求必须同时通过原有浏览器签名、[本机账号证明](账号证明.mdx)的有效绑定及服务端核实的 `authMode=desktop_local`；普通公开账号即使是管理员也不能使用。读取结束前再次核对绑定，过期或撤销后不返回源码。客户端 `developer`、`authMode`、`cwd` 和执行权限字段均不能授予权限。
+
+源码根从当前启动器环境绑定，并且必须与实际执行模块所在仓库根相同；运行目录必须是该源码的 `.local/source-host`。每次读取检查 `integration` 分支、Git 顶层及共同目录，拒绝 detached HEAD、gitfile worktree、根目录别名或符号链接。App 或非源码 Runtime 仅对维护请求返回不可用，不影响普通创作。
+
+## 私有只读接口
+
+接口使用 `agent:profiles:read`，返回 `{ ok: true, result }`；响应沿用 `Cache-Control: no-store`，不支持旧 master token。参数位于签名 JSON 正文，不放入 URL。
+
+| 接口 | 参数 | 结果 |
+| --- | --- | --- |
+| `GET /agent/source` | 无 | HEAD、Tree、tracked clean 状态、支持的 tracked 文件数与实际能力开关；不返回本机绝对路径 |
+| `POST /agent/source/files` | `prefix?`、`offset?`、`limit?` | 仓库相对路径列表、总数、下一页偏移；最多100个 |
+| `POST /agent/source/read` | `path`、`startLine?`、`lineCount?`、`expectedHash?` | 原文件 SHA-256、字节数、行范围、正文与截断标记；最多240行 |
+
+读取只允许已 tracked 的受支持代码/文档普通文本，不读取未跟踪用户材料、隐藏目录、数据、上传文件、依赖目录或构建目录。受支持扩展包括 TypeScript、JavaScript、CSS、Go、Swift、Markdown、shell，以及 package/tsconfig JSON。文件上限256 KiB；拒绝符号链接、硬链接、目录、二进制与非法 UTF-8。读取中观察到文件变化或 `expectedHash` 不符返回409；这不是仓库锁或跨文件原子快照。
+
+Git 子进程只使用固定只读参数、无 shell，关闭 fsmonitor，忽略继承的 Git 仓库覆盖及全局配置；状态检查遇到仓库配置的过滤器时拒绝执行，以免 Git 刷新文件时运行过滤命令。查询 HEAD/Tree 不代表当前运行产物与脏源码已同步。
+
+错误保留安全代码：401 表示签名/绑定缺失或过期；403 `agent_source_developer_required` / `agent_source_path_denied` 表示身份或文件范围不符；400 `agent_source_request_invalid` 表示参数无效；409 `agent_source_unavailable` / `agent_source_changed` 表示源码身份不可用或内容变化。只读接口失败不尝试其它源码目录，不生成补丁，不重载服务。
+
+## 同一会话的工程任务
+
+以下接口沿用私有签名和服务端开发者身份证明，并校验原 Session 的账号归属。只允许 `codex.subscription`，拒绝 `review_coordinator`。维护开始/结束必须没有活动轮次或待处理确认；开始不会提交模型任务或创建新对话。
+
+| 接口 | 输入 / 作用 |
+| --- | --- |
+| `GET /agent/sessions/:sessionId/source-task` | 返回原任务记录与 `live`，历史记录不授予权限 |
+| `POST /agent/sessions/:sessionId/source-task/open` | `requestId`、`purpose`、`files: [{path, expectedHash}]`，最多5个不同的已 tracked 文件；冻结 HEAD、文件哈希及15分钟范围 |
+| `POST /agent/sessions/:sessionId/source-task/reconcile` | 空对象；只核对磁盘与原意图/结果哈希，不重发补丁、不恢复授权 |
+| `POST /agent/sessions/:sessionId/source-task/close` | 空对象；撤销源码任务，再恢复原创作工具范围；存在未核清的 applying 意图时拒绝结束 |
+
+切换撤销原 Grant，通过原 Adapter 恢复相同 providerThreadId。工程 Grant 签名绑定 `sourceTaskId`，仅包含 `workbench_get_context` 和四个专用工具 `source_get_task`、`source_read_file`、`source_prepare_patch`、`source_apply_patch`；此时不能调用业务、生成、API 或正式 Film 工具。普通 Grant、其他脑及 MCP surface 不获得这些源码工具。环境变量只影响 MCP 名称可见性，不能替代服务端授权。原会话模型配置、历史、上下文身份不另建副本。
+
+当前每个 Runtime 最多一个活动源码任务，任务执行中拒绝并发读取/补丁及范围切换。源码访问复核有效账号与任务范围；停止轮次后，未完成最终替换的补丁须在同步授权检查处拒绝。已发生的磁盘写入不因停止而回滚，必须核对原记录。
+
+## 精确补丁
+
+`SourceMaintenanceWorkspace.preparePatch` 冻结请求 ID、单个 tracked 文本路径、原文件 SHA-256 和唯一匹配的替换片段；预备阶段不写文件。片段各最多32768字符、文件仍上限256 KiB，禁止删除文件、新建文件、批量模糊替换、隐式换行/BOM转换和无效文本。保留其他未提交修改、文件权限及 Git index/HEAD；不 commit、push、运行代码或更新服务。
+
+`applyPreparedPatch` 要求调用方提供同步任务授权检查，在工作开始及替换前复核。MCP 通过 Canonical Broker 进入服务端工程任务校验，验证开发者、原 BrainSession、任务及允许的文件/哈希，不能直接把客户端参数当授权。没有任意文件写 HTTP 接口；普通只读状态仍返回 `edit=false`，只有显式工程任务中的补丁工具可写。
+
+执行时重新检查源码分支/HEAD、文件内容、inode、类型和链接；本 Runtime 内按源码根串行化，忙碌时拒绝而不排队。使用独占创建的同目录临时文件、完整写入与同步、原文件复核、原子替换及 SHA-256 回读。预览5分钟过期，不自动重发。这里不是其他编辑器/进程都遵守的全局锁，也不声称提供操作系统层面的文件哈希 CAS；最终检查到重命名之间的外部进程竞争仍须在原生单写入者集成时处理，不能据此开放无人值守工程权限。
+
+成功回执仅证明这次磁盘替换及回读，含前后哈希和 `committed=false`、`runtimeUpdated=false`。同一请求的重复调用只在当前文件仍匹配结果哈希时返回原回执，不再写文件；相同请求 ID 不能换内容。完整预备片段保留在实例内存（最多32个请求）；路径、前后哈希、请求 ID、执行意图和回读状态复用原 Session 存储，不新建工程数据库。先持久化 `applying` 再替换；回执丢失时依据原文件前后哈希核对为 `applied` 或 `not_applied`，任何其他内容均拒绝核对，不自动重写。进程重启后记录可读，但没有活动源码权限；确认未应用的旧请求不能原地再执行，必须结束旧范围并明确新任务。
+
+文件已替换但回读未确认时返回 `agent_source_patch_uncertain`，不自动回滚或重复应用。过期、内容/来源冲突、授权失效、另一个写入者等均保留独立错误；失败清理只涉及本次独占临时文件，不清理原文件或用户材料。
+
+## 验证边界
+
+临时 Git 仓库与 Runtime HTTP 夹具覆盖源码身份、dirty 状态、分页/哈希、非法路径、链接/大文件、Git 命令边界、签名、普通账号拒绝及过期/撤销。原 Session、Canonical Broker、受限 MCP 清单和模拟 Adapter 验证同线程切换、业务隔离、精确替换、格式/权限保留、HEAD/文件冲突、停止/授权撤销、并发拒绝、持久意图和重启核对。未访问用户数据库、凭据或 Provider；未用当前运行工作台执行新接口。原生界面、验证命令、进程外单写入者协作与安全更新仍待验收，不能把局部源码验证计为工程维护完成。

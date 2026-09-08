@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { isSourceMaintenanceTool } from "@filmos/agent-contracts";
 
 import type { AgentPermissionGrant, AgentToolSurfaceId } from "./contracts.js";
 
@@ -12,6 +13,7 @@ export type IssuePermissionGrantInput = {
     toolSurface: AgentToolSurfaceId;
     allowedTools: string[];
     ttlMs?: number;
+    sourceTaskId?: string;
 };
 
 export class AgentPermissionGrantStore {
@@ -20,8 +22,10 @@ export class AgentPermissionGrantStore {
     constructor(private readonly signingKey = crypto.randomBytes(32), private readonly now: () => Date = () => new Date()) {}
 
     issue(input: IssuePermissionGrantInput) {
+        if (input.sourceTaskId !== undefined && (!/^[a-f0-9-]{36}$/.test(input.sourceTaskId) || input.connectionId !== "codex.subscription" || input.allowedTools.some(name => name !== "workbench_get_context" && !isSourceMaintenanceTool(name)))) throw new Error("AGENT_SOURCE_GRANT_INVALID");
+        if (!input.sourceTaskId && input.allowedTools.some(isSourceMaintenanceTool)) throw new Error("AGENT_SOURCE_TASK_REQUIRED");
         if (input.projectId === null && (!input.workspaceId || !/^[A-Za-z0-9_-]{1,120}$/.test(input.workspaceId) || input.domainProjectId !== undefined)) throw new Error("AGENT_GRANT_WORKSPACE_REQUIRED");
-        if (input.projectId === null && (input.connectionId !== "codex.subscription" || input.allowedTools.some(name => name !== "workbench_get_context"))) throw new Error("AGENT_GRANT_WORKSPACE_TOOL_DENIED");
+        if (input.projectId === null && (input.connectionId !== "codex.subscription" || input.allowedTools.some(name => name !== "workbench_get_context" && !(input.sourceTaskId && isSourceMaintenanceTool(name))))) throw new Error("AGENT_GRANT_WORKSPACE_TOOL_DENIED");
         if (input.projectId !== null && input.workspaceId !== undefined) throw new Error("AGENT_GRANT_SCOPE_MISMATCH");
         const issuedAt = this.now();
         const expiresAt = new Date(issuedAt.getTime() + (input.ttlMs ?? 15 * 60_000));
@@ -35,6 +39,7 @@ export class AgentPermissionGrantStore {
             ...(input.domainProjectId ? { domainProjectId: input.domainProjectId } : {}),
             toolSurface: input.toolSurface,
             allowedTools: [...new Set(input.allowedTools)].sort(),
+            ...(input.sourceTaskId ? { sourceTaskId: input.sourceTaskId } : {}),
             issuedAt: issuedAt.toISOString(),
             expiresAt: expiresAt.toISOString(),
             nonce: crypto.randomBytes(18).toString("base64url"),
@@ -77,7 +82,7 @@ export class AgentPermissionGrantStore {
     private sign(grant: Omit<AgentPermissionGrant, "signature">) {
         return crypto.createHmac("sha256", this.signingKey).update(JSON.stringify([
             grant.id, grant.sessionId, grant.connectionId, grant.actorId, grant.projectId,
-            grant.domainProjectId ?? "", grant.workspaceId ?? "", grant.toolSurface, grant.allowedTools,
+            grant.domainProjectId ?? "", grant.workspaceId ?? "", grant.toolSurface, grant.allowedTools, grant.sourceTaskId ?? "",
             grant.issuedAt, grant.expiresAt, grant.nonce, grant.keyId,
         ])).digest("base64url");
     }

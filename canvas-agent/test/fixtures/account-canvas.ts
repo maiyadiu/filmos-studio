@@ -20,12 +20,12 @@ export function accountCanvasFixture(config: LocalRuntimeConfig, canvas = new Ca
         const response = { locals: { runtimeSession: input.principal }, json: resolve, status() { return this; } };
         route.handler({ params: input.params ?? {}, query: input.query ?? {}, body: Buffer.from(JSON.stringify(input.body ?? {})) } as Request, response as unknown as ExpressResponse, reject);
     });
-    const bind = async (userId: string) => {
+    const bind = async (userId: string, authMode: RuntimeAccountBinding["authMode"] = "account") => {
         const serial = String(++sequence).padStart(20, "0");
         const principal: RuntimeAccountPrincipal = { runtimeInstanceId: "runtime-instance-fixture", sessionId: `runtime-session-${serial}`, keyId: `key-${serial}`, origin: config.trustedWebOrigins[0], expiresAt: new Date(now + 600_000).toISOString() };
         const { challenge } = await invoke("/agent/account/challenge", { body: {}, principal });
         const proof = `fixture_${sequence}.${"s".repeat(43)}`;
-        proofs.set(proof, { protocol: "filmos-runtime-account-v1", userId, authMode: "account", challenge, issuedAt: Math.floor(now / 1000), expiresAt: Math.floor(now / 1000) + 60 });
+        proofs.set(proof, { protocol: "filmos-runtime-account-v1", userId, authMode, challenge, issuedAt: Math.floor(now / 1000), expiresAt: Math.floor(now / 1000) + 60 });
         const { binding } = await invoke<{ binding: RuntimeAccountBinding }>("/agent/account/bind", { body: { proof }, principal });
         return { principal, binding };
     };

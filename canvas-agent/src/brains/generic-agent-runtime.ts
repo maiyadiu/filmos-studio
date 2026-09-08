@@ -31,6 +31,7 @@ import type { AgentTurnReceipt, BrainSession } from "./contracts.js";
 import { ScriptCreationScope } from "./script-creation-scope.js";
 import { HttpReviewBusCoordinator, ReviewCodexCoordinator, reviewConversationId, reviewTurnId } from "./review-codex-coordinator.js";
 import { ReviewWorktreeManager } from "./review-worktree-manager.js";
+import { SourceMaintenanceTasks } from "./source-maintenance-tasks.js";
 
 type GenericAgentRuntimeOptions = {
     store?: BrainSessionStore;
@@ -41,6 +42,8 @@ type GenericAgentRuntimeOptions = {
     canvasToolExecutor: CanonicalCanvasToolExecutor;
     persistentAudit?: false;
     nativeConfirmations?: Pick<CodexApprovalCoordinator, "pendingForSession" | "cancelSession">;
+    sourceMaintenance?: SourceMaintenanceTasks;
+    codexAdapter?: import("./contracts.js").AgentRuntimeAdapter;
 };
 
 type ConfirmationWaiter = {
@@ -91,7 +94,7 @@ export class GenericAgentRuntime {
         const enabledProfiles = enabledAgentProfileIds(options.featureFlags);
         const browserModelRuntime = new BrowserModelRuntimePort(options.browserRuntime);
         const adapterFactory = new BrainAdapterFactory({
-            codex: new CodexSubscriptionAdapter(
+            codex: options.codexAdapter ?? new CodexSubscriptionAdapter(
                 codexProcessManager,
                 (id, kind) => kind === "workspace" ? ensureRuntimeAgentWorkspace(config, id) : kind === "project" ? ensureProjectAgentWorkspace(id) : ensureCanvasWorkspace(config, id).workspacePath,
                 (grant) => codexConfig(CONFIG_DIR, grant),
@@ -120,13 +123,51 @@ export class GenericAgentRuntime {
             },
             browserRuntime: options.browserRuntime,
         });
-        this.manager = new AgentSessionManager(this.registry, this.store, this.grants, this.confirmations, this.contexts, () => new Date(), this.tools, audit);
+        for (const tool of this.tools.list().filter(tool => tool.provider === "source_maintenance")) this.broker.register(tool.name, {
+            execute: async ({ session, request, manifest }) => {
+                if (!options.sourceMaintenance) throw new Error("AGENT_SOURCE_UNAVAILABLE");
+                const grant = this.grants.get(session.permissionGrantId);
+                const signal = this.turnControllers.get(session.id)?.signal;
+                const output = await options.sourceMaintenance.execute(session, grant?.sourceTaskId, request.toolName, request.input, () => {
+                    signal?.throwIfAborted();
+                    if (this.cancelledTurns.has(`${session.id}:${request.turnId}`)) throw new Error("AGENT_TURN_CANCELLED");
+                });
+                return { output, ...(manifest.risk === "write" ? { postcondition: { provider: "source_maintenance", verified: "verified" in output && output.verified === true } } : {}) };
+            },
+            verifyPostcondition: async ({ postcondition }) => postcondition.provider === "source_maintenance" && postcondition.verified === true,
+        });
+        this.manager = new AgentSessionManager(this.registry, this.store, this.grants, this.confirmations, this.contexts, () => new Date(), this.tools, audit, session => options.sourceMaintenance?.grant(session));
         this.emit = emit;
         this.startReviewCoordinator();
     }
 
     async listConnections() {
         return await probeConnectionList(this.registry);
+    }
+
+    async changeSourceTask(sessionId: string, operation: "open" | "close" | "reconcile", input: unknown, authorize: () => void) {
+        if (!this.options.sourceMaintenance) throw new Error("AGENT_SOURCE_UNAVAILABLE");
+        if (this.activeTurns.has(sessionId) || this.resumingSessions.has(sessionId)) throw new Error("AGENT_SESSION_TURN_ALREADY_RUNNING");
+        this.resumingSessions.add(sessionId);
+        try {
+            authorize();
+            const session = await this.store.getSession(sessionId);
+            if (!session) throw new Error("BRAIN_SESSION_NOT_FOUND");
+            contextSnapshotForSession(session, this.snapshot);
+            if (operation === "reconcile") return { source: await this.options.sourceMaintenance.reconcile(session, authorize) };
+            if (["closed", "creating", "running", "awaiting_confirmation"].includes(session.status) || this.sessionView(session).execution.pendingConfirmations.length) throw new Error("AGENT_SESSION_TURN_ALREADY_RUNNING");
+            if (operation === "open") await this.options.sourceMaintenance.open(session, input, authorize);
+            else await this.options.sourceMaintenance.close(session, authorize);
+            this.grants.revokeSession(sessionId);
+            authorize();
+            // Replace only this idle session's MCP grant/process, then resume
+            // its original provider thread. Never create or send a model turn.
+            await this.manager.resumeSession(sessionId, this.actorId);
+            this.hydratedSessions.add(sessionId);
+            const result = await this.captureContext(sessionId);
+            authorize();
+            return { ...result, source: this.options.sourceMaintenance.view(result.session) };
+        } finally { this.resumingSessions.delete(sessionId); }
     }
 
     // Persisted status can outlive a process. Observe the existing live turn and

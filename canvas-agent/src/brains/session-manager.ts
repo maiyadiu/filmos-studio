@@ -20,6 +20,7 @@ export class AgentSessionManager {
         private readonly now: () => Date = () => new Date(),
         private readonly tools: CanonicalAgentToolManifest = new CanonicalAgentToolManifest(),
         private readonly audit?: AgentAuditSink,
+        private readonly sourceGrant?: (session: BrainSession) => { sourceTaskId: string; allowedTools: string[] } | undefined,
     ) {}
 
     async createSession(input: CreateBrainSessionInput) {
@@ -162,6 +163,7 @@ export class AgentSessionManager {
             ...(session.domainProjectId ? { domainProjectId: session.domainProjectId } : {}),
             toolSurface: profile.toolSurface,
             allowedTools: toolsForWorkbenchScope(this.tools.names(profile.toolSurface), session),
+            ...this.sourceGrant?.(session),
         });
         try {
             const patch = await this.registry.getAdapter(profile.id).resumeSession({
@@ -246,6 +248,7 @@ function appendHandoffTimeline(current: BrainSession["hostHandoffTimeline"], han
 }
 
 function assertAdapterPatchScope(session: BrainSession, patch: Partial<BrainSession>) {
+    if (Object.prototype.hasOwnProperty.call(patch, "sourceMaintenance")) throw new Error("Adapter attempted to change Runtime-owned source task");
     if (Object.prototype.hasOwnProperty.call(patch, "latestTurnReceipt")) throw new Error("Adapter attempted to change Runtime-owned turn receipt");
     const immutable: Array<keyof BrainSession> = ["id", "accountScopeId", "conversationId", "brainProfileId", "connectionId", "projectId", "workspaceId", "workspacePath", "executionProfile", "domainProjectId", "canvasId", "contentUnitId", "sceneId", "directorUnitId", "shotId", "permissionGrantId"];
     for (const key of immutable) {

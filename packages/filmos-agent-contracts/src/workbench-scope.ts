@@ -41,8 +41,13 @@ export function isProjectPageTool(name: string): boolean {
     return projectPageTools.has(name);
 }
 
+export const SOURCE_MAINTENANCE_TOOLS = ["source_get_task", "source_read_file", "source_prepare_patch", "source_apply_patch"] as const;
+export function isSourceMaintenanceTool(name: string): boolean {
+    return (SOURCE_MAINTENANCE_TOOLS as readonly string[]).includes(name);
+}
+
 export function toolsForWorkbenchScope(names: readonly string[], scope: AgentWorkbenchScope): string[] {
     assertAgentWorkbenchScope(scope);
     if (scope.projectId === null) return names.filter(name => name === "workbench_get_context");
-    return names.filter((name) => scope.canvasId !== null || isProjectPageTool(name));
+    return names.filter((name) => !isSourceMaintenanceTool(name) && (scope.canvasId !== null || isProjectPageTool(name)));
 }

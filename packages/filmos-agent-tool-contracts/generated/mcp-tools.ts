@@ -4890,6 +4890,129 @@ export const canonicalMcpTools = [
     }
   },
   {
+    "name": "source_apply_patch",
+    "description": "只应用本任务已预备的原 requestId 并回读哈希；先查任务，未知结果不盲写；不提交Git、不运行测试、不更新服务。",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "requestId": {
+          "pattern": "^[A-Za-z0-9_-]{1,80}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "requestId"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "source_get_task",
+    "description": "读取服务端已授权的当前工程任务、文件/哈希、补丁状态及原回执；不能开启、扩大或续期授权。",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "source_prepare_patch",
+    "description": "在已授权文件中冻结原哈希、唯一原片段及替换片段，使用稳定 requestId；只预备不写入，不改其它文件。",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "expectedHash": {
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
+        },
+        "newText": {
+          "maxLength": 32768,
+          "type": "string"
+        },
+        "oldText": {
+          "maxLength": 32768,
+          "minLength": 1,
+          "type": "string"
+        },
+        "path": {
+          "maxLength": 300,
+          "minLength": 1,
+          "type": "string"
+        },
+        "requestId": {
+          "pattern": "^[A-Za-z0-9_-]{1,80}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "requestId",
+        "path",
+        "expectedHash",
+        "oldText",
+        "newText"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "source_read_file",
+    "description": "只读取本次工程任务预先选定的 tracked 文件；按行返回原哈希，禁止读取其它文件、数据或密钥。",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "expectedHash": {
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
+        },
+        "lineCount": {
+          "default": 160,
+          "maximum": 240,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "path": {
+          "maxLength": 300,
+          "minLength": 1,
+          "type": "string"
+        },
+        "startLine": {
+          "default": 1,
+          "maximum": 100000,
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
     "name": "workbench_get_context",
     "description": "读取受信工作台路由、项目、Film、画布、选区、资产与版本收据；不接受模型提供的身份或项目覆盖。",
     "inputSchema": {

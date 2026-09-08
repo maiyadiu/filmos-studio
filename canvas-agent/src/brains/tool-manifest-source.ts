@@ -42,6 +42,12 @@ export const CANONICAL_AGENT_TOOL_METADATA: readonly CanonicalAgentToolMetadata[
         provider: "runtime",
         requiresFreshContext: false,
     }),
+    ...([
+        ["source_get_task", "读取本次源码维护任务", "读取服务端已授权的当前工程任务、文件/哈希、补丁状态及原回执；不能开启、扩大或续期授权。", "read"],
+        ["source_read_file", "读取授权源码文件", "只读取本次工程任务预先选定的 tracked 文件；按行返回原哈希，禁止读取其它文件、数据或密钥。", "read"],
+        ["source_prepare_patch", "预览精确源码补丁", "在已授权文件中冻结原哈希、唯一原片段及替换片段，使用稳定 requestId；只预备不写入，不改其它文件。", "draft"],
+        ["source_apply_patch", "应用本次源码补丁", "只应用本任务已预备的原 requestId 并回读哈希；先查任务，未知结果不盲写；不提交Git、不运行测试、不更新服务。", "write"],
+    ] as const).map(([name, title, description, risk]) => metadata({ name, title, description, risk, surfaces: ["workbench_operator"], provider: "source_maintenance", requiresFreshContext: true })),
     ...toolNames.map((name) => metadata({
         name,
         title: toolTitle(name),

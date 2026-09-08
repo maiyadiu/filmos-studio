@@ -40,7 +40,9 @@ Codex 项目页执行临时目录使用 Runtime 下的 `project-workspaces/<proj
 
 全局页面的协议基础使用 `contextKind: "workspace"`、`projectId: null`、`canvasId: null`，不借用上次作品或创建虚拟画布。签名的 `GET /agent/workspace` 返回当前 Runtime 持久 owner 对应的 `workspaceId`；`POST /canvas/state` 从服务端绑定该身份，拒绝冒填身份、混入章节/画布/素材及设置原文。首批仅接收 `home/projects/canvases/assets/settings` 页面名称和空节点集合，不读取密钥。
 
-该模式只开放 Codex 的 `workbench_get_context`。Session、Conversation、Grant 签名、MCP 请求头、上下文回执和审计都保留独立 workspace 身份，创建/恢复/执行前核对当前范围；无项目不能取得项目写入、画布、生成、正式 Film 或工程权限，也不扩大 API/ChatGPT Host 路径。按 workspace 查询历史不得混入项目查询。恢复沿用原 provider thread，不自动发送轮次。
+该模式默认只开放 Codex 的 `workbench_get_context`。Session、Conversation、Grant 签名、MCP 请求头、上下文回执和审计都保留独立 workspace 身份，创建/恢复/执行前核对当前范围；无项目不能取得项目写入、画布、生成或正式 Film 权限，也不扩大 API/ChatGPT Host 路径。按 workspace 查询历史不得混入项目查询。恢复沿用原 provider thread，不自动发送轮次。
+
+源码开发者可通过私有、账号归属校验的 Session `source-task` 接口明确打开最多5个已有文件的工程范围。该范围临时替换普通 Grant，只允许上下文和4个 `source_*` 工具；补丁意图/哈希复用 Session 存储，历史记录不恢复写权限。关闭后沿用原 providerThreadId 回到普通工具范围，不自动发轮次、commit、运行检查或重启服务。普通创作仍无 shell，API/ChatGPT Host/Review 不开放源码权限。详见[源码维护](../docs/content/docs/backend/源码维护.mdx)；当前隔离接线测试不代表原生界面和安全更新已完成。
 
 执行临时目录为 Runtime 下的 `agent-workspaces/<workspaceId>`，只能匹配本 Runtime owner，不登记画布、不创建作品目录；使用原 Session 存储，不新增 Agent 服务。当前仅为底层与隔离测试交付，全局 UI、素材实际选择读取、导航与用户作品验收尚未完成，不能据此宣称全工作台可控。后续继续通过既有 Host 贡献槽接入，兼容验收以影策候选加当前 FilmOS 的组合为准。
 

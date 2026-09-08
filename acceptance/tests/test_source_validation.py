@@ -47,7 +47,8 @@ def test_creative_source_checks_cover_native_contracts_without_live_provider_fix
             "test/agent-session-observation.test.ts", "test/canvas-agent-workflow.test.ts"} <= set(browser)
     broker = checks["project-script-broker"].command
     assert {"test/agent-session-grant-recovery.test.ts", "test/codex-app-server-adapter.test.ts",
-            "test/local-runtime-public-error.test.ts", "test/project-prompt-contract.test.ts"} <= set(broker)
+            "test/local-runtime-public-error.test.ts", "test/project-prompt-contract.test.ts",
+            "test/source-maintenance.test.ts", "test/source-maintenance-http.test.ts"} <= set(broker)
     persistence = checks["creative-persistence-contracts"].command
     assert {"./internal/model", "./internal/repository", "./internal/service", "./internal/handler"} <= set(persistence)
     for command in (browser, broker, persistence):

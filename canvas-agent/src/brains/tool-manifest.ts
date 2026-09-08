@@ -1,4 +1,5 @@
 import { canonicalAgentToolsByName } from "@filmos/agent-tool-contracts";
+import { isSourceMaintenanceTool } from "@filmos/agent-contracts";
 
 import type { AgentToolManifest, AgentToolSurfaceId } from "./contracts.js";
 import { CANONICAL_AGENT_TOOL_METADATA } from "./tool-manifest-source.js";
@@ -39,7 +40,8 @@ export class CanonicalAgentToolManifest {
     }
 
     names(surface: AgentToolSurfaceId) {
-        return this.list(surface).map((tool) => tool.name);
+        // Engineering names are issued only by the server-owned task grant.
+        return this.list(surface).map((tool) => tool.name).filter(name => !isSourceMaintenanceTool(name));
     }
 }
 

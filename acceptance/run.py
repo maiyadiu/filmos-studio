@@ -452,6 +452,8 @@ SOURCE_CHECKS = tuple(check for check in RC_LOCAL_CHECKS if check.check_id in SO
          "test/codex-app-server-client.test.ts", "test/codex-models.test.ts", "test/codex-app-server-adapter.test.ts", "test/codex-approval-coordinator.test.ts",
          "test/codex-app-server-process-manager.test.ts", "test/internal-canvas-mcp-mode.test.ts",
          "test/local-runtime-public-error.test.ts", "test/local-runtime-http.test.ts", "test/runtime-account.test.ts", "test/account-canvas-isolation.test.ts",
+         "test/source-maintenance.test.ts", "test/source-maintenance-http.test.ts",
+         "test/source-maintenance-tasks.test.ts", "test/source-maintenance-runtime.test.ts",
          "test/project-candidate-contract.test.ts",
          "test/project-shot-contract.test.ts", "test/project-prompt-contract.test.ts", "test/shot-image-content.test.ts"),
         ROOT / "canvas-agent",

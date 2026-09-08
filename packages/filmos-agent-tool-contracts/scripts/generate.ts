@@ -8,6 +8,7 @@ import { zodToJsonSchema } from "zod-to-json-schema";
 import { CANONICAL_AGENT_TOOL_METADATA } from "../../../canvas-agent/src/brains/tool-manifest-source.js";
 import { filmToolInputSchemas } from "../../../canvas-agent/src/film/contracts.js";
 import { toolInputSchemas } from "../../../canvas-agent/src/schemas.js";
+import { sourceToolSchemas } from "../../../canvas-agent/src/brains/source-maintenance-tasks.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const generatedDir = resolve(root, "generated");
@@ -45,7 +46,8 @@ const auxiliarySchemas: Record<string, Record<string, unknown>> = {
 
 const tools = CANONICAL_AGENT_TOOL_METADATA.map((metadata) => {
   const zodSchema = toolInputSchemas[metadata.name as keyof typeof toolInputSchemas]
-    ?? filmToolInputSchemas[metadata.name as keyof typeof filmToolInputSchemas];
+    ?? filmToolInputSchemas[metadata.name as keyof typeof filmToolInputSchemas]
+    ?? sourceToolSchemas[metadata.name as keyof typeof sourceToolSchemas];
   const inputSchema = zodSchema
     ? withoutSchemaMarker(zodToJsonSchema(zodSchema, { target: "jsonSchema7", $refStrategy: "none" }) as Record<string, unknown>)
     : auxiliarySchemas[metadata.name];

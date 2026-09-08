@@ -5279,6 +5279,141 @@ export const canonicalAgentToolContract = {
       "input_schema_hash": "0b4f795ec66aba8c9a04cb9ca8500389b9ef78750344aeb450475537223ab81b"
     },
     {
+      "name": "source_apply_patch",
+      "title": "应用本次源码补丁",
+      "description": "只应用本任务已预备的原 requestId 并回读哈希；先查任务，未知结果不盲写；不提交Git、不运行测试、不更新服务。",
+      "risk": "write",
+      "surfaces": [
+        "workbench_operator"
+      ],
+      "provider": "source_maintenance",
+      "requires_fresh_context": true,
+      "may_create_charges": false,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "requestId": {
+            "pattern": "^[A-Za-z0-9_-]{1,80}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "requestId"
+        ],
+        "type": "object"
+      },
+      "input_schema_hash": "28e6945bbb3635dacf02931d1a1d3660c65c3ee7aba54a262f5ea74fe67475c1"
+    },
+    {
+      "name": "source_get_task",
+      "title": "读取本次源码维护任务",
+      "description": "读取服务端已授权的当前工程任务、文件/哈希、补丁状态及原回执；不能开启、扩大或续期授权。",
+      "risk": "read",
+      "surfaces": [
+        "workbench_operator"
+      ],
+      "provider": "source_maintenance",
+      "requires_fresh_context": true,
+      "may_create_charges": false,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "input_schema_hash": "99334726611ccf58a148b0814696bfa6fe08c1b2d027e946beccf5a74331c9aa"
+    },
+    {
+      "name": "source_prepare_patch",
+      "title": "预览精确源码补丁",
+      "description": "在已授权文件中冻结原哈希、唯一原片段及替换片段，使用稳定 requestId；只预备不写入，不改其它文件。",
+      "risk": "draft",
+      "surfaces": [
+        "workbench_operator"
+      ],
+      "provider": "source_maintenance",
+      "requires_fresh_context": true,
+      "may_create_charges": false,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "expectedHash": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "newText": {
+            "maxLength": 32768,
+            "type": "string"
+          },
+          "oldText": {
+            "maxLength": 32768,
+            "minLength": 1,
+            "type": "string"
+          },
+          "path": {
+            "maxLength": 300,
+            "minLength": 1,
+            "type": "string"
+          },
+          "requestId": {
+            "pattern": "^[A-Za-z0-9_-]{1,80}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "requestId",
+          "path",
+          "expectedHash",
+          "oldText",
+          "newText"
+        ],
+        "type": "object"
+      },
+      "input_schema_hash": "c0d4d96e528856da36542a97d7e24d862c4d96f90efdc60b829b334c73dd0135"
+    },
+    {
+      "name": "source_read_file",
+      "title": "读取授权源码文件",
+      "description": "只读取本次工程任务预先选定的 tracked 文件；按行返回原哈希，禁止读取其它文件、数据或密钥。",
+      "risk": "read",
+      "surfaces": [
+        "workbench_operator"
+      ],
+      "provider": "source_maintenance",
+      "requires_fresh_context": true,
+      "may_create_charges": false,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "expectedHash": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "lineCount": {
+            "default": 160,
+            "maximum": 240,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "path": {
+            "maxLength": 300,
+            "minLength": 1,
+            "type": "string"
+          },
+          "startLine": {
+            "default": 1,
+            "maximum": 100000,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "type": "object"
+      },
+      "input_schema_hash": "65e04ae043e7e9f05c034deeb268d2e796f27b85c03ed10c2ee25c7a1704daff"
+    },
+    {
       "name": "workbench_get_context",
       "title": "读取当前 FilmOS 工作上下文",
       "description": "读取受信工作台路由、项目、Film、画布、选区、资产与版本收据；不接受模型提供的身份或项目覆盖。",
@@ -5298,7 +5433,7 @@ export const canonicalAgentToolContract = {
       "input_schema_hash": "99334726611ccf58a148b0814696bfa6fe08c1b2d027e946beccf5a74331c9aa"
     }
   ],
-  "contract_hash": "e70e6c931e38c24f12e8f1601c05041cece54984e4ac7620f860720b23f78d2d"
+  "contract_hash": "60a40167fd27e6cacfdf0aff4f5e5a4d91ef2830861dbdd065bbe7aa7ae862f1"
 } as const;
 export type CanonicalAgentToolContract = typeof canonicalAgentToolContract.tools[number];
 export const canonicalAgentTools = canonicalAgentToolContract.tools;

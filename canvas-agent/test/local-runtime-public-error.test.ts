@@ -4,6 +4,16 @@ import { canvasToolApiError, CanvasPromptConflictError } from "@filmos/agent-con
 
 import { publicAgentRuntimeFailure } from "../src/local-runtime-security.js";
 
+test("source task denial is not a request to refresh or expand ordinary creative permission", () => {
+    for (const code of ["AGENT_SOURCE_GRANT_INVALID", "AGENT_SOURCE_TASK_REQUIRED"]) {
+        const failure = publicAgentRuntimeFailure(new Error(`${code}:private-path`));
+        assert.equal(failure?.code, "agent_source_task_denied");
+        assert.equal(failure?.statusCode, 403);
+        assert.doesNotMatch(failure?.message || "", /private-path|恢复当前会话/);
+    }
+    assert.equal(publicAgentRuntimeFailure(new Error("AGENT_SOURCE_UNAVAILABLE"))?.statusCode, 409);
+});
+
 test("generation configuration failure is not an authorization error or an unknown postcondition", () => {
     const failure = publicAgentRuntimeFailure(new Error("CANVAS_GENERATION_CONFIG_REQUIRED: private config"));
     assert.equal(failure?.code, "canvas_generation_config_required");

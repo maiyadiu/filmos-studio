@@ -41,13 +41,15 @@ import type { BrainSessionStore } from "../brains/session-store.js";
 import type { BrowserRuntimeTransport } from "../brains/browser-runtime-port.js";
 import { RuntimeAccountBindings, type RuntimeAccountBinding } from "../runtime-account.js";
 import { LocalRuntimeSessionError } from "../local-runtime-session.js";
+import { SourceMaintenanceWorkspace } from "../brains/source-maintenance.js";
+import { SourceMaintenanceTasks } from "../brains/source-maintenance-tasks.js";
 
 export type CanvasAgentSession = Pick<
     CanvasSession,
     "health" | "workbenchContext" | "agentContextSnapshot" | "openEvents" | "updateState" | "resolveResult" | "emitAll" | "callTool" | "closeRuntimeSession" | "dispose"
 > & Partial<Pick<CanvasSession, "enableAccountIsolation" | "withAccountScope">>;
 
-export type CanvasAgentHttpModuleOptions = { brainSessionStore?: BrainSessionStore; browserRuntimeTransport?: BrowserRuntimeTransport; accountVerifierFetch?: typeof globalThis.fetch; accountNow?: () => number; codexApprovals?: CodexApprovalCoordinator; persistentAudit?: false; listCodexModels?: () => Promise<CodexModelOption[]> };
+export type CanvasAgentHttpModuleOptions = { brainSessionStore?: BrainSessionStore; browserRuntimeTransport?: BrowserRuntimeTransport; accountVerifierFetch?: typeof globalThis.fetch; accountNow?: () => number; codexApprovals?: CodexApprovalCoordinator; persistentAudit?: false; listCodexModels?: () => Promise<CodexModelOption[]>; sourceWorkspace?: () => SourceMaintenanceWorkspace | undefined; codexAdapter?: import("../brains/contracts.js").AgentRuntimeAdapter };
 
 export function createCanvasAgentHttpModule(
     config: LocalRuntimeConfig,
@@ -55,6 +57,13 @@ export function createCanvasAgentHttpModule(
     options: CanvasAgentHttpModuleOptions = {},
 ): LocalRuntimeModule {
     const accounts = new RuntimeAccountBindings({ ownerId: config.ownerId, trustedOrigins: config.trustedWebOrigins, fetch: options.accountVerifierFetch, now: options.accountNow });
+    const sourceWorkspace = options.sourceWorkspace ?? (() => SourceMaintenanceWorkspace.fromEnvironment());
+    const sourceTasks = new SourceMaintenanceTasks(sourceWorkspace, () => generic!.store);
+    const requireSourceDeveloper = (res: Response) => {
+        if (accounts.require(res.locals.runtimeSession).authMode !== "desktop_local") {
+            throw new LocalRuntimeSessionError("agent_source_developer_required", "源码维护仅对已验证的本机开发者开放；普通创作权限不变", 403);
+        }
+    };
     const emit = (type: string, payload: unknown) => session.emitAll(type, payload);
     const permissionGrants = new AgentPermissionGrantStore();
     const canonicalTools = new CanonicalAgentToolManifest();
@@ -81,6 +90,8 @@ export function createCanvasAgentHttpModule(
                 browserRuntime: options.browserRuntimeTransport ?? requireBrowserRuntimeTransport(session),
                 canvasToolExecutor: session,
                 nativeConfirmations: approvals,
+                sourceMaintenance: sourceTasks,
+                codexAdapter: options.codexAdapter,
                 ...(options.persistentAudit === false ? { persistentAudit: false } : {}),
                 ...(options.brainSessionStore ? { store: options.brainSessionStore } : {}),
             },
@@ -166,6 +177,43 @@ export function createCanvasAgentHttpModule(
         canvasRoute("GET", "/agent/context", (_req, res) => {
             res.json({ ok: true, context: session.workbenchContext() });
         }),
+        ...(generic ? ([
+            ["GET", "/agent/source", "inspect"],
+            ["POST", "/agent/source/files", "list"],
+            ["POST", "/agent/source/read", "read"],
+        ] as const).map(([method, path, operation]) => agentRoute(method, path, "agent:profiles:read", async (req, res) => {
+            requireSourceDeveloper(res);
+            const workspace = sourceWorkspace();
+            if (!workspace) throw new LocalRuntimeSessionError("agent_source_unavailable", "当前不是源码开发运行环境，未开放源码维护", 409);
+            const result = operation === "inspect" ? await workspace.inspect()
+                : operation === "list" ? await workspace.list(sourceRequestBody(req)) : await workspace.read(sourceRequestBody(req));
+            // Git/file inspection yields: revocation or expiry must still prevent
+            // source disclosure even if the request began with a valid account.
+            requireSourceDeveloper(res);
+            res.json({ ok: true, result });
+        })) : []),
+        ...(generic ? [
+            agentRoute("GET", "/agent/sessions/:sessionId/source-task", "agent:sessions:read", async (req, res) => {
+                requireSourceDeveloper(res);
+                const owned = await generic.store.getSession(routeParam(req.params.sessionId));
+                if (!owned) throw accountSessionError();
+                requireSourceDeveloper(res);
+                res.json({ ok: true, source: sourceTasks.view(owned) });
+            }),
+            ...(["open", "close", "reconcile"] as const).map(operation => agentRoute("POST", `/agent/sessions/:sessionId/source-task/${operation}`, "agent:sessions:manage", async (req, res) => {
+                requireSourceDeveloper(res);
+                const principal = res.locals.runtimeSession;
+                const owner = accounts.require(principal).accountScopeId;
+                const authorize = () => {
+                    const current = accounts.require(principal);
+                    if (current.authMode !== "desktop_local" || current.accountScopeId !== owner) throw accountSessionError();
+                };
+                const body = sourceRequestBody(req);
+                if (operation !== "open" && (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).length)) throw new LocalRuntimeSessionError("agent_source_task_invalid", "结束或核对维护请求必须为空对象", 400);
+                const result = await generic.changeSourceTask(routeParam(req.params.sessionId), operation, body, authorize);
+                res.json({ ok: true, ...result });
+            })),
+        ] : []),
         ...(generic ? createGenericAgentRoutes(generic, config, session, emit, options.listCodexModels ?? (async () => (await codexProcessManager.client()).listModels())) : []),
         canvasRoute("GET", "/agent/codex/workspace", (req, res) => {
             const workspace = ensureCanvasWorkspace(config, queryValue(req, "canvasId"));
@@ -615,6 +663,15 @@ function accountBody(req: Request) {
         return jsonRecord(req);
     } catch {
         throw new LocalRuntimeSessionError("agent_account_body_invalid", "账号绑定请求格式无效", 400);
+    }
+}
+
+function sourceRequestBody(req: Request) {
+    try {
+        if (!Buffer.isBuffer(req.body) || req.body.byteLength > 4096) throw new Error("invalid");
+        return jsonBody(req);
+    } catch {
+        throw new LocalRuntimeSessionError("agent_source_request_invalid", "源码读取参数无效或超限", 400);
     }
 }
 

@@ -152,6 +152,7 @@ export type AgentTurnReceipt = {
 };
 
 export interface BrainSession {
+    sourceMaintenance?: SourceMaintenanceRecord;
     id: string;
     /** Server-verified account ownership; absent on unclaimed historical records. */
     accountScopeId?: string;
@@ -347,7 +348,7 @@ export interface AgentToolManifest {
     outputSchema?: Record<string, unknown>;
     risk: AgentToolRisk;
     surfaces: AgentToolSurfaceId[];
-    provider: "canvas" | "host_project" | "film_core" | "director" | "prompt" | "generation" | "chatgpt_handoff" | "runtime";
+    provider: "canvas" | "host_project" | "film_core" | "director" | "prompt" | "generation" | "chatgpt_handoff" | "runtime" | "source_maintenance";
     requiresFreshContext: boolean;
     mayCreateCharges: boolean;
 }
@@ -398,6 +399,17 @@ export interface AgentConfirmation {
     decidedBy?: string;
 }
 
+export interface SourceMaintenanceRecord {
+    id: string;
+    requestId: string;
+    purpose: string;
+    sourceHead: string;
+    status: "active" | "closed";
+    expiresAt: string;
+    files: Array<{ path: string; initialHash: string; currentHash: string }>;
+    patches: Array<{ requestId: string; path: string; beforeHash: string; afterHash: string; status: "prepared" | "applying" | "applied" | "not_applied"; verifiedAt?: string }>;
+}
+
 export interface AgentPermissionGrant {
     id: string;
     sessionId: string;
@@ -408,6 +420,7 @@ export interface AgentPermissionGrant {
     domainProjectId?: string;
     toolSurface: AgentToolSurfaceId;
     allowedTools: string[];
+    sourceTaskId?: string;
     issuedAt: string;
     expiresAt: string;
     nonce: string;
