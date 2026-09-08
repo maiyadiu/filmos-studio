@@ -1,7 +1,7 @@
 import { useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { App, Button, Dropdown, Form, Input, InputNumber, Modal, Popconfirm, Tooltip } from "antd";
+import { App, Button, Dropdown, Form, Input, InputNumber, Modal, Popconfirm, Space, Tooltip } from "antd";
 import {
     Check,
     Code2,
@@ -40,6 +40,9 @@ import {
     type ProjectUnit,
 } from "@/services/api/projects";
 import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
+import { useUserStore } from "@/stores/use-user-store";
+import { queueCharacterButtonAction, useCanvasAgentStore } from "@/stores/canvas/use-canvas-agent-store";
+import { characterActionBusy, createCharacterButtonAction } from "@/film/agent/character-button-action";
 
 import { formatCount, formatTime, statusLabel, type ProjectDetailViewProps } from "./shared";
 import { extractChapterCharacters } from "./project-chapter-ai";
@@ -242,8 +245,17 @@ export default function ProjectChaptersView({ detail, refreshProject, onOpenChap
             config: effectiveConfig,
         };
     };
+    const extractCharactersWithCodex = () => {
+        try {
+            if (!confirmedUnit) throw new Error("章节正文尚未加载完成");
+            queueCharacterButtonAction(createCharacterButtonAction({ id: crypto.randomUUID(), userId: useUserStore.getState().user?.id || "", projectId: detail.project.id, unit: confirmedUnit, dirty }));
+        } catch (error) {
+            message.error(error instanceof Error ? error.message : "角色任务未发送");
+        }
+    };
     const extractCharacters = async () => {
         try {
+            if (characterActionBusy(useCanvasAgentStore.getState().characterAction)) throw new Error("Codex 角色提取尚在执行或待核对，未重复调用 API");
             const input = chapterAnalysisInput();
             if (!input) return;
             setExtractingCharacters(true);
@@ -389,7 +401,12 @@ export default function ProjectChaptersView({ detail, refreshProject, onOpenChap
                                 </div>
                                 <ScriptRevisionHistory key={selectedUnit.id} projectId={detail.project.id} unitId={selectedUnit.id} revision={selectedUnit.revision} />
                                 <ChapterShotReview key={`shots:${selectedUnit.id}`} projectId={detail.project.id} unitId={selectedUnit.id} />
-                                <Button size="small" icon={<UsersRound className="size-3.5" />} disabled={!selectedUnitQuery.data?.unit || dirty || extractingCharacters} loading={extractingCharacters} onClick={() => void extractCharacters()}>提取角色</Button>
+                                <Space.Compact size="small">
+                                    <Button disabled={!confirmedUnit || dirty || extractingCharacters || detail.project.status === "archived"} icon={<UsersRound className="size-3.5" />} onClick={extractCharactersWithCodex}>Codex 提取角色</Button>
+                                    <Dropdown disabled={!confirmedUnit || dirty || extractingCharacters || detail.project.status === "archived"} menu={{ items: [{ key: "api", label: "使用 API 提取角色" }], onClick: () => void extractCharacters() }}>
+                                        <Button aria-label="角色提取通道" disabled={!confirmedUnit || dirty || extractingCharacters || detail.project.status === "archived"} loading={extractingCharacters} icon={<MoreHorizontal className="size-3.5" />} />
+                                    </Dropdown>
+                                </Space.Compact>
                                 <Button size="small" type="primary" icon={<LayoutGrid className="size-3.5" />} loading={openingChapterCanvasId === selectedUnit.id} disabled={!selectedUnitQuery.data?.unit || dirty || extractingCharacters || Boolean(openingChapterCanvasId && openingChapterCanvasId !== selectedUnit.id)} onClick={() => void onOpenChapterCanvas(selectedUnit.id)}>打开章节画布</Button>
                                 {chapterShotCount(selectedUnit.id) ? <Button size="small" disabled={!selectedUnitQuery.data?.unit || dirty || extractingCharacters || Boolean(openingChapterCanvasId)} onClick={() => void onOpenChapterCanvas(selectedUnit.id, true)}>同步分镜到本章画布</Button> : null}
                                 <Button size="small" type={dirty ? "primary" : "default"} icon={dirty ? <Save className="size-3.5" /> : <Check className="size-3.5" />} disabled={!selectedUnitQuery.data?.unit || !dirty || !draftTitle.trim() || saveMutation.isPending} loading={saveMutation.isPending} onClick={() => saveMutation.mutate()}>{dirty ? "保存" : "已保存"}</Button>

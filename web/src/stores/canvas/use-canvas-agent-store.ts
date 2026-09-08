@@ -5,6 +5,7 @@ import type { CanvasAssistantSession } from "@/types/canvas";
 import type { AgentTurnPlan } from "@/film/agent/agent-client";
 import type { CodexModelReceipt, CodexModelSelection } from "../../../../packages/filmos-agent-contracts/src/codex-models";
 import { storyboardActionBusy, type StoryboardButtonAction } from "@/film/agent/storyboard-button-action";
+import { characterActionBusy, type CharacterButtonAction } from "@/film/agent/character-button-action";
 
 export type AgentChatRole = "user" | "assistant" | "system" | "tool" | "error";
 export type AgentAttachment = { id: string; name: string; type: string; size: number; url: string; dataUrl: string };
@@ -47,6 +48,7 @@ type CanvasAgentStore = {
     latestModelReceipt: CodexModelReceipt | null;
     codexModel: CodexModelSelection | null;
     storyboardAction: StoryboardButtonAction | null;
+    characterAction: CharacterButtonAction | null;
     workspacePath: string;
     loadingThreads: boolean;
     activeTab: AgentPanelTab;
@@ -120,6 +122,7 @@ export const useCanvasAgentStore = create<CanvasAgentStore>((set) => ({
     latestModelReceipt: null,
     codexModel: null,
     storyboardAction: null,
+    characterAction: null,
     workspacePath: "",
     loadingThreads: false,
     activeTab: "chat",
@@ -141,7 +144,7 @@ export const useCanvasAgentStore = create<CanvasAgentStore>((set) => ({
 // One ephemeral UI intent. BrainSession remains the only execution authority.
 export function queueStoryboardButtonAction(action: StoryboardButtonAction) {
     const current = useCanvasAgentStore.getState();
-    if (current.sending || current.waiting || current.pendingTool || storyboardActionBusy(current.storyboardAction)) throw new Error("已有任务执行中或结果待核对；未重复发送分镜任务");
+    if (current.sending || current.waiting || current.pendingTool || storyboardActionBusy(current.storyboardAction) || characterActionBusy(current.characterAction)) throw new Error("已有任务执行中或结果待核对；未重复发送分镜任务");
     current.setAgentState({ storyboardAction: action, enabled: true, activeTab: "chat" });
 }
 
@@ -155,4 +158,22 @@ export function patchStoryboardButtonAction(id: string, patch: Partial<Pick<Stor
 export function claimStoryboardButtonAction(id: string) {
     if (useCanvasAgentStore.getState().storyboardAction?.status !== "queued") return false;
     return patchStoryboardButtonAction(id, { status: "preparing", message: "正在核对原节点与保存状态" });
+}
+
+export function queueCharacterButtonAction(action: CharacterButtonAction) {
+    const current = useCanvasAgentStore.getState();
+    if (current.sending || current.waiting || current.pendingTool || storyboardActionBusy(current.storyboardAction) || characterActionBusy(current.characterAction)) throw new Error("已有任务执行中或结果待核对；角色任务未发送");
+    current.setAgentState({ characterAction: action, enabled: true, activeTab: "chat" });
+}
+
+export function patchCharacterButtonAction(id: string, patch: Partial<Pick<CharacterButtonAction, "status" | "message" | "sessionId" | "beforeCandidates">>) {
+    const current = useCanvasAgentStore.getState();
+    if (current.characterAction?.id !== id) return false;
+    current.setAgentState({ characterAction: { ...current.characterAction, ...patch } });
+    return true;
+}
+
+export function claimCharacterButtonAction(id: string) {
+    if (useCanvasAgentStore.getState().characterAction?.status !== "queued") return false;
+    return patchCharacterButtonAction(id, { status: "preparing", message: "正在核对完整章节和已有角色" });
 }

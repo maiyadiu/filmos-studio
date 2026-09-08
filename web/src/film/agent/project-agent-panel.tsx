@@ -7,6 +7,8 @@ import type { ProjectDetail } from "@/services/api/projects";
 import { YingceLocalAgentPanel } from "@/film/adapters/yingce/contributions/agent-panel";
 import { buildYingceProjectContext, publishYingceWorkbenchContext } from "@/film/adapters/yingce/contributions/workbench-context-publisher";
 import { buildProjectAgentSnapshot, type ProjectChapterContext } from "./project-agent-context";
+import { useCanvasAgentStore } from "@/stores/canvas/use-canvas-agent-store";
+import { useUserStore } from "@/stores/use-user-store";
 
 export function ProjectAgentPanel({ detail, activePanel, chapter }: {
     detail: ProjectDetail;
@@ -14,6 +16,11 @@ export function ProjectAgentPanel({ detail, activePanel, chapter }: {
     chapter?: ProjectChapterContext | null;
 }) {
     const [open, setOpen] = useState(false);
+    const characterAction = useCanvasAgentStore(state => state.characterAction);
+    const userId = useUserStore(state => state.user?.id);
+    useLayoutEffect(() => {
+        if (characterAction?.status === "queued" && characterAction.userId === userId && characterAction.projectId === detail.project.id) setOpen(true);
+    }, [characterAction?.id, characterAction?.status, userId, detail.project.id]);
     const queryClient = useQueryClient();
     const snapshot = useMemo(() => buildProjectAgentSnapshot(detail, activePanel, chapter), [detail, activePanel, chapter]);
     const context = useMemo(() => buildYingceProjectContext(snapshot), [snapshot]);
