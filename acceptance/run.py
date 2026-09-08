@@ -449,7 +449,7 @@ SOURCE_CHECKS = tuple(check for check in RC_LOCAL_CHECKS if check.check_id in SO
          "test/workbench-context.test.ts", "test/workspace-context.test.ts", "test/agent-context-pack.test.ts", "test/chatgpt-hosted-adapter.test.ts",
          "test/agent-session-grant-recovery.test.ts", "test/agent-confirmation.test.ts", "test/canvas-agent-module.test.ts",
          "test/script-creation-scope.test.ts", "test/skills.test.ts",
-         "test/codex-app-server-client.test.ts", "test/codex-app-server-adapter.test.ts", "test/codex-approval-coordinator.test.ts",
+         "test/codex-app-server-client.test.ts", "test/codex-models.test.ts", "test/codex-app-server-adapter.test.ts", "test/codex-approval-coordinator.test.ts",
          "test/codex-app-server-process-manager.test.ts", "test/internal-canvas-mcp-mode.test.ts",
          "test/local-runtime-public-error.test.ts", "test/local-runtime-http.test.ts", "test/runtime-account.test.ts", "test/account-canvas-isolation.test.ts",
          "test/project-shot-contract.test.ts", "test/project-prompt-contract.test.ts", "test/shot-image-content.test.ts"),
