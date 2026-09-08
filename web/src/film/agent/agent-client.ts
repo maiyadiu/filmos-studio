@@ -1,6 +1,7 @@
 import type { LocalRuntimeSessionClient } from "@/services/local-runtime-session";
 import { getLocalRuntimeSessionClient } from "@/stores/use-local-runtime-store";
 import type { AgentTurnPlan } from "../../../../packages/filmos-agent-contracts/src/index";
+import type { CodexModelOption, CodexModelSelection, CodexModelReceipt } from "../../../../packages/filmos-agent-contracts/src/codex-models";
 export type { AgentTurnPlan };
 
 export type AgentExecutionView = {
@@ -22,6 +23,7 @@ export type BrainSessionView = {
     status: string;
     updatedAt: string;
     latestPlan?: AgentTurnPlan | null;
+    latestModelReceipt?: CodexModelReceipt | null;
     execution?: AgentExecutionView;
 };
 
@@ -65,6 +67,10 @@ export class AgentSessionClient {
         return this.json<{ connections: unknown[]; toolManifest: unknown[] }>("/agent/connections", { method: "GET", signal });
     }
 
+    listCodexModels(signal?: AbortSignal) {
+        return this.json<{ models: CodexModelOption[] }>("/agent/models", { method: "GET", signal });
+    }
+
     diagnostics(signal?: AbortSignal) {
         return this.json<AgentRuntimeDiagnostics>("/agent/diagnostics", { method: "GET", signal });
     }
@@ -101,7 +107,7 @@ export class AgentSessionClient {
         return this.json<{ session: BrainSessionView; history: AgentHistoryMessageView[]; historyStatus: AgentHistoryStatus }>(`/agent/sessions/${segment(sessionId)}/history`, { method: "GET", signal });
     }
 
-    sendTurn(sessionId: string, input: { prompt: string; turnId?: string; attachments?: Array<{ name?: string; type?: string; dataUrl?: string }>; skills?: Array<{ skillId?: string; name: string; description?: string; instruction: string }>; scriptCreation?: { requestId: string; chapterCount: number; polishRounds: number } }, signal?: AbortSignal) {
+    sendTurn(sessionId: string, input: { prompt: string; turnId?: string; attachments?: Array<{ name?: string; type?: string; dataUrl?: string }>; skills?: Array<{ skillId?: string; name: string; description?: string; instruction: string }>; scriptCreation?: { requestId: string; chapterCount: number; polishRounds: number }; codexModel?: CodexModelSelection }, signal?: AbortSignal) {
         return this.post<{ session: BrainSessionView; contextReceiptId: string; result: unknown }>(`/agent/sessions/${segment(sessionId)}/turns`, input, signal);
     }
 

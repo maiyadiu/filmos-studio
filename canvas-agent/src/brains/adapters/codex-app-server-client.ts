@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { parseCodexModelPage, parseCodexModelSelection, reportedCodexModel, type CodexModelOption, type CodexModelReceipt, type CodexModelSelection } from "@filmos/agent-contracts";
 
 import type { AgentEmit } from "../../types.js";
 
@@ -78,6 +79,22 @@ export class CodexAppServerClient {
 
     async readRateLimits() {
         return await this.request("account/rateLimits/read", undefined);
+    }
+
+    async listModels(): Promise<CodexModelOption[]> {
+        const models: CodexModelOption[] = [];
+        const seen = new Set<string>();
+        let cursor: string | null = null;
+        for (let page = 0; page < 10; page++) {
+            const result = parseCodexModelPage(await this.request("model/list", { limit: 100, includeHidden: false, ...(cursor ? { cursor } : {}) }, 5_000).catch(() => { throw new Error("CODEX_MODEL_CATALOG_UNAVAILABLE"); }));
+            models.push(...result.models);
+            if (new Set(models.map(model => model.model)).size !== models.length) throw new Error("CODEX_MODEL_CATALOG_UNAVAILABLE");
+            cursor = result.nextCursor;
+            if (!cursor) return models;
+            if (seen.has(cursor)) break;
+            seen.add(cursor);
+        }
+        throw new Error("CODEX_MODEL_CATALOG_UNAVAILABLE");
     }
 
     async startChatGPTLogin() {
@@ -166,7 +183,7 @@ export class CodexAppServerClient {
         return this.request("thread/archive", { threadId });
     }
 
-    async startTurn(threadId: string, prompt: string, images: string[], skills: CodexSkillInput[] = [], binding?: CodexThreadBinding, onTurnStarted?: (turnId: string) => void, policy: CodexExecutionPolicy = interactivePolicy) {
+    async startTurn(threadId: string, prompt: string, images: string[], skills: CodexSkillInput[] = [], binding?: CodexThreadBinding, onTurnStarted?: (turnId: string) => void, policy: CodexExecutionPolicy = interactivePolicy, options: { model?: CodexModelSelection; signal?: AbortSignal; onModelReceipt?: (receipt: Omit<CodexModelReceipt, "turnId">) => void | Promise<void> } = {}) {
         // Generic workbench sessions have dedicated processes. Legacy callers
         // sharing a process must not replace another live turn's skill catalog.
         if (this.skillTurnThread || (skills.length && (this.activeTurns.size || this.turnStarts.size))) throw new Error("CODEX_SKILL_SESSION_BUSY");
@@ -174,17 +191,30 @@ export class CodexAppServerClient {
         this.turnStarts.add(starting);
         if (skills.length) this.skillTurnThread = threadId;
         try {
+            const selection = parseCodexModelSelection(options.model);
+            if (selection) {
+                const models = await this.listModels();
+                if (!models.find(model => model.model === selection.model)?.supportedReasoningEfforts.some(effort => effort.reasoningEffort === selection.effort)) throw new Error("CODEX_MODEL_SELECTION_UNAVAILABLE");
+            }
+            options.signal?.throwIfAborted();
             if (binding) this.bindThread(threadId, binding);
             const nativeSkills = skills.length ? await this.prepareTurnSkills(threadId, skills) : [];
+            options.signal?.throwIfAborted();
             const result = await this.request("turn/start", {
                 threadId,
                 input: codexInput(prompt, images, nativeSkills),
                 ...policyParams(policy),
+                ...(selection ?? {}),
             });
             this.turnStarts.delete(starting);
             const turnId = String(field(field(result, "turn"), "id") || "");
             if (!turnId) throw new Error("Codex app-server 没有返回 turn id");
             onTurnStarted?.(turnId);
+            if (options.onModelReceipt) {
+                // Failure of this bounded read cannot replay or fail an already started turn.
+                const metadata = await this.request("thread/read", { threadId, includeTurns: false }, 1_500).catch(() => undefined);
+                await options.onModelReceipt({ providerTurnId: turnId, requested: selection ?? null, ...reportedCodexModel(metadata, threadId) });
+            }
             const completed = this.completedTurns.get(turnId);
             if (this.completedTurns.has(turnId)) {
                 this.completedTurns.delete(turnId);
@@ -245,11 +275,14 @@ export class CodexAppServerClient {
         await terminateProcessTree(this.child);
     }
 
-    private request(method: string, params: unknown) {
+    private request(method: string, params: unknown, timeoutMs?: number) {
         if (this.disposed) return Promise.reject(new Error("Codex app-server is disposed"));
         const id = this.nextId++;
-        this.write({ id, method, params });
-        return new Promise((resolve, reject) => this.pending.set(id, { resolve, reject }));
+        return new Promise((resolve, reject) => {
+            const timer = timeoutMs === undefined ? undefined : setTimeout(() => { this.pending.delete(id); reject(new Error("CODEX_READ_TIMEOUT")); }, timeoutMs);
+            this.pending.set(id, { resolve: value => { clearTimeout(timer); resolve(value); }, reject: error => { clearTimeout(timer); reject(error); } });
+            this.write({ id, method, params });
+        });
     }
 
     private notify(method: string, params?: unknown) {

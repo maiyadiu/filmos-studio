@@ -1,3 +1,5 @@
+import type { CodexModelReceipt, CodexModelSelection } from "./codex-models.js";
+export * from "./codex-models.js";
 export const AGENT_CONTRACT_SCHEMA_VERSION = "1" as const;
 export { CanvasToolApiError, canvasToolApiError, CanvasPromptConflictError } from "./canvas-tool-error.js";
 export * from "./shot-image.js";
@@ -163,6 +165,7 @@ export interface BrainSession {
     lastContextReceiptId?: string;
     /** Provider-reported progress only; business save receipts remain authoritative. */
     latestPlan?: AgentTurnPlan | null;
+    latestModelReceipt?: CodexModelReceipt | null;
     hostHandoff?: ChatGPTHandoffReceipt;
     hostHandoffTimeline?: ChatGPTHandoffTimelineEntry[];
     createdAt: string;
@@ -310,6 +313,7 @@ export interface AgentTurnPlan {
 export type NormalizedBrainEvent =
     | { type: "session.status"; sessionId: string; status: BrainSessionStatus; at: string; reason?: string }
     | { type: "turn.started"; sessionId: string; turnId: string; at: string }
+    | { type: "turn.model.configured"; sessionId: string; turnId: string; receipt: CodexModelReceipt; at: string }
     | { type: "turn.plan.updated"; sessionId: string; turnId: string; plan: AgentTurnPlan; at: string }
     | { type: "message.delta"; sessionId: string; turnId: string; delta: string; streamId?: string; text?: string; at: string }
     | { type: "message.completed"; sessionId: string; turnId: string; text: string; streamId?: string; at: string }
@@ -447,6 +451,7 @@ export interface AgentTurnInput {
     /** Host-owned cancellation only; never serialized into the model prompt. */
     signal?: AbortSignal;
     localImagePaths?: string[];
+    codexModel?: CodexModelSelection;
     localSkills?: Array<{ type: "skill"; name: string; path: string }>;
 }
 

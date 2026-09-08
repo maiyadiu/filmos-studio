@@ -234,6 +234,9 @@ export function publicAgentRuntimeFailure(error: unknown) {
     if (error instanceof CanvasPromptConflictError) return new LocalRuntimeSessionError(error.code, error.message, 409);
     if (!(error instanceof Error)) return undefined;
     const code = error.message.split(":", 1)[0];
+    if (code === "CODEX_MODEL_SELECTION_INVALID") return new LocalRuntimeSessionError("agent_model_selection_invalid", "模型配置无效或不属于 Codex 订阅通道，本次任务未启动", 400);
+    if (code === "CODEX_MODEL_SELECTION_UNAVAILABLE") return new LocalRuntimeSessionError("agent_model_selection_unavailable", "当前原生 Codex 不支持所选模型与思考强度组合。请刷新模型目录后重新选择；本次任务未启动，不自动换模型", 409);
+    if (code === "CODEX_MODEL_CATALOG_UNAVAILABLE") return new LocalRuntimeSessionError("agent_model_catalog_unavailable", "原生 Codex 模型目录暂不可用，无法核验所选配置；不会伪造选项或自动改走 API", 503);
     if (["CODEX_SKILL_CATALOG_UNAVAILABLE", "CODEX_SKILL_NOT_LOADED", "CODEX_SKILL_WORKSPACE_UNAVAILABLE", "CODEX_SKILL_FILE_UNAVAILABLE", "CODEX_SKILL_NAME_INVALID"].includes(code)) return new LocalRuntimeSessionError("agent_skill_unavailable", "所选技能未被原生Codex完整加载，本次模型任务未启动。请检查技能正文及本机Codex版本；不会用技能简介或模型API代替", 409);
     if (["AGENT_SKILL_INVALID", "AGENT_SKILL_INVALID_OR_TOO_LARGE", "AGENT_SKILL_COUNT_EXCEEDED", "AGENT_SKILL_TOO_LARGE"].includes(code)) return new LocalRuntimeSessionError("agent_skill_invalid", "技能正文无效或超限：最多8个技能、每个128KiB。任务未启动，请检查所选技能，草稿保留", 400);
     if (code === "CODEX_SKILL_SESSION_BUSY") return new LocalRuntimeSessionError("agent_skill_session_busy", "当前原生进程仍有技能任务执行中，请待其完成后继续；本次任务未启动", 409);

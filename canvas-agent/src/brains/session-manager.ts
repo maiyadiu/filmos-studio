@@ -87,7 +87,7 @@ export class AgentSessionManager {
         if (["closed", "creating", "failed"].includes(session.status)) throw new Error(`BRAIN_SESSION_NOT_RUNNABLE:${session.status}`);
         if (input.context.contextReceiptId !== session.lastContextReceiptId) throw new Error("AGENT_CONTEXT_NOT_BOUND_TO_SESSION");
         this.grants.validate(session.permissionGrantId, { sessionId, connectionId: session.connectionId, projectId: session.projectId, workspaceId: session.workspaceId });
-        session = await this.store.updateSession(sessionId, { status: "running", latestPlan: null, updatedAt: this.now().toISOString() });
+        session = await this.store.updateSession(sessionId, { status: "running", latestPlan: null, latestModelReceipt: null, updatedAt: this.now().toISOString() });
         const profile = this.registry.getProfile(session.brainProfileId);
         await this.audit?.append(brainTurnAuditRecord({ profile, session, turnId: input.turnId, contextReceiptId: input.context.contextReceiptId, prompt: input.prompt, outcome: "proposed" }));
         let acceptingEvents = true;
@@ -103,6 +103,10 @@ export class AgentSessionManager {
                 if (snapshot.type === "turn.plan.updated") {
                     if (snapshot.plan.turnId !== input.turnId) return;
                     await this.store.updateSession(sessionId, { latestPlan: snapshot.plan, updatedAt: this.now().toISOString() });
+                }
+                if (snapshot.type === "turn.model.configured") {
+                    if (snapshot.receipt.turnId !== input.turnId) return;
+                    await this.store.updateSession(sessionId, { latestModelReceipt: snapshot.receipt, updatedAt: this.now().toISOString() });
                 }
                 await sink(snapshot);
             }).catch((error) => { eventFailure = error; });

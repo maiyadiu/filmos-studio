@@ -254,7 +254,7 @@ test("restart resume reissues a scoped grant and preserves the provider thread",
     assert.equal(grants.get(resumed.permissionGrantId)?.allowedTools.includes("film_command_apply"), true);
 });
 
-test("provider progress is persisted in the existing session, scope checked, reset per turn and retained on interruption", async t => {
+test("provider progress and model receipt persist in the existing session, scope checked and reset per turn", async t => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "filmos-plan-"));
     t.after(() => fs.rmSync(root, { recursive: true, force: true }));
     const file = path.join(root, "sessions.json");
@@ -263,8 +263,19 @@ test("provider progress is persisted in the existing session, scope checked, res
     registry.registerProfile(profile("codex.mock"));
     let late: AgentEventSink | undefined;
     let firstEvent: Extract<NormalizedBrainEvent, { type: "turn.plan.updated" }> | undefined;
+    let firstModelEvent: Extract<NormalizedBrainEvent, { type: "turn.model.configured" }> | undefined;
     registry.registerAdapter({ ...adapter("codex.mock"), sendTurn: async (input, sink) => {
         assert.equal((await store.getSession(input.session.id))?.latestPlan, null);
+        assert.equal((await store.getSession(input.session.id))?.latestModelReceipt, null);
+        const modelEvent = { type: "turn.model.configured" as const, sessionId: input.session.id, turnId: input.turnId, at: new Date().toISOString(), receipt: {
+            turnId: input.turnId, providerTurnId: "native-turn", requested: { model: "requested", effort: "high" }, reported: { model: "reported", effort: null }, source: "thread/read" as const,
+        } };
+        if (!firstModelEvent) firstModelEvent = structuredClone(modelEvent);
+        void sink({ ...modelEvent, sessionId: "foreign-session" });
+        void sink({ ...modelEvent, turnId: "foreign-turn" });
+        void sink({ ...modelEvent, receipt: { ...modelEvent.receipt, turnId: "foreign-nested-turn" } });
+        void sink(modelEvent);
+        modelEvent.receipt.reported.model = "mutated";
         const plan: AgentTurnPlan = { source: "provider", turnId: input.turnId, steps: [{ step: "只核验当前章节", status: "inProgress" }], updatedAt: new Date().toISOString() };
         const event = { type: "turn.plan.updated" as const, sessionId: input.session.id, turnId: input.turnId, plan, at: plan.updatedAt };
         if (!late) { late = sink; firstEvent = structuredClone(event); }
@@ -281,16 +292,21 @@ test("provider progress is persisted in the existing session, scope checked, res
     const input = { turnId: "first", prompt: "测试", context: { contextReceiptId: "receipt" } as never };
     const received: NormalizedBrainEvent[] = [];
     await manager.sendTurn(session.id, input, async event => { received.push(event); });
-    assert.equal(received.length, 1);
+    assert.equal(received.length, 2);
+    assert.equal((await store.getSession(session.id))?.latestModelReceipt?.reported.model, "reported");
     assert.equal((await store.getSession(session.id))?.latestPlan?.steps[0].step, "只核验当前章节");
     const reopened = new JsonBrainSessionStore(file);
+    assert.deepEqual((await reopened.getSession(session.id))?.latestModelReceipt, (await store.getSession(session.id))?.latestModelReceipt);
     assert.deepEqual((await reopened.getSession(session.id))?.latestPlan, (await store.getSession(session.id))?.latestPlan);
     await assert.rejects(manager.sendTurn(session.id, { ...input, turnId: "interrupt" }, async () => undefined), /AGENT_TURN_CANCELLED/);
     await late!(firstEvent!);
+    await late!(firstModelEvent!);
     const interrupted = await store.getSession(session.id);
     assert.equal(interrupted?.status, "interrupted");
     assert.equal(interrupted?.latestPlan?.turnId, "interrupt");
+    assert.equal(interrupted?.latestModelReceipt?.turnId, "interrupt");
     assert.equal(interrupted?.latestPlan?.steps[0].status, "inProgress");
     const resumed = await manager.resumeSession(session.id, "a");
     assert.deepEqual(resumed.latestPlan, interrupted?.latestPlan);
+    assert.deepEqual(resumed.latestModelReceipt, interrupted?.latestModelReceipt);
 });

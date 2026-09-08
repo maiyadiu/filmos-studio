@@ -286,6 +286,30 @@ test("native plan, exact deltas and completed messages retain identity through n
     assert.equal(history[0].text, text);
 });
 
+test("adapter carries exact model choice and emits a receipt under the original workbench turn", async () => {
+    const fake = fakeClient();
+    let options: any;
+    fake.startTurn = (async (_thread: string, _prompt: string, _images: unknown, _skills: unknown, _binding: unknown, started: (id: string) => void, _policy: unknown, value: any) => {
+        options = value; started("native-turn");
+        await value.onModelReceipt({ providerTurnId: "native-turn", requested: value.model, reported: { model: null, effort: null }, source: "not_reported" });
+        return { turnId: "native-turn" };
+    }) as never;
+    const adapter = new CodexSubscriptionAdapter({ client: async () => fake } as never, () => "/tmp/project", () => ({}));
+    const created = await adapter.createSession(sessionInput(), grant);
+    const events: NormalizedBrainEvent[] = [];
+    const controller = new AbortController();
+    const codexModel = { model: "fixture-model", effort: "fixture-effort" };
+    await adapter.sendTurn({ ...turnInput({ ...session(), ...created }), codexModel, signal: controller.signal }, event => { events.push(event); });
+    assert.deepEqual(options.model, codexModel); assert.equal(options.signal, controller.signal);
+    const configured = events.find(event => event.type === "turn.model.configured");
+    assert.equal(configured?.type, "turn.model.configured");
+    if (configured?.type === "turn.model.configured") {
+        assert.equal(configured.sessionId, "session-1"); assert.equal(configured.turnId, "turn-local-1");
+        assert.equal(configured.receipt.turnId, "turn-local-1"); assert.equal(configured.receipt.providerTurnId, "native-turn");
+        assert.equal(configured.receipt.reported.model, null);
+    }
+});
+
 function fakeClient(onTurn?: (binding: CodexThreadBinding, threadId: string, onTurnStarted?: (turnId: string) => void) => Promise<void>) {
     let threadNumber = 0;
     const interrupts: Array<{ threadId: string; turnId: string }> = [];

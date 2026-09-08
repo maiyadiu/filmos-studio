@@ -258,6 +258,10 @@ FilmOS 的 Production / Canvas / Film MCP 工具面不绑定单一模型供应�
 
 ## 侧边栏 Codex
 
+Generic 面板可从签名、账号绑定的 `GET /agent/models` 读取原生 `model/list` 目录；模型和支持的思考强度由当前 CLI 返回，不硬编码某个模型可用。显式选择随原有 `/agent/sessions/:sessionId/turns` 的 `codexModel: { model, effort }` 进入原生 `turn/start`，发送前在对应会话进程重新核验组合。目录失败或组合失效不会静默换模型、改用 API 或重发任务；未显式选择则沿用线程配置，非 Codex 通道拒绝该字段。
+
+模型选项只作用于新轮次，不改正在执行的轮次和用户全局配置。本轮请求与启动后 `thread/read` 的模型/强度元数据分别显示，回报缺失显示未知，不能用请求值或目录默认值冒充实际值；线程配置回报也不代表作品已保存或图片已生成。回执保存在既有 BrainSession，按原工作台/原生轮次绑定，换会话和新轮次清除旧显示；只读元数据查询有界，失败不重发已启动任务。协议依据：[Codex App Server](https://learn.chatgpt.com/docs/app-server)。
+
 本地面板会把提示词发送给 Canvas Agent。Canvas Agent 使用官方 `@openai/codex` CLI 的 `codex app-server --stdio` 启动并复用同一个 Codex thread，启动时会注入 `yingce` MCP 配置并自动放行 MCP 审批，真正执行画布修改前仍由网页侧边栏二次确认。
 
 侧边栏会展示 Codex 返回的 `thread.started`、`turn.started`、`item.*`、`turn.completed` 等结构化事件；收到 app-server 的 `item/agentMessage/delta` 时，Canvas Agent 会转成 `item.updated`，网页会用同一条消息做真实流式更新，并把工具细节收进运行日志。

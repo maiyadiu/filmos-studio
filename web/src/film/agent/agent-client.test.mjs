@@ -3,6 +3,19 @@ import { describe, expect, test } from "bun:test";
 import { AgentSessionClient } from "./agent-client.ts";
 
 describe("generic Agent Session client", () => {
+    test("model catalog is read-only and explicit selection stays in the original turn with skills and identity", async () => {
+        const calls = [];
+        const client = new AgentSessionClient({ request: async (path, init) => {
+            calls.push({ path, init }); return Response.json({ ok: true, models: [] });
+        } });
+        const controller = new AbortController();
+        await client.listCodexModels(controller.signal);
+        expect(calls[0].path).toBe("/agent/models"); expect(calls[0].init.method).toBe("GET"); expect(calls[0].init.signal).toBe(controller.signal);
+        const input = { turnId: "original", prompt: "fixture", codexModel: { model: "fixture-model", effort: "high" }, skills: [{ name: "fixture", instruction: "full body" }] };
+        await client.sendTurn("existing", input);
+        expect(calls[1].path).toBe("/agent/sessions/existing/turns"); expect(JSON.parse(calls[1].init.body)).toEqual(input);
+        expect(calls).toHaveLength(2);
+    });
     test("sends only conversation/profile while Runtime injects trusted scope and identity", async () => {
         const calls = [];
         const client = new AgentSessionClient({ request: async (path, init) => {

@@ -476,11 +476,13 @@ async function withProductionDreaminaRuntime(
 test("account HTTP handshake uses the signed server identity, rejects body identity and cannot survive revocation", async () => {
     let accountChallenge: Record<string, string> | undefined;
     let verifications = 0;
+    let modelReads = 0;
     const module = createCanvasAgentHttpModule({
         url: endpoint, token: "fixture-master-token", ownerId: "fixture-owner", trustedWebOrigins: [origin], browserRegistrations: [],
         agentFeatureFlags: Object.fromEntries(AGENT_FEATURE_FLAG_IDS.map(id => [id, true])),
     }, new CanvasSession(), {
         brainSessionStore: new MemoryBrainSessionStore(), accountNow: () => now,
+        listCodexModels: async () => { modelReads++; return []; },
         accountVerifierFetch: async (target, init) => {
             verifications += 1;
             assert.equal(String(target), origin + "/api/auth/runtime-account/verify");
@@ -503,6 +505,8 @@ test("account HTTP handshake uses the signed server identity, rejects body ident
             assert.equal(response.status, 401);
         }
         assert.equal((await call("/agent/account")).status, 401);
+        assert.equal((await call("/agent/models")).status, 401);
+        assert.equal(modelReads, 0);
         assert.equal((await call("/agent/sessions")).status, 401, "signed transport alone does not grant private history access");
         for (const body of ["null", "[]", "{", JSON.stringify({ userId: "spoofed" }), " ".repeat(8193)]) {
             const denied = await call("/agent/account/challenge", body);
@@ -521,12 +525,16 @@ test("account HTTP handshake uses the signed server identity, rejects body ident
         const bound = await call("/agent/account/bind", proofBody);
         assert.equal(bound.status, 200);
         assert.equal(JSON.parse(bound.body).binding.userId, "fixture-web-user");
+        assert.deepEqual(JSON.parse((await call("/agent/models")).body), { ok: true, models: [] });
+        assert.equal(modelReads, 1);
         assert.deepEqual(JSON.parse((await call("/agent/account")).body), JSON.parse(bound.body));
         assert.equal((await call("/agent/sessions")).status, 200);
         assert.deepEqual(JSON.parse((await call("/agent/sessions")).body).sessions, []);
         assert.equal((await call("/agent/account/bind", proofBody)).status, 409);
         assert.equal(verifications, 1);
         assert.equal((await call("/runtime/session/revoke", "{}")).status, 200);
+        assert.equal((await call("/agent/models")).status, 401);
+        assert.equal(modelReads, 1);
         assert.equal((await call("/agent/account")).status, 401);
         assert.equal((await call("/agent/sessions")).status, 401);
         const second = await exchangeRequest(server, key.privateKey, await challengeRequest(server, undefined, signed.keyId));

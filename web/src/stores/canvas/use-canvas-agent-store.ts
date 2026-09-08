@@ -3,6 +3,7 @@ import { create } from "zustand";
 import type { CanvasAgentOp } from "@/lib/canvas/canvas-agent-ops";
 import type { CanvasAssistantSession } from "@/types/canvas";
 import type { AgentTurnPlan } from "@/film/agent/agent-client";
+import type { CodexModelReceipt, CodexModelSelection } from "../../../../packages/filmos-agent-contracts/src/codex-models";
 
 export type AgentChatRole = "user" | "assistant" | "system" | "tool" | "error";
 export type AgentAttachment = { id: string; name: string; type: string; size: number; url: string; dataUrl: string };
@@ -42,6 +43,8 @@ type CanvasAgentStore = {
     sessionScopeKey: string;
     sessionUserId: string | null;
     latestPlan: AgentTurnPlan | null;
+    latestModelReceipt: CodexModelReceipt | null;
+    codexModel: CodexModelSelection | null;
     workspacePath: string;
     loadingThreads: boolean;
     activeTab: AgentPanelTab;
@@ -112,6 +115,8 @@ export const useCanvasAgentStore = create<CanvasAgentStore>((set) => ({
     sessionScopeKey: "",
     sessionUserId: null,
     latestPlan: null,
+    latestModelReceipt: null,
+    codexModel: null,
     workspacePath: "",
     loadingThreads: false,
     activeTab: "chat",

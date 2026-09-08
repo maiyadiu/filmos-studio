@@ -45,6 +45,8 @@ import { AgentChatComposer, AgentChatMessage, AgentPendingToolCard, AgentPlanCar
 import { VoiceRecordingButton } from "@/components/conversation/voice-recording-button";
 import { AgentChatEmptyState } from "./canvas-agent-panel-chrome";
 import { AgentSessionClient, type AgentHistoryMessageView, type BrainSessionView, type AgentTurnPlan } from "@/film/agent/agent-client";
+import { CodexModelPicker } from "./codex-model-picker";
+import type { CodexModelReceipt } from "../../../../packages/filmos-agent-contracts/src/codex-models";
 import { dispatchBrowserRuntimeRequest, type BrowserRuntimeRequest } from "@/film/agent/browser-runtime-bridge";
 import { chatGPTHostReadiness } from "@/film/agent/chatgpt-host-readiness";
 import type { FilmOSDesktopChatGPTHostStatus } from "@/film/agent/workbench-context";
@@ -77,6 +79,7 @@ type AgentEventPayload = {
     turnId?: string;
     streamId?: string;
     plan?: AgentTurnPlan;
+    receipt?: CodexModelReceipt;
     handoff?: {
         handoffId?: string;
         hostSessionId?: string;
@@ -145,6 +148,8 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
         waiting,
         messages,
         latestPlan,
+        latestModelReceipt,
+        codexModel,
         eventLogs,
         threads,
         activeThreadId,
@@ -249,7 +254,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
         setActiveTurn(execution.activeTurnId ? { sessionId, turnId: execution.activeTurnId } : null);
         pendingToolRef.current = pending;
         const busy = Boolean(execution.activeTurnId) || execution.resuming;
-        setAgentState({ sending: busy, waiting: busy && !pending, pendingTool: pending,
+        setAgentState({ sending: busy, waiting: busy && !pending, pendingTool: pending, latestModelReceipt: session.latestModelReceipt ?? null,
             ...(pending ? { activity: "等待确认" } : busy ? { activity: "执行中" } : current.sending || current.waiting || current.pendingTool ? { activity: "本轮已结束，请核对结果" } : {}) });
     }, [agentSessionClient, brainProfileId, genericRuntime, sessionScopeKey, setActiveTurn, setAgentState]);
     const syncState = useCallback(
@@ -288,6 +293,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
         const scopeKey = sessionScopeKey;
         if (sessionScopeRef.current !== scopeKey) return;
         const planBeforeRequest = useCanvasAgentStore.getState().latestPlan;
+        const modelBeforeRequest = useCanvasAgentStore.getState().latestModelReceipt;
         const activeBeforeRequest = useCanvasAgentStore.getState().activeThreadId;
         const projectId = snapshotRef.current.projectId;
         const workspaceId = agentWorkspaceId(snapshotRef.current);
@@ -307,6 +313,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
                     activeThreadId: activeSessionId,
                     workspacePath: workspaceId ? "FilmOS BrainSession · 全局工作区" : "FilmOS BrainSession · 项目隔离",
                     ...(current.latestPlan === planBeforeRequest || activeSessionId !== current.activeThreadId ? { latestPlan: sessions.find((item) => item.id === activeSessionId)?.latestPlan ?? null } : {}),
+                    ...(current.latestModelReceipt === modelBeforeRequest || activeSessionId !== current.activeThreadId ? { latestModelReceipt: sessions.find((item) => item.id === activeSessionId)?.latestModelReceipt ?? null } : {}),
                     ...(activeSessionId === current.activeThreadId ? {} : { messages: [] }),
                 });
                 return;
@@ -522,8 +529,8 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
         setActiveTurn(null);
         const userChanged = previous.sessionUserId !== (user?.id ?? null);
         if (userChanged) for (const attachment of previous.attachments) URL.revokeObjectURL(attachment.url);
-        setAgentState({ sessionScopeKey, sessionUserId: user?.id ?? null, activeThreadId: "", threads: [], messages: [], latestPlan: null, pendingTool: null, sending: false, waiting: false, activity: "就绪",
-            ...(userChanged ? { prompt: "", attachments: [], eventLogs: [], profileSessions: {}, workspacePath: "", activeTab: "chat" as const } : {}) });
+        setAgentState({ sessionScopeKey, sessionUserId: user?.id ?? null, activeThreadId: "", threads: [], messages: [], latestPlan: null, latestModelReceipt: null, pendingTool: null, sending: false, waiting: false, activity: "就绪",
+            ...(userChanged ? { codexModel: null, prompt: "", attachments: [], eventLogs: [], profileSessions: {}, workspacePath: "", activeTab: "chat" as const } : {}) });
     }, [genericRuntime, sessionScopeKey, setAgentState]);
 
     useEffect(() => {
@@ -572,11 +579,12 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
                 executionEpochRef.current++;
                 unacknowledgedTurnRef.current = turnId;
                 dispatchedTurn = { sessionId, turnId };
-                setAgentState({ latestPlan: null });
+                setAgentState({ latestPlan: null, latestModelReceipt: null });
                 setActiveTurn({ sessionId, turnId });
                 await agentSessionClient.sendTurn(sessionId, {
                     turnId,
                     prompt: requestPrompt,
+                    ...(brainProfileId === "codex.subscription" && codexModel ? { codexModel } : {}),
                     attachments: files.map(({ name, type, dataUrl }) => ({ name, type, dataUrl })),
                     skills: mentionedSkills.map((skill) => ({ skillId: skill.skill_id, name: skill.skill_name, description: skill.description, instruction: skill.instruction! })),
                     ...(creation ? { scriptCreation: { requestId: `script-${creation.id}`, chapterCount: creation.chapterCount, polishRounds: creation.polishRounds } } : {}),
@@ -955,7 +963,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
                 const data = await agentSessionClient.createSession({ conversationId: createId(), brainProfileId });
                 if (sessionScopeRef.current !== scopeKey) return;
                 if (!matchesAgentSessionScope(data.session, snapshotRef.current, brainProfileId)) throw new Error("返回的会话不属于当前作品");
-                setAgentState({ activeThreadId: data.session.id, messages: [], latestPlan: null, activeTab: "chat", activity: "新对话" });
+                setAgentState({ activeThreadId: data.session.id, messages: [], latestPlan: null, latestModelReceipt: null, activeTab: "chat", activity: "新对话" });
                 await loadThreads();
                 return;
             }
@@ -992,7 +1000,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
                 const history = normalizeGenericHistory(data.history, threadId);
                 if (!history.length && data.historyStatus.limitation) history.push({ id: `history-limit-${threadId}`, role: "system", text: data.historyStatus.limitation });
                 const preserved = initialActiveId === threadId ? useCanvasAgentStore.getState().messages.reduce((items, item) => appendAgentChatMessage(items, item), history) : history;
-                setAgentState({ activeThreadId: threadId, messages: preserved, latestPlan: data.session.latestPlan ?? null, activeTab: "chat", activity: "已恢复会话" });
+                setAgentState({ activeThreadId: threadId, messages: preserved, latestPlan: data.session.latestPlan ?? null, latestModelReceipt: data.session.latestModelReceipt ?? null, activeTab: "chat", activity: "已恢复会话" });
                 addMessage({ role: "system", text: "已恢复原会话与当前上下文，未重发任务或保存。输入草稿仍保留；继续前请先让 Agent 回读原 requestId 的回执和当前版本，再处理未完成部分。" });
                 await loadThreads();
                 return;
@@ -1105,7 +1113,8 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
         if (event.type === "thread.started" && event.thread_id) setAgentState({ activeThreadId: event.thread_id });
         const nextActivity = activityText(event);
         if (nextActivity) setAgentState({ activity: nextActivity });
-        if (event.type === "turn.started") setAgentState({ waiting: true, latestPlan: null });
+        if (event.type === "turn.started") setAgentState({ waiting: true, latestPlan: null, latestModelReceipt: null });
+        if (event.type === "turn.model.configured" && event.receipt && event.receipt.turnId === event.turnId) setAgentState({ latestModelReceipt: event.receipt });
         if (event.type === "turn.plan.updated" && event.plan && event.plan.turnId === event.turnId) setAgentState({ latestPlan: event.plan });
         if (event.type === "confirmation.required" && event.confirmation?.id && event.confirmation.sessionId && event.confirmation.requestId && event.confirmation.toolName) {
             const pending: AgentPendingToolCall = {
@@ -1181,6 +1190,10 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
                     onLogout={() => void logoutCodexAccount()}
                 />
             ) : null}
+
+            {genericRuntime && enabled && connected && brainProfileId === "codex.subscription" ? <CodexModelPicker key={sessionScopeKey} client={agentSessionClient}
+                value={codexModel} onChange={codexModel => setAgentState({ codexModel })} receipt={latestModelReceipt}
+                disabled={sending || waiting || Boolean(pendingTool) || Boolean(activeTurn) || executionUncertain || recoveringSession || accountBusy} /> : null}
 
             {activeTab === "history" ? (
                 <AgentHistoryView

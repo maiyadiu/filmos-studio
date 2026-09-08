@@ -14,7 +14,7 @@ export interface BrainSessionStore {
     getConversation(conversationId: string): Promise<AgentConversation | undefined>;
 }
 
-type SessionPatch = Partial<Pick<BrainSession, "providerThreadId" | "permissionGrantId" | "status" | "lastContextReceiptId" | "latestPlan" | "hostHandoff" | "hostHandoffTimeline" | "updatedAt" | "closedAt">>;
+type SessionPatch = Partial<Pick<BrainSession, "providerThreadId" | "permissionGrantId" | "status" | "lastContextReceiptId" | "latestPlan" | "latestModelReceipt" | "hostHandoff" | "hostHandoffTimeline" | "updatedAt" | "closedAt">>;
 
 export class MemoryBrainSessionStore implements BrainSessionStore {
     private readonly sessions = new Map<string, BrainSession>();

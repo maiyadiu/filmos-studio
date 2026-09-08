@@ -128,6 +128,7 @@ export class CodexSubscriptionAdapter implements AgentRuntimeAdapter {
                         if (active.cancelRequested) interrupt();
                     },
                     executionPolicy(input.session.executionProfile),
+                    { model: input.codexModel, signal: input.signal, onModelReceipt: receipt => sink({ type: "turn.model.configured", sessionId, turnId: input.turnId, receipt: { ...receipt, turnId: input.turnId }, at: new Date().toISOString() }) },
                 );
                 if (active.cancelRequested) throw new Error("AGENT_TURN_CANCELLED");
             } finally {

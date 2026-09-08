@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import path from "node:path";
-import { summarizeShotImage } from "@filmos/agent-contracts";
+import { summarizeShotImage, parseCodexModelSelection } from "@filmos/agent-contracts";
 
 import { CONFIG_DIR, ensureCanvasWorkspace, ensureProjectAgentWorkspace, ensureRuntimeAgentWorkspace, type LocalRuntimeConfig } from "../config.js";
 import { codexConfig, codexProcessManager } from "../agents.js";
@@ -187,13 +187,15 @@ export class GenericAgentRuntime {
         return { session: next, context: captured.pack, receipt: captured.receipt };
     }
 
-    async sendTurn(sessionId: string, input: { turnId: string; prompt: string; localImagePaths?: string[]; localSkills?: Array<{ type: "skill"; name: string; path: string }>; scriptCreation?: unknown }, emit: AgentEmit) {
+    async sendTurn(sessionId: string, input: { turnId: string; prompt: string; localImagePaths?: string[]; localSkills?: Array<{ type: "skill"; name: string; path: string }>; scriptCreation?: unknown; codexModel?: unknown }, emit: AgentEmit) {
         if (this.activeTurns.has(sessionId) || this.resumingSessions.has(sessionId)) throw new Error("AGENT_SESSION_TURN_ALREADY_RUNNING");
         if (this.cancelledTurns.has(`${sessionId}:${input.turnId}`)) throw new Error("AGENT_TURN_CANCELLED");
         const controller = new AbortController();
         this.activeTurns.set(sessionId, input.turnId);
         this.turnControllers.set(sessionId, controller);
         try {
+            const codexModel = parseCodexModelSelection(input.codexModel);
+            if (codexModel && (await this.store.getSession(sessionId))?.brainProfileId !== "codex.subscription") throw new Error("CODEX_MODEL_SELECTION_INVALID");
             await this.ensureSessionHydrated(sessionId);
             const captured = await this.captureContext(sessionId);
             if (input.scriptCreation !== undefined) {
@@ -206,6 +208,7 @@ export class GenericAgentRuntime {
                 prompt: input.prompt,
                 context: captured.context,
                 signal: controller.signal,
+                ...(codexModel ? { codexModel } : {}),
                 ...(input.localImagePaths?.length ? { localImagePaths: [...input.localImagePaths] } : {}),
                 ...(input.localSkills?.length ? { localSkills: input.localSkills.map((skill) => ({ ...skill })) } : {}),
             }, async (event) => emit("agent_event", event));

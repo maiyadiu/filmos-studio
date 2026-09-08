@@ -1,8 +1,10 @@
 import type { NextFunction, Request, RequestHandler, Response } from "express";
 import { randomUUID } from "node:crypto";
+import { parseCodexModelSelection, type CodexModelOption } from "@filmos/agent-contracts";
 
 import {
     archiveCodexThread,
+    codexProcessManager,
     listCodexThreads,
     logoutCodexAccount,
     readCodexAccountStatus,
@@ -45,7 +47,7 @@ export type CanvasAgentSession = Pick<
     "health" | "workbenchContext" | "agentContextSnapshot" | "openEvents" | "updateState" | "resolveResult" | "emitAll" | "callTool" | "closeRuntimeSession" | "dispose"
 > & Partial<Pick<CanvasSession, "enableAccountIsolation" | "withAccountScope">>;
 
-export type CanvasAgentHttpModuleOptions = { brainSessionStore?: BrainSessionStore; browserRuntimeTransport?: BrowserRuntimeTransport; accountVerifierFetch?: typeof globalThis.fetch; accountNow?: () => number; codexApprovals?: CodexApprovalCoordinator; persistentAudit?: false };
+export type CanvasAgentHttpModuleOptions = { brainSessionStore?: BrainSessionStore; browserRuntimeTransport?: BrowserRuntimeTransport; accountVerifierFetch?: typeof globalThis.fetch; accountNow?: () => number; codexApprovals?: CodexApprovalCoordinator; persistentAudit?: false; listCodexModels?: () => Promise<CodexModelOption[]> };
 
 export function createCanvasAgentHttpModule(
     config: LocalRuntimeConfig,
@@ -164,7 +166,7 @@ export function createCanvasAgentHttpModule(
         canvasRoute("GET", "/agent/context", (_req, res) => {
             res.json({ ok: true, context: session.workbenchContext() });
         }),
-        ...(generic ? createGenericAgentRoutes(generic, config, session, emit) : []),
+        ...(generic ? createGenericAgentRoutes(generic, config, session, emit, options.listCodexModels ?? (async () => (await codexProcessManager.client()).listModels())) : []),
         canvasRoute("GET", "/agent/codex/workspace", (req, res) => {
             const workspace = ensureCanvasWorkspace(config, queryValue(req, "canvasId"));
             res.json({ ok: true, workspace });
@@ -359,8 +361,11 @@ function requireBrowserRuntimeTransport(session: CanvasAgentSession): BrowserRun
     };
 }
 
-function createGenericAgentRoutes(generic: GenericAgentRuntime, config: LocalRuntimeConfig, session: CanvasAgentSession, emit: (type: string, payload: unknown) => void) {
+function createGenericAgentRoutes(generic: GenericAgentRuntime, config: LocalRuntimeConfig, session: CanvasAgentSession, emit: (type: string, payload: unknown) => void, listCodexModels: () => Promise<CodexModelOption[]>) {
     return [
+        agentRoute("GET", "/agent/models", "agent:profiles:read", async (_req, res) => {
+            res.json({ ok: true, models: await listCodexModels() });
+        }),
         agentRoute("GET", "/agent/workspace", "agent:profiles:read", async (_req, res) => {
             if (!config.ownerId) throw new Error("AGENT_CONTEXT_WORKSPACE_REQUIRED");
             res.json({ ok: true, workspaceId: config.ownerId });
@@ -405,6 +410,7 @@ function createGenericAgentRoutes(generic: GenericAgentRuntime, config: LocalRun
         }),
         agentRoute("POST", "/agent/sessions/:sessionId/turns", "agent:turns:run", async (req, res) => {
             const body = jsonRecord(req);
+            const codexModel = parseCodexModelSelection(body.codexModel);
             const turnId = typeof body.turnId === "string" && body.turnId.trim() ? body.turnId.trim() : randomUUID();
             const attachments = Array.isArray(body.attachments) ? body.attachments as AgentAttachment[] : [];
             const localImagePaths = await writeAttachmentFiles(attachments);
@@ -412,7 +418,7 @@ function createGenericAgentRoutes(generic: GenericAgentRuntime, config: LocalRun
             try {
                 preparedSkills = await writeSkillFiles(parseAgentSkills(body.skills));
                 const scope = accountBinding(res).accountScopeId;
-                const result = await generic.sendTurn(routeParam(req.params.sessionId), { turnId, prompt: requiredBodyString(body, "prompt"), localImagePaths, localSkills: preparedSkills.inputs, ...(body.scriptCreation !== undefined ? { scriptCreation: body.scriptCreation } : {}) }, (type, payload) => withRuntimeAccount(session, scope, () => emit(type, payload)));
+                const result = await generic.sendTurn(routeParam(req.params.sessionId), { turnId, prompt: requiredBodyString(body, "prompt"), localImagePaths, localSkills: preparedSkills.inputs, ...(codexModel ? { codexModel } : {}), ...(body.scriptCreation !== undefined ? { scriptCreation: body.scriptCreation } : {}) }, (type, payload) => withRuntimeAccount(session, scope, () => emit(type, payload)));
                 res.json({ ok: true, ...result });
             } finally {
                 await Promise.all([removeAttachmentFiles(localImagePaths), removeSkillDirectories(preparedSkills.directories)]);
