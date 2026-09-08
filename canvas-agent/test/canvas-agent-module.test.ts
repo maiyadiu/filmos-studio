@@ -801,6 +801,39 @@ function latestToolCall(writes: string[]) {
     return JSON.parse(data.slice("data: ".length)) as { requestId: string; name: string; input: unknown };
 }
 
+test("canonical generation discovery reaches the original browser, never the legacy bypass", async () => {
+    const session = new CanvasSession();
+    const events = eventResponse();
+    const metadata = { canonicalRequestId: "broker-request", canonicalSessionId: "brain-session", canonicalContextReceiptId: "context-receipt" };
+    try {
+        session.openEvents(new URL("http://127.0.0.1/events?clientId=engine-client"), events.response as never, "signed-a");
+        session.updateState({ projectId: "canvas-a", nodes: [] }, "engine-client", undefined, "signed-a");
+        await assert.rejects(session.callTool("generation_list_engines", {}), /CANONICAL_BROKER_REQUIRED/);
+        await assert.rejects(session.callTool("generation_made_up", {}, metadata), /未知工具/);
+        await assert.rejects(session.callTool("generation_list_engines", [], metadata), /GENERATION_TOOL_INPUT_INVALID/);
+        for (const name of ["generation_list_engines", "generation_list_models", "generation_get_status"]) {
+            const pending = session.callTool(name, { engineId: "dreamina_cli" }, metadata);
+            const call = latestToolCall(events.writes());
+            assert.equal(call.name, name);
+            assert.deepEqual(call.input, { engineId: "dreamina_cli" });
+            assert.throws(() => session.resolveResult({ requestId: call.requestId, result: "wrong" }, "engine-client", "signed-b"), /不匹配/);
+            session.resolveResult({ requestId: call.requestId, result: { ok: true, data: { engineId: "dreamina_cli" } } }, "engine-client", "signed-a");
+            assert.deepEqual(await pending, { ok: true, data: { engineId: "dreamina_cli" } });
+        }
+        await assert.rejects(session.callTool("generation_submit", { proposalId: "p1" }, metadata), /GENERATION_CONFIRMATION_REQUIRED/);
+        const paidMetadata = { ...metadata, canonicalConfirmationId: "confirmed", canonicalBrokerGrantId: "grant", canonicalBrokerDecisionReceiptId: "decision" };
+        const paid = session.callTool("generation_submit", { proposalId: "p1" }, paidMetadata);
+        const submitted = latestToolCall(events.writes());
+        assert.equal(submitted.name, "generation_submit");
+        assert.deepEqual(submitted.input, { proposalId: "p1" });
+        for (const [key, value] of Object.entries(paidMetadata)) assert.equal((submitted as Record<string, unknown>)[key], value);
+        session.resolveResult({ requestId: submitted.requestId, result: { ok: false, message: "fixture gated; no provider submit" } }, "engine-client", "signed-a");
+        assert.deepEqual(await paid, { ok: false, message: "fixture gated; no provider submit" });
+        session.updateState({ contextKind: "project", projectId: "domain-a", domainProjectId: "domain-a", nodes: [], connections: [], revision: 1 }, "engine-client", undefined, "signed-a");
+        await assert.rejects(session.callTool("generation_list_engines", {}, metadata), /REQUIRES_CANVAS_CONTEXT/);
+    } finally { session.dispose(); }
+});
+
 function listening(server: Server) {
     if (server.listening) return Promise.resolve();
     return new Promise<void>((resolve, reject) => {

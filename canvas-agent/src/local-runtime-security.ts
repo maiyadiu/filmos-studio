@@ -234,6 +234,7 @@ export function publicAgentRuntimeFailure(error: unknown) {
     if (error instanceof CanvasPromptConflictError) return new LocalRuntimeSessionError(error.code, error.message, 409);
     if (!(error instanceof Error)) return undefined;
     const code = error.message.split(":", 1)[0];
+    if (code === "CANVAS_GENERATION_CONFIG_REQUIRED") return new LocalRuntimeSessionError("canvas_generation_config_required", "当前节点的生成配置未就绪，本次生成未提交。请读取节点模型和引擎目录；即梦可在模型菜单刷新，不要改走 API 或恢复会话授权来代替配置检查。批次内此前保存仍须回读。", 409);
     if (code === "CODEX_MODEL_SELECTION_INVALID") return new LocalRuntimeSessionError("agent_model_selection_invalid", "模型配置无效或不属于 Codex 订阅通道，本次任务未启动", 400);
     if (code === "CODEX_MODEL_SELECTION_UNAVAILABLE") return new LocalRuntimeSessionError("agent_model_selection_unavailable", "当前原生 Codex 不支持所选模型与思考强度组合。请刷新模型目录后重新选择；本次任务未启动，不自动换模型", 409);
     if (code === "CODEX_MODEL_CATALOG_UNAVAILABLE") return new LocalRuntimeSessionError("agent_model_catalog_unavailable", "原生 Codex 模型目录暂不可用，无法核验所选配置；不会伪造选项或自动改走 API", 503);

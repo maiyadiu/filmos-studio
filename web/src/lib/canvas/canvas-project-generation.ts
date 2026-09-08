@@ -1,6 +1,7 @@
 import { type GenerationTask } from "@/services/api/task-center";
 import { backendProviderConfig, logicalModelIDForConfig, runBackendGenerationTask, type GenerationTaskDependencies } from "@/services/api/generation-task";
-import { configuredModelMatchesCapability, defaultConfig, normalizeModelOptionValue, normalizeRunningHubCapability, resolveModelRequestConfig, type AiConfig, type WorkflowFieldMapping } from "@/stores/use-config-store";
+import { configuredModelMatchesCapability, defaultConfig, isAiConfigReady, normalizeModelOptionValue, normalizeRunningHubCapability, resolveModelRequestConfig, type AiConfig, type WorkflowFieldMapping } from "@/stores/use-config-store";
+import { decodeChannelModel } from "@/lib/model-option";
 import { resolveImageUrl, uploadImage } from "@/services/image-storage";
 import { resolveMediaUrl } from "@/services/file-storage";
 import { resourceIdFromStorageKey } from "@/services/api/resources";
@@ -507,6 +508,19 @@ export function buildGenerationConfig(config: AiConfig, node: CanvasNodeData | u
         videoArkPrivateAssetUpload: requestedConfig.videoArkPrivateAssetUpload,
         count: generationDefaults.count || requestedConfig.count,
     };
+}
+
+export function canvasGenerationConfigurationError(config: AiConfig, node: CanvasNodeData | undefined, mode: CanvasNodeGenerationMode, generationConfig = buildGenerationConfig(config, node, mode)) {
+    const defaultModel = mode === "image" ? config.imageModel : mode === "video" ? config.videoModel : mode === "audio" ? config.audioModel : config.textModel;
+    const requestedModel = node?.metadata?.model || defaultModel;
+    // A disappearing local catalog must not turn an explicit CLI selection into a paid API route.
+    if ((!generationConfig.taskWorkflowProvider || generationConfig.taskWorkflowProvider === "model") && decodeChannelModel(requestedModel || "")?.channelId === "local:dreamina-cli" && !resolveCanvasGenerationModel(config, requestedModel, mode)) {
+        return new Error("CANVAS_GENERATION_CONFIG_REQUIRED: 已选即梦模型当前不在可用目录中；请在模型菜单点击“刷新即梦模型”并核对选择。未提交生成，不会改走 API。");
+    }
+    if (!isAiConfigReady(generationConfig, generationConfig.model)) {
+        return new Error("CANVAS_GENERATION_CONFIG_REQUIRED: 生成配置尚未就绪；请在当前节点选择模型，本机即梦可先刷新模型目录，API 或工作流请检查其独立配置。未提交本次生成。");
+    }
+    return undefined;
 }
 
 export function resolveCanvasGenerationModel(config: AiConfig, model: string | undefined, mode: CanvasNodeGenerationMode): string {

@@ -1504,6 +1504,23 @@ test("online and local agent run_generation persists conversation and message co
     ]);
 });
 
+test("agent generation requests explicit preflight failure and never retries a missing model", async () => {
+    let calls = 0;
+    let observations = 0;
+    await expect(runCanvasAgentGenerationOps({
+        generationOps: [{ type: "run_generation", nodeId: "image-preflight" }],
+        nodes: [],
+        generate: async (_id, _mode, _prompt, options) => {
+            calls += 1;
+            expect(options?.throwOnPreflightError).toBe(true);
+            throw new Error("CANVAS_GENERATION_CONFIG_REQUIRED: choose model");
+        },
+        subscribeTasks: () => { observations += 1; return () => {}; },
+    })).rejects.toThrow("CANVAS_GENERATION_CONFIG_REQUIRED");
+    expect(calls).toBe(1);
+    expect(observations).toBe(0);
+});
+
 test("online agent generation tools preserve product values and emit the same generic run operation", () => {
     const snapshot = { projectId: "canvas-project", title: "Canvas", nodes: [], connections: [], selectedNodeIds: [], viewport: { x: 0, y: 0, k: 1 } };
     const generated = onlineToolToOps("canvas_generate_video", { prompt: "A short test clip", seconds: "4", vquality: "720" }, snapshot, defaultConfig);

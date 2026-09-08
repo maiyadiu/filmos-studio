@@ -11,6 +11,9 @@ import type { CanvasNode, CanvasNodeType, CanvasSnapshot } from "./types.js";
 import type { BrowserRuntimeRequest, BrowserRuntimeTransport } from "./brains/browser-runtime-port.js";
 import type { CanonicalToolExecutionMetadata } from "./brains/tool-providers.js";
 import { LocalRuntimeSessionError } from "./local-runtime-session.js";
+import { canonicalAgentToolsByName } from "@filmos/agent-tool-contracts";
+
+const generationBrowserTools = new Map<string, { risk: string }>([...canonicalAgentToolsByName].filter(([name, tool]) => name.startsWith("generation_") && tool.provider === "generation"));
 
 type PendingRequest = { clientId: string; runtimeSessionId?: string; accountScopeId?: string; recoverable: boolean; resolve: (value: unknown) => void; reject: (error: Error) => void };
 type CanvasClient = { response: ServerResponse; timer: NodeJS.Timeout; runtimeSessionId?: string; accountScopeId?: string; authorize?: () => boolean };
@@ -260,6 +263,17 @@ export class CanvasSession implements BrowserRuntimeTransport {
     }
 
     async callTool(name: unknown, rawInput: unknown, metadata?: CanonicalToolExecutionMetadata) {
+        // generation_* 不属于原生 canvas schemas；只转发已进入 Broker 的注册工具，
+        // 不把其扩大到 legacy /api/tools 或任意前缀。结果仍归原账号/签名客户端。
+        const generationTool = typeof name === "string" ? generationBrowserTools.get(name) : undefined;
+        if (generationTool) {
+            if (!metadata?.canonicalRequestId || !metadata.canonicalSessionId || !metadata.canonicalContextReceiptId) throw new Error("CANONICAL_BROKER_REQUIRED");
+            if (this.canvasState?.contextKind === "workspace") throw new Error("AGENT_TOOL_REQUIRES_PROJECT_CONTEXT");
+            if (this.canvasState?.contextKind === "project") throw new Error("AGENT_TOOL_REQUIRES_CANVAS_CONTEXT");
+            if (!rawInput || typeof rawInput !== "object" || Array.isArray(rawInput)) throw new Error("GENERATION_TOOL_INPUT_INVALID");
+            if (generationTool.risk === "paid" && (!metadata.canonicalConfirmationId || !metadata.canonicalBrokerGrantId || !metadata.canonicalBrokerDecisionReceiptId)) throw new Error("GENERATION_CONFIRMATION_REQUIRED");
+            return await this.requestBrowser("tool_call", { name, input: rawInput, ...metadata }, name === "generation_submit");
+        }
         if (!isToolName(name)) throw new Error(`未知工具：${String(name)}`);
         if (this.canvasState?.contextKind === "workspace") throw new Error("AGENT_TOOL_REQUIRES_PROJECT_CONTEXT");
         if (this.canvasState?.contextKind === "project" && !isProjectPageTool(name)) throw new Error("AGENT_TOOL_REQUIRES_CANVAS_CONTEXT");

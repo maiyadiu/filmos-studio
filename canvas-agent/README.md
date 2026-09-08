@@ -131,6 +131,7 @@ Canvas Agent 默认只监听 `127.0.0.1`。网页第一次带正确 token 连接
 
 ## Dreamina CLI 安全边界
 
+- Generic 会话中的 `generation_*` 工具由 Canonical Broker 校验后转发到原画布客户端；它们不属于 legacy canvas 工具入口。引擎/模型发现不触发生成，付费提交保留原确认及请求身份，结果继续核对原签名客户端。无画布、未知工具或缺少 Broker 上下文时拒绝，不用 direct CLI/API 旁路补跑。
 - 外部程序直接切换 Dreamina CLI 账号无法被本应用实时观测；只能在下一次 CLI 状态或命令边界重新校验，因此本机任务运行期间请不要在其他程序中换号。
 - 官方 CLI 的 argv 可能被同一 OS 用户通过进程列表看到，其中可能包含 prompt、receipt 或本地路径；这是官方 CLI 的进程边界，本应用不承诺对同机用户隐藏这些参数。
 

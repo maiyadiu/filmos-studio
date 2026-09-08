@@ -135,6 +135,11 @@ export function createLocalRuntimeStore(dependencies: LocalRuntimeStoreDependenc
 
 export const useLocalRuntimeStore = createLocalRuntimeStore();
 
+export function shouldBootstrapLocalRuntime(authMode: string, channels: ReadonlyArray<{ transport?: string; enabled?: boolean }>) {
+    // 本机目录是发现结果，不应反过来成为发现本身的前置条件。
+    return authMode === "desktop_local" || channels.some((channel) => channel.transport === "local-runtime" && channel.enabled !== false);
+}
+
 export function startLocalRuntimeBootstrap(
     connect: (signal?: AbortSignal) => Promise<void>,
     schedule: (run: () => void) => () => void = (run) => {

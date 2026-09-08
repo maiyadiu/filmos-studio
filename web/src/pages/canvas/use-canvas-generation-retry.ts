@@ -7,6 +7,7 @@ import { buildEmotionImageArtifacts, emotionGenerationSize, emotionProviderMask,
 import {
     buildAudioGenerationMetadata,
     buildGenerationConfig,
+    canvasGenerationConfigurationError,
     buildImageGenerationMetadata,
     buildVideoGenerationMetadata,
     createGenerationRetryContext,
@@ -28,11 +29,10 @@ import { buildPortraitTexturePrompt } from "@/lib/canvas/canvas-portrait-texture
 import { resolveCanvasStyleExecution } from "@/lib/canvas/canvas-style-execution";
 import { generationFailureMetadata, unchangedModeratedPrompt } from "@/lib/generation-error";
 import { modelCapabilityConfigFor } from "@/lib/model-capabilities";
-import { navigateToSettings } from "@/lib/settings-navigation";
 import type { Skill } from "@/services/api/skills";
 import type { GenerationTask } from "@/services/api/task-center";
 import { resolveImageUrl } from "@/services/image-storage";
-import { resolveModelRequestConfig, useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
+import { resolveModelRequestConfig, useEffectiveConfig } from "@/stores/use-config-store";
 import type { Asset } from "@/stores/use-asset-store";
 import { CanvasNodeType, type CanvasConnection, type CanvasNodeData, type CanvasNodeTypeId } from "@/types/canvas";
 
@@ -71,7 +71,6 @@ export function useCanvasGenerationRetry({
 }: UseCanvasGenerationRetryOptions) {
     const { message } = App.useApp();
     const effectiveConfig = useEffectiveConfig();
-    const isAiConfigReady = useConfigStore((state) => state.isAiConfigReady);
 
     return useCallback(
         async (node: CanvasNodeData) => {
@@ -97,8 +96,9 @@ export function useCanvasGenerationRetry({
                           count: "1",
                       }
                     : { ...sourceGenerationConfig, count: "1" };
-            if (!isAiConfigReady(generationConfig, generationConfig.model)) {
-                navigateToSettings({ continueCreation: true });
+            const configurationError = canvasGenerationConfigurationError(effectiveConfig, hasSavedImageMetadata ? node : generationSourceNode, retryMode, generationConfig);
+            if (configurationError) {
+                message.error(configurationError.message.replace(/^CANVAS_GENERATION_CONFIG_REQUIRED: /, ""));
                 return;
             }
 
@@ -387,7 +387,7 @@ export function useCanvasGenerationRetry({
                 setRunningNodeId(null);
             }
         },
-        [addedSkills, applyGenerationTaskResult, assets, bindGenerationTask, connectionsRef, domainProjectId, effectiveConfig, finishGenerationRequest, isAiConfigReady, message, nodesRef, projectId, setNodes, setRunningNodeId, startGenerationRequest],
+        [addedSkills, applyGenerationTaskResult, assets, bindGenerationTask, connectionsRef, domainProjectId, effectiveConfig, finishGenerationRequest, message, nodesRef, projectId, setNodes, setRunningNodeId, startGenerationRequest],
     );
 }
 

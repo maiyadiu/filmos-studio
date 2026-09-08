@@ -10,6 +10,8 @@ import { cn } from "@/lib/utils";
 import { modelDisplayName, modelIcon, modelOptionName, PUBLIC_MODEL_CATALOG_ID, resolveModelChannel, selectableModelsByCapability, type AiConfig, type ModelCapability } from "@/stores/use-config-store";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { useUserStore } from "@/stores/use-user-store";
+import { shouldBootstrapLocalRuntime, useLocalRuntimeStore } from "@/stores/use-local-runtime-store";
+import { useLocalDreaminaModelStore } from "@/stores/use-local-dreamina-model-store";
 import { ModelLogo } from "@/components/model-logo";
 import { quoteLogicalModel, type LogicalModelQuote, type ModelRequestIntent } from "@/services/api/logical-models";
 
@@ -31,6 +33,22 @@ type ModelPickerProps = {
 
 export function ModelPicker({ config, value, onChange, capability, className, popoverClassName, fullWidth = false, placeholder = "选择模型", onMissingConfig, showSelectedPrice = true, variant = "default", requirements, showConfiguredModelName = false }: ModelPickerProps) {
     const creditsEnabled = useUserStore((state) => state.features.creditsEnabled);
+    const authMode = useUserStore((state) => state.authMode);
+    const runtimeConnection = useLocalRuntimeStore((state) => state.connection);
+    const runtimeError = useLocalRuntimeStore((state) => state.error);
+    const catalogState = useLocalDreaminaModelStore((state) => state.state);
+    const [refreshingCatalog, setRefreshingCatalog] = useState(false);
+    const showLocalCatalog = (capability === "image" || capability === "video") && (runtimeConnection === "connected" || shouldBootstrapLocalRuntime(authMode, config.channels));
+    const refreshLocalCatalog = async () => {
+        if (refreshingCatalog) return;
+        setRefreshingCatalog(true);
+        try {
+            await useLocalRuntimeStore.getState().connect();
+            await useLocalDreaminaModelStore.getState().sync();
+        } finally {
+            setRefreshingCatalog(false);
+        }
+    };
     const pickerId = useId();
     // 双保险：即使 store merge 写出非法 theme，这里也兜底到 dark，避免 "reading 'node'" 崩溃
     const rawTheme = useThemeStore((state) => state.theme);
@@ -114,7 +132,6 @@ export function ModelPicker({ config, value, onChange, capability, className, po
     }, [open]);
 
     const setPickerOpen = (nextOpen: boolean) => {
-        if (nextOpen && !options.length && config.channelMode === "local") onMissingConfig?.();
         if (nextOpen) window.dispatchEvent(new CustomEvent("model-picker-open", { detail: pickerId }));
         setOpen(nextOpen);
     };
@@ -209,9 +226,18 @@ export function ModelPicker({ config, value, onChange, capability, className, po
                 ))
             ) : (
                 <div className="canvas-model-picker-empty" style={{ color: theme.node.muted }}>
-                    {emptyModelLabel(config, capability)}
+                    {showLocalCatalog ? "当前暂无可选模型，请检查下方即梦目录状态。" : emptyModelLabel(config, capability)}
                 </div>
             )}
+            {showLocalCatalog ? (
+                <div className="px-3 py-2 text-xs leading-5" style={{ color: theme.node.muted }}>
+                    <p role="status">{refreshingCatalog || catalogState === "loading" ? "正在读取本机即梦模型…" : runtimeError || (runtimeConnection !== "connected" ? "本机即梦尚未连接，可重新连接并读取模型。" : catalogState === "ready" ? "本机即梦目录已加载；生成仍需当前账号可用。" : "本机即梦模型目录读取失败，请重试；无需填写 API Key。")}</p>
+                    <button type="button" disabled={refreshingCatalog || catalogState === "loading"} className="mt-1 underline disabled:opacity-50" onClick={() => void refreshLocalCatalog()}>刷新即梦模型</button>
+                </div>
+            ) : null}
+            {!optionGroups.length && onMissingConfig ? (
+                <button type="button" className="px-3 py-2 text-xs underline" onClick={() => { setOpen(false); onMissingConfig(); }}>配置 API 模型</button>
+            ) : null}
         </div>
     );
 

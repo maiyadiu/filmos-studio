@@ -286,8 +286,19 @@ test("Runtime store exposes a bounded timeout instead of hanging", async () => {
 
 test("the application root starts local Runtime discovery before provider catalogs bootstrap", async () => {
     const source = await fs.readFile(new URL("../src/components/layout/client-root-init.tsx", import.meta.url), "utf8");
-    expect(source).toContain("useLocalRuntimeBootstrap");
-    expect(source.indexOf("useLocalRuntimeBootstrap()")).toBeLessThan(source.indexOf("useLocalDreaminaModelBootstrap()"));
+    const bootstrap = source.indexOf("    useLocalRuntimeBootstrap(");
+    expect(bootstrap).toBeGreaterThan(-1);
+    expect(bootstrap).toBeLessThan(source.indexOf("    useLocalDreaminaModelBootstrap()"));
+    expect(source).toContain("shouldBootstrapLocalRuntime(authMode, config.channels)");
+});
+
+test("local developer discovery does not require an already discovered or persisted CLI channel", async () => {
+    const { shouldBootstrapLocalRuntime } = await import("../src/stores/use-local-runtime-store");
+    expect(shouldBootstrapLocalRuntime("desktop_local", [])).toBe(true);
+    expect(shouldBootstrapLocalRuntime("account", [])).toBe(false);
+    expect(shouldBootstrapLocalRuntime("account", [{ transport: "local-runtime", enabled: true }])).toBe(true);
+    expect(shouldBootstrapLocalRuntime("account", [{ transport: "local-runtime", enabled: false }])).toBe(false);
+    expect(shouldBootstrapLocalRuntime("account", [{ transport: "local-llm-runtime", enabled: true }])).toBe(false);
 });
 
 test("Runtime bootstrap schedules one connect and aborts it on cleanup", async () => {

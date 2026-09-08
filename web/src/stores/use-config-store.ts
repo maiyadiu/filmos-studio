@@ -592,7 +592,7 @@ export function configuredModelMatchesCapability(config: AiConfig, model: string
     return selectableModelsByCapability(config, capability).includes(normalized);
 }
 
-function isAiConfigReady(config: AiConfig, model: string) {
+export function isAiConfigReady(config: AiConfig, model: string) {
     if (config.taskWorkflowProvider === "runninghub") {
         const key = config.runningHub.apiKey;
         return Boolean(config.runningHub.enabled && config.runningHub.baseUrl.trim() && key.trim() && config.runningHub.workflowId.trim());

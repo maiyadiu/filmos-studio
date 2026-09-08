@@ -3,17 +3,16 @@ import { App } from "antd";
 
 import { buildNodeGenerationContext, hydrateNodeGenerationContext } from "@/components/canvas/canvas-node-generation";
 import type { CanvasNodeGenerationMode } from "@/components/canvas/canvas-node-prompt-panel";
-import { buildGenerationConfig, isGenerationCanceled } from "@/lib/canvas/canvas-project-generation";
+import { buildGenerationConfig, canvasGenerationConfigurationError, isGenerationCanceled } from "@/lib/canvas/canvas-project-generation";
 import { isGenerationTaskCapacityError } from "@/lib/canvas/canvas-generation-batch";
 import { buildPortraitTexturePrompt } from "@/lib/canvas/canvas-portrait-texture";
 import { resolveCanvasStyleExecution } from "@/lib/canvas/canvas-style-execution";
 import { expandSkillMentions } from "@/lib/canvas/canvas-skill-mentions";
 import { generationErrorMessage, generationFailureMetadata } from "@/lib/generation-error";
 import { modelCompatibilityError, modelGroupReferenceLimits, modelRequestOptions, type ModelRequirements } from "@/lib/model-selection";
-import { navigateToSettings } from "@/lib/settings-navigation";
 import type { Skill } from "@/services/api/skills";
 import type { GenerationTask } from "@/services/api/task-center";
-import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
+import { useEffectiveConfig } from "@/stores/use-config-store";
 import type { Asset } from "@/stores/use-asset-store";
 import { CanvasNodeType, type CanvasConnection, type CanvasNodeData } from "@/types/canvas";
 
@@ -45,6 +44,7 @@ const NODE_STATUS_LOADING = "loading" as const;
 const NODE_STATUS_ERROR = "error" as const;
 
 export type CanvasNodeGenerationOptions = {
+    throwOnPreflightError?: boolean;
     controller?: AbortController;
     waitForTaskCapacity?: boolean;
     context?: { conversationId?: string; messageId?: string };
@@ -72,7 +72,6 @@ export function useCanvasGenerationExecutor({
 }: UseCanvasGenerationExecutorOptions) {
     const { message } = App.useApp();
     const effectiveConfig = useEffectiveConfig();
-    const isAiConfigReady = useConfigStore((state) => state.isAiConfigReady);
 
     return useCallback(
         async (nodeId: string, mode: CanvasNodeGenerationMode, prompt: string, options?: CanvasNodeGenerationOptions) => {
@@ -82,6 +81,12 @@ export function useCanvasGenerationExecutor({
                 return;
             }
             let generationConfig = buildGenerationConfig(effectiveConfig, sourceNode, mode);
+            const configurationError = canvasGenerationConfigurationError(effectiveConfig, sourceNode, mode, generationConfig);
+            if (configurationError) {
+                if (options?.throwOnPreflightError) throw configurationError;
+                message.error(configurationError.message.replace(/^CANVAS_GENERATION_CONFIG_REQUIRED: /, ""));
+                return;
+            }
             const hasLiveBatchChildren = sourceNode?.type === CanvasNodeType.Image && (sourceNode.metadata?.batchChildIds || []).some((childId) => nodesRef.current.some((node) => node.id === childId && node.metadata?.batchRootId === sourceNode.id));
             const hasStaleImageBatchState = mode === "image" && sourceNode?.type === CanvasNodeType.Image && !sourceNode.metadata?.content && Boolean(sourceNode.metadata?.isBatchRoot || sourceNode.metadata?.batchChildIds?.length) && !hasLiveBatchChildren;
             if (hasStaleImageBatchState) {
@@ -98,11 +103,6 @@ export function useCanvasGenerationExecutor({
                     }),
                 );
             }
-            if (!isAiConfigReady(generationConfig, generationConfig.model)) {
-                navigateToSettings({ continueCreation: true });
-                return;
-            }
-
             setRunningNodeId(nodeId);
             const controller = startGenerationRequest(nodeId, nodeId, nodeId, options?.controller);
             const sourceTextContent = sourceNode?.type === CanvasNodeType.Text ? sourceNode.metadata?.content?.trim() || "" : "";
@@ -318,7 +318,6 @@ export function useCanvasGenerationExecutor({
             domainProjectId,
             effectiveConfig,
             finishGenerationRequest,
-            isAiConfigReady,
             message,
             nodesRef,
             connectionsRef,

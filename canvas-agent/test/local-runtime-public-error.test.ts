@@ -4,6 +4,15 @@ import { canvasToolApiError, CanvasPromptConflictError } from "@filmos/agent-con
 
 import { publicAgentRuntimeFailure } from "../src/local-runtime-security.js";
 
+test("generation configuration failure is not an authorization error or an unknown postcondition", () => {
+    const failure = publicAgentRuntimeFailure(new Error("CANVAS_GENERATION_CONFIG_REQUIRED: private config"));
+    assert.equal(failure?.code, "canvas_generation_config_required");
+    assert.equal(failure?.statusCode, 409);
+    assert.match(failure?.message || "", /本次生成未提交/);
+    assert.match(failure?.message || "", /此前保存仍须回读/);
+    assert.doesNotMatch(failure?.message || "", /private config/);
+});
+
 test("project-page context failures are actionable and do not disclose raw scope", () => {
     for (const code of ["AGENT_CONTEXT_PROJECT_REQUIRED", "AGENT_CONTEXT_CANVAS_REQUIRED", "AGENT_CONTEXT_KIND_INVALID", "AGENT_PROJECT_CONTEXT_HAS_CANVAS_DATA"]) {
         const failure = publicAgentRuntimeFailure(new Error(`${code}:private-scope`));

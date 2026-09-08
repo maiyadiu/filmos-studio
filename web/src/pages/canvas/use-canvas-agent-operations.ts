@@ -13,6 +13,7 @@ export type CanvasAgentGenerationContext = { conversationId?: string; messageId?
 type CanvasAgentRetryContext = GenerationRetryContext;
 type CanvasAgentGenerationContinuation = NonNullable<NonNullable<CanvasNodeData["metadata"]>["agentGenerationContinuation"]>;
 type CanvasAgentGenerationOptions = {
+    throwOnPreflightError?: boolean;
     context?: CanvasAgentGenerationContext;
     retryContext?: CanvasAgentRetryContext;
     onTaskUpdate?: (task: GenerationTask) => void;
@@ -153,6 +154,7 @@ export async function runCanvasAgentGenerationOps({
             let observation: Promise<void> | undefined;
             let continuationTaskId = "";
             const generationPromise = generate(op.nodeId, op.mode || target?.metadata?.generationMode || "image", prompt, {
+                throwOnPreflightError: true,
                 context: context ? { conversationId: context.conversationId, messageId: context.messageId } : undefined,
                 ...(retryContext ? { retryContext } : {}),
                 onTaskUpdate: (task) => {

@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { defaultConfig, effectiveConfigWithDreamina, normalizeModelOptionValue, selectableModelsByCapability } from "../src/stores/use-config-store";
 import { modelCapabilityConfigFor } from "../src/lib/model-capabilities";
-import { resolveCanvasGenerationModel, buildGenerationConfig } from "../src/lib/canvas/canvas-project-generation";
+import { resolveCanvasGenerationModel, buildGenerationConfig, canvasGenerationConfigurationError } from "../src/lib/canvas/canvas-project-generation";
 import { resolveModelGenerationDefaults } from "../src/lib/model-selection";
 import { CanvasNodeType } from "../src/types/canvas";
 import type { DreaminaLocalModel } from "../src/services/local-dreamina-model-catalog";
@@ -11,6 +11,21 @@ import { generationFailureMetadata } from "../src/lib/generation-error";
 const model: DreaminaLocalModel = { provider: "dreamina-cli", id: "4.7", displayName: "4.7", modality: "image", adapterSupported: true, accountEntitlement: "unknown", currentlyObservedAvailable: "unknown", operations: ["text-to-image", "image-to-image"], settings: { aliases: [], aspects: ["1:1", "16:9", "9:16"], tiers: ["1k", "2k", "4k"], maxReferenceImages: 10 }, source: "runtime-execution-contract" };
 const config = effectiveConfigWithDreamina({ ...defaultConfig, channels: [], models: [], imageModel: "", model: "" }, "ready", [model]);
 const selected = "local:dreamina-cli:4.7";
+
+test("generation preflight keeps unavailable Dreamina selections out of the API fallback", () => {
+  const node = { id: "image-fixture", type: CanvasNodeType.Image, title: "fixture", position: { x: 0, y: 0 }, width: 100, height: 100, metadata: { model: selected, size: "16:9" } };
+  const before = JSON.stringify(node);
+  expect(canvasGenerationConfigurationError(config, node, "image")).toBeUndefined();
+  const unavailable = { ...config, channels: [], models: [], imageModel: "", model: "" };
+  const error = canvasGenerationConfigurationError(unavailable, node, "image");
+  expect(error?.message).toContain("CANVAS_GENERATION_CONFIG_REQUIRED:");
+  expect(error?.message).toContain("刷新即梦模型");
+  const api = { ...defaultConfig, channels: [{ id: "api", name: "fixture", models: ["gpt-image-1"], apiFormat: "openai" as const, interfaceType: "openai-image" as const, baseUrl: "https://example.invalid", apiKey: "fixture-key" }], models: ["api::gpt-image-1"], imageModel: "api::gpt-image-1", model: "api::gpt-image-1" };
+  expect(canvasGenerationConfigurationError(api, node, "image")?.message).toContain("刷新即梦模型");
+  expect(canvasGenerationConfigurationError(api, { ...node, metadata: { model: "api::gpt-image-1" } }, "image")).toBeUndefined();
+  expect(canvasGenerationConfigurationError(unavailable, undefined, "image")?.message).toContain("选择模型");
+  expect(JSON.stringify(node)).toBe(before);
+});
 
 test("Dreamina selection retains the exact catalog ID across normalization and canvas resolution", () => {
   expect(selectableModelsByCapability(config, "image")).toEqual([selected]);

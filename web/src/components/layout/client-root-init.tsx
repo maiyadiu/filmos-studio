@@ -5,14 +5,15 @@ import { App } from "antd";
 import { createModelChannel, useConfigStore } from "@/stores/use-config-store";
 import { navigateToSettings } from "@/lib/settings-navigation";
 import { useLocalDreaminaModelBootstrap } from "@/stores/use-local-dreamina-model-store";
-import { useLocalRuntimeBootstrap } from "@/stores/use-local-runtime-store";
+import { shouldBootstrapLocalRuntime, useLocalRuntimeBootstrap } from "@/stores/use-local-runtime-store";
 import { initializeClientDiagnostics, setDiagnosticUserScope } from "@/services/diagnostics/client-diagnostics";
 import { useUserStore } from "@/stores/use-user-store";
 
 export function ClientRootInit({ children }: { children: ReactNode }) {
     const config = useConfigStore((state) => state.config);
     const userId = useUserStore((state) => state.user?.id || "");
-    const localRuntimeConfigured = config.channels.some((channel) => channel.transport === "local-runtime" && channel.enabled !== false);
+    const authMode = useUserStore((state) => state.authMode);
+    const localRuntimeConfigured = shouldBootstrapLocalRuntime(authMode, config.channels);
     useLocalRuntimeBootstrap(localRuntimeConfigured);
     useLocalDreaminaModelBootstrap();
     const { message } = App.useApp();
