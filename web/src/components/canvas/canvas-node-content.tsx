@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
 import { AlertCircle, BookOpenCheck, Clock3, Download, FileText, Image as ImageIcon, LoaderCircle, Music2, Pencil, Play, RefreshCw, Video } from "lucide-react";
 
 import { VideoPlayer } from "@/components/video-player";
@@ -53,7 +53,7 @@ export type CanvasNodeContentProps = {
     reduceMediaEffects?: boolean;
 };
 
-export function CanvasNodeContent(props: CanvasNodeContentProps) {
+export const CanvasNodeContent = memo(function CanvasNodeContent(props: CanvasNodeContentProps) {
     const hasCustomContent = props.node.type === CanvasNodeType.Config
         || props.node.type === CanvasNodeType.Script
         || Boolean(props.node.metadata?.directorSceneId)
@@ -70,7 +70,7 @@ export function CanvasNodeContent(props: CanvasNodeContentProps) {
     if (pluginDefinition) return <PluginCanvasNodeContent {...props} renderer={pluginDefinition.renderer} schema={pluginDefinition.schema} />;
     const Renderer = nodeContentRenderers[props.node.type];
     return Renderer ? <Renderer {...props} /> : <UnknownNodeContent theme={props.theme} />;
-}
+});
 
 function PluginCanvasNodeContent({ node, theme, renderer, schema }: CanvasNodeContentProps & { renderer: "declarative" | "sandbox"; schema: Record<string, unknown> }) {
     if (renderer === "sandbox") {

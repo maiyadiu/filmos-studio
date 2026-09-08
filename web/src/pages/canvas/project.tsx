@@ -81,7 +81,7 @@ import { CanvasProjectMediaDialogs } from "./canvas-project-media-dialogs";
 import { CanvasProjectSelectionToolbar } from "./canvas-project-selection-toolbar";
 import { CanvasProjectStatusDialogs } from "./canvas-project-status-dialogs";
 import { CanvasProjectWorldLayers } from "./canvas-project-world-layers";
-import { CanvasNodeActionContext } from "@/components/canvas/canvas-node-action-context";
+import { CanvasNodeActionContext, type CanvasNodeActionContextValue } from "@/components/canvas/canvas-node-action-context";
 import { CanvasNodeGraphContext, type CanvasNodeGraphContextValue } from "@/components/canvas/canvas-node-graph-context";
 import { CanvasRefreshShell } from "./canvas-refresh-shell";
 import { queryGenerationTask } from "@/services/api/task-center";
@@ -1293,6 +1293,14 @@ function InfiniteCanvasPage() {
         setToolbarNodeId(null);
         setPortraitClearanceNodeId(node.id);
     }, []);
+    const nodeActionContext = useMemo<CanvasNodeActionContextValue>(() => ({
+        download: downloadNodeImage,
+        duplicate: (node) => duplicateNode(node.id),
+        deleteNode: (node) => deleteNodes(new Set([node.id])),
+        updateMetadata: (nodeId, patch) => setNodes((current) => current.map((node) => node.id === nodeId ? { ...node, metadata: { ...node.metadata, ...patch } } : node)),
+        resizeNode: (nodeId, size) => setNodes((current) => current.map((node) => node.id === nodeId ? { ...node, width: size.width, height: size.height } : node)),
+        openPortraitClearance,
+    }), [deleteNodes, downloadNodeImage, duplicateNode, openPortraitClearance, setNodes]);
     const { agentSnapshot, agentUndoCount, applyAgentOps, canUndoAgentOps, dismissLastAgentChange, lastAgentChange, undoAgentOps, viewLastAgentChange } = useCanvasAgentOperations({
         projectId,
         domainProjectId: currentProject?.projectId,
@@ -1853,6 +1861,7 @@ function InfiniteCanvasPage() {
             mergeVideosByIds,
             openDirectorWorkbench,
             openStoryInput,
+            projectId,
             removeScriptRow,
             retryFailedBatchItems,
             runningNodeId,
@@ -2085,7 +2094,7 @@ function InfiniteCanvasPage() {
                                 onFileDragLeave={handleFileDragLeave}
                                 onFileDragOver={handleFileDragOver}
                             >
-                                <CanvasNodeActionContext.Provider value={{ download: downloadNodeImage, duplicate: (node) => duplicateNode(node.id), deleteNode: (node) => deleteNodes(new Set([node.id])), updateMetadata: (nodeId, patch) => setNodes((current) => current.map((node) => (node.id === nodeId ? { ...node, metadata: { ...node.metadata, ...patch } } : node))), resizeNode: (nodeId, size) => setNodes((current) => current.map((node) => (node.id === nodeId ? { ...node, width: size.width, height: size.height } : node))), openPortraitClearance }}>
+                                <CanvasNodeActionContext.Provider value={nodeActionContext}>
                                 <CanvasNodeGraphContext.Provider value={nodeGraphContext}>
                                 <CanvasProjectWorldLayers
                                     projectId={projectId}

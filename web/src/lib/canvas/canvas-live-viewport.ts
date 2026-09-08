@@ -1,4 +1,5 @@
 import type { SelectionBox, ViewportTransform } from "@/types/canvas";
+import type { CanvasBackgroundMode } from "@/lib/canvas-theme";
 
 export const CANVAS_VIEWPORT_PREVIEW_EVENT = "canvas:viewport-preview";
 export const CANVAS_GRAPHICS_VIEWPORT_PREVIEW_EVENT = "canvas:graphics-viewport-preview";
@@ -14,23 +15,32 @@ export function canvasDotGridPx(scale: number): number {
     return Math.max(48 * scale, 32);
 }
 
+export function canvasWorldTransform(viewport: ViewportTransform, interacting = false): string {
+    const translation = interacting ? `translate3d(${viewport.x}px, ${viewport.y}px, 0)` : `translate(${viewport.x}px, ${viewport.y}px)`;
+    return `${translation} scale(var(--canvas-live-scale-ratio))`;
+}
+
+export function canvasGridTransform(viewport: ViewportTransform, mode: CanvasBackgroundMode): string {
+    const period = mode === "dots" ? canvasDotGridPx(viewport.k) : 48 * viewport.k;
+    return `translate3d(${viewport.x % period}px, ${viewport.y % period}px, 0)`;
+}
+
 export function applyCanvasLiveViewport(container: HTMLDivElement | null, viewport: ViewportTransform, notify = true) {
     if (!container) return;
     const gridSize = 48 * viewport.k;
     const dotGridSize = canvasDotGridPx(viewport.k);
     const committedScale = Number(container.style.getPropertyValue("--canvas-committed-scale")) || viewport.k;
-    container.style.setProperty("--canvas-live-x", `${viewport.x}px`);
-    container.style.setProperty("--canvas-live-y", `${viewport.y}px`);
+    // 平移只改图层自身的 transform；继承变量会让整张画布的表单/正文逐帧重算样式。
+    const world = container.querySelector<HTMLElement>(":scope > [data-canvas-world-layer]");
+    if (world) world.style.transform = canvasWorldTransform(viewport, container.dataset.canvasViewportInteracting === "true");
+    const grid = container.querySelector<HTMLElement>(":scope > [data-canvas-grid-layer]");
+    if (grid) grid.style.transform = canvasGridTransform(viewport, grid.dataset.canvasGridLayer === "dots" ? "dots" : "lines");
     container.style.setProperty("--canvas-live-scale", String(viewport.k));
     // 外置节点标题用同一帧逆倍率抵消世界层缩放，避免等待 React 提交后再校正尺寸。
     container.style.setProperty("--canvas-live-inverse-scale", String(1 / Math.max(viewport.k, 0.05)));
     container.style.setProperty("--canvas-live-scale-ratio", String(viewport.k / committedScale));
     container.style.setProperty("--canvas-grid-size", `${gridSize}px`);
-    container.style.setProperty("--canvas-grid-x", `${viewport.x % gridSize}px`);
-    container.style.setProperty("--canvas-grid-y", `${viewport.y % gridSize}px`);
     container.style.setProperty("--canvas-dot-grid-size", `${dotGridSize}px`);
-    container.style.setProperty("--canvas-dot-grid-x", `${viewport.x % dotGridSize}px`);
-    container.style.setProperty("--canvas-dot-grid-y", `${viewport.y % dotGridSize}px`);
     container.style.setProperty("--canvas-dot-size", canvasDotPx(viewport.k));
     // 图形层必须逐帧跟随 DOM 世界层；浮层和滚动通知仍可按原频率节流。
     container.dispatchEvent(new CustomEvent<ViewportTransform>(CANVAS_GRAPHICS_VIEWPORT_PREVIEW_EVENT, { detail: viewport }));

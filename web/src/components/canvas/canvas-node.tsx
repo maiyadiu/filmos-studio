@@ -17,6 +17,7 @@ import { CanvasNodeContent, CanvasNodeImageInfo } from "./canvas-node-content";
 
 type ResizeCorner = "top-left" | "top-right" | "bottom-left" | "bottom-right";
 type CanvasTheme = (typeof canvasThemes)[keyof typeof canvasThemes];
+const EMPTY_MENTION_REFERENCES: CanvasResourceReference[] = [];
 
 type CanvasNodeProps = {
     data: CanvasNodeData;
@@ -75,7 +76,7 @@ export const CanvasNode = React.memo(function CanvasNode({
     reduceMediaEffects = false,
     readOnly = false,
     resourceLabel,
-    mentionReferences = [],
+    mentionReferences = EMPTY_MENTION_REFERENCES,
     renderNodeContent,
     drawingProjectId,
     batchCount = 0,
@@ -125,6 +126,8 @@ export const CanvasNode = React.memo(function CanvasNode({
     const assetTags = data.metadata?.assetTags?.filter((tag) => tag.trim()) || [];
     const scriptMinHeight = data.type === CanvasNodeType.Script ? storyboardMinNodeHeight(data.metadata?.storyboardComposerHeight) : null;
     const textareaRef = useRef<HTMLTextAreaElement>(null);
+    const stopEditingContent = useCallback(() => setIsEditingContent(false), []);
+    const toggleBatch = useCallback(() => onToggleBatch?.(data.id), [data.id, onToggleBatch]);
     const resizeRef = useRef({
         isResizing: false,
         corner: "bottom-right" as ResizeCorner,
@@ -365,11 +368,11 @@ export const CanvasNode = React.memo(function CanvasNode({
                         drawingProjectId={drawingProjectId}
                         mentionReferences={mentionReferences}
                         onContentChange={onContentChange}
-                        onStopEditing={() => setIsEditingContent(false)}
+                        onStopEditing={stopEditingContent}
                         onRetry={onRetry}
                         onReloadResource={onReloadResource}
                         onOpenTaskDetails={onOpenTaskDetails}
-                        onToggleBatch={() => onToggleBatch?.(data.id)}
+                        onToggleBatch={toggleBatch}
                         reduceMediaEffects={reduceMediaEffects}
                     />
                 </div>

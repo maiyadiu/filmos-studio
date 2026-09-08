@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { canvasThemes, type CanvasBackgroundMode } from "@/lib/canvas-theme";
-import { applyCanvasLiveViewport, canvasDotGridPx, canvasDotPx, subscribeCanvasViewportPreview } from "@/lib/canvas/canvas-live-viewport";
+import { applyCanvasLiveViewport, canvasDotGridPx, canvasDotPx, canvasGridTransform, canvasWorldTransform, subscribeCanvasViewportPreview } from "@/lib/canvas/canvas-live-viewport";
 import { useThemeStore } from "@/stores/use-theme-store";
 import type { ViewportTransform } from "@/types/canvas";
 
@@ -374,18 +374,12 @@ export function InfiniteCanvas({ containerRef, viewport, backgroundMode = "lines
             style={{
                 background: theme.canvas.background,
                 overscrollBehavior: "none",
-                "--canvas-live-x": `${viewport.x}px`,
-                "--canvas-live-y": `${viewport.y}px`,
                 "--canvas-live-scale": viewport.k,
                 "--canvas-live-inverse-scale": 1 / Math.max(viewport.k, 0.05),
                 "--canvas-committed-scale": viewport.k,
                 "--canvas-live-scale-ratio": 1,
                 "--canvas-grid-size": `${48 * viewport.k}px`,
-                "--canvas-grid-x": `${viewport.x % (48 * viewport.k)}px`,
-                "--canvas-grid-y": `${viewport.y % (48 * viewport.k)}px`,
                 "--canvas-dot-grid-size": `${canvasDotGridPx(viewport.k)}px`,
-                "--canvas-dot-grid-x": `${viewport.x % canvasDotGridPx(viewport.k)}px`,
-                "--canvas-dot-grid-y": `${viewport.y % canvasDotGridPx(viewport.k)}px`,
                 "--canvas-dot-size": canvasDotPx(viewport.k),
             } as React.CSSProperties}
             onPointerDown={handlePointerDown}
@@ -402,11 +396,12 @@ export function InfiniteCanvas({ containerRef, viewport, backgroundMode = "lines
             }}
             onDrop={onDrop}
         >
-            <CanvasGrid mode={backgroundMode} />
+            <CanvasGrid mode={backgroundMode} viewport={viewport} />
             {graphicsLayer}
             <div
                 data-canvas-world-layer
                 className="canvas-world-layer absolute origin-top-left"
+                style={{ transform: canvasWorldTransform(viewport) }}
             >
                 <div data-canvas-world-raster-layer className="canvas-world-raster-layer absolute origin-top-left">
                     {children}
@@ -416,20 +411,20 @@ export function InfiniteCanvas({ containerRef, viewport, backgroundMode = "lines
     );
 }
 
-function CanvasGrid({ mode }: { mode: CanvasBackgroundMode }) {
+function CanvasGrid({ mode, viewport }: { mode: CanvasBackgroundMode; viewport: ViewportTransform }) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const backgroundImage = mode === "dots" ? `radial-gradient(circle, ${theme.canvas.dot} var(--canvas-dot-size), transparent calc(var(--canvas-dot-size) + 0.2px))` : `linear-gradient(${theme.canvas.line} 1px, transparent 1px), linear-gradient(90deg, ${theme.canvas.line} 1px, transparent 1px)`;
     if (mode === "blank") return null;
 
     return (
         <div
-            data-canvas-grid-layer
+            data-canvas-grid-layer={mode}
             className="pointer-events-none absolute"
             style={{
                 inset: mode === "dots" ? "calc(-1 * var(--canvas-dot-grid-size))" : "calc(-1 * var(--canvas-grid-size))",
                 backgroundImage,
                 backgroundSize: mode === "dots" ? "var(--canvas-dot-grid-size) var(--canvas-dot-grid-size)" : "var(--canvas-grid-size) var(--canvas-grid-size)",
-                transform: mode === "dots" ? "translate3d(var(--canvas-dot-grid-x), var(--canvas-dot-grid-y), 0)" : "translate3d(var(--canvas-grid-x), var(--canvas-grid-y), 0)",
+                transform: canvasGridTransform(viewport, mode),
                 opacity: mode === "dots" ? 0.34 : 0.46,
                 willChange: "transform",
             }}
