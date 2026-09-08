@@ -16,6 +16,8 @@ after_scope="$runtime_root/test-project-scope-after.txt"
 was_running=false
 test_finished=false
 grant_probe_root=
+restore_submit_policy=$(/usr/bin/plutil -extract external_paid_submit_enabled raw -o - "$runtime_root/Resources/SourceIdentity.json" 2>/dev/null || echo false)
+case "$restore_submit_policy" in true|false) ;; *) restore_submit_policy=false ;; esac
 if [ -x /opt/homebrew/bin/node ]; then
     node_bin=/opt/homebrew/bin/node
 else
@@ -34,7 +36,7 @@ restore_runtime() {
         "$launcher" stop >/dev/null 2>&1 || true
     fi
     if [ "$was_running" = true ] && ! "$launcher" status | /usr/bin/grep -q 'state=running'; then
-        "$launcher" start >/dev/null
+        FILMOS_SOURCE_EXTERNAL_PAID_SUBMIT_ENABLED="$restore_submit_policy" "$launcher" start >/dev/null
     fi
 }
 trap restore_runtime EXIT HUP INT TERM
@@ -49,7 +51,7 @@ if [ -f "$canonical_db" ]; then
          SELECT 'project_units|'||count(*) FROM project_units;" > "$before_scope"
 fi
 
-"$launcher" prepare >/dev/null
+FILMOS_SOURCE_EXTERNAL_PAID_SUBMIT_ENABLED=false "$launcher" prepare >/dev/null
 
 grant_probe_root=$(mktemp -d "${TMPDIR%/}/filmos-source-grant.XXXXXX")
 FILMOS_CHATGPT_LOCAL_DIR="$grant_probe_root" \
@@ -115,7 +117,7 @@ if (locator.schema_version !== "1.0.0"
 }
 NODE
 
-"$launcher" start >/dev/null
+FILMOS_SOURCE_EXTERNAL_PAID_SUBMIT_ENABLED=false "$launcher" start >/dev/null
 "$launcher" status | /usr/bin/grep -q 'state=running'
 /usr/bin/curl -fsS --max-time 5 http://127.0.0.1:43100/ >/dev/null
 /usr/bin/curl -fsS --max-time 5 http://127.0.0.1:43101/api/health >/dev/null
@@ -160,7 +162,7 @@ fi
 
 test_finished=true
 if [ "$was_running" = true ]; then
-    "$launcher" start >/dev/null
+    FILMOS_SOURCE_EXTERNAL_PAID_SUBMIT_ENABLED="$restore_submit_policy" "$launcher" start >/dev/null
 fi
 trap - EXIT HUP INT TERM
 echo "FILMOS_SOURCE_HOST_TEST: PASS"

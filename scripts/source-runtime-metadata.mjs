@@ -10,6 +10,13 @@ if (!sourceRootInput || !resourcesInput) {
 }
 const sourceRoot = resolve(sourceRootInput);
 const resources = resolve(resourcesInput);
+// Source development enables explicit generation, not automatic submission.
+// A sealed/read-only run must opt out; invalid policy values never grant access.
+const submitPolicy = process.env.FILMOS_SOURCE_EXTERNAL_PAID_SUBMIT_ENABLED ?? "true";
+if (submitPolicy !== "true" && submitPolicy !== "false") {
+  throw new Error("FILMOS_SOURCE_SUBMIT_POLICY_INVALID: expected true or false");
+}
+const externalPaidSubmitEnabled = submitPolicy === "true";
 const runtimePath = resolve(resources, "InternalRuntime.json");
 const identityPath = resolve(resources, "SourceIdentity.json");
 const repositoryLocatorPath = resolve(resources, "DeveloperRepository.json");
@@ -25,7 +32,7 @@ Object.assign(runtime, {
   schema_version: 4,
   release_channel: "development",
   build_id: buildID,
-  external_paid_submit_enabled: false,
+  external_paid_submit_enabled: externalPaidSubmitEnabled,
   source_commit: sourceIdentity.git_commit_sha,
   source_tree: sourceIdentity.git_tree_sha,
   source_fingerprint_sha256: sourceIdentity.source_fingerprint_sha256,
@@ -36,7 +43,7 @@ Object.assign(runtime, {
 Object.assign(sourceIdentity, {
   build_id: buildID,
   release_channel: "development",
-  external_paid_submit_enabled: false,
+  external_paid_submit_enabled: externalPaidSubmitEnabled,
   repository: "maiyadiu/filmos-studio",
 });
 const repositoryLocator = {
@@ -56,6 +63,7 @@ process.stdout.write(`${JSON.stringify({
   commit: sourceIdentity.git_commit_sha,
   tree: sourceIdentity.git_tree_sha,
   source_clean: sourceIdentity.source_clean,
+  external_paid_submit_enabled: externalPaidSubmitEnabled,
 })}\n`);
 
 function atomicJSON(path, value) {

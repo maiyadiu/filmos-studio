@@ -64,7 +64,17 @@ case "$helper_name" in
         export VITE_FILMOS_BUILD_TREE=$(/usr/bin/plutil -extract git_tree_sha raw -o - "$identity")
         export VITE_FILMOS_BUILD_ID=$(/usr/bin/plutil -extract build_id raw -o - "$identity")
         export VITE_FILMOS_RELEASE_CHANNEL=development
-        export VITE_FILMOS_EXTERNAL_PAID_SUBMIT_ENABLED=false
+        source_submit_policy=$(/usr/bin/plutil -extract external_paid_submit_enabled raw -o - "$identity")
+        case "$source_submit_policy" in
+            true|false) ;;
+            *) echo "FILMOS_SOURCE_SUBMIT_POLICY_INVALID" >&2; exit 2 ;;
+        esac
+        runtime_submit_policy=$(/usr/bin/plutil -extract external_paid_submit_enabled raw -o - "$runtime_root/Resources/InternalRuntime.json")
+        if [ "$source_submit_policy" != "$runtime_submit_policy" ]; then
+            echo "FILMOS_SOURCE_SUBMIT_POLICY_MISMATCH" >&2
+            exit 2
+        fi
+        export VITE_FILMOS_EXTERNAL_PAID_SUBMIT_ENABLED="$source_submit_policy"
         profile_env="$runtime_root/profile.env"
         "$python_bin" "$source_root/scripts/agent_runtime_profile.py" shell --profile filmos-candidate > "$profile_env"
         # The generated file contains only fixed, non-secret feature flags.

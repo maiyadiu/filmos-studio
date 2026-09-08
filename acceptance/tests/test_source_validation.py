@@ -140,6 +140,53 @@ def test_source_identity_includes_real_launcher_helper_and_metadata() -> None:
     assert {"scripts/filmos-source-start", "scripts/filmos-source-helper", "scripts/source-runtime-metadata.mjs", "源码启动.command"} <= set(scopes)
 
 
+@pytest.mark.parametrize("policy,expected", [(None, True), ("true", True), ("false", False), ("yes", None), ("", None)])
+def test_source_generation_policy_is_explicit_and_shared(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, policy: str | None, expected: bool | None) -> None:
+    source = tmp_path / "source fixture"
+    resources = source / ".local/source-host/Resources"
+    resources.mkdir(parents=True)
+    fingerprint = source / "desktop/macos/scripts/source-fingerprint"
+    fingerprint.parent.mkdir(parents=True)
+    identity = {"git_commit_sha": "a" * 40, "git_tree_sha": "b" * 40, "source_fingerprint_sha256": "c" * 64, "source_clean": True}
+    fingerprint.write_text("#!/usr/bin/env node\nprocess.stdout.write(" + json.dumps(json.dumps(identity)) + ");\n")
+    fingerprint.chmod(0o755)
+    runtime_file = resources / "InternalRuntime.json"
+    before = {"application_support_directory_name": "fixture-data", "external_paid_submit_enabled": False}
+    runtime_file.write_text(json.dumps(before))
+    monkeypatch.delenv("FILMOS_SOURCE_EXTERNAL_PAID_SUBMIT_ENABLED", raising=False)
+    if policy is not None:
+        monkeypatch.setenv("FILMOS_SOURCE_EXTERNAL_PAID_SUBMIT_ENABLED", policy)
+    result = subprocess.run(["node", str(ROOT / "scripts/source-runtime-metadata.mjs"), str(source), str(resources)], capture_output=True, text=True, timeout=10)
+    if expected is None:
+        assert result.returncode != 0
+        assert "FILMOS_SOURCE_SUBMIT_POLICY_INVALID" in result.stderr
+        assert json.loads(runtime_file.read_text()) == before
+        assert not (resources / "SourceIdentity.json").exists()
+        return
+    assert result.returncode == 0, result.stderr
+    runtime = json.loads(runtime_file.read_text())
+    actual = json.loads((resources / "SourceIdentity.json").read_text())
+    assert runtime["external_paid_submit_enabled"] is actual["external_paid_submit_enabled"] is expected
+    assert runtime["release_channel"] == actual["release_channel"] == "development"
+    assert runtime["source_commit"] == actual["git_commit_sha"] == identity["git_commit_sha"]
+    assert runtime["application_support_directory_name"] == "fixture-data"
+    assert json.loads(result.stdout)["external_paid_submit_enabled"] is expected
+    assert not list(source.rglob("*.app"))
+
+
+def test_source_web_uses_generated_policy_and_user_data_test_explicitly_disables_submit() -> None:
+    helper = (ROOT / "scripts/filmos-source-helper").read_text()
+    web = helper.split("    FilmOSWeb)", 1)[1].split("    FilmOSLocalRuntime)", 1)[0]
+    assert 'export VITE_FILMOS_EXTERNAL_PAID_SUBMIT_ENABLED="$source_submit_policy"' in web
+    assert "FILMOS_SOURCE_SUBMIT_POLICY_MISMATCH" in web
+    assert 'external_paid_submit_enabled raw -o - "$identity"' in web
+    assert 'external_paid_submit_enabled raw -o - "$runtime_root/Resources/InternalRuntime.json"' in web
+    smoke = (ROOT / "scripts/test-filmos-source-host").read_text()
+    assert 'FILMOS_SOURCE_EXTERNAL_PAID_SUBMIT_ENABLED=false "$launcher" prepare' in smoke
+    assert 'FILMOS_SOURCE_EXTERNAL_PAID_SUBMIT_ENABLED=false "$launcher" start' in smoke
+    assert 'FILMOS_SOURCE_EXTERNAL_PAID_SUBMIT_ENABLED="$restore_submit_policy" "$launcher" start' in smoke
+
+
 def test_source_fingerprint_detects_helper_bytes_and_executable_mode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     loader = SourceFileLoader("baseline_fingerprint", str(ROOT / "desktop/macos/scripts/source-fingerprint"))
     spec = importlib.util.spec_from_loader(loader.name, loader)

@@ -19,6 +19,14 @@ scripts/filmos-source-start stop
 
 **此用户入口使用真实 Application Support 数据，不是隔离测试入口。** 不改变用户项目、Review Bus 的既有权威目录。历史 App、source-host 缓存、净克隆及审阅 worktree 只是历史产物/证据，不能冒充当前运行来源，也不应为了“唯一源码”自动删除。
 
+### 开发态生成与只读封存
+
+普通源码启动默认开放外部生成能力，响应明确发起的生成操作；启动、刷新、更新源码本身不会补发旧任务。模型/账号校验、Agent 逐次生成确认、正式生产链的预算授权及稳定请求 ID 防重机制均保留，开启开发者账号不等于自动批准费用。
+
+需要禁用外部提交时，在准备/启动时显式使用 `FILMOS_SOURCE_EXTERNAL_PAID_SUBMIT_ENABLED=false scripts/filmos-source-start start`。只接受 `true` / `false`，无效值失败关闭；封存验证继续使用禁用模式。生成后的 `SourceIdentity.json` 与 `InternalRuntime.json` 使用同一个值，Web 读取并核对两者，而非另写默认值。`status` 显示已准备运行资源的 `external_submit` 状态；这不是实际生成成功证明。
+
+已经运行的旧宿主不会因为编辑脚本或再次双击启动器而自动变更策略。更新服务前必须保护草稿、保存与在途任务；不得只改身份文件冒充完成运行态更新。当前自动安全更新链仍在实施，普通 Web HMR 不能代替后端/Agent 更新。
+
 ### 本机开发身份与公开登录
 
 `源码启动.command` 默认打开 `http://127.0.0.1:43100/create`。源码宿主为后端显式配置本机认证：`CANVAS_BACKEND_ADDR=127.0.0.1:43101`、`CANVAS_DESKTOP_LOCAL_AUTH_ENABLED=true`。此模式复用稳定的本地管理员身份，无需公开账号的密码或会话Cookie，不创建另一套项目库。管理入口仍由后端角色校验；管理员身份不等于自动批准生成、费用、正式封存或外部操作。

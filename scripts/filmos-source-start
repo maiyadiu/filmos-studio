@@ -293,8 +293,10 @@ print_status() {
     fi
     candidate_pid=$(host_pid)
     build_id=unprepared
+    external_submit=unknown
     if [ -f "$resources/SourceIdentity.json" ]; then
         build_id=$(/usr/bin/plutil -extract build_id raw -o - "$resources/SourceIdentity.json" 2>/dev/null || echo invalid)
+        external_submit=$(/usr/bin/plutil -extract external_paid_submit_enabled raw -o - "$resources/SourceIdentity.json" 2>/dev/null || echo invalid)
     fi
     web_state=stopped
     backend_state=stopped
@@ -303,6 +305,7 @@ print_status() {
     echo "FILMOS_SOURCE_HOST state=$state pid=${candidate_pid:-none} build_id=$build_id"
     echo "FILMOS_SOURCE_HOST web=$web_state backend=$backend_state data=canonical"
     echo "FILMOS_SOURCE_HOST entry=$source_root/源码启动.command"
+    echo "FILMOS_SOURCE_HOST external_submit=$external_submit (explicit generation only; no automatic retry)"
 }
 
 start_host() {
