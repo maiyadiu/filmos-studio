@@ -142,6 +142,8 @@ export interface AgentHistoryMessage {
 
 export interface BrainSession {
     id: string;
+    /** Server-verified account ownership; absent on unclaimed historical records. */
+    accountScopeId?: string;
     conversationId: string;
     brainProfileId: string;
     connectionId: string;
@@ -173,6 +175,7 @@ export type AgentSession = BrainSession;
 
 export interface AgentConversation {
     id: string;
+    accountScopeId?: string;
     projectId: string | null;
     workspaceId?: string;
     canvasId: string | null;
@@ -185,6 +188,8 @@ export interface AgentConversation {
 
 export interface CreateBrainSessionInput {
     conversationId: string;
+    /** Assigned by the authenticated Runtime, never selected from a request body. */
+    accountScopeId?: string;
     brainProfileId: string;
     projectId: string | null;
     workspaceId?: string;

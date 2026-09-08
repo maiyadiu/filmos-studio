@@ -16,6 +16,87 @@ import { CanonicalAgentToolManifest } from "../src/brains/tool-manifest.js";
 import { adapter, profile } from "./brain-test-fixtures.js";
 import { isProjectPageTool } from "@filmos/agent-contracts";
 
+const accountA = "account_" + "a".repeat(64);
+const accountB = "account_" + "b".repeat(64);
+
+test("account ownership survives the original JSON store while legacy records remain unclaimed", async t => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "filmos-account-store-"));
+    t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+    const file = path.join(dir, "sessions.json");
+    const registry = new BrainProfileRegistry(); registry.registerProfile(profile("codex.mock")); registry.registerAdapter(adapter("codex.mock"));
+    const store = new JsonBrainSessionStore(file);
+    const manager = new AgentSessionManager(registry, store, new AgentPermissionGrantStore(), new AgentConfirmationStore(), new AgentContextBroker());
+    const base = { brainProfileId: "codex.mock", projectId: "same-project", canvasId: "same-canvas", actorId: "fixture" };
+    const a = await manager.createSession({ ...base, conversationId: "a", accountScopeId: accountA });
+    const b = await manager.createSession({ ...base, conversationId: "b", accountScopeId: accountB });
+    const old = await manager.createSession({ ...base, conversationId: "old" });
+    assert.equal(a.accountScopeId, accountA);
+    assert.equal((await store.getConversation("a"))?.accountScopeId, accountA);
+    assert.equal((await manager.resumeSession(a.id, "fixture")).accountScopeId, accountA);
+    const reopened = new JsonBrainSessionStore(file);
+    assert.deepEqual((await reopened.listSessions({ projectId: base.projectId, accountScopeId: accountA })).map(s => s.id), [a.id]);
+    assert.deepEqual((await reopened.listSessions({ projectId: base.projectId, accountScopeId: accountB })).map(s => s.id), [b.id]);
+    assert.deepEqual(await reopened.getSession(old.id), old);
+    assert.equal((await reopened.getConversation("old"))?.accountScopeId, undefined);
+    await assert.rejects(reopened.saveSession({ ...old, accountScopeId: accountA }), /immutable/);
+    await assert.rejects(reopened.listSessions({ accountScopeId: "" }), /ACCOUNT_SCOPE_INVALID/);
+    const read = await reopened.getSession(a.id); read!.accountScopeId = accountB;
+    assert.equal((await reopened.getSession(a.id))?.accountScopeId, accountA);
+});
+
+test("session and conversation ownership cannot be overwritten, patched, imported or cross-linked", async () => {
+    const registry = new BrainProfileRegistry(); registry.registerProfile(profile("codex.mock")); registry.registerAdapter(adapter("codex.mock"));
+    const store = new MemoryBrainSessionStore();
+    const manager = new AgentSessionManager(registry, store, new AgentPermissionGrantStore(), new AgentConfirmationStore(), new AgentContextBroker());
+    const base = { brainProfileId: "codex.mock", projectId: "same-project", canvasId: "same-canvas", actorId: "fixture" };
+    const a = await manager.createSession({ ...base, conversationId: "a", accountScopeId: accountA });
+    const b = await manager.createSession({ ...base, conversationId: "b", accountScopeId: accountB });
+    for (const patch of [{ accountScopeId: accountB }, { accountScopeId: undefined }, { id: b.id }, { conversationId: "b" }]) {
+        await assert.rejects(store.saveSession({ ...a, ...patch }), /immutable|ACCOUNT_MISMATCH/);
+        await assert.rejects(store.updateSession(a.id, patch as never), /immutable/);
+        assert.throws(() => store.importSnapshot({ sessions: [{ ...a, ...patch }], conversations: [] }), /immutable|ACCOUNT_MISMATCH/);
+    }
+    const conversation = (await store.getConversation("a"))!;
+    await assert.rejects(store.saveConversation({ ...conversation, accountScopeId: accountB }), /ACCOUNT_MISMATCH/);
+    await assert.rejects(store.saveConversation({ ...conversation, sessionIds: [a.id, b.id] }), /ACCOUNT_MISMATCH/);
+    assert.throws(() => store.importSnapshot({ sessions: [], conversations: [{ ...conversation, accountScopeId: accountB }] }), /ACCOUNT_MISMATCH/);
+    assert.deepEqual(await store.getSession(a.id), a);
+    assert.deepEqual(await store.getConversation("a"), conversation);
+});
+
+test("adapter patches cannot erase or substitute the Runtime account on create or resume", async () => {
+    for (const value of [undefined, accountB]) {
+        const registry = new BrainProfileRegistry(); registry.registerProfile(profile("codex.mock"));
+        registry.registerAdapter({ ...adapter("codex.mock"), createSession: async () => ({ accountScopeId: value }), resumeSession: async () => ({ accountScopeId: value }) });
+        const store = new MemoryBrainSessionStore();
+        const manager = new AgentSessionManager(registry, store, new AgentPermissionGrantStore(), new AgentConfirmationStore(), new AgentContextBroker());
+        const input = { conversationId: "a", brainProfileId: "codex.mock", projectId: "p", canvasId: "x", actorId: "fixture", accountScopeId: accountA };
+        await assert.rejects(manager.createSession(input), /immutable session field: accountScopeId/);
+        const failed = (await store.listSessions({ accountScopeId: accountA }))[0];
+        assert.equal(failed.status, "failed"); assert.equal(failed.accountScopeId, accountA);
+        await assert.rejects(manager.resumeSession(failed.id, "fixture"), /immutable session field: accountScopeId/);
+        assert.equal((await store.getSession(failed.id))?.accountScopeId, accountA);
+    }
+});
+
+test("concurrent account claims on one conversation reject before the second provider call and revoke its grant", async () => {
+    const registry = new BrainProfileRegistry(); registry.registerProfile(profile("codex.mock"));
+    const calls: string[] = []; registry.registerAdapter(adapter("codex.mock", calls));
+    const store = new MemoryBrainSessionStore(), grants = new AgentPermissionGrantStore();
+    const issued: string[] = [], issue = grants.issue.bind(grants);
+    grants.issue = input => { const grant = issue(input); issued.push(grant.id); return grant; };
+    const manager = new AgentSessionManager(registry, store, grants, new AgentConfirmationStore(), new AgentContextBroker());
+    const base = { conversationId: "same", brainProfileId: "codex.mock", projectId: "p", canvasId: "x", actorId: "fixture" };
+    const results = await Promise.allSettled([accountA, accountB].map(accountScopeId => manager.createSession({ ...base, accountScopeId })));
+    assert.equal(results.filter(r => r.status === "fulfilled").length, 1);
+    assert.equal(results.filter(r => r.status === "rejected").length, 1);
+    assert.equal(calls.length, 1);
+    assert.equal((await store.listSessions()).length, 1);
+    assert.equal(issued.filter(id => grants.get(id)).length, 1);
+    await assert.rejects(manager.createSession({ ...base, accountScopeId: "caller-picked-user" }), /ACCOUNT_SCOPE_INVALID/);
+    assert.equal(calls.length, 1);
+});
+
 test("project page create and restart resume keep the same project scope and never gain canvas tools", async () => {
     const registry = new BrainProfileRegistry();
     registry.registerProfile(profile("codex.mock"));
