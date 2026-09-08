@@ -18,10 +18,10 @@ export class CodexApprovalCoordinator {
         private readonly timeoutMs = 2 * 60_000,
     ) {}
 
-    request(input: { sessionId: string; request: CodexServerRequest; contextReceiptId: string }) {
+    request(input: { sessionId: string; turnId?: string; request: CodexServerRequest; contextReceiptId: string }) {
         const confirmation = this.confirmations.create({
             sessionId: input.sessionId,
-            turnId: input.request.turnId || "unknown",
+            turnId: input.turnId || input.request.turnId || "unknown",
             requestId: String(input.request.id),
             toolName: requestToolName(input.request),
             risk: requestRisk(input.request),
@@ -31,17 +31,31 @@ export class CodexApprovalCoordinator {
             contextReceiptId: input.contextReceiptId,
             expiresInMs: this.timeoutMs,
         });
-        this.emit("agent_event", { agent: "codex", type: "confirmation.required", sessionId: input.sessionId, turnId: confirmation.turnId, confirmation });
         return new Promise<{ approved: boolean; content?: Record<string, unknown> }>((resolve) => {
             // Keep the process alive until the approval resolves fail-closed; unref would strand this Promise.
-            const timer = setTimeout(() => this.finish(confirmation.id, false), this.timeoutMs);
+            const timer = setTimeout(() => {
+                this.finish(confirmation.id, false);
+                this.emit("agent_event", { agent: "codex", type: "error", sessionId: input.sessionId, turnId: confirmation.turnId, code: "agent_confirmation_unavailable", message: "Codex 原生确认等待超时，操作未获批准；这不代表用户点击了拒绝。请回读当前状态，不要自动重发。" });
+            }, this.timeoutMs);
             this.pending.set(confirmation.id, { sessionId: input.sessionId, contextReceiptId: input.contextReceiptId, resolve, timer });
+            // The event can be answered immediately; install its waiter before publishing it.
+            this.emit("agent_event", { agent: "codex", type: "confirmation.required", sessionId: input.sessionId, turnId: confirmation.turnId, confirmation });
         });
+    }
+
+    owns(confirmationId: string) {
+        // Ownership survives expiry/consumption so a late reply cannot fall through to another broker.
+        return this.confirmations.get(confirmationId) !== undefined;
+    }
+
+    pendingForSession(sessionId: string) {
+        return this.confirmations.pendingForSession(sessionId).filter(confirmation => this.pending.has(confirmation.id));
     }
 
     decide(input: { confirmationId: string; sessionId: string; actorId: string; approved: boolean; content?: Record<string, unknown> }) {
         const pending = this.pending.get(input.confirmationId);
-        if (!pending || pending.sessionId !== input.sessionId) throw new Error("AGENT_CONFIRMATION_SESSION_MISMATCH");
+        if (!pending) throw new Error("AGENT_CONFIRMATION_NOT_FOUND");
+        if (pending.sessionId !== input.sessionId) throw new Error("AGENT_CONFIRMATION_SESSION_MISMATCH");
         const confirmation = this.confirmations.decide(input.confirmationId, {
             sessionId: input.sessionId,
             actorId: input.actorId,

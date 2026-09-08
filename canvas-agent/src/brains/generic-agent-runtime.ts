@@ -8,6 +8,7 @@ import type { AgentEmit } from "../types.js";
 import { CompositeAgentAuditSink, JsonlAgentAuditSink, MemoryAgentAuditSink } from "./agent-audit.js";
 import { CodexSubscriptionAdapter } from "./adapters/codex-app-server-adapter.js";
 import { AgentConfirmationStore } from "./confirmations.js";
+import type { CodexApprovalCoordinator } from "./codex-approval-coordinator.js";
 import { AgentContextBroker, assertSessionContextScope, type WorkbenchContextSnapshot } from "./context-broker.js";
 import { AgentPermissionGrantStore } from "./permission-grants.js";
 import { BrainProfileRegistry } from "./registry.js";
@@ -39,6 +40,7 @@ type GenericAgentRuntimeOptions = {
     browserRuntime: BrowserRuntimeTransport;
     canvasToolExecutor: CanonicalCanvasToolExecutor;
     persistentAudit?: false;
+    nativeConfirmations?: Pick<CodexApprovalCoordinator, "pendingForSession" | "cancelSession">;
 };
 
 type ConfirmationWaiter = {
@@ -78,7 +80,7 @@ export class GenericAgentRuntime {
         emit: AgentEmit,
         private readonly snapshot: () => WorkbenchContextSnapshot,
         requestConfirmation: ConstructorParameters<typeof CodexSubscriptionAdapter>[3],
-        options: GenericAgentRuntimeOptions,
+        private readonly options: GenericAgentRuntimeOptions,
     ) {
         this.actorId = config.ownerId || "local-owner";
         this.featureFlags = structuredClone(options.featureFlags);
@@ -132,7 +134,7 @@ export class GenericAgentRuntime {
         return { ...session, execution: {
             activeTurnId: this.activeTurns.get(session.id) ?? null,
             resuming: this.resumingSessions.has(session.id),
-            pendingConfirmations: this.confirmations.pendingForSession(session.id),
+            pendingConfirmations: [...this.confirmations.pendingForSession(session.id), ...(this.options.nativeConfirmations?.pendingForSession(session.id) ?? [])],
         } };
     }
 
@@ -217,6 +219,7 @@ export class GenericAgentRuntime {
             }
             throw error;
         } finally {
+            this.options.nativeConfirmations?.cancelSession(sessionId);
             this.turnControllers.delete(sessionId);
             this.activeTurns.delete(sessionId);
             this.scriptCreationScopes.delete(sessionId);
@@ -229,6 +232,7 @@ export class GenericAgentRuntime {
         if (this.activeTurns.get(sessionId) !== turnId) throw new Error("AGENT_ACTIVE_TURN_MISMATCH");
         this.cancelledTurns.add(`${sessionId}:${turnId}`);
         this.turnControllers.get(sessionId)?.abort(new Error("AGENT_TURN_CANCELLED"));
+        this.options.nativeConfirmations?.cancelSession(sessionId);
         this.confirmations.cancelTurn(sessionId, turnId);
         for (const [id, waiter] of this.confirmationWaiters) {
             if (waiter.sessionId !== sessionId || this.confirmations.get(id)?.turnId !== turnId) continue;
@@ -472,6 +476,7 @@ export class GenericAgentRuntime {
             waiter.reject(new Error("AGENT_RUNTIME_DISPOSED"));
         }
         this.confirmationWaiters.clear();
+        for (const sessionId of this.activeTurns.keys()) this.options.nativeConfirmations?.cancelSession(sessionId);
         this.activeTurns.clear();
         for (const controller of this.turnControllers.values()) controller.abort(new Error("AGENT_RUNTIME_DISPOSED"));
         this.turnControllers.clear();

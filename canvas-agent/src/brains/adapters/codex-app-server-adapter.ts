@@ -122,7 +122,7 @@ export class CodexSubscriptionAdapter implements AgentRuntimeAdapter {
                     turnPrompt(input),
                     input.localImagePaths || [],
                     input.localSkills || [],
-                    this.binding(this.profileId, sessionId, normalizedEmit(sessionId, input.turnId, sink)),
+                    this.binding(this.profileId, sessionId, normalizedEmit(sessionId, input.turnId, sink), input.turnId),
                     (turnId) => {
                         active.turnId = turnId;
                         if (active.cancelRequested) interrupt();
@@ -195,12 +195,12 @@ export class CodexSubscriptionAdapter implements AgentRuntimeAdapter {
         return input.workspacePath ?? (scopeId ? this.workspaceForScope(scopeId, input.canvasId === null ? "project" : "canvas") : undefined);
     }
 
-    private binding(_profileId: string, sessionId: string, emit: AgentEmit) {
+    private binding(_profileId: string, sessionId: string, emit: AgentEmit, workbenchTurnId?: string) {
         return {
             emit,
             handleServerRequest: async (request: CodexServerRequest) => {
                 const decision = this.requestConfirmation
-                    ? await this.requestConfirmation({ sessionId, turnId: request.turnId || "unknown", request })
+                    ? await this.requestConfirmation({ sessionId, turnId: workbenchTurnId || request.turnId || "unknown", request })
                     : { approved: false };
                 return decision.approved ? acceptServerRequest(request.method, decision.content) : declineServerRequest(request.method);
             },

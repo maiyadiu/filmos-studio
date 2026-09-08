@@ -45,7 +45,7 @@ export type CanvasAgentSession = Pick<
     "health" | "workbenchContext" | "agentContextSnapshot" | "openEvents" | "updateState" | "resolveResult" | "emitAll" | "callTool" | "closeRuntimeSession" | "dispose"
 >;
 
-export type CanvasAgentHttpModuleOptions = { brainSessionStore?: BrainSessionStore; browserRuntimeTransport?: BrowserRuntimeTransport; accountVerifierFetch?: typeof globalThis.fetch; accountNow?: () => number };
+export type CanvasAgentHttpModuleOptions = { brainSessionStore?: BrainSessionStore; browserRuntimeTransport?: BrowserRuntimeTransport; accountVerifierFetch?: typeof globalThis.fetch; accountNow?: () => number; codexApprovals?: CodexApprovalCoordinator };
 
 export function createCanvasAgentHttpModule(
     config: LocalRuntimeConfig,
@@ -56,20 +56,21 @@ export function createCanvasAgentHttpModule(
     const emit = (type: string, payload: unknown) => session.emitAll(type, payload);
     const permissionGrants = new AgentPermissionGrantStore();
     const canonicalTools = new CanonicalAgentToolManifest();
-    const approvals = new CodexApprovalCoordinator(undefined, emit);
+    const approvals = options.codexApprovals ?? new CodexApprovalCoordinator(undefined, emit);
     const agentFeatureFlags = resolveAgentFeatureFlags(config.agentFeatureFlags);
     assertGenericAgentRuntimeDependencies(agentFeatureFlags);
     const generic = agentFeatureFlags["film.agent_generic_runtime"] ? new GenericAgentRuntime(
             config,
             emit,
             () => session.agentContextSnapshot() as WorkbenchContextSnapshot,
-            ({ sessionId, request }) => approvals.request({ sessionId, request, contextReceiptId: liveContextReceipt(session) }),
+            ({ sessionId, turnId, request }) => approvals.request({ sessionId, turnId, request, contextReceiptId: liveContextReceipt(session) }),
             {
                 featureFlags: agentFeatureFlags,
                 grants: permissionGrants,
                 tools: canonicalTools,
                 browserRuntime: options.browserRuntimeTransport ?? requireBrowserRuntimeTransport(session),
                 canvasToolExecutor: session,
+                nativeConfirmations: approvals,
                 ...(options.brainSessionStore ? { store: options.brainSessionStore } : {}),
             },
         ) : undefined;
@@ -270,7 +271,9 @@ export function createCanvasAgentHttpModule(
         agentOrLegacyRoute(Boolean(generic), "POST", "/agent/confirmations/:confirmationId/decision", "agent:confirmations:decide", async (req, res) => {
             const body = jsonRecord(req);
             const sessionId = requiredBodyString(body, "sessionId");
-            if (generic && await generic.store.getSession(sessionId)) {
+            // Native app-server and canonical business approvals can share a BrainSession,
+            // but only the store that created the confirmation may consume it.
+            if (!approvals.owns(routeParam(req.params.confirmationId)) && generic && await generic.store.getSession(sessionId)) {
                 const outcome = await generic.decideConfirmation({
                     confirmationId: routeParam(req.params.confirmationId),
                     sessionId,

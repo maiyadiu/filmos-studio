@@ -17,6 +17,15 @@ test("project-page context failures are actionable and do not disclose raw scope
     assert.match(failure?.message ?? "", /不会自动创建/);
 });
 
+test("approval scope failures remain forbidden rather than an internal error or a renewal request", () => {
+    for (const code of ["AGENT_CONFIRMATION_SESSION_MISMATCH", "AGENT_CONFIRMATION_WAITER_SCOPE_MISMATCH", "AGENT_CONFIRMATION_CONTEXT_MISMATCH"]) {
+        const failure = publicAgentRuntimeFailure(new Error(`${code}:private-id`));
+        assert.equal(failure?.code, "agent_confirmation_scope_mismatch");
+        assert.equal(failure?.statusCode, 403);
+        assert.doesNotMatch(failure?.message || "", /private-id/);
+    }
+});
+
 test("classified backend errors preserve exact status with safe recovery guidance", () => {
     for (const status of [400, 401, 403, 404, 409, 422, 429, 500, 503]) {
         const failure = publicAgentRuntimeFailure(canvasToolApiError(status));

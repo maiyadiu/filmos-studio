@@ -10,6 +10,37 @@ import { MemoryBrainSessionStore } from "../src/brains/session-store.js";
 import type { WorkbenchContextSnapshot } from "../src/brains/context-broker.js";
 import type { CanonicalCanvasToolExecutor } from "../src/brains/tool-providers.js";
 import { codexProcessManager } from "../src/agents.js";
+import { CodexApprovalCoordinator } from "../src/brains/codex-approval-coordinator.js";
+
+test("stopping a workbench turn cancels its native approval and leaves no late executable confirmation", async t => {
+    t.mock.method(codexProcessManager, "client", async () => { throw new Error("LIVE_CODEX_PROCESS_FORBIDDEN"); });
+    const native = new CodexApprovalCoordinator(undefined, () => undefined, 2_000);
+    const instance = runtime(new MemoryBrainSessionStore(), new AgentPermissionGrantStore(), { hasConnectedBrowser: () => true, request: async () => { throw new Error("MODEL_API_FORBIDDEN"); } }, undefined, undefined, native);
+    const adapter = instance.registry.getAdapter("codex.subscription");
+    adapter.probe = async () => ({ profileId: "codex.subscription", status: "ready", checkedAt: new Date().toISOString() });
+    adapter.createSession = async () => ({ providerThreadId: "fixture-thread" });
+    let entered!: () => void;
+    const started = new Promise<void>(resolve => { entered = resolve; });
+    try {
+        const { session } = await instance.createSession({ conversationId: "native-cancel", brainProfileId: "codex.subscription", projectId: "project-grant-recovery", canvasId: "canvas-grant-recovery", actorId: "owner-grant-recovery" });
+        adapter.sendTurn = async input => {
+            const decision = native.request({ sessionId: session.id, turnId: input.turnId, contextReceiptId: input.context.contextReceiptId, request: { id: 1, method: "item/fileChange/requestApproval", params: {}, turnId: "provider-turn" } });
+            entered();
+            assert.deepEqual(await decision, { approved: false });
+            return { sessionId: session.id, turnId: input.turnId, status: "completed", text: "fixture" };
+        };
+        const turn = instance.sendTurn(session.id, { turnId: "local-turn", prompt: "fixture" }, () => undefined);
+        const stopped = assert.rejects(turn, /TURN_CANCELLED/);
+        await started;
+        const view = instance.sessionView(session);
+        assert.equal(view.execution.pendingConfirmations.length, 1);
+        assert.equal(view.execution.pendingConfirmations[0].turnId, view.execution.activeTurnId);
+        await instance.cancelTurn(session.id, "local-turn");
+        await stopped;
+        assert.deepEqual(instance.sessionView(session).execution.pendingConfirmations, []);
+        assert.throws(() => native.decide({ confirmationId: view.execution.pendingConfirmations[0].id, sessionId: session.id, actorId: "human", approved: true }), /CONFIRMATION_NOT_FOUND/);
+    } finally { await instance.dispose(); native.dispose(); }
+});
 
 test("global native turn and recovery bind only the current workspace before calling a provider", async t => {
     t.mock.method(codexProcessManager, "client", async () => { throw new Error("LIVE_CODEX_PROCESS_FORBIDDEN"); });
@@ -359,7 +390,7 @@ test("crossing the real 15 minute grant boundary stops tools; idle recovery read
     } finally { await instance.dispose(); }
 });
 
-function runtime(store: MemoryBrainSessionStore, grants: AgentPermissionGrantStore, browserRuntime: BrowserRuntimeTransport, snapshot?: () => WorkbenchContextSnapshot, canvasToolExecutor: CanonicalCanvasToolExecutor = { callTool: async () => ({ ok: true }) }) {
+function runtime(store: MemoryBrainSessionStore, grants: AgentPermissionGrantStore, browserRuntime: BrowserRuntimeTransport, snapshot?: () => WorkbenchContextSnapshot, canvasToolExecutor: CanonicalCanvasToolExecutor = { callTool: async () => ({ ok: true }) }, nativeConfirmations?: CodexApprovalCoordinator) {
     return new GenericAgentRuntime(
         config(),
         () => undefined,
@@ -391,6 +422,7 @@ function runtime(store: MemoryBrainSessionStore, grants: AgentPermissionGrantSto
             grants,
             persistentAudit: false,
             canvasToolExecutor,
+            nativeConfirmations,
         },
     );
 }

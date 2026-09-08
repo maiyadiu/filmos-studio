@@ -86,7 +86,11 @@ test("Codex server requests fail closed unless the matching FilmOS confirmation 
         { client: async () => fakeClient(async (binding) => approved.push(await binding.handleServerRequest?.({ id: 5, method: "mcpServer/elicitation/request", params: {}, threadId: "thread-1", turnId: "provider-turn" }))) } as never,
         () => "/tmp/project",
         () => ({}),
-        async ({ sessionId, turnId }) => ({ approved: sessionId === "session-1" && turnId === "provider-turn", content: { confirmed: true } }),
+        async ({ sessionId, turnId, request }) => {
+            assert.equal(turnId, turnInput(session()).turnId, "UI approval must belong to the workbench turn");
+            assert.equal(request.turnId, "provider-turn", "the native RPC identity must not be rewritten");
+            return { approved: sessionId === "session-1", content: { confirmed: true } };
+        },
     );
     const second = await approving.createSession(sessionInput(), grant);
     await approving.sendTurn(turnInput({ ...session(), ...second }), async () => undefined);

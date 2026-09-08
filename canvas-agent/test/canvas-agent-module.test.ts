@@ -13,11 +13,54 @@ import { toolDescriptions, toolInputSchemas, toolNames } from "../src/schemas.js
 import type { LocalRuntimeConfig } from "../src/config.js";
 import { AGENT_FEATURE_FLAG_IDS } from "../src/brains/feature-flags.js";
 import { MemoryBrainSessionStore } from "../src/brains/session-store.js";
+import { CodexApprovalCoordinator } from "../src/brains/codex-approval-coordinator.js";
 
 const authority = "127.0.0.1:41743";
 const endpoint = `http://${authority}`;
 const origin = "http://127.0.0.1:3001";
 const token = "legacy-canvas-token-fixture";
+
+test("generic HTTP decisions return native approvals to their owner, not the business broker", async () => {
+    const config = fixtureConfig();
+    config.agentFeatureFlags = Object.fromEntries(AGENT_FEATURE_FLAG_IDS.map(id => [id, true]));
+    const store = new MemoryBrainSessionStore();
+    for (const id of ["native-session", "other-session"]) await store.saveSession({
+        id, conversationId: id, brainProfileId: "codex.subscription", connectionId: "codex.subscription",
+        projectId: "project-1", canvasId: "canvas-1", permissionGrantId: "fixture-grant", status: "ready",
+        createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    });
+    let confirmationId = "";
+    const approvals = new CodexApprovalCoordinator(undefined, (_type, payload) => {
+        const event = payload as { confirmation?: { id: string } };
+        if (event.confirmation) confirmationId = event.confirmation.id;
+    }, 5_000);
+    const module = createCanvasAgentHttpModule(config, new CanvasSession(), { brainSessionStore: store, codexApprovals: approvals });
+    const route = module.routes.find(item => item.path === "/agent/confirmations/:confirmationId/decision")!;
+    const decide = (sessionId: string, approved: boolean, id = confirmationId) => new Promise<Record<string, unknown>>((resolve, reject) => {
+        route.handler({ params: { confirmationId: id }, body: Buffer.from(JSON.stringify({ sessionId, approved, content: { choice: "fixture" } })) } as never, { json: resolve } as never, reject);
+    });
+    try {
+        assert.equal(route.scope, "agent:confirmations:decide");
+        assert.equal(route.legacy, undefined);
+        for (const approved of [true, false]) {
+            const pending = approvals.request({ sessionId: "native-session", turnId: "workbench-turn", contextReceiptId: "receipt-1", request: { id: `native-${approved}`, method: "mcpServer/elicitation/request", params: {}, threadId: "thread-1", turnId: "provider-turn" } });
+            const read = module.routes.find(item => item.path === "/agent/sessions/:sessionId")!;
+            const view = await new Promise<{ session: { execution: { pendingConfirmations: Array<{ id: string; turnId: string }> } } }>((resolve, reject) => {
+                read.handler({ params: { sessionId: "native-session" } } as never, { json: resolve } as never, reject);
+            });
+            assert.deepEqual(view.session.execution.pendingConfirmations.map(item => ({ id: item.id, turnId: item.turnId })), [{ id: confirmationId, turnId: "workbench-turn" }]);
+            await assert.rejects(decide("other-session", approved), /SESSION_MISMATCH/);
+            const response = await decide("native-session", approved);
+            assert.equal(response.ok, true);
+            assert.equal((response.confirmation as { status: string }).status, approved ? "approved" : "rejected");
+            assert.deepEqual(await pending, approved ? { approved, content: { choice: "fixture" } } : { approved });
+            assert.deepEqual(approvals.pendingForSession("native-session"), []);
+            await assert.rejects(decide("native-session", approved), /CONFIRMATION_NOT_FOUND/);
+        }
+        // An ID not owned by the native coordinator still follows the broker path.
+        await assert.rejects(decide("native-session", true, "business-missing"), /CONFIRMATION_NOT_FOUND/);
+    } finally { await module.dispose?.(); }
+});
 
 test("workspace HTTP identity and snapshot use the Runtime owner without a browser project substitute", async () => {
     const config = fixtureConfig();
