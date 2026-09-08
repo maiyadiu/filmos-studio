@@ -180,6 +180,14 @@ function buildComposerGenerationContext(
     }
 
     nextPrompt += normalizedPrompt.slice(lastIndex);
+    // A per-shot edge is an explicit structural input, even when the composer
+    // also mentions a reference asset. Do not substitute the whole storyboard.
+    if (!promptOnly) inputs.forEach(input => {
+        if (!input.alwaysIncludeText || input.type !== "text" || labelByNodeId.has(input.nodeId)) return;
+        const label = generationLabel("text", counts.text++);
+        labelByNodeId.set(input.nodeId, label);
+        textBlocks.push(`【${label}】\n${input.text || ""}`);
+    });
     if (textBlocks.length && !promptOnly) nextPrompt = `${nextPrompt.trim()}\n\n${textBlocks.join("\n\n")}`;
     if (autoIncludeWorkflowMedia) {
         // RunningHub/ComfyUI 工作流按保存的字段槽位接收图片、视频和音频；
@@ -278,7 +286,7 @@ function hasMentionBoundary(value: string, index: number) {
 
 export function buildNodeGenerationInputs(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[]): NodeGenerationInput[] {
     const resourceNodes = getGenerationResourceNodes(nodeId, nodes, connections);
-    return resourceNodes.flatMap((node): NodeGenerationInput[] => {
+    const resourceInputs = resourceNodes.flatMap((node): NodeGenerationInput[] => {
         const character = readCharacterReference(node);
         if (character) return [{ nodeId: node.id, type: "character" as const, title: node.title, character }];
         const image = readReferenceImage(node, nodes, connections);
@@ -293,6 +301,7 @@ export function buildNodeGenerationInputs(nodeId: string, nodes: CanvasNodeData[
         if (text) return [{ nodeId: node.id, type: "text" as const, title: node.title, text }];
         return [];
     });
+    return [...resourceInputs, ...getConnectedStoryboardRows(nodeId, nodes, connections)];
 }
 
 function buildAssetGenerationInputs(assets: Asset[]): NodeGenerationInput[] {
@@ -333,6 +342,9 @@ function getConnectedStoryboardRows(nodeId: string, nodes: CanvasNodeData[], con
             `时长：${row.durationSeconds} 秒`,
             row.plotDescription && `画面描述：${row.plotDescription}`,
             row.dialogue && `台词/旁白：${row.dialogue}`,
+            row.narrativeIntent && `镜头意图：${row.narrativeIntent}`,
+            row.viewerPOV && `观众视点：${row.viewerPOV}`,
+            row.performanceBlocking && `表演调度：${row.performanceBlocking}`,
             characters && `角色：${characters}`,
             row.shotSize && `景别：${row.shotSize}`,
             row.emotion && `情绪：${row.emotion}`,
@@ -343,6 +355,9 @@ function getConnectedStoryboardRows(nodeId: string, nodes: CanvasNodeData[], con
             row.timeBeats && `时间节拍：${row.timeBeats}`,
             row.imageGenerationPrompt && `图片提示词：${row.imageGenerationPrompt}`,
             row.videoMotionPrompt && `视频提示词：${row.videoMotionPrompt}`,
+            row.mustHave?.length && `必须保留：${row.mustHave.join("；")}`,
+            row.optionalDetails?.length && `可选细节：${row.optionalDetails.join("；")}`,
+            row.continuityOut && `连续性出口：${row.continuityOut}`,
             row.negativePrompt && `负面要求：${row.negativePrompt}`,
         ].filter(Boolean).join("\n");
         return [{ nodeId: inputId, type: "text", title: `${scriptNode.title} · 镜头 ${row.shotNumber}`, text, alwaysIncludeText: true }];

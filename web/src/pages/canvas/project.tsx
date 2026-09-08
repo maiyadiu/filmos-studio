@@ -1769,6 +1769,7 @@ function InfiniteCanvasPage() {
                 const pipeline = deriveStoryboardPipelineProgress(contentNode, nodesRef.current, connectionsRef.current);
                 return (
                     <CanvasScriptNodeContent
+                        canvasId={projectId}
                         node={contentNode}
                         nodes={nodesRef.current}
                         batch={visibleGenerationBatch(contentNode)}

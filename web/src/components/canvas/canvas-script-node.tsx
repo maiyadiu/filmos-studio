@@ -94,6 +94,7 @@ const columnOptions: Array<{ label: string; value: StoryboardColumn }> = [
 ];
 
 export function CanvasScriptNodeContent({
+    canvasId,
     node,
     nodes,
     batch,
@@ -124,6 +125,7 @@ export function CanvasScriptNodeContent({
     onScrollTopChange,
     workspaceMode = "professional",
 }: {
+    canvasId?: string;
     node: CanvasNodeData;
     nodes: CanvasNodeData[];
     batch?: CanvasGenerationBatch;
@@ -159,6 +161,12 @@ export function CanvasScriptNodeContent({
     const generationConfig = buildGenerationConfig(effectiveConfig, node, "text");
     const simpleMode = workspaceMode === "simple";
     const rows = node.metadata?.storyboard?.rows || [];
+    const hasBusinessShots = rows.some(row => row.projectShotSource);
+    const contentColumnLabel = hasBusinessShots ? (rows.every(row => row.projectShotSource) ? "画面描述" : "画面描述 / 视频提示词") : "视频提示词";
+    const [promptTarget, setPromptTarget] = useState<{ rowId: string; kind: CanvasPromptKind }>();
+    const domainProjectId = useCanvasStore(state => state.projects.find(project => project.id === canvasId)?.projectId);
+    const promptRow = rows.find(row => row.id === promptTarget?.rowId);
+    useEffect(() => { setPromptTarget(undefined); }, [canvasId, node.id]);
     const [prompt, setPrompt] = useState(node.metadata?.composerContent || "");
     const [scrollTop, setScrollTop] = useState(0);
     const composerHeightChangeRef = useRef(onComposerHeightChange);
@@ -271,10 +279,10 @@ export function CanvasScriptNodeContent({
                 <span className="text-[var(--fs-caption)] font-semibold tabular-nums" style={{ color: theme.node.muted }}>
                     {rows.length} 镜 · {totalDuration}s
                 </span>
-                <Tooltip title="全屏编辑">
+                <Tooltip title="可选放大编辑；画布内每行已可编辑和连接下游资产">
                     <button
                         type="button"
-                        className="grid size-7 place-items-center rounded outline-none transition hover:bg-black/5 focus-visible:ring-2 dark:hover:bg-white/10"
+                        className="flex h-7 shrink-0 items-center gap-1 rounded px-1 text-xs outline-none transition hover:bg-black/5 focus-visible:ring-2 dark:hover:bg-white/10"
                         style={{ "--tw-ring-color": theme.node.muted } as CSSProperties}
                         onMouseDown={(event) => event.stopPropagation()}
                         onPointerDown={(event) => event.stopPropagation()}
@@ -282,9 +290,10 @@ export function CanvasScriptNodeContent({
                             event.stopPropagation();
                             onOpen();
                         }}
-                        aria-label="全屏编辑"
+                        aria-label="放大分镜表"
                     >
                         <Expand className="size-3.5" />
+                        放大编辑
                     </button>
                 </Tooltip>
                 <Dropdown open={moreMenuOpen} onOpenChange={setMoreMenuOpen} menu={{ items: moreMenuItems, onClick: () => setMoreMenuOpen(false) }} trigger={["click"]} placement="bottomRight">
@@ -311,11 +320,9 @@ export function CanvasScriptNodeContent({
             ) : null}
             <StoryboardMiniPipeline pipeline={pipeline} theme={theme} rows={rows} />
             <div className="storyboard-header-gutter grid h-9 shrink-0 items-center border-b text-xs font-semibold" style={{ borderColor: theme.node.stroke, color: theme.node.muted, gridTemplateColumns: SCRIPT_GRID_TEMPLATE }}>
-                <HeaderCell borderColor={theme.node.stroke} align="center">
-                    序号
-                </HeaderCell>
+                <HeaderCell borderColor={theme.node.stroke} align="center">序号</HeaderCell>
                 <HeaderCell borderColor={theme.node.stroke} align="center">时长</HeaderCell>
-                <HeaderCell borderColor={theme.node.stroke}>视频提示词</HeaderCell>
+                <HeaderCell borderColor={theme.node.stroke}>{contentColumnLabel}</HeaderCell>
                 <HeaderCell borderColor={theme.node.stroke}>台词/旁白</HeaderCell>
                 <span className="px-3">关联资产</span>
             </div>
@@ -335,13 +342,18 @@ export function CanvasScriptNodeContent({
             >
                 {rows.length ? (
                     rows.map((row) => (
-                        <div key={row.id} className="relative grid border-b" style={{ height: STORYBOARD_ROW_HEIGHT, borderColor: theme.node.stroke, gridTemplateColumns: SCRIPT_GRID_TEMPLATE }}>
+                        <div key={row.id} data-storyboard-row-id={row.id} className="relative grid border-b" style={{ height: STORYBOARD_ROW_HEIGHT, borderColor: theme.node.stroke, gridTemplateColumns: SCRIPT_GRID_TEMPLATE }}>
                             <div className="flex flex-col items-center justify-center gap-0.5 border-r tabular-nums" style={{ color: theme.node.muted, borderColor: theme.node.stroke }}>
                                 <div className="flex items-center gap-0.5">
                                     <span className="text-sm">{row.shotNumber}</span>
                                     <Dropdown
                                         trigger={["click"]}
-                                        menu={{ items: [{ key: "delete", label: "删除镜头", icon: <Trash2 className="size-3.5" />, danger: true, disabled: rows.length <= 1, onClick: () => onRemoveRow(row.id) }] }}
+                                        menu={{ items: [
+                                            ...((row.projectShotSource || row.promptDrafts) ? (["image", "video"] as const).map(kind => ({ key: `prompt-${kind}`, label: `${kind === "image" ? "图片" : "视频"}提示词`, disabled: !canvasId || !domainProjectId, onClick: () => setPromptTarget({ rowId: row.id, kind }) })) : []),
+                                            { key: "generate-image", label: "生成本镜分镜图", disabled: pipelineDisabled, onClick: () => onGenerateImages([row.id]) },
+                                            { key: "generate-video", label: "生成本镜视频", disabled: pipelineDisabled, onClick: () => onGenerateVideos([row.id]) },
+                                            { key: "delete", label: "删除镜头", icon: <Trash2 className="size-3.5" />, danger: true, disabled: rows.length <= 1, onClick: () => onRemoveRow(row.id) },
+                                        ] }}
                                     >
                                         <button
                                             type="button"
@@ -363,8 +375,8 @@ export function CanvasScriptNodeContent({
                                 ) : null}
                             </div>
                             <CompactDurationInput value={row.durationSeconds} borderColor={theme.node.stroke} onChange={(durationSeconds) => onUpdateRow(row.id, { durationSeconds })} />
-                            {row.projectShotSource || row.promptDrafts ? <StoryboardPromptPreview row={row} kind="video" onOpen={onOpen} borderColor={theme.node.stroke} /> : <CompactInput value={row.videoMotionPrompt} placeholder="描述视频运动、镜头和动作" onChange={(value) => onUpdateRow(row.id, { videoMotionPrompt: value })} borderColor={theme.node.stroke} />}
-                            <CompactInput value={row.dialogue} placeholder="台词或旁白" onChange={(value) => onUpdateRow(row.id, { dialogue: value })} borderColor={theme.node.stroke} />
+                            {row.projectShotSource ? <CompactInput value={row.plotDescription} placeholder="填写画面描述" ariaLabel={`第 ${row.shotNumber} 镜画面描述`} onChange={plotDescription => onUpdateRow(row.id, { plotDescription })} borderColor={theme.node.stroke} /> : row.promptDrafts ? <StoryboardPromptPreview row={row} kind="video" onOpen={() => setPromptTarget({ rowId: row.id, kind: "video" })} disabled={!canvasId || !domainProjectId} borderColor={theme.node.stroke} /> : <CompactInput value={row.videoMotionPrompt} placeholder="描述视频运动、镜头和动作" ariaLabel={`第 ${row.shotNumber} 镜视频提示词`} onChange={videoMotionPrompt => onUpdateRow(row.id, { videoMotionPrompt })} borderColor={theme.node.stroke} />}
+                            <CompactInput value={row.dialogue} placeholder="台词或旁白" ariaLabel={`第 ${row.shotNumber} 镜台词或旁白`} onChange={dialogue => onUpdateRow(row.id, { dialogue })} borderColor={theme.node.stroke} />
                             <div className="flex h-full min-w-0 items-center px-3">
                                 <StoryboardAssetsCell bindings={row.assetBindings || []} nodes={nodes} />
                             </div>
@@ -494,11 +506,12 @@ export function CanvasScriptNodeContent({
                 if (top < STORYBOARD_HEADER_HEIGHT + 4 || top > STORYBOARD_HEADER_HEIGHT + tableHeight - 4) return null;
                 return (
                     <div key={`ports-${row.id}`}>
-                        <RowHandle side="left" top={top} scale={scale} tone={batchItemTone(batchItemByRowId.get(row.id)) || row.status} theme={theme} onPointerDown={(event) => onConnectStart(event, row.id, "target")} />
-                        <RowHandle side="right" top={top} scale={scale} tone={batchItemTone(batchItemByRowId.get(row.id)) || row.status} theme={theme} onPointerDown={(event) => onConnectStart(event, row.id, "source")} />
+                        <RowHandle side="left" top={top} scale={scale} tone={batchItemTone(batchItemByRowId.get(row.id)) || row.status} theme={theme} title={`第 ${row.shotNumber} 镜输入连接点`} onPointerDown={(event) => onConnectStart(event, row.id, "target")} />
+                        <RowHandle side="right" top={top} scale={scale} tone={batchItemTone(batchItemByRowId.get(row.id)) || row.status} theme={theme} title={`第 ${row.shotNumber} 镜输出连接点`} onPointerDown={(event) => onConnectStart(event, row.id, "source")} />
                     </div>
                 );
             })}
+            {canvasId && domainProjectId && promptTarget && promptRow && <CanvasPromptEditor key={`${canvasId}:${node.id}:${promptTarget.rowId}:${promptTarget.kind}`} canvasId={canvasId} target={{ projectId: domainProjectId, nodeId: node.id, ...promptTarget }} shotNumber={promptRow.shotNumber} onClose={() => setPromptTarget(undefined)} />}
         </div>
     );
 }
@@ -792,13 +805,14 @@ export function CanvasScriptEditor({
     );
 }
 
-function CompactInput({ value, placeholder, borderColor, onChange }: { value: string; placeholder: string; borderColor: string; onChange: (value: string) => void }) {
+function CompactInput({ value, placeholder, ariaLabel, borderColor, onChange }: { value: string; placeholder: string; ariaLabel?: string; borderColor: string; onChange: (value: string) => void }) {
     return (
         <textarea
             className="thin-scrollbar h-full w-full resize-none overflow-y-auto overflow-x-hidden whitespace-pre-wrap break-words border-r bg-transparent px-4 py-2.5 text-xs leading-5 outline-none transition placeholder:opacity-35 focus:bg-black/[0.02] dark:focus:bg-white/[0.025]"
             style={{ borderColor }}
             value={value}
             placeholder={placeholder}
+            aria-label={ariaLabel}
             onChange={(event) => onChange(event.target.value)}
             onMouseDown={(event) => event.stopPropagation()}
             onPointerDown={(event) => event.stopPropagation()}

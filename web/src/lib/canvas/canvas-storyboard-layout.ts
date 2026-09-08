@@ -1,5 +1,6 @@
-export const STORYBOARD_ROW_HEIGHT = 48;
-export const STORYBOARD_HEADER_HEIGHT = 124;
+// The canvas table and every per-shot connection/hit target share these sizes.
+export const STORYBOARD_ROW_HEIGHT = 80;
+export const STORYBOARD_HEADER_HEIGHT = 40 + 36 + 36;
 
 const STORYBOARD_ADD_ROW_HEIGHT = 36;
 export const STORYBOARD_COMPOSER_MIN_HEIGHT = 104;
@@ -20,5 +21,5 @@ export function storyboardMinNodeHeight(composerHeight = STORYBOARD_COMPOSER_MIN
 }
 
 export function storyboardTableHeight(nodeHeight: number, composerHeight = STORYBOARD_COMPOSER_MIN_HEIGHT) {
-    return Math.max(STORYBOARD_ROW_HEIGHT, nodeHeight - STORYBOARD_HEADER_HEIGHT - STORYBOARD_ADD_ROW_HEIGHT - normalizedComposerHeight(composerHeight));
+    return Math.max(0, nodeHeight - STORYBOARD_HEADER_HEIGHT - STORYBOARD_ADD_ROW_HEIGHT - normalizedComposerHeight(composerHeight));
 }
